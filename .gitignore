@@ -5,3 +5,8 @@ bin/*
 
 build/*
 !build/.gitkeep
+
+# Runtime artifacts
+core
+core.*
+*.log
