@@ -6,6 +6,11 @@ bin/*
 build/*
 !build/.gitkeep
 
+lib/*
+!lib/.gitkeep
+
+compile_commands.json
+
 # Runtime artifacts
 core
 core.*
