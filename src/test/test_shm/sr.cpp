@@ -1,3 +1,4 @@
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
@@ -12,7 +13,7 @@ int main() {
         return 1;
     }
 
-    char* p = mmap(NULL, 0x400000, PROT_READ, MAP_SHARED, fd, 0);
+    char* p = static_cast<char*>(mmap(NULL, 0x400000, PROT_READ, MAP_SHARED, fd, 0));
     printf("%c %c %c %c\n", p[0], p[1], p[2], p[3]);
     munmap(p, 0x400000);
 
