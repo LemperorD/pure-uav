@@ -12,6 +12,12 @@ add_executable(shm_read
 add_executable(test_camera
     test_driver/test_camera.cpp
 )
+target_include_directories(test_camera PUBLIC
+    ${CMAKE_SOURCE_DIR}/src/driver/orbbec/include
+)
+target_link_libraries(test_camera
+    ${CMAKE_SOURCE_DIR}/src/driver/orbbec/lib/libOrbbecSDK.so
+)
 
 set_target_properties(
     shm_write
