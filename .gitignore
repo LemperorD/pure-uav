@@ -16,3 +16,5 @@ compile_commands.json
 core
 core.*
 *.log
+
+Log/
