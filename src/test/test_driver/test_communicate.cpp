@@ -6,15 +6,17 @@ int main() {
     pure_uav::Communicator comm;
     comm.setSystemId(2);  
 
-    if (!comm.start("/dev/ttyACM0", 921600)) {  
+    pure_uav::CommConfig cfg;
+    pure_uav::loadCommConfig("config/driver.yaml", cfg);  // 失败就用默认值
+    if (!comm.start(cfg)) {  // 飞控 USB 虚拟串口
         printf("打开串口失败\n");
         return 1;
     }
     printf("等待飞控心跳...\n");
 
     while (true) {
-        printf("连接=%d 模式=%u ACK=%u | ",
-               comm.isConnected(), comm.getCustomMode(), comm.lastAckResult());
+        printf("连接=%d 模式=%s(0x%X) ACK=%u | ",
+               comm.isConnected(), comm.getFlightModeNameCn(), comm.getCustomMode(), comm.lastAckResult());
 
         pure_uav::Attitude a;
         if (comm.getAttitude(a))

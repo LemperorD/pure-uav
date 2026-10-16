@@ -2,11 +2,15 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
 #include "common/mavlink.h"
 #include "mavlink_helpers.h"
+
+// yaml-cpp：配置解析
+#include <yaml-cpp/yaml.h>
 
 namespace pure_uav {
 
@@ -63,7 +67,7 @@ void Communicator::stop() {    //关闭接收线程
 // 接收线程
 void Communicator::recvLoop() {
     using namespace std::chrono;
-    constexpr auto heartbeat_timeout = seconds(2);
+    const auto heartbeat_timeout = milliseconds(cfg_.heartbeat_timeout_ms);
 
     mavlink_message_t msg{};
     mavlink_status_t status{}; 
@@ -104,15 +108,21 @@ void Communicator::recvLoop() {
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
                             std::lock_guard<std::mutex> lk(data_mutex_);
-                            battery_.voltage = (bat.voltages[0] == UINT16_MAX)
-                                ? 0.0f
-                                : bat.voltages[0] / 1000.0f;  // mV → V
+                            // 累加所有有效 cell 电压得到总电压（UINT16_MAX = 该 cell 无效）
+                            float total_mv = 0.0f;
+                            for (int i = 0; i < 10; ++i) {
+                                if (bat.voltages[i] != UINT16_MAX) {
+                                    total_mv += bat.voltages[i];
+                                }
+                            }
+                            battery_.voltage = total_mv / 1000.0f;  // mV → V
                             battery_.remaining = bat.battery_remaining;    // %
                             break;
                         }
                         case MAVLINK_MSG_ID_COMMAND_ACK: {      //ACK
                             mavlink_command_ack_t ack;
                             mavlink_msg_command_ack_decode(&msg, &ack);
+                            last_ack_command_.store(ack.command);
                             last_ack_result_.store(ack.result);
                             break;
                         }
@@ -185,7 +195,49 @@ bool Communicator::sendMessage(const uint8_t* buf, uint16_t len) {
     return true;
 }
 
+// 飞行模式 / ACK 结果 中文名映射
+const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
+    const uint8_t main_mode = (custom_mode >> 16) & 0xFF;
+    const uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
+    switch (main_mode) {
+        case 1: return "手动";
+        case 2: return "定高";
+        case 3:
+            if (sub_mode == 1) return "环绕";
+            if (sub_mode == 2) return "慢速定点";
+            return "定点";
+        case 4:
+            switch (sub_mode) {
+                case 1: return "自动·就绪";
+                case 2: return "自动·起飞";
+                case 3: return "自动·悬停";
+                case 4: return "自动·任务";
+                case 5: return "自动·返航";
+                case 6: return "自动·降落";
+                case 8: return "自动·跟随";
+                case 9: return "自动·精准降落";
+                default: return "自动";
+            }
+        case 5: return "特技";
+        case 6: return "外部控制";
+        case 7: return "自稳";
+        case 10: return "故障终止";
+        case 11: return "高度巡航";
+        default: return "未知";
+    }
+}
 
+const char* Communicator::ackResultNameCn(uint8_t result) const {
+    switch (result) {
+        case MAV_RESULT_ACCEPTED:             return "已接受";
+        case MAV_RESULT_TEMPORARILY_REJECTED: return "临时拒绝";
+        case MAV_RESULT_DENIED:               return "拒绝";
+        case MAV_RESULT_UNSUPPORTED:          return "不支持";
+        case MAV_RESULT_FAILED:               return "失败";
+        case MAV_RESULT_IN_PROGRESS:          return "进行中";
+        default:                              return "未知";
+    }
+}
 
 
 // 各模块向飞控通讯
@@ -259,38 +311,52 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
     return sendMessage(buf, len);
 }
 
-bool Communicator::sendTakeoff(float altitude_m) {    //命令PX4起飞到目标高度
+bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result) {    //命令PX4起飞到目标高度
+    last_ack_command_.store(0);
+    last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
                                   MAV_CMD_NAV_TAKEOFF, 0,
                                   0, 0, 0, 0, 0, 0, altitude_m);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    if (!sendMessage(buf, len)) return false;
+    return waitForAck(MAV_CMD_NAV_TAKEOFF, timeout_ms, result);
 }
 
-bool Communicator::sendLand() {   //命令PX4自动降落
+bool Communicator::sendLand(int timeout_ms, uint8_t* result) {   //命令PX4自动降落
+    last_ack_command_.store(0);
+    last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
                                   MAV_CMD_NAV_LAND, 0,
                                   0, 0, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    if (!sendMessage(buf, len)) return false;
+    return waitForAck(MAV_CMD_NAV_LAND, timeout_ms, result);
 }
 
-bool Communicator::sendSetMode(uint32_t custom_mode) {   //设置飞行模式
+bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {   //设置飞行模式（完整 px4 custom_mode）
+    // PX4 的 DO_SET_MODE：param2 = main_mode（bit23-16），param3 = sub_mode（bit31-24）
+    uint8_t main_mode = (custom_mode >> 16) & 0xFF;
+    uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
+    last_ack_command_.store(0);
+    last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
                                   MAV_CMD_DO_SET_MODE, 0,
-                                  MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode,
-                                  0, 0, 0, 0, 0);
+                                  MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode,
+                                  0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    if (!sendMessage(buf, len)) return false;
+    return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
 }
 
-bool Communicator::sendArm(bool arm) {   //解锁/加锁
+bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁/加锁
+    last_ack_command_.store(0);
+    last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     // MAV_CMD_COMPONENT_ARM_DISARM：param1 = 1 解锁，0 加锁
@@ -298,7 +364,8 @@ bool Communicator::sendArm(bool arm) {   //解锁/加锁
                                   MAV_CMD_COMPONENT_ARM_DISARM, 0,
                                   arm ? 1.0f : 0.0f, 0, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    if (!sendMessage(buf, len)) return false;
+    return waitForAck(MAV_CMD_COMPONENT_ARM_DISARM, timeout_ms, result);
 }
 
 bool Communicator::requestMessageInterval(uint32_t msgid, int32_t interval_us) {
@@ -314,13 +381,27 @@ bool Communicator::requestMessageInterval(uint32_t msgid, int32_t interval_us) {
     return sendMessage(buf, len);
 }
 
+// 等某条命令的 COMMAND_ACK（带超时）。必须在 sendMessage 之后调用。
+bool Communicator::waitForAck(uint16_t command, int timeout_ms, uint8_t* result) {
+    using namespace std::chrono;
+    const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    while (steady_clock::now() < deadline) {
+        if (last_ack_command_.load() == command && last_ack_result_.load() != UINT8_MAX) {
+            if (result) *result = last_ack_result_.load();
+            return true;
+        }
+        std::this_thread::sleep_for(milliseconds(5));
+    }
+    return false;  // 超时
+}
+
 void Communicator::requestDefaultStreams() {
-    // 向PX4请求以下数据
-    requestMessageInterval(MAVLINK_MSG_ID_ATTITUDE, 20000);           // 50Hz 姿态
-    requestMessageInterval(MAVLINK_MSG_ID_LOCAL_POSITION_NED, 20000); // 50Hz 位置+速度
-    requestMessageInterval(MAVLINK_MSG_ID_HIGHRES_IMU, 10000);        // 100Hz IMU（B 方案）
-    requestMessageInterval(MAVLINK_MSG_ID_BATTERY_STATUS, 1000000);   // 1Hz 电量
-    requestMessageInterval(MAVLINK_MSG_ID_SYSTEM_TIME, 1000000);      // 1Hz 时间同步
+    // 向PX4请求以下数据（间隔来自 config/driver.yaml 的 stream 段）
+    requestMessageInterval(MAVLINK_MSG_ID_ATTITUDE, cfg_.attitude_interval_us);
+    requestMessageInterval(MAVLINK_MSG_ID_LOCAL_POSITION_NED, cfg_.local_position_interval_us);
+    requestMessageInterval(MAVLINK_MSG_ID_HIGHRES_IMU, cfg_.highres_imu_interval_us);
+    requestMessageInterval(MAVLINK_MSG_ID_BATTERY_STATUS, cfg_.battery_interval_us);
+    requestMessageInterval(MAVLINK_MSG_ID_SYSTEM_TIME, cfg_.system_time_interval_us);
 }
 
 
@@ -355,6 +436,45 @@ bool Communicator::getSystemTime(SystemTime& out) const {
     std::lock_guard<std::mutex> lk(data_mutex_);
     out = system_time_;
     return true;
+}
+
+const char* Communicator::getFlightModeNameCn() const {
+    return px4ModeNameCn(custom_mode_.load());
+}
+
+const char* Communicator::getLastAck() const {
+    const uint8_t result = last_ack_result_.load();
+    if (result == UINT8_MAX) return "未收到";  // 尚未收到 ACK
+    return ackResultNameCn(result);
+}
+
+// 从 YAML 加载通信配置（config/driver.yaml）
+bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg) {
+    try {
+        YAML::Node root = YAML::LoadFile(yaml_path);
+        if (!root.IsMap() || !root["communicate"]) {
+            return false;  // 没有 communicate 段
+        }
+        YAML::Node comm = root["communicate"];
+        if (comm["file"])     cfg.device   = comm["file"].as<std::string>();
+        if (comm["device"])   cfg.device   = comm["device"].as<std::string>();
+        if (comm["port"])     cfg.device   = comm["port"].as<std::string>();
+        if (comm["baudrate"]) cfg.baudrate = comm["baudrate"].as<int>();
+        if (comm["baud"])     cfg.baudrate = comm["baud"].as<int>();
+        if (comm["heartbeat_timeout_ms"]) cfg.heartbeat_timeout_ms = comm["heartbeat_timeout_ms"].as<int>();
+        if (comm["stream"]) {
+            YAML::Node s = comm["stream"];
+            if (s["attitude_us"])        cfg.attitude_interval_us        = s["attitude_us"].as<int>();
+            if (s["local_position_us"])  cfg.local_position_interval_us  = s["local_position_us"].as<int>();
+            if (s["highres_imu_us"])     cfg.highres_imu_interval_us     = s["highres_imu_us"].as<int>();
+            if (s["battery_us"])         cfg.battery_interval_us         = s["battery_us"].as<int>();
+            if (s["system_time_us"])     cfg.system_time_interval_us     = s["system_time_us"].as<int>();
+        }
+        return true;
+    } catch (const YAML::Exception& e) {
+        fprintf(stderr, "加载 yaml 配置失败: %s\n", e.what());
+        return false;
+    }
 }
 
 }  // namespace pure_uav
