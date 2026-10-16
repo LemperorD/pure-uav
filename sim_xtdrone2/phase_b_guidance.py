@@ -297,7 +297,8 @@ class PhaseBGuidance(Node):
         self.gcmd = darr([0.0] * 19)
         self.gdbg = darr([0.0] * 17)
         self.gtgt = darr([0.0] * 9)
-        self.q_identity = darr([0.0, 0.0, 0.0, 1.0])   # IDEAL 传感器不消费
+        # 姿态四元数 **分量顺序 [w,x,y,z]**（与 PX4 / MAVLink 一致；单位四元数 = [1,0,0,0]）
+        self.q_identity = darr([1.0, 0.0, 0.0, 0.0])   # IDEAL 传感器不消费
 
         # ---- 收尾开关 ----
         self.auto_land = not args.no_auto_land
@@ -439,6 +440,8 @@ class PhaseBGuidance(Node):
         self.log(f"  预加速: {'ON' if self.cruise_on else 'OFF'}"
                  f"（朝 {self.boost_dir}，a={self.a_boost} m/s² 至 |v|≥{self.v_boost_min} m/s）")
         self.log(f"  命中判定: R_true < {self.hit_radius} m")
+        self.log("  符号约定: 日志里的 alt / 上升率 一律**上为正**；"
+                 "CSV 同时给 px4_*(NED, z 向下为正) 与 enu_*(ENU, z 向上为正) 两套")
         self.log(f"  垂直保持辅助(非制导段): {'ON' if self.alt_hold else 'OFF'}（kp={self.alt_kp}, kd={self.alt_kd}）")
         self.log(f"  收尾: {'自动 LAND + 停桨' if self.auto_land else '不自动降落'} "
                  f"(land_timeout={self.land_timeout:.0f}s, 强制停桨兜底="
@@ -651,14 +654,18 @@ class PhaseBGuidance(Node):
                 if now - self.t_state > 10.0:
                     self.abort("收不到位置遥测")
                 return
-            vz = self.pos.vz
+            # ⚠ PX4 的 vehicle_local_position.vz 是 **NED**：z 轴朝下 ⇒ vz>0 = 下降。
+            #   而上面的 alt = −z 是"上为正"。两者直接并排打印会让人以为"爬升时 vz 为负=有 bug"。
+            #   这里统一转成 **上升率为正**（vz_up = −vz_ned），与 alt 同一约定。
+            vz_ned = self.pos.vz
+            vz_up = -vz_ned
             near = abs(alt - self.target_height) <= self.args.takeoff_tol
-            airborne = (alt > 0.75 * self.target_height) and abs(vz) < 0.4
+            airborne = (alt > 0.75 * self.target_height) and abs(vz_ned) < 0.4
             if near or airborne:
                 if self.stable_t is None:
                     self.stable_t = now
                 if now - self.stable_t >= STABLE_SEC:
-                    self.log(f"[3/6] 起飞到位：alt={alt:.2f} m, vz={vz:+.2f} m/s"
+                    self.log(f"[3/6] 起飞到位：alt={alt:.2f} m, 上升率={vz_up:+.2f} m/s"
                              f"（目标 {self.target_height:.1f} m）→ 请求 OFFBOARD …")
                     self.alt_target = alt
                     self.state = "OFFBOARD"
@@ -666,7 +673,7 @@ class PhaseBGuidance(Node):
                 self.stable_t = None
             if now - self.last_alt_log > 3.0:
                 self.last_alt_log = now
-                self.log(f"     爬升中… alt={alt:.2f} m  vz={vz:+.2f} m/s  "
+                self.log(f"     爬升中… alt={alt:.2f} m  上升率={vz_up:+.2f} m/s  "
                          f"nav_state={self.nav_state}  arming_state={self.arming_state}")
                 if self.arming_state == ARMING_STATE_DISARMED:
                     self.warn("     ⚠ 车辆处于 DISARMED —— 不可能起飞。")
@@ -738,7 +745,7 @@ class PhaseBGuidance(Node):
                 if self.land_stable_t is None:
                     self.land_stable_t = now
                 elif now - self.land_stable_t >= LANDED_HOLD:
-                    self.log(f"✓ 已落地：alt={alt:.2f} m, |vz|={abs(vz):.3f} m/s"
+                    self.log(f"✓ 已落地：alt={alt:.2f} m, 下降率={vz:+.3f} m/s"
                              f"（判据：alt≤{LANDED_ALT} m 且 |vz|≤{LANDED_VZ} m/s "
                              f"持续 {LANDED_HOLD:.0f}s）→ 停桨 DISARM")
                     self.landed = True
@@ -783,7 +790,8 @@ class PhaseBGuidance(Node):
                 self.land_stable_t = None
                 if not self.off_ground_warned:
                     self.off_ground_warned = True
-                    self.warn(f"⚠ 已离开地面判据（alt={alt}, vz={vz}）—— 暂停发停桨指令。")
+                    self.warn(f"⚠ 已离开地面判据（alt={alt:.2f} m, "
+                              f"下降率={vz:+.3f} m/s）—— 暂停发停桨指令。")
                 if now - self.disarm_t0 > DISARM_TIMEOUT:
                     self.warn(f"⚠ 停桨超时（{DISARM_TIMEOUT:.0f}s）：arming_state="
                               f"{self.arming_state}。请在 QGC 里确认。")

@@ -1,10 +1,12 @@
-# XTDrone2 接入 · 阶段 A（指令回写通路）✅ + 阶段 B（制导闭环）
+# XTDrone2 接入 · 阶段 A（指令回写通路）✅ + 阶段 B（制导闭环）✅
 
 > 对应《制导讲义/XTDrone2接入方案.md》§7。
 > 本目录是**仿真接入脚本**的家；算法仍在 `src/guidance/`，二者解耦。
 >
 > · **阶段 A**（§0–§3.6）：指令回写通路 —— **已验收通过**（2026-10-14 第 8 轮全绿）
-> · **阶段 B**（§3.7–§3.8）：制导闭环 —— 制导核已接进来，节点已就绪（待实跑）
+> · **阶段 B**（§3.7–§3.8）：制导闭环 —— **已验收通过**（2026-10-16 实跑命中 0.318 m）
+> · **场景建模 + 可视化**（§3.9–§3.10）：塔/发射场/弹丸/场地模型 + Python 画图 —— 已完成
+> · **阶段 C**（相机）：未开始，**必须先打 yaw 补丁**（坑 4）
 
 ---
 
@@ -34,6 +36,18 @@ ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py
 等到日志出现 `[commander] Ready for takeoff!`。**另开 QGC**（语言必须英文，否则不能解锁）。
 
 > 只跑这一条 launch —— 不要再单独开 MicroXRCEAgent，也不要跑 `make px4_sitl gz_x500_depth`。
+
+### 起仿真前先预检（推荐）
+
+```bash
+cd ~/rm_guidance_sim
+bash apply_update_v4.sh          # 若有待换版副本，先换版（会自动跑离线自检）
+bash preflight.sh --wait         # 检查环境/文件/制导核，并等仿真就绪（最多 120 s）
+```
+
+`preflight.sh` 会逐项打 ✓/✗：ROS2 + XTDrone2 是否 source 得到、节点与离线工具是否齐全、
+`libpure_guidance.so` 是否存在（缺了就顺手编译）、有没有还没换版的 `_vN` 副本，
+最后轮询 `/<ns>/fmu/out/vehicle_status` 确认仿真真的起来了。
 
 ---
 
@@ -559,6 +573,31 @@ bash run_phase_b.sh --namespace x500_0
 收尾完成：已落地并停桨。节点退出。
 ```
 
+### ★★ 实跑验收通过（2026-10-16）
+
+在 WSL 里实跑 `bash run_phase_b.sh --namespace x500_0`，**一次命中、全流程无人工干预**：
+
+```
+[1/6] ✓ 已解锁（arming_state=ARMED）
+[2/6] TAKEOFF …（目标 10.0 m）              → 爬升到 9.63 m
+[3/6] 起飞到位 → 请求 OFFBOARD …
+[4/6] ✓ PX4 已确认进入 OFFBOARD（nav_state=14，耗时 0.56s）
+[5/6] 稳定完毕 → 进入预加速
+  ── CRUISE 完成：|v|=5.05 m/s（耗时 1.10s） @ (-2.23, 0.08, 10.19)
+[6/6] ── 目标发射！进入 GUIDED（PPN 闭环）
+★ 命中！R_true=0.318 m（阈值 0.5 m） @ t_rel=0.456s，命中时 |v_M|=6.02 m/s
+  最近距离 0.318 m / 峰值指令 10.00 m/s² / 饱和 1÷23 步（4.3%）/ mode: PN=18, HOLD=5
+✓ 已落地：alt=0.13 m, 下降率=+0.009 m/s → DISARM（第 2 次接受）→ 节点退出
+```
+
+⇒ **阶段 B（制导闭环）验收通过**：真 PX4 动力学 + 真 C++ 制导核 + 真 DART 弹丸模型，
+从起飞到自动收尾全程自动。
+
+> ⚠ **符号约定（极易踩）**：PX4 的 `vehicle_local_position` 是 **NED**（z 轴朝下），
+> 所以 **`vz > 0` = 下降、`vz < 0` = 上升** —— **爬升时 `vz` 为负是正常的**，不是 bug。
+> 节点日志现已统一成"上为正"打印（`alt` / `上升率` / `下降率`），启动横幅里也标了约定；
+> CSV 里则同时给 `px4_*`（NED）与 `enu_*`（ENU）两套，避免歧义。
+
 ### 离线工具（不需要 ROS / 仿真 / Gazebo，Windows 侧也能跑）
 
 | 命令 | 作用 |
@@ -669,17 +708,98 @@ python3 sim_phase_b_offline.py --mode pilot --csv t.csv     # 导出轨迹
 
 ---
 
+## 3.10 场景复现 + 可视化（2026-10-16 新增）
+
+> 需求原话："继续场景建模，先用 Python 可视化复现场景（核心代码仍为 C++），
+> 然后在 Python 中可视化。"
+>
+> 分工：**算法一律在 C++**（`guidance_libs` 的制导 + `TargetModel` 的弹丸弹道，
+> 经 `pure_guidance_shim.cpp` 的 C ABI 被 Python 调用）；**Python 只做"取数 + 画图"**。
+
+### 新增文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `viz_scene.py` | **场景复现 + 拦截过程可视化**（matplotlib；不含任何算法） |
+| `viz_out/` | 输出目录：2 张 PNG + 可选 GIF + 每条导引律的轨迹 CSV |
+
+### 场景复现已对齐 `walls.sdf` 真实几何
+
+`scene_model.Field` 现在默认带上 **walls.sdf 的 4 面墙**（逐字核对
+`~/XTDrone2/src/xtd2_gz_sim/worlds/walls.sdf`，2026-10-16）：
+
+| 墙体 | pose（中心） | size | 实际范围（ENU，z 已裁到地面以上） |
+| --- | --- | --- | --- |
+| `box1` | (5, 0, 0) | 1 × 20 × 30 | x≈5，y∈[−10,10]，z∈[0,15] |
+| `box2` | (−3, 5, 0) | 10 × 1 × 30 | y≈5，x∈[−8,2]，z∈[0,15] |
+| `box3` | (13, −10, 0) | 17 × 1 × 30 | y≈−10，x∈[4.5,21.5]，z∈[0,15] |
+| `box4` | (12, 0, 0) | 1 × 20 × 30 | x≈12，y∈[−10,10]，z∈[0,15] |
+
+> ⚠ 注意：SDF 里 box 的 `pose.z = 0`，所以它们在 **z ∈ [−15, +15]**（地面以上 15 m、
+> 以下 15 m）。可视化用 `Field.obstacles_above_ground()` 只画地面以上部分。
+> 另有 `ground_plane`（100×100 平面，z=0）。**世界里没有可移动目标。**
+
+### 怎么跑
+
+```bash
+cd ~/rm_guidance_sim
+python3 viz_scene.py --laws 0,2 --out ./viz_out            # PPN vs APN 对比
+python3 viz_scene.py --laws 0,2 --out ./viz_out --anim     # 额外产出 GIF 动画
+python3 viz_scene.py --preset phase_b                      # 换成阶段 B 预设场景
+python3 viz_scene.py --scene scene.json                    # 从场景文件加载
+```
+
+依赖：`numpy` + `matplotlib`（GIF 另需 `pillow`）。
+
+### 产物说明
+
+**`viz_scene_layout.png` —— 静态场景复现**（3 联图）
+* (a) 3D 透视：塔（实心圆柱）、4 面墙、安全盒（绿色点线）、敌方发射场（紫方块）、
+  弹丸发射点（三角）、无人机起点 + 巡航速度箭头、**弹丸标称弹道**（红虚线）
+* (b) 俯视 XY：塔 + 保护圈（红虚线，半径 = `radius + safety_margin`）、墙体、安全盒、
+  发射场、发射点、无人机巡航方向、"若不拦截"的最近点（红 ✕）
+* (c) 侧视 XZ：高度剖面（看弹丸下坠与塔高）
+
+**`viz_intercept.png` —— 拦截全过程**（2×3）
+* (a)(b)(c) 3D / 俯视 / 侧视，叠加**每条导引律的无人机轨迹**与弹丸轨迹 + 最近点（★）；
+  俯视与侧视各带一个**"交会区放大"内嵌子图**（交会只有 ~3 m 尺度，全景看不清）
+* (d) 交会距离 `R(t)`（对数轴，含 0.5 m 命中球参考线）
+* (e) 制导指令加速度 `|a_cmd|(t)`（含 `a_max` 参考线，能看出限幅）
+* (f) 无人机速度 `|v_M|(t)` 与剩余时间 `t_go(t)`（双纵轴）
+
+**`viz_intercept_anim.gif` —— 交会动画**（可选）
+左俯视 / 右侧视双视图 + 实时状态文字（t / R / |v_M| / |a_cmd|）。
+交会仅 ~0.5 s，默认 10 fps 播放约 1.1 s。
+
+### 实测（本机 Windows，真 C++ 制导核 + 真 DART 弹丸）
+
+```
+[若不拦截] 弹丸最近距塔 0.00 m（t=1.06s @ (0.6,0,3.0)）→ ⚠ 构成威胁
+[PPN] 最近距离 0.392 m  命中  峰值指令 10.00 m/s²  航程 2.75 m
+[APN] 最近距离 0.018 m  命中  峰值指令 10.00 m/s²  航程 2.74 m
+```
+
+> 本机 Windows 侧编译 shim 的命令（MSYS2 ucrt64）见 `build_guidance_shim_mingw.sh`；
+> 编译产物 `pure_guidance.dll` 放在本目录即可被 `viz_scene.py` / `sim_phase_b_offline.py` 找到。
+
+---
+
 ## 4. 请回报给我什么
 
-**阶段 A 已完成** ✅（第 8 轮全绿，见 §3.5）；**阶段 B 节点已就绪、待实跑**（§3.8）；
-**守备拦截的场景模型 + pilot 初段仿真已完成**（§3.9）。
+**阶段 A 已完成** ✅（第 8 轮全绿，见 §3.5）；**阶段 B 已实跑验收通过** ✅
+（命中 0.318 m，见 §3.8）；**场景模型 + 可视化已完成** ✅（§3.9–§3.10）。
 
-跑完 `bash run_phase_b.sh --namespace x500_0` 后，把这三样贴给我：
+### 下一步可选方向
 
-1. **节点日志**里 `[1/6]`…`[6/6]`、`★ 命中！`、末尾汇总表 + 收尾那几行；
-2. `phase_b_log.csv`（直接说文件在哪就行，我去读）；
-3. 如果**没命中**：把 `phase_b_log.csv` 给我就够——我要看"最近距离、饱和步数、
-   mode 分布、R_true 的收敛过程"，据此判断是场景几何还是制导参数的问题。
+| 方向 | 说明 |
+| --- | --- |
+| **A. pilot 场景进仿真** | 给 `phase_b_guidance.py` 加一个 `pilot` 起步方式（无人机**已在巡航**，不再从悬停预加速），把 §3.9/§3.10 的守备场景实飞出来 |
+| **B. 换 APN** | 离线已验证 APN 比 PPN 好 20 倍（0.018 m vs 0.392 m），可在节点里 `--law 2` 试；需评估 `a_T⊥` 从哪来 |
+| **C. 阶段 C（相机）** | 引入 OakD 视觉，目标从数学模型换成 Gazebo 实体。⚠ **必须先打 yaw 补丁**（坑 4） |
+| **D. 决策层 T2~T9** | 威胁判定 / 拦截窗口 / `t_start*` / 巡航策略 / 预置位（见《守备拦截系统规划.md》） |
+
+跑仿真后如有异常，把 **节点日志**（`[1/6]`…`[6/6]`、`★ 命中！`、末尾汇总表 + 收尾几行）
+和 `phase_b_log.csv` 贴给我即可 —— 我要看"最近距离、饱和步数、mode 分布、`R_true` 收敛过程"。
 
 ---
 
@@ -693,7 +813,9 @@ python3 sim_phase_b_offline.py --mode pilot --csv t.csv     # 导出轨迹
 | `run_phase_b.sh` | 阶段 B 一键 source + 运行 |
 | `test_phase_b_states.py` | 阶段 B 离线回归（桩替 ROS + **真制导核** + 假 PX4 质点） |
 | `sim_phase_b_offline.py` | 纯离线弹道仿真（三种模式：cruise / hot / **pilot**；见 §3.8、§3.9） |
-| `scene_model.py` | **场景实体模型**：塔 / 发射场 / 弹丸 / 无人机 / 场地（见 §3.9） |
+| `scene_model.py` | **场景实体模型**：塔 / 发射场 / 弹丸 / 无人机 / 场地（含 walls.sdf 真实墙体；见 §3.9、§3.10） |
+| `viz_scene.py` | **场景复现 + 拦截过程可视化**（Python 画图 / C++ 核心；见 §3.10） |
+| `preflight.sh` | **起仿真前预检**：环境/文件/制导核自检 + 等仿真就绪（见 §1） |
 | `apply_update.sh` | **WSL 侧一键换版**：把待启用副本换上去 + 跑离线自检 |
 | `patch_xtdrone2_yaw.py` | 修 XTDrone2 的 yaw bug（坑 4） |
 | `run_phase_a.sh` | 阶段 A 一键 source + 运行 |

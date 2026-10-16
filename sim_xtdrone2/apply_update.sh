@@ -23,14 +23,14 @@ echo "== 运行目录: $(pwd) =="
 # 1) 清掉 __pycache__（否则可能加载到旧字节码）
 rm -rf __pycache__ && echo "已清理 __pycache__"
 
-# 2) 自我更新：如果本目录有 apply_update_v2.sh，就把自己也换到最新
-#    （脚本被锁时静默失败，不影响主流程）
-if [ -f apply_update_v2.sh ]; then
-    if cp -f apply_update_v2.sh apply_update.sh 2>/dev/null; then
-        echo "已自我更新: apply_update_v2.sh → apply_update.sh"
-        rm -f apply_update_v2.sh
+# 2) 自我更新：本脚本若不是 apply_update.sh（如 apply_update_v4.sh），
+#    就把自己也换到最新（被锁时静默失败，不影响主流程）
+SELF="$(basename "$0")"
+if [ "$SELF" != "apply_update.sh" ]; then
+    if cp -f "$SELF" apply_update.sh 2>/dev/null; then
+        echo "已自我更新: $SELF → apply_update.sh"
     else
-        echo "（apply_update.sh 被占用，跳过自我更新；apply_update_v2.sh 保留）"
+        echo "（apply_update.sh 被占用，跳过自我更新；$SELF 保留）"
     fi
 fi
 chmod +x apply_update.sh 2>/dev/null || true
@@ -47,16 +47,30 @@ for f in *.new; do
     fi
 done
 
+# 3.5) README（约定用 "README.md.updated" / "README.md.updated_vN" 命名）
+mapfile -t _rd < <(ls -1t README.md.updated* 2>/dev/null || true)
+if [ "${#_rd[@]}" -gt 0 ]; then
+    if cp -f "${_rd[0]}" README.md 2>/dev/null; then
+        rm -f "${_rd[@]}" 2>/dev/null || true
+        echo "已更新: ${_rd[0]} → README.md"
+    else
+        echo "  ⚠ README.md 被占用，保留 ${_rd[0]}"
+    fi
+fi
+rm -f README.md.new 2>/dev/null || true
+
 # 4) 版本号副本（<词干>_vN.py）：取修改时间最新的换到正式名，其余清理。
 #    ⚠ 必须清理其余的，否则下次同步会误选到过期副本。
 for base in \
     phase_a_accel_path.py \
     phase_b_guidance.py \
     scene_model.py \
+    viz_scene.py \
     test_phase_a_states.py \
     test_phase_b_states.py \
     sim_phase_b_offline.py \
     pure_guidance_shim.cpp \
+    preflight.sh \
     build_guidance_shim.sh ; do
     stem="${base%.*}"
     ext="${base##*.}"
@@ -72,7 +86,9 @@ done
 # 5) 补回执行位（Windows 侧写入的文件没有执行位）
 chmod +x phase_a_accel_path.py test_phase_a_states.py \
          phase_b_guidance.py  test_phase_b_states.py sim_phase_b_offline.py \
-         run_phase_a.sh run_phase_b.sh apply_update.sh build_guidance_shim.sh \
+         scene_model.py viz_scene.py \
+         run_phase_a.sh run_phase_b.sh apply_update.sh \
+         preflight.sh build_guidance_shim.sh \
          2>/dev/null || true
 
 echo

@@ -247,7 +247,8 @@ PGU_API void pgu_sensor_stats(void* h, double* out3) {
 //   t_rel          目标发射后的时间 (s)
 //   target_present 0 = 目标未出现（制导进 SEARCH、输出零指令）
 //   pM, vM         自身位置/速度（ENU）
-//   q              姿态四元数 [x,y,z,w]（IDEAL 传感器不消费，可传单位四元数）
+//   q              姿态四元数 **[w,x,y,z]**（与 PX4 / MAVLink 一致；单位四元数 = [1,0,0,0]）
+//                  IDEAL 传感器不消费；SEMI/FULL 会用它做世界→相机投影
 PGU_API void pgu_step(void* h, double t_rel, double target_present,
                       const double* pM, const double* vM, const double* q,
                       double* cmd_out, double* dbg_out) {

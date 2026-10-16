@@ -223,26 +223,57 @@ class DroneSpec:
 # ==========================================================================
 #  五、场地
 # ==========================================================================
+#  ---------------------------------------------------------------------------
+#  walls.sdf 的**真实几何**（逐字抄自
+#  `~/XTDrone2/src/xtd2_gz_sim/worlds/walls.sdf`，2026-10-16 核对）
+#     · 每面墙都是 static box，pose 的 z=0 ⇒ **沿 z 从 −15 m 到 +15 m**
+#       （即地面以上 15 m，以下 15 m）
+#     · 只有 ground_plane + box1~4，**没有可移动目标**
+#  格式：[(中心, 尺寸)]，Gazebo/ENU 坐标
+#  ---------------------------------------------------------------------------
+WALLS_SDF: List[Tuple[Vec3, Vec3]] = [
+    ((5.0, 0.0, 0.0), (1.0, 20.0, 30.0)),      # box1  x≈5    , y∈[−10,+10]
+    ((-3.0, 5.0, 0.0), (10.0, 1.0, 30.0)),     # box2  y≈5    , x∈[−8,+2]
+    ((13.0, -10.0, 0.0), (17.0, 1.0, 30.0)),   # box3  y≈−10  , x∈[4.5,21.5]
+    ((12.0, 0.0, 0.0), (1.0, 20.0, 30.0)),     # box4  x≈12   , y∈[−10,+10]
+]
+
+
 @dataclass
 class Field:
-    """场地：安全飞行盒 + 障碍物（用于安全围栏与可视化）。
+    """场地：安全飞行盒 + 障碍物 + 地面（用于安全围栏与可视化）。
 
-    默认值来自 `walls.sdf` 的实测几何（墙高 30 m，四面墙把可用空间切成一个盒子）。
+    默认值来自 `walls.sdf` 的实测几何：四面墙把可用空间切成一个盒子。
+    **安全飞行盒** x[−12,4] y[−9,4] z[0,30] —— 是"四面墙围出的净空区"的保守内接盒。
     """
 
     name: str = "walls"
     bounds_min: Vec3 = (-12.0, -9.0, 0.0)
     bounds_max: Vec3 = (4.0, 4.0, 30.0)
-    obstacles: List[Tuple[Vec3, Vec3]] = field(default_factory=list)   # [(中心, 尺寸)]
+    ground_size: float = 100.0                                   # 地面平面边长 (m)
+    obstacles: List[Tuple[Vec3, Vec3]] = field(
+        default_factory=lambda: list(WALLS_SDF))                 # [(中心, 尺寸)]
 
     def contains(self, p: Vec3) -> bool:
         return all(self.bounds_min[k] <= p[k] <= self.bounds_max[k] for k in range(3))
+
+    def obstacles_above_ground(self) -> List[Tuple[Vec3, Vec3]]:
+        """把障碍裁到 z ≥ 0（可视化用：只画地面以上的部分）。"""
+        out = []
+        for c, s in self.obstacles:
+            z0, z1 = c[2] - s[2] / 2.0, c[2] + s[2] / 2.0
+            z0c = max(z0, 0.0)
+            if z1 <= z0c:
+                continue
+            out.append(((c[0], c[1], (z0c + z1) / 2.0), (s[0], s[1], z1 - z0c)))
+        return out
 
     def describe(self) -> str:
         return (f"场地「{self.name}」安全盒 x[{self.bounds_min[0]:.0f},{self.bounds_max[0]:.0f}] "
                 f"y[{self.bounds_min[1]:.0f},{self.bounds_max[1]:.0f}] "
                 f"z[{self.bounds_min[2]:.0f},{self.bounds_max[2]:.0f}]  "
-                f"障碍 {len(self.obstacles)} 个")
+                f"障碍 {len(self.obstacles)} 个（walls.sdf）  地面 {self.ground_size:.0f}×"
+                f"{self.ground_size:.0f} m")
 
 
 # ==========================================================================
