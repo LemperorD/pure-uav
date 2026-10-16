@@ -274,6 +274,8 @@ def mk_args(lib, **kw):
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
         cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
+        gz_proj_radius=0.25, gz_replay=True,
+        replay_seconds=6.0, replay_hz=25.0, replay_hold=1.5, replay_lead_in=1.0,
         target_height=10.0, takeoff_tol=1.0, takeoff_timeout=60.0, rate=50.0,
         no_auto_land=False, no_disarm=False, no_force_disarm=False,
         land_timeout=90.0, land_down_speed=0.5, linger=3.0,
@@ -809,6 +811,66 @@ def main():
               f"spawn 失败时给出降级告警（{len(warns5)} 条）")
         check(rec2.queued, f"降级到了线程队列（{rec2.queued}）")
         n5.close()
+
+        # ★ 慢速回放（2026-10-16 新增）：弹丸交会只有 ~0.5 s、球只有十几厘米，
+        #   实时必然看不见 ⇒ 跑完用子进程把交会拉长重放一遍。
+        M.subprocess.Popen = _FakePopen      # ⚠ 上一段测"spawn 失败"用的是 _boom，先换回来
+        spawned.clear()
+        rec3 = _RecordingGz()
+        n6 = new_node(lib, gz_viz=True, gz_trail=True, gz_replay=True,
+                      replay_seconds=6.0, replay_hold=1.5)
+        n6.gz = rec3
+        n6.gz_trail = [(0.0, 0.0, 8.0), (2.0, 0.0, 8.1), (4.0, 0.0, 8.2)]
+        n6.gz_uav_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.0), (2.0, 0.0, 8.0)]
+        n6.gz_finish(hit=True)
+        check(n6.gz_replay_job is not None, "gz_finish 写好了回放任务文件")
+        if n6.gz_replay_job:
+            with open(n6.gz_replay_job, encoding="utf-8") as f:
+                rj = json.load(f)
+            check(len(rj.get("uav", [])) == 3,
+                  f"回放任务含无人机轨迹（{len(rj.get('uav', []))} 点）"
+                  f"—— 没有它就看不出「怎么撞上的」")
+            check(rj.get("seconds") == 6.0 and rj.get("hold") == 1.5,
+                  f"回放参数已写入（seconds={rj.get('seconds')}, hold={rj.get('hold')}）")
+            check(rj.get("clear") is not None, "回放任务带清场指令")
+            os.remove(n6.gz_replay_job)
+        # gz_finish 只写文件、不启动回放（要等落地）
+        check(len(spawned) == 1,
+              f"gz_finish 期间只启动了绘制子进程、未启动回放（{len(spawned)} 个）")
+        # 落地后才启动回放
+        spawned.clear()
+        n6.gz_launch_replay()
+        check(len(spawned) == 1, f"gz_launch_replay 启动了 1 个回放子进程")
+        if spawned:
+            cmd, kw = spawned[0]
+            check("--replay-json" in cmd,
+                  f"子进程用 --replay-json 模式（cmd={cmd[2:5]}）")
+            check(kw.get("start_new_session") is True, "回放子进程独立会话")
+        n6.close()
+
+        # ---- 回放插值（纯函数，直接验证）----
+        trail = [(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (20.0, 0.0, 0.0)]
+        import importlib.util as _ilu
+        gzspec = _ilu.spec_from_file_location(
+            "gzmod", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "gz_scene_sync.py"))
+        gzmod = _ilu.module_from_spec(gzspec)
+        try:
+            gzspec.loader.exec_module(gzmod)     # 没装 gz 绑定时仍能 import
+        except SystemExit:
+            gzmod = None
+        if gzmod is not None:
+            ip = gzmod._interp
+            check(ip(trail, 0.0) == (0.0, 0.0, 0.0), "插值 f=0 ⇒ 起点")
+            check(ip(trail, 1.0) == (20.0, 0.0, 0.0), "插值 f=1 ⇒ 终点")
+            mid = ip(trail, 0.5)
+            check(abs(mid[0] - 10.0) < 1e-9, f"插值 f=0.5 ⇒ 中点（{mid[0]}）")
+            q1 = ip(trail, 0.25)
+            check(abs(q1[0] - 5.0) < 1e-9, f"插值 f=0.25 ⇒ 1/4 处（{q1[0]}）")
+            check(ip(trail, 2.0) == (20.0, 0.0, 0.0), "插值 f>1 被夹到终点")
+            check(ip(trail, -1.0) == (0.0, 0.0, 0.0), "插值 f<0 被夹到起点")
+            check(ip([], 0.5) is None, "空轨迹插值返回 None")
+            check(ip([(1.0, 2.0, 3.0)], 0.7) == (1.0, 2.0, 3.0), "单点轨迹返回该点")
     finally:
         M.subprocess.Popen = real_popen
     check(len(warns3) >= 1, f"至少给出一次告警（实际 {len(warns3)} 次，不静默）")

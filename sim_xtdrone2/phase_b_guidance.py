@@ -379,7 +379,14 @@ class PhaseBGuidance(Node):
         # ---- Gazebo 可视化（可选） ----
         # ⚠ 只做"取数 + 摆位置"，不含算法；接不上 Gazebo 时自动降级，不报错。
         self.gz = None
-        self.gz_trail = []
+        self.gz_trail = []                    # 弹丸轨迹（ENU 真值）
+        self.gz_uav_trail = []                # 无人机轨迹（ENU，回放用）
+        self.gz_proj_pos_sent = 0             # 实际推给 Gazebo 的弹丸位置次数
+        self.gz_proj_pos_req = 0              # 请求更新的次数（每帧一次）
+        self.gz_replay_job = None             # 回放任务 JSON 路径（收尾时启动）
+        self.gz_setpose_t0 = None             # 制导开始时的 set_pose 计数（算有效帧率）
+        self.gz_setpose_t1 = None             # 命中/结束时
+        self.gz_flight_secs = None            # 交会段时长（s）
         self.gz_tower_r = 1.2      # 与 scene_model.preset_pilot / 制导讲义一致
         self.gz_tower_h = 3.0
         if args.gz_viz:
@@ -1218,6 +1225,8 @@ class PhaseBGuidance(Node):
                     self.log("收尾完成（未走完整降落流程）。节点退出。")
                 # ★ 打印"可直接复制回传"的评估块（裸 print，无 ROS 前缀）
                 self.print_report()
+                # ★ 落地停桨后再慢速回放交会（这样画面不会被降落动作干扰）
+                self.gz_launch_replay()
                 self.should_exit = True
             return
 
@@ -1240,7 +1249,7 @@ class PhaseBGuidance(Node):
             self.gz.start()
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
             self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
-            ok_p = self.gz.ensure_projectile()
+            ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius)
         except Exception as e:                          # noqa: BLE001
             self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
             self.gz = None
@@ -1264,6 +1273,7 @@ class PhaseBGuidance(Node):
             return
         try:
             self.gz.set_projectile(p_T_enu)
+            self.gz_proj_pos_req += 1
             if self.args.gz_trail:
                 self.gz_trail.append(tuple(p_T_enu))
         except Exception:                               # noqa: BLE001
@@ -1299,6 +1309,14 @@ class PhaseBGuidance(Node):
         n_pts = len(job["trail"])
         if n_pts < 2:
             job.pop("trail", None)
+        # ★ 慢速回放任务：**必须**同时带上无人机轨迹，否则看不出"怎么撞上的"
+        if self.args.gz_replay:
+            job["uav"] = [[float(p[0]), float(p[1]), float(p[2])]
+                          for p in (self.gz_uav_trail or [])]
+            job["seconds"] = self.args.replay_seconds
+            job["hz"] = self.args.replay_hz
+            job["hold"] = self.args.replay_hold
+            job["lead_in"] = self.args.replay_lead_in
         try:
             path = os.path.join(tempfile.gettempdir(),
                                 f"gz_draw_{os.getpid()}_{int(time.time() * 1000)}.json")
@@ -1328,6 +1346,49 @@ class PhaseBGuidance(Node):
                 self.gz.queue_hide_projectile()
             except Exception as e2:        # noqa: BLE001
                 self.warn(f"⚠ 兜底入队也失败（{e2}）—— 忽略")
+
+        # ★ 回放任务**只写文件、先不启动** —— 等到落地停桨（DONE）再放，
+        #   否则回放的球会在无人机刹车/降落时乱飞，画面很混乱。
+        if self.args.gz_replay and job.get("trail"):
+            try:
+                rpath = os.path.join(
+                    tempfile.gettempdir(),
+                    f"gz_replay_{os.getpid()}_{int(time.time() * 1000)}.json")
+                rjob = dict(job)
+                rjob["hide_after"] = False
+                rjob["clear"] = True          # 回放前清掉实时那次的轨迹/标记
+                with open(rpath, "w", encoding="utf-8") as f:
+                    json.dump(rjob, f)
+                self.gz_replay_job = rpath
+            except Exception as e:             # noqa: BLE001
+                self.warn(f"⚠ 回放任务写入失败（{e}）—— 跳过回放")
+
+    def gz_launch_replay(self):
+        """★ 在**独立子进程**里慢速回放一次交会（跑完、已落地后再放）。
+
+        弹丸交会只有 **~0.5 s**、球又只有十几厘米 ⇒ 实时里人眼看不见。
+        回放把它拉长到 `--replay-seconds`（默认 6 s）、在相遇帧停顿，
+        并画出**弹丸 + 无人机两条轨迹**，这样"怎么飞、什么时候撞上"一目了然。
+        """
+        if not self.gz_replay_job or self.gz is None or not self.gz.available:
+            return
+        try:
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "gz_scene_sync.py")
+            subprocess.Popen([sys.executable, script,
+                              "--replay-json", self.gz_replay_job,
+                              "--world", self.args.gz_world],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            self.log("")
+            self.log(f"  ▶▶ **慢速回放已启动**（另一个进程）："
+                     f"{self.args.replay_seconds:.0f}s 放完 {len(self.gz_trail)} 帧交会，"
+                     f"相遇时停顿 {self.args.replay_hold:.1f}s")
+            self.log(f"     弹丸轨迹=橙红，无人机轨迹=绿，黄球=命中点；"
+                     f"蓝色球=无人机重放位置")
+        except Exception as e:             # noqa: BLE001
+            self.warn(f"⚠ 回放启动失败（{e}）—— 忽略（不影响结果）")
 
     def check_cruise_geometry(self):
         """巡航几何自检（仅在指定 --cruise-x 时有意义）。
@@ -1444,6 +1505,9 @@ class PhaseBGuidance(Node):
         self.t_launch_us = self.px4_us()
         self.t_rel = 0.0
         self.stable_t = None
+        # 记下"制导开始时已发过多少次弹丸位置" ⇒ 之后算**实际**有效帧率
+        if self.gz is not None and self.gz.available:
+            self.gz_setpose_t0 = int(getattr(self.gz, "stats", {}).get("set_pose", 0))
         law_name = ["PPN", "TPN", "APN"][int(self.args.law)] \
             if 0 <= int(self.args.law) <= 2 else "?"
         self.log(f"[6/6] ── 目标发射！进入 GUIDED（{law_name} 闭环）")
@@ -1505,6 +1569,9 @@ class PhaseBGuidance(Node):
 
         # Gazebo 可视化：把弹丸真值位置推过去（dbg[0..2] = p_T，ENU）
         self.gz_update((dbg[0], dbg[1], dbg[2]))
+        # 同时记无人机轨迹（回放要把两条线一起画出来，才看得出"怎么撞上的"）
+        if self.args.gz_trail and p_enu is not None:
+            self.gz_uav_trail.append(tuple(p_enu))
 
         a_enu = (cmd[1], cmd[2], cmd[3])
         self.cur_a_enu = a_enu
@@ -1570,6 +1637,10 @@ class PhaseBGuidance(Node):
     def finish(self, reason):
         """测试段正常结束（命中/脱靶/超时）→ 打印总结 → 转入降落。"""
         self.finish_reason = reason        # 记下来给"回传评估块"用
+        # ★ 交会段结束 ⇒ 结算"弹丸实际被更新了几帧"（回答"为什么看不见球"）
+        if self.gz is not None and self.gz.available:
+            self.gz_setpose_t1 = int(getattr(self.gz, "stats", {}).get("set_pose", 0))
+            self.gz_flight_secs = self.t_rel
         self.gz_finish(self.hit)          # 命中画爆点 / 画轨迹（--gz-viz 才动作）
         self.print_summary(reason)
         self.cur_a_enu = (0.0, 0.0, 0.0)
@@ -1814,7 +1885,28 @@ class PhaseBGuidance(Node):
                  g["v"][0], g["v"][1], g["v"][2], g["vh"]))
             p("[偏差] Δx=%+.2f Δy=%+.2f Δz=%+.2f m   修正预算 ½·a_max·t_go² = %.2f m"
               % (g["dx"], g["dy"], g["dz"], g["budget"]))
-        # ★ 控制回路健康：一眼看出"有没有东西阻塞主回路"（2026-10-16 新增）
+        # ★ 可见性诊断（回答"为什么看不见球"）—— 2026-10-16 新增
+        if self.gz is not None and self.gz.available:
+            p("[可见性] 弹丸球半径 = %.2f m（直径 %.2f m）；"
+              "真实弹径只有 0.06 m ⇒ 默认已**放大**便于观察"
+              % (self.args.gz_proj_radius, self.args.gz_proj_radius * 2))
+            p("[可见性] 轨迹线：%s   慢速回放：%s"
+              % ("ON" if self.args.gz_trail else "OFF（加 --gz-trail 才记轨迹）",
+                 ("ON %.0fs / 相遇停顿 %.1fs" % (self.args.replay_seconds,
+                                                self.args.replay_hold))
+                 if self.args.gz_replay else "OFF"))
+            if (self.gz_setpose_t0 is not None and self.gz_setpose_t1 is not None
+                    and self.gz_flight_secs):
+                n_sent = max(self.gz_setpose_t1 - self.gz_setpose_t0, 0)
+                hz_eff = n_sent / self.gz_flight_secs
+                p("[可见性] ★ 交会段 %.3f s 内，弹丸位置**实际只发出 %d 次**"
+                  " ⇒ 有效帧率 ≈ **%.1f Hz**（请求 %d 次 / 名义 %g Hz）"
+                  % (self.gz_flight_secs, n_sent, hz_eff,
+                     self.gz_proj_pos_req, self.args.gz_hz))
+                if hz_eff < 10.0:
+                    p("[可见性] ⚠ 有效帧率偏低 ⇒ 球看起来会「跳」而不是「飞」。"
+                      "原因：每次 set_pose 是**阻塞**服务调用（可能几十~几百 ms），"
+                      "把帧率拖低了。想看清请用慢速回放（--gz-replay，默认已开）。")
         nominal_ms = 1000.0 / self.rate
         gap_ms = self.loop_gap_max * 1000.0
         if self.loop_gap_max_at is None:
@@ -1983,6 +2075,22 @@ def build_parser():
                     help="弹丸位置同步频率 (Hz)")
     ap.add_argument("--gz-trail", action="store_true",
                     help="命中/脱靶后在 Gazebo 里画出弹丸轨迹线")
+    ap.add_argument("--gz-proj-radius", type=float, default=0.25,
+                    help="★ Gazebo 里弹丸球的半径 (m)。默认 0.25（直径 0.5 m）——"
+                         "**远大于**真实弹径 0.06 m：真弹只有 12 cm，"
+                         "在十几米外 + 0.5 s 的交会里人眼根本看不见")
+    # ★ 慢速回放：弹丸交会只有 ~0.5 s，实时必然看不清
+    ap.add_argument("--gz-replay", action="store_true", default=True,
+                    help="★ 跑完自动**慢速回放**一次交会（把 0.5 s 拉长到几秒，"
+                         "并在相遇帧停顿）—— 默认开；用 --no-gz-replay 关掉")
+    ap.add_argument("--no-gz-replay", dest="gz_replay", action="store_false")
+    ap.add_argument("--replay-seconds", type=float, default=6.0,
+                    help="回放总时长（墙钟秒）")
+    ap.add_argument("--replay-hz", type=float, default=25.0, help="回放帧率 (Hz)")
+    ap.add_argument("--replay-hold", type=float, default=1.5,
+                    help="在「相遇帧」停顿多久 (s)，便于看清撞击瞬间")
+    ap.add_argument("--replay-lead-in", type=float, default=1.0,
+                    help="回放前先展示完整轨迹线的停顿 (s)")
     # 飞行
     ap.add_argument("--target-height", type=float, default=10.0, help="起飞高度 (m)")
     ap.add_argument("--takeoff-tol", type=float, default=1.0)

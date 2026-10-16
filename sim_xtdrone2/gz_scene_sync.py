@@ -46,7 +46,7 @@ _GZ_IMPORT_ERROR = None
 try:
     from gz.transport13 import Node as _GzNode
     from gz.msgs10 import (boolean_pb2, entity_factory_pb2, entity_pb2,
-                           marker_pb2, pose_pb2)
+                           marker_pb2, physics_pb2, pose_pb2)
 except Exception as _e:            # pragma: no cover - 取决于本机环境
     _GZ_IMPORT_ERROR = _e
 
@@ -131,7 +131,14 @@ HIDDEN_Z = -500.0
 SVC_CREATE = "/world/{world}/create"
 SVC_SET_POSE = "/world/{world}/set_pose"
 SVC_REMOVE = "/world/{world}/remove"
+SVC_SET_PHYSICS = "/world/{world}/set_physics"   # 调实时率（慢放）用
 SVC_MARKER = "/marker"             # 由 GUI 的 MarkerManager 插件提供
+
+# 回放用的 marker 命名空间（蓝色球 = 无人机重放位置）
+UAV_REPLAY_NS = "uav_replay"
+UAV_REPLAY_ID = 1
+PROJ_TRAIL_NS = "replay_proj_trail"
+UAV_TRAIL_NS = "replay_uav_trail"
 
 
 # --------------------------------------------------------------------------
@@ -342,6 +349,75 @@ class GzScene:
         return ok
 
     # ------------------------------------------------------------ 场景元素
+    def set_rtf(self, factor: float) -> bool:
+        """设置 Gazebo 的**实时率**（`real_time_factor`）—— 即"慢放"。
+
+        `factor = 1.0` 实时；`0.2` = 5 倍慢放；`0.0` = 不限速（按物理步长全速跑）。
+
+        ⚠⚠ **重要警告**：这会同时放慢**墙钟**上的一切，包括我们的控制节点定时器。
+             我们的超时判据（`--cruise-timeout` / `--brake-timeout` / `--land-timeout` /
+             OFFBOARD 确认超时…）都是**墙钟秒**，所以 RTF 调低后它们会**相对仿真时间变早**
+             （RTF=0.2 时，8 s 的巡航超时只对应仿真 1.6 s ⇒ 会提前 abort）。
+             ⇒ 只建议在"无人机已进入巡航/制导段、只想看画面"时手动临时调低，
+               而且**不要低于 0.3**。默认请保持 1.0。
+             报告里的 `[实时率]` 一行会记录实际 RTF，方便事后判断结果是否受影响。
+        """
+        if not self.available:
+            return False
+        if factor < 0.0:
+            raise ValueError("RTF 不能为负")
+        req = physics_pb2.Physics()
+        req.real_time_factor = float(factor)
+        ok, _ = self._req(self._svc_set_physics, req, boolean_pb2.Boolean)
+        if ok:
+            self._log(f"✅ 已设置 Gazebo 实时率 RTF={factor:g}"
+                      + ("（实时）" if abs(factor - 1.0) < 1e-9
+                         else f"（{1.0 / factor:.1f} 倍慢放）" if factor > 0
+                         else "（不限速）"))
+            self._log("   ⚠ 提醒：RTF≠1 时**墙钟超时判据会偏早**（见 --set-rtf 文档）")
+        else:
+            self._log("⚠ 设置实时率失败（Gazebo 在跑吗？世界名对吗？）")
+        return ok
+
+    def marker_move(self, p, ns: str = UAV_REPLAY_NS, mid: int = UAV_REPLAY_ID,
+                    size: float = 0.35, color=(0.20, 0.95, 0.35),
+                    ttl_ms: int = 0) -> bool:
+        """把一个球 marker **移动到**新位置（同 ns+id 的 ADD_MODIFY 会更新它）。
+
+        比 `mark_point` 多两个用途：颜色可配、`ttl_ms=0` 表示不过期
+        （回放要长时间显示，不能 8 秒后自己消失）。
+        """
+        m = marker_pb2.Marker()
+        m.ns = ns
+        m.id = int(mid)
+        m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action", MARKER_ACTION_ADD)
+        m.type = _resolve_enum(marker_pb2.Marker, "Marker.Type", MARKER_TYPE_SPHERE)
+        m.scale.x = m.scale.y = m.scale.z = float(size)
+        m.pose.position.x = float(p[0])
+        m.pose.position.y = float(p[1])
+        m.pose.position.z = float(p[2])
+        m.pose.orientation.w = 1.0
+        if ttl_ms > 0:
+            m.lifetime.sec = int(ttl_ms // 1000)
+            m.lifetime.nsec = int((ttl_ms % 1000) * 1_000_000)
+        m.material.ambient.r, m.material.ambient.g, m.material.ambient.b = color
+        m.material.ambient.a = 1.0
+        m.material.emissive.r, m.material.emissive.g, m.material.emissive.b = color
+        m.material.emissive.a = 1.0
+        ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
+        return ok
+
+    def marker_delete(self, ns: str, mid: int = 0) -> bool:
+        """删掉某个 marker（按 ns+id）。"""
+        m = marker_pb2.Marker()
+        m.ns = ns
+        m.id = int(mid)
+        # DELETE_MARKER=1（删单个）；DELETE_ALL=2（删该 ns 全部）
+        m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action",
+                                 MARKER_ACTION_DELETE_ALL)
+        ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
+        return ok
+
     def ensure_tower(self, radius: float = 1.2, height: float = 3.0,
                      center=(0.0, 0.0)) -> bool:
         """（重新）创建防御塔。塔底贴地 ⇒ 圆柱几何中心在 (cx, cy, height/2)。"""
@@ -626,6 +702,139 @@ def draw_from_json_file(path: str, world: str = DEFAULT_WORLD,
     return 0
 
 
+def _interp(trail, f: float):
+    """按归一化进度 f∈[0,1] 在折线上线性插值取点（f 会先夹到 [0,1]）。"""
+    if not trail:
+        return None
+    if len(trail) == 1:
+        return trail[0]
+    f = max(0.0, min(1.0, float(f)))
+    x = f * (len(trail) - 1)
+    i = int(x)
+    if i >= len(trail) - 1:
+        return trail[-1]
+    t = x - i
+    a, b = trail[i], trail[i + 1]
+    return tuple(a[k] + (b[k] - a[k]) * t for k in range(3))
+
+
+def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
+                          verbose: bool = True) -> int:
+    """★ **慢速回放**：把一次交会用 `seconds` 秒重放一遍。
+
+    【为什么需要它】
+      弹丸交会只有 **~0.5 s**（`t_rel` 从 0 到命中），而弹丸同步是 30 Hz
+      ⇒ 整段只有 **15 帧**。人眼在实时里根本抓不住"球怎么飞、什么时候撞上"。
+      ⇒ 用回放把 0.5 s 拉成 3~5 s（可调），并且**在相遇那一帧停顿**，
+        再补上两条轨迹线和命中标记，就一目了然了。
+
+    【为什么放子进程】
+      与 `--draw-json` 同一个理由（见 `gz_finish` 注释）：gz 服务调用是**阻塞**的，
+      在主进程里做会抢 GIL 卡住制导回路。回放要连续调用几十次，更必须隔离进程。
+
+    【JSON 格式】
+      {"world": "walls",
+       "proj": [[x,y,z], ...],          # 弹丸轨迹（ENU）
+       "uav":  [[x,y,z], ...],          # 无人机轨迹（ENU，可选）
+       "hit":  [x,y,z] | null,          # 命中点（可选）
+       "seconds": 3.0,                  # 回放总时长（墙钟秒）
+       "hz": 25.0,                      # 回放帧率
+       "hold": 1.0,                     # 相遇帧停顿
+       "lead_in": 0.6,                  # 先展示完整轨迹线的停顿
+       "clear": true,                   # 回放前清掉旧轨迹/无人机标记
+       "hide_after": false}             # 回放结束后是否把弹丸藏起来
+    """
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            job = json.load(f)
+    except Exception as e:                                  # noqa: BLE001
+        print(f"⚠ 读回放任务失败（{e}）", file=sys.stderr)
+        return 1
+
+    proj = [[float(c) for c in p] for p in (job.get("proj") or [])]
+    uav = [[float(c) for c in p] for p in (job.get("uav") or [])]
+    hit = job.get("hit")
+    seconds = max(0.2, float(job.get("seconds", 3.0)))
+    hz = max(1.0, float(job.get("hz", 25.0)))
+    hold = max(0.0, float(job.get("hold", 1.0)))
+    lead_in = max(0.0, float(job.get("lead_in", 0.6)))
+    world = job.get("world") or world
+
+    scene = GzScene(world=world, timeout_ms=800, verbose=verbose)
+    if not scene.available:
+        if verbose:
+            print("⚠ 子进程接不上 Gazebo —— 跳过回放")
+        return 1
+
+    try:
+        # ---- ① 先清场，再摆好静态参照（轨迹线 / 发射架仍在）----
+        if job.get("clear", True):
+            scene.clear_trail()                    # 清 pilot_trail（实时那次的轨迹）
+            scene.marker_delete(PROJ_TRAIL_NS)     # 清上次回放留下的线/球
+            scene.marker_delete(UAV_TRAIL_NS)
+            scene.marker_delete(UAV_REPLAY_NS)
+            scene.marker_delete("hit_mark")
+        if len(proj) >= 2:
+            scene.draw_trail(proj, ns=PROJ_TRAIL_NS, width=0.05,
+                             color=(1.0, 0.35, 0.05))
+        if len(uav) >= 2:
+            scene.draw_trail(uav, ns=UAV_TRAIL_NS, width=0.05,
+                             color=(0.20, 0.95, 0.35))
+        if hit:
+            scene.mark_point(hit, ns="hit_mark", mid=1, size=0.7,
+                             color=(1.0, 0.95, 0.1), ttl_ms=60000)
+        if verbose:
+            print(f"✅ 回放准备：弹丸 {len(proj)} 点 / 无人机 {len(uav)} 点；"
+                  f"轨迹线已画好，停 {lead_in:.1f}s 让你先看清全局…")
+        # 先停顿，给用户时间"看到两条轨迹长什么样"
+        time.sleep(lead_in)
+
+        # ---- ② 逐帧回放：两条轨迹按**同一归一化进度**推进，保证"相遇"同时发生 ----
+        #   ★ 为什么用归一化进度而不是真实时间戳：两条轨迹都取自 GUIDED 段，
+        #     起止时刻一致（弹丸发射 = 开始制导），所以按进度对齐是正确的，
+        #     而且不需要额外的同步信息。
+        n_frames = max(2, int(seconds * hz))
+        dt = seconds / n_frames
+        near_idx = None
+        if len(proj) >= 2 and len(uav) >= 2:
+            # 找两条轨迹最接近的进度 ⇒ 那就是"相撞时刻"
+            best = None
+            for i in range(n_frames + 1):
+                f = i / n_frames
+                pp, pu = _interp(proj, f), _interp(uav, f)
+                dd = sum((pp[k] - pu[k]) ** 2 for k in range(3))
+                if best is None or dd < best[0]:
+                    best = (dd, i, f)
+            near_idx = best[1]
+        for i in range(n_frames + 1):
+            f = i / n_frames
+            pp = _interp(proj, f)
+            pu = _interp(uav, f)
+            t0 = time.monotonic()
+            if pp is not None:
+                scene._do_set_pose(PROJECTILE_NAME, pp)
+            if pu is not None:
+                scene.marker_move(pu, ns=UAV_REPLAY_NS, mid=UAV_REPLAY_ID,
+                                  size=0.35, color=(0.20, 0.95, 0.35))
+            if verbose and near_idx is not None and i == near_idx:
+                print(f"   ★ 交会帧（进度 {f * 100:.0f}%）—— 停顿 {hold:.1f}s")
+            if hold > 0 and near_idx is not None and i == near_idx:
+                time.sleep(hold)
+            rest = dt - (time.monotonic() - t0)
+            if rest > 0:
+                time.sleep(rest)
+
+        if job.get("hide_after"):
+            scene.hide_projectile()
+        if verbose:
+            print("✅ 回放结束（轨迹线与命中点保留，便于你截图/复看）")
+    except Exception as e:                                  # noqa: BLE001
+        print(f"⚠ 回放异常（{e}）", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Gazebo 场景可视化同步（塔 / 弹丸 / 轨迹）—— 不含算法",
@@ -642,6 +851,12 @@ def main(argv=None) -> int:
     g.add_argument("--draw-json", default=None, metavar="FILE",
                    help="★ 一次性绘制任务（JSON）—— 由控制节点以**子进程**方式调用，"
                         "避免 gz 阻塞调用抢 GIL 卡住制导回路")
+    g.add_argument("--replay-json", default=None, metavar="FILE",
+                   help="★ **慢速回放**一次交会（JSON）—— 弹丸交会只有 ~0.5 s，"
+                        "实时看不清；用回放拉长到几秒并在相遇帧停顿")
+    g.add_argument("--set-rtf", type=float, default=None, metavar="FACTOR",
+                   help="设置 Gazebo 实时率（慢放）：1.0=实时，0.2=5 倍慢放。"
+                        "⚠ 会让**墙钟超时判据偏早**，建议只在看画面时临时用，别低于 0.3")
     ap.add_argument("--tower-radius", type=float, default=1.2)
     ap.add_argument("--tower-height", type=float, default=3.0)
     ap.add_argument("--from", dest="p0", default="-14,0,10",
@@ -661,6 +876,13 @@ def main(argv=None) -> int:
     if args.draw_json:
         return draw_from_json_file(args.draw_json, world=args.world,
                                    verbose=not args.quiet)
+    if args.replay_json:
+        return replay_from_json_file(args.replay_json, world=args.world,
+                                     verbose=not args.quiet)
+    if args.set_rtf is not None:
+        scene0 = GzScene(world=args.world, verbose=not args.quiet)
+        ok = scene0.set_rtf(args.set_rtf)
+        return 0 if ok else 1
 
     scene = GzScene(world=args.world, hz=args.hz, verbose=not args.quiet)
 
