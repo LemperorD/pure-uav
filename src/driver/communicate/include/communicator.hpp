@@ -48,8 +48,8 @@ struct SystemTime {
 
 
 
-//上位机数据结构体
 
+//上位机数据结构体
 // 位姿/速度的参考坐标系
 enum class VisionFrame : uint8_t {
     LOCAL_NED = 1,         // 世界系 NED（X北 Y东 Z下）
@@ -96,19 +96,19 @@ struct GuidanceCmd {
 
 // custom_mode变量值  作为 bool sendSetMode(uint32_t custom_mode)的输入
 namespace px4_mode {
-constexpr uint32_t MANUAL       = (0u << 24) | (1u << 16);
-constexpr uint32_t ALTCTL       = (0u << 24) | (2u << 16);
-constexpr uint32_t POSCTL       = (0u << 24) | (3u << 16);
-constexpr uint32_t ACRO         = (0u << 24) | (5u << 16);
-constexpr uint32_t OFFBOARD     = (0u << 24) | (6u << 16);
-constexpr uint32_t STABILIZED   = (0u << 24) | (7u << 16);
-constexpr uint32_t ALT_CRUISE   = (0u << 24) | (11u << 16);
-constexpr uint32_t AUTO_READY   = (1u << 24) | (4u << 16);
-constexpr uint32_t AUTO_TAKEOFF = (2u << 24) | (4u << 16);
-constexpr uint32_t AUTO_LOITER  = (3u << 24) | (4u << 16);
-constexpr uint32_t AUTO_MISSION = (4u << 24) | (4u << 16);
-constexpr uint32_t AUTO_RTL     = (5u << 24) | (4u << 16);
-constexpr uint32_t AUTO_LAND    = (6u << 24) | (4u << 16);
+constexpr uint32_t MANUAL       = (0u << 24) | (1u << 16);  //手动
+constexpr uint32_t ALTCTL       = (0u << 24) | (2u << 16);  //定高
+constexpr uint32_t POSCTL       = (0u << 24) | (3u << 16);  //定点
+constexpr uint32_t ACRO         = (0u << 24) | (5u << 16);  //特技
+constexpr uint32_t OFFBOARD     = (0u << 24) | (6u << 16);  //外部控制
+constexpr uint32_t STABILIZED   = (0u << 24) | (7u << 16);  //自稳
+constexpr uint32_t ALT_CRUISE   = (0u << 24) | (11u << 16); //高度巡航
+constexpr uint32_t AUTO_READY   = (1u << 24) | (4u << 16);  //自动-就绪
+constexpr uint32_t AUTO_TAKEOFF = (2u << 24) | (4u << 16);  //自动-起飞
+constexpr uint32_t AUTO_LOITER  = (3u << 24) | (4u << 16);  //自动-悬停
+constexpr uint32_t AUTO_MISSION = (4u << 24) | (4u << 16);  //自动-任务
+constexpr uint32_t AUTO_RTL     = (5u << 24) | (4u << 16);  //自动-返航
+constexpr uint32_t AUTO_LAND    = (6u << 24) | (4u << 16);  //自动-降落
 }  // namespace px4_mode
 
 // 通信模块配置
@@ -126,6 +126,9 @@ struct CommConfig {
 
 // 从 YAML 加载通信配置
 bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg);
+
+// 自动查找配置文件：先试相对路径（当前目录），再从可执行文件位置逐层往上找
+std::string findConfigFile(const std::string& rel_path = "config/driver.yaml");
 
 
 // Communicator：飞控 PX4 的 MAVLink 通信模块

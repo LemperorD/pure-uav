@@ -1,9 +1,11 @@
 #include "communicator.hpp"
 
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 
 // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
 #include "common/mavlink.h"
@@ -229,13 +231,13 @@ const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
 
 const char* Communicator::ackResultNameCn(uint8_t result) const {
     switch (result) {
-        case MAV_RESULT_ACCEPTED:             return "已接受";
-        case MAV_RESULT_TEMPORARILY_REJECTED: return "临时拒绝";
-        case MAV_RESULT_DENIED:               return "拒绝";
-        case MAV_RESULT_UNSUPPORTED:          return "不支持";
-        case MAV_RESULT_FAILED:               return "失败";
-        case MAV_RESULT_IN_PROGRESS:          return "进行中";
-        default:                              return "未知";
+        case MAV_RESULT_ACCEPTED:             return "已接受";  //0
+        case MAV_RESULT_TEMPORARILY_REJECTED: return "临时拒绝";  //1
+        case MAV_RESULT_DENIED:               return "拒绝";   //2
+        case MAV_RESULT_UNSUPPORTED:          return "不支持";  //3
+        case MAV_RESULT_FAILED:               return "失败";  //3
+        case MAV_RESULT_IN_PROGRESS:          return "进行中";  //4
+        default:                              return "未知";   
     }
 }
 
@@ -337,8 +339,7 @@ bool Communicator::sendLand(int timeout_ms, uint8_t* result) {   //命令PX4自�
     return waitForAck(MAV_CMD_NAV_LAND, timeout_ms, result);
 }
 
-bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {   //设置飞行模式（完整 px4 custom_mode）
-    // PX4 的 DO_SET_MODE：param2 = main_mode（bit23-16），param3 = sub_mode（bit31-24）
+bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {   //设置飞行模式
     uint8_t main_mode = (custom_mode >> 16) & 0xFF;
     uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
     last_ack_command_.store(0);
@@ -354,12 +355,11 @@ bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* re
     return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
 }
 
-bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁/加锁
+bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁1/加锁0
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    // MAV_CMD_COMPONENT_ARM_DISARM：param1 = 1 解锁，0 加锁
     mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
                                   MAV_CMD_COMPONENT_ARM_DISARM, 0,
                                   arm ? 1.0f : 0.0f, 0, 0, 0, 0, 0, 0);
@@ -475,6 +475,29 @@ bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg) {
         fprintf(stderr, "加载 yaml 配置失败: %s\n", e.what());
         return false;
     }
+}
+
+// 自动查找配置文件
+std::string findConfigFile(const std::string& rel_path) {
+    // 1. 当前工作目录直接找
+    if (access(rel_path.c_str(), F_OK) == 0) return rel_path;
+    // 2. 从可执行文件位置逐层往上找
+    char buf[PATH_MAX];
+    ssize_t n = readlink("/proc/self/exe", buf, PATH_MAX);
+    if (n > 0 && n < (ssize_t)PATH_MAX) {
+        buf[n] = '\0';
+        std::string dir(buf);
+        dir = dir.substr(0, dir.find_last_of('/'));  
+        for (int i = 0; i < 6; i++) {
+            std::string cand = dir + "/" + rel_path;
+            if (access(cand.c_str(), F_OK) == 0) return cand;
+            auto pos = dir.find_last_of('/');
+            if (pos == std::string::npos) break;
+            dir = dir.substr(0, pos);
+        }
+    }
+   
+    return rel_path;
 }
 
 }  // namespace pure_uav

@@ -7,7 +7,7 @@ int main() {
     comm.setSystemId(2);
 
     pure_uav::CommConfig cfg;
-    if (!pure_uav::loadCommConfig("config/driver.yaml", cfg)) {
+    if (!pure_uav::loadCommConfig(pure_uav::findConfigFile(), cfg)) {
         printf("加载配置失败，使用默认值 %s @ %d\n", cfg.device.c_str(), cfg.baudrate);
     }
     if (!comm.start(cfg)) {
