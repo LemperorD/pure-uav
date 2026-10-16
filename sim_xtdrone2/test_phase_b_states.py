@@ -284,6 +284,7 @@ def mk_args(lib, **kw):
         no_odom=True,
         csv=os.path.join(tempfile.gettempdir(), "sm_test_b.csv"),
         csv_hz=10.0,
+        no_report=True, report_hz=0.0,
     )
     d.update(kw)
     return types.SimpleNamespace(**d)
@@ -1038,6 +1039,132 @@ def main():
         n_force = max(len(list(csv.reader(f))) - 1, 0)
     check(n_force == 2,
           f"force=True 绕过 0.1 Hz 节流（写出 {n_force} 行，期望 2）")
+
+    # ---- ④ 回传评估块（可整段复制的报告）----
+    import io as _io
+    import contextlib as _ctx
+
+    path = os.path.join(tempfile.gettempdir(), "sm_report.csv")
+    if os.path.exists(path):
+        os.remove(path)
+    nr = new_node(lib, csv=path, csv_hz=10.0, report_hz=10.0, no_report=False)
+    fr = FakePX4(nr)
+    ok_r = drive_to_guided(nr, fr)
+    while nr.state not in ("LAND", "DISARM", "DONE"):
+        step(nr, fr, 1)
+    for _ in range(2500):
+        step(nr, fr, 1)
+        if nr.should_exit:
+            break
+    buf = _io.StringIO()
+    with _ctx.redirect_stdout(buf):
+        nr.print_report()
+    txt = buf.getvalue()
+    ncols = len(M.REPORT_TRACE_COLS)
+    nr.close()
+
+    check(ok_r, "报告用例成功进入 GUIDED")
+    check(M.REPORT_BEGIN in txt, f"报告含起始标记 {M.REPORT_BEGIN}")
+    check(M.REPORT_END in txt, f"报告含结束标记 {M.REPORT_END}")
+    check(txt.index(M.REPORT_BEGIN) < txt.index(M.REPORT_END), "起止标记顺序正确")
+    for tag in ("[运行]", "[制导]", "[目标]", "[巡航]", "[稳定]", "[发射]", "[偏差]",
+                "--- 时间序列", "--- 汇总"):
+        check(tag in txt, f"报告含小节 {tag}")
+    check("最近距离 =" in txt and "命中 =" in txt, "报告含汇总（最近距离/命中）")
+    check("着陆 = landed:" in txt, "报告含着陆状态")
+    check("t_wall=墙钟秒" in txt, "报告说明了时间列口径（t_wall vs t_rel）")
+
+    def parse_rows(text):
+        """把报告块里的时间序列解析成 dict 列表（验证"复制回去真能解析"）。"""
+        hdr = None
+        out = []
+        for ln in text.splitlines():
+            if ln.startswith("# ") and ln[2:].startswith("t_wall,"):
+                hdr = ln[2:].split(",")
+                continue
+            if hdr and ln and not ln.startswith(("#", "[", "-", "<")):
+                f = ln.split(",")
+                if len(f) == len(hdr):
+                    out.append(dict(zip(hdr, f)))
+        return hdr, out
+
+    hdr, rows = parse_rows(txt)
+    check(hdr == M.REPORT_TRACE_COLS,
+          f"序列表头列与 REPORT_TRACE_COLS 一致（实际 {len(hdr) if hdr else 0} 列）")
+    # ★ 最关键的验证：**报告块能被 csv 解析器原样读回来**
+    import csv as _csv
+    block = txt.split("--- 时间序列", 1)[1].split("--- 汇总", 1)[0]
+
+    def _is_data_line(ln):
+        if not ln or ln.startswith("#"):
+            return False
+        try:
+            float(ln.split(",", 1)[0])        # 首字段必须是数字（t_wall）
+            return True
+        except ValueError:
+            return False
+
+    csv_lines = [ln for ln in block.splitlines() if _is_data_line(ln)]
+    got = list(_csv.reader(csv_lines))
+    check(bool(got) and all(len(r) == len(hdr) for r in got),
+          f"报告序列段可被 csv 模块解析且列数恒定（{len(got)} 行 × {len(hdr)} 列）")
+    check(len(rows) >= 5, f"报告有足够采样行（{len(rows)} 行）")
+
+    # ★ 低信息量段（起飞前爬升 / 降落收尾）降采样：行间隔应 ≥ ~1 s（与 report_hz 无关）
+    slow = [r for r in rows if r["state"] not in M.REPORT_FAST_STATES]
+    fast = [r for r in rows if r["state"] in M.REPORT_FAST_STATES]
+    gaps = []
+    try:
+        tw = [float(r["t_wall"]) for r in slow]
+        gaps = [b - a for a, b in zip(tw, tw[1:])]
+    except ValueError:
+        pass
+    check(bool(slow) and all(g >= 0.9 for g in gaps),
+          f"低信息量段按 1 Hz 降采样（{len(slow)} 行，最小间隔 "
+          f"{min(gaps) if gaps else float('nan'):.2f}s）")
+    # 制导相关段必须比低信息量段**密**（否则降采样把要看的东西也稀掉了）
+    if len(fast) >= 3:
+        fw = [float(r["t_wall"]) for r in fast]
+        fgap = min(b - a for a, b in zip(fw, fw[1:]))
+        print(f"  制导段 {len(fast)} 行（最小间隔 {fgap:.2f}s）；"
+              f"低信息量段 {len(slow)} 行（最小间隔 "
+              f"{min(gaps) if gaps else float('nan'):.2f}s）")
+        check(fgap < 0.9,
+              f"制导段仍保持 report_hz 密度（最小间隔 {fgap:.2f}s < 0.9）")
+    # 报告总行数不能因爬升/降落而爆炸
+    check(len(rows) <= 120,
+          f"报告总行数受控（{len(rows)} 行 ≤ 120）")
+    # 提高 report_hz 不应让收尾段变长（证明降采样独立生效）
+    nz2 = new_node(lib, csv=os.path.join(tempfile.gettempdir(), "sm_rep50.csv"),
+                   csv_hz=10.0, report_hz=50.0, no_report=False)
+    fz2 = FakePX4(nz2)
+    drive_to_guided(nz2, fz2)
+    while nz2.state not in ("LAND", "DISARM", "DONE"):
+        step(nz2, fz2, 1)
+    for _ in range(2500):
+        step(nz2, fz2, 1)
+        if nz2.should_exit:
+            break
+    buf3 = _io.StringIO()
+    with _ctx.redirect_stdout(buf3):
+        nz2.print_report()
+    _, rows50 = parse_rows(buf3.getvalue())
+    nz2.close()
+    slow50 = [r for r in rows50 if r["state"] not in M.REPORT_FAST_STATES]
+    print(f"  report_hz 10 ⇒ 低信息量段 {len(slow)} 行；report_hz 50 ⇒ {len(slow50)} 行"
+          f"（应基本相同）")
+    check(abs(len(slow50) - len(slow)) <= 2,
+          f"低信息量段行数不随 --report-hz 放大（{len(slow50)} vs {len(slow)}）")
+    # ⚠ 报告行不含 ROS logger 前缀（否则复制出来是噪声）
+    check("[INFO]" not in txt, "报告块**不带** ROS 日志前缀（可直接复制）")
+    # --no-report 时必须完全不打印
+    nq = new_node(lib, csv=os.path.join(tempfile.gettempdir(), "sm_report_off.csv"),
+                  no_report=True)
+    buf2 = _io.StringIO()
+    with _ctx.redirect_stdout(buf2):
+        nq.print_report()
+    check(buf2.getvalue() == "", "--no-report ⇒ 不打印任何内容")
+    nq.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

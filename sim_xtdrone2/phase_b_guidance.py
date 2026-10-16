@@ -171,6 +171,44 @@ BRAKE_TIMEOUT = 5.0                # 刹车段超时 (s)
 GMODE_PN, GMODE_APN, GMODE_HOLD, GMODE_SEARCH = 0, 1, 2, 3
 GMODE_NAME = {0: "PN", 1: "APN", 2: "HOLD", 3: "SEARCH"}
 
+# ---------------------------------------------------------------------------
+#  CSV / 回传报告的列定义（**唯一**定义处）
+#    ⚠ 报告块按**列名**取索引（`hdr.index(name)`），所以以后加/删列不会让报告错位。
+# ---------------------------------------------------------------------------
+CSV_COLUMNS = [
+    "t_wall", "t_rel", "state",
+    "ax_enu", "ay_enu", "az_enu", "a_norm", "sat", "mode", "t_go",
+    "lam_dot", "Vc", "R_est",
+    "px4_x", "px4_y", "px4_z", "px4_vx", "px4_vy", "px4_vz", "heading",
+    "enu_x", "enu_y", "enu_z", "enu_vx", "enu_vy", "enu_vz",
+    "roll_deg", "pitch_deg", "yaw_deg",
+    "q_w", "q_x", "q_y", "q_z",
+    "tgt_x", "tgt_y", "tgt_z", "tgt_vx", "tgt_vy", "tgt_vz",
+    "R_true", "sensor_valid",
+    "nav_state", "arming_state",
+]
+
+# 回传报告里逐行表格用到的列（按这个顺序打印，列太宽的 NED 位置等不进表）
+#   ⚠ 必须有 `t_wall`：`t_rel` 是**制导相对时**，GUIDED 一结束就**冻结**在最后值
+#     （实测收尾段所有行的 t_rel 都相同）⇒ 只有 `t_wall`（墙钟，全程单调）能区分收尾段各步。
+REPORT_TRACE_COLS = [
+    "t_wall", "t_rel", "state", "mode", "t_go", "Vc", "R_true", "R_est",
+    "a_norm", "sat",
+    "enu_x", "enu_y", "enu_z", "enu_vx", "enu_vy", "enu_vz",
+    "roll_deg", "pitch_deg", "yaw_deg",
+]
+
+# 报告里"制导相关段"按 `--report-hz` 采样；**其余段（起飞前爬升 / 降落收尾）
+# 一律降到 REPORT_SLOW_HZ** —— 否则光是爬升 11 s + 下降 11 s 就会灌进几百行
+# 几乎相同的采样，把真正要看的东西淹掉。
+#   ★ 用**白名单**（默认慢速）而不是黑名单：以后新增状态不会意外把报告撑爆。
+REPORT_FAST_STATES = {"SETTLE", "CRUISE", "GUIDED", "BRAKE"}
+REPORT_SLOW_HZ = 1.0
+
+# 报告块的起止标记（用户直接整段复制回传；我按标记截取）
+REPORT_BEGIN = "<<<<<<< BEGIN RM-PHASE-B-REPORT >>>>>>>"
+REPORT_END = "<<<<<<< END RM-PHASE-B-REPORT >>>>>>>"
+
 
 # ============================================================================
 #  制导核动态库（ctypes）
@@ -352,6 +390,15 @@ class PhaseBGuidance(Node):
         self.csv_hz = max(float(getattr(args, "csv_hz", 10.0) or 10.0), 0.1)
         self.csv_period = 1.0 / self.csv_hz      # CSV 采样间隔（s）；默认 0.1 s
         self.last_csv_t = -1e9                    # 上一次写 CSV 的墙钟（monotonic）
+        # ---- 回传报告（可直接复制粘贴的评估块）----
+        #   `--report-hz 0` ⇒ 跟随 --csv-hz；`--no-report` ⇒ 不打印
+        _rhz = float(getattr(args, "report_hz", 0.0) or 0.0)
+        self.report_on = not getattr(args, "no_report", False)
+        self.report_hz = _rhz if _rhz > 0 else self.csv_hz
+        self.report_period = 1.0 / self.report_hz
+        self.report_slow_period = max(self.report_period, 1.0 / REPORT_SLOW_HZ)
+        self.last_report_t = -1e9
+        self.report_rows = []                     # 报告用采样行（与 CSV 同格式）
 
         # ---- 遥测 ----
         self.pos = None                # VehicleLocalPosition（NED）
@@ -400,6 +447,7 @@ class PhaseBGuidance(Node):
         self.last_dbg = None                  # 最近一次真值（17 元组）
         self.guided_t0 = None
         self.cruise_t0 = None
+        self.launch_geo = None                # 发射时刻几何（回传报告用）
 
         # 降落 / 停桨
         self.land_t0 = 0.0
@@ -448,18 +496,7 @@ class PhaseBGuidance(Node):
         if self.csv_path:
             self.csv_f = open(self.csv_path, "w", newline="", encoding="utf-8")
             self.csv_w = csv.writer(self.csv_f)
-            self.csv_w.writerow([
-                "t_wall", "t_rel", "state",
-                "ax_enu", "ay_enu", "az_enu", "a_norm", "sat", "mode", "t_go",
-                "lam_dot", "Vc", "R_est",
-                "px4_x", "px4_y", "px4_z", "px4_vx", "px4_vy", "px4_vz", "heading",
-                "enu_x", "enu_y", "enu_z", "enu_vx", "enu_vy", "enu_vz",
-                "roll_deg", "pitch_deg", "yaw_deg",
-                "q_w", "q_x", "q_y", "q_z",
-                "tgt_x", "tgt_y", "tgt_z", "tgt_vx", "tgt_vy", "tgt_vz",
-                "R_true", "sensor_valid",
-                "nav_state", "arming_state",
-            ])
+            self.csv_w.writerow(CSV_COLUMNS)
 
         self.timer = self.create_timer(1.0 / self.rate, self.tick)
         self.report_banner()
@@ -503,6 +540,9 @@ class PhaseBGuidance(Node):
                  + (f"（采样 {self.csv_period * 1000:.0f} ms / {self.csv_hz:g} Hz，"
                     f"列含 px4_*(NED) / enu_*(ENU) / roll,pitch,yaw(deg)+quaternion）"
                     if self.csv_path else ""))
+        self.log(f"  回传评估块  : {'ON' if self.report_on else 'OFF'}"
+                 + (f"（运行结束时打印在末尾，前后有 {REPORT_BEGIN} 标记，"
+                    f"整段复制即可；采样 {self.report_hz:g} Hz）" if self.report_on else ""))
         self.log(bar)
 
     def now_us(self):
@@ -1014,6 +1054,8 @@ class PhaseBGuidance(Node):
                     self.log("收尾完成：已落地（未确认停桨）。节点退出。")
                 else:
                     self.log("收尾完成（未走完整降落流程）。节点退出。")
+                # ★ 打印"可直接复制回传"的评估块（裸 print，无 ROS 前缀）
+                self.print_report()
                 self.should_exit = True
             return
 
@@ -1213,6 +1255,12 @@ class PhaseBGuidance(Node):
             dy = p_enu[1]
             dz = p_enu[2] - self.target_height
             v_h = math.hypot(v_enu[0], v_enu[1])
+            # ★ 存下来给"回传报告"用（用户不用再翻日志找发射几何）
+            self.launch_geo = {
+                "t": self.t_rel, "p": p_enu, "v": v_enu, "vh": v_h,
+                "dx": dx, "dy": dy, "dz": dz,
+                "budget": 0.5 * self.args.a_max * 0.5 ** 2,
+            }
             self.log(f"       发射几何：位置 ENU=({p_enu[0]:+.2f},{p_enu[1]:+.2f},"
                      f"{p_enu[2]:+.2f})  速度=({v_enu[0]:+.2f},{v_enu[1]:+.2f},"
                      f"{v_enu[2]:+.2f}) |v_h|={v_h:.2f} m/s")
@@ -1406,20 +1454,11 @@ class PhaseBGuidance(Node):
         self.log(bar)
 
     # ---------------------------------------------------------------- 记录
-    def log_row(self, force=False):
-        """写一行 CSV。
+    def build_row(self):
+        """拼一行采样数据（列序 = `CSV_COLUMNS`）。
 
-        `force=True` 绕过采样节流（用于收尾补最后一行）。
-        采样由 `--csv-hz`（默认 10 Hz = 0.1 s）控制：指令是 50 Hz，但 CSV 只按
-        0.1 s 一行落盘，便于回传分析（想看细节可 `--csv-hz 50`）。
+        CSV 落盘与"回传报告"共用这一份，保证两者**逐字段一致**（不会一边新一边旧）。
         """
-        if self.csv_w is None:
-            return
-        if not force:
-            now = time.monotonic()
-            if now - self.last_csv_t < self.csv_period - 1e-6:
-                return
-            self.last_csv_t = now
         row = [round(time.monotonic() - self.t_start, 3), round(self.t_rel, 4), self.state]
         if self.last_cmd is not None:
             c = self.last_cmd
@@ -1453,7 +1492,122 @@ class PhaseBGuidance(Node):
             row += [""] * 8
         row.append("" if self.nav_state is None else self.nav_state)
         row.append("" if self.arming_state is None else self.arming_state)
-        self.csv_w.writerow(row)
+        return row
+
+    def log_row(self, force=False):
+        """按各自频率落盘 CSV / 记录报告采样。
+
+        · CSV  ：`--csv-hz`（默认 10 Hz = 0.1 s）
+        · 报告：`--report-hz`（默认跟随 `--csv-hz`）
+
+        指令仍是 `--rate`（50 Hz）—— 这里只**节流落盘**，控制回路一点不变。
+        `force=True` 绕过两者的节流（收尾补最后一行用）。
+        想看细节把 `--csv-hz` 给 50 即可。
+        """
+        if self.csv_w is None and not self.report_on:
+            return
+        now = time.monotonic()
+        row = None
+        if self.csv_w is not None:
+            if force or now - self.last_csv_t >= self.csv_period - 1e-6:
+                row = self.build_row()
+                self.csv_w.writerow(row)
+                self.last_csv_t = now
+        if self.report_on:
+            # 制导相关段（SETTLE/CRUISE/GUIDED/BRAKE）用 report_hz；
+            # 起飞前爬升 / 降落收尾等低信息量段降到 REPORT_SLOW_HZ，避免刷屏
+            period = (self.report_period if self.state in REPORT_FAST_STATES
+                      else self.report_slow_period)
+            if force or now - self.last_report_t >= period - 1e-6:
+                if row is None:
+                    row = self.build_row()
+                self.report_rows.append(row)
+                self.last_report_t = now
+
+    # ------------------------------------------------- 回传报告（可复制粘贴）
+    def print_report(self):
+        """打印**可直接整段复制回传**的评估块。
+
+        ⚠ 故意用 `print()` 而**不是** ROS logger：rclpy 会给每行加
+          `[INFO] [时间] [节点名]: ` 前缀，复制出来全是噪声、也没法直接喂给脚本。
+          这里裸打印，前后有固定标记（`REPORT_BEGIN/REPORT_END`）便于截取。
+        """
+        if not self.report_on:
+            return
+        law_name = ["PPN", "TPN", "APN"][int(self.args.law)] \
+            if 0 <= int(self.args.law) <= 2 else "?"
+        p = print
+        p("")
+        p(REPORT_BEGIN)
+        p("# phase_b_guidance.py 自动生成 · 整段复制回传即可（含场景 + 时间序列 + 汇总）")
+        p("")
+        p("[运行] 节点=phase_b_guidance  制导核=%s  ABI=%s"
+          % (os.path.basename(self.lib_path), self.lib.pgu_version()))
+        p("[制导] law=%s(%s)  N=%g  a_max=%g  t_go_freeze=%g  指令率=%g Hz  "
+          "命中半径=%g m"
+          % (law_name, int(self.args.law), self.args.N, self.args.a_max,
+             self.args.t_go_freeze, self.rate, self.hit_radius))
+        p("[目标] type=%s  发射点 ENU=(%.2f,%.2f,%.2f)  速度=%.2f m/s  "
+          "仰角=%.1f°  方位=%.1f°  t_flight=%.2fs  hits_ground=%s"
+          % (self.args.target_type, self.target_p0[0], self.target_p0[1],
+             self.target_p0[2], self.args.target_speed, self.args.target_elev,
+             self.args.target_azim, self.t_flight, self.t_hits_ground))
+        p("[巡航] %s  boost_dir=%s  a_boost=%g  v_min=%g  cruise_x=%s  "
+          "lat_hold=%s  timeout=%gs"
+          % ("ON" if self.cruise_on else "OFF",
+             tuple(round(v, 3) for v in self.boost_dir), self.a_boost,
+             self.v_boost_min, ("%.2f" % self.cruise_x) if self.cruise_x is not None else "None",
+             "ON" if self.args.cruise_lat_hold else "OFF", self.args.cruise_timeout))
+        p("[稳定] 高度目标=%.2f m  水平收敛=%s  刹车=%s  alt_hold=%s"
+          % (self.target_height,
+             "None" if self.settle_xy is None else "(%g,%g)" % (self.settle_xy[0], self.settle_xy[1]),
+             "ON" if getattr(self.args, "brake", False) else "OFF",
+             "ON" if self.alt_hold else "OFF"))
+        g = getattr(self, "launch_geo", None)
+        if g is None:
+            p("[发射] (未采到发射时刻状态)")
+        else:
+            p("[发射] t_rel=%.3f  ENU=(%+.2f,%+.2f,%+.2f)  v=(%+.2f,%+.2f,%+.2f)  |v_h|=%.2f"
+              % (g["t"], g["p"][0], g["p"][1], g["p"][2],
+                 g["v"][0], g["v"][1], g["v"][2], g["vh"]))
+            p("[偏差] Δx=%+.2f Δy=%+.2f Δz=%+.2f m   修正预算 ½·a_max·t_go² = %.2f m"
+              % (g["dx"], g["dy"], g["dz"], g["budget"]))
+        p("")
+        p("--- 时间序列（CSV 格式 · 制导段 %g Hz / 其余段 %g Hz · 共 %d 行）---"
+          % (self.report_hz, REPORT_SLOW_HZ, len(self.report_rows)))
+        p("# 时间列口径：t_wall=墙钟秒（全程单调，收尾段只有它能区分各步）；"
+          "t_rel=制导相对秒（GUIDED 结束后冻结）")
+        # ⚠ 用**逗号**分隔而不是空格：空字段（未进制导段时 mode/t_go/R_true… 都为空）
+        #   在空格分隔下会**塌成 0 个 token** ⇒ 列错位、没法解析。
+        #   逗号分隔后空字段是"两个逗号之间什么都没有"，列数恒定、可直接当 CSV 喂脚本。
+        p("# " + ",".join(REPORT_TRACE_COLS))
+        idx = [CSV_COLUMNS.index(c) for c in REPORT_TRACE_COLS]
+        for r in self.report_rows:
+            p(",".join(str(r[i]) for i in idx))
+        p("")
+        p("--- 汇总 ---")
+        if self.min_R is None:
+            p("最近距离 = (未采到制导段数据)")
+        else:
+            p("最近距离 = %.3f m @ t_rel=%.3f s   (阈值 %.2f m)  命中 = %s"
+              % (self.min_R, self.t_min_R, self.hit_radius,
+                 "是" if self.hit else "否"))
+            p("峰值指令 = %.2f m/s²   饱和 = %d/%d 步 (%.1f%%)   mode: %s"
+              % (self.peak_a_cmd, self.sat_steps, self.guided_steps,
+                 100.0 * self.sat_steps / max(self.guided_steps, 1),
+                 ", ".join("%s=%d" % (GMODE_NAME.get(k, k), v)
+                           for k, v in sorted(self.modes.items())) or "-"))
+        p("OFFBOARD = %s" % ("已确认" if self.offboard_confirmed else "未确认"))
+        p("着陆 = landed:%s  disarmed:%s  软着陆:%s"
+          % (self.landed, self.disarmed,
+             {None: "未判", True: "是", False: "否(离地过高)"}[self.soft_landing]))
+        if self.aborted:
+            p("异常 = ABORT: %s" % self.abort_reason)
+        p("")
+        p("# 提示：完整 CSV 见 --csv 指定的文件（列名与上面 [运行] 行一致）")
+        p(REPORT_END)
+        p("")
+        sys.stdout.flush()
 
     def close(self):
         if self.gz is not None:
@@ -1583,6 +1737,10 @@ def build_parser():
     ap.add_argument("--csv-hz", type=float, default=10.0,
                     help="CSV 采样频率 (Hz)。指令仍是 --rate（50 Hz），CSV 只按此"
                          "间隔落盘；默认 0.1 s 一行，便于回传分析；想看细节可给 50")
+    ap.add_argument("--no-report", action="store_true",
+                    help="不打印末尾的『可复制回传评估块』（默认打印）")
+    ap.add_argument("--report-hz", type=float, default=0.0,
+                    help="回传评估块的时间序列采样频率 (Hz)；0 = 跟随 --csv-hz")
     return ap
 
 
