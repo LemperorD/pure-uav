@@ -192,7 +192,7 @@ CSV_COLUMNS = [
 #   ⚠ 必须有 `t_wall`：`t_rel` 是**制导相对时**，GUIDED 一结束就**冻结**在最后值
 #     （实测收尾段所有行的 t_rel 都相同）⇒ 只有 `t_wall`（墙钟，全程单调）能区分收尾段各步。
 REPORT_TRACE_COLS = [
-    "t_wall", "t_rel", "state", "mode", "t_go", "Vc", "R_true", "R_est",
+    "t_wall", "t_rel", "state", "nav_state", "mode", "t_go", "Vc", "R_true", "R_est",
     "a_norm", "sat",
     "enu_x", "enu_y", "enu_z", "enu_vx", "enu_vy", "enu_vz",
     "roll_deg", "pitch_deg", "yaw_deg",
@@ -202,8 +202,15 @@ REPORT_TRACE_COLS = [
 # 一律降到 REPORT_SLOW_HZ** —— 否则光是爬升 11 s + 下降 11 s 就会灌进几百行
 # 几乎相同的采样，把真正要看的东西淹掉。
 #   ★ 用**白名单**（默认慢速）而不是黑名单：以后新增状态不会意外把报告撑爆。
-REPORT_FAST_STATES = {"SETTLE", "CRUISE", "GUIDED", "BRAKE"}
+REPORT_FAST_STATES = {"GUIDED"}
+REPORT_MID_STATES = {"SETTLE", "CRUISE", "BRAKE"}
 REPORT_SLOW_HZ = 1.0
+REPORT_MID_HZ = 5.0
+
+# 控制回路"空洞"告警阈值（s）：相邻 tick 的墙钟间隔超过它 ⇒ 说明**本周期没发出
+# setpoint**（被 gz 服务调用 / 日志 / 磁盘阻塞）。PX4 的 offboard 失联阈值默认 ~1 s，
+# 所以这里取 0.2 s 作为"该管了"的界限（50 Hz 名义周期 0.02 s，是它的 10 倍）。
+LOOP_GAP_WARN = 0.20
 
 # 报告块的起止标记（用户直接整段复制回传；我按标记截取）
 REPORT_BEGIN = "<<<<<<< BEGIN RM-PHASE-B-REPORT >>>>>>>"
@@ -391,14 +398,27 @@ class PhaseBGuidance(Node):
         self.csv_period = 1.0 / self.csv_hz      # CSV 采样间隔（s）；默认 0.1 s
         self.last_csv_t = -1e9                    # 上一次写 CSV 的墙钟（monotonic）
         # ---- 回传报告（可直接复制粘贴的评估块）----
-        #   `--report-hz 0` ⇒ 跟随 --csv-hz；`--no-report` ⇒ 不打印
+        #   `--report-hz 0` ⇒ 用 `--rate`（50 Hz）：交会段只有 ~0.5 s，
+        #   用 10 Hz 只剩 4~5 行，根本看不出交会过程（实飞已踩）。
         _rhz = float(getattr(args, "report_hz", 0.0) or 0.0)
         self.report_on = not getattr(args, "no_report", False)
-        self.report_hz = _rhz if _rhz > 0 else self.csv_hz
+        self.report_hz = _rhz if _rhz > 0 else self.rate
         self.report_period = 1.0 / self.report_hz
+        self.report_mid_period = max(self.report_period, 1.0 / REPORT_MID_HZ)
         self.report_slow_period = max(self.report_period, 1.0 / REPORT_SLOW_HZ)
         self.last_report_t = -1e9
         self.report_rows = []                     # 报告用采样行（与 CSV 同格式）
+
+        # ---- ★ 控制回路健康监测 ----
+        self.t_last_tick = None
+        self.loop_gap_max = 0.0                   # 相邻 tick 最大间隔（s）
+        self.loop_gap_max_at = None               # 出现时刻（t_wall）
+        self.loop_gap_max_state = None            # 出现时的状态
+        self.loop_gaps = []                       # [(t_wall, gap, state), ...]
+        # ---- ★ 落点 / 漂移（**实测**，不是估算）----
+        self.ending_pos = None                    # 收尾开始时的 ENU 位置
+        self.stop_pos = None                      # 停桨时的 ENU 位置
+        self.max_h_disp = 0.0                     # 全程最大水平位移（相对起点）
 
         # ---- 遥测 ----
         self.pos = None                # VehicleLocalPosition（NED）
@@ -543,7 +563,9 @@ class PhaseBGuidance(Node):
                     if self.csv_path else ""))
         self.log(f"  回传评估块  : {'ON' if self.report_on else 'OFF'}"
                  + (f"（运行结束时打印在末尾，前后有 {REPORT_BEGIN} 标记，"
-                    f"整段复制即可；采样 {self.report_hz:g} Hz）" if self.report_on else ""))
+                    f"整段复制即可；GUIDED {self.report_hz:g} Hz / "
+                    f"稳定巡航刹车 {REPORT_MID_HZ:g} Hz / 其余 {REPORT_SLOW_HZ:g} Hz）"
+                    if self.report_on else ""))
         self.log(bar)
 
     def now_us(self):
@@ -618,6 +640,34 @@ class PhaseBGuidance(Node):
         """相对起飞点的水平位移（安全围栏用）。"""
         return math.hypot(self.pos.x - getattr(self, "start_x", 0.0),
                           self.pos.y - getattr(self, "start_y", 0.0))
+
+    def record_stop(self):
+        """记下**停桨时刻的真实位置**（报告里算实测着陆漂移用）。"""
+        p_enu, _ = self.state_enu()
+        if p_enu is not None:
+            self.stop_pos = p_enu
+
+    def track_h_disp(self):
+        """更新全程最大水平位移（相对起飞点，NED 直算，不受 ENU 换算影响）。"""
+        if self.pos is None:
+            return
+        h = self.h_disp()
+        if h > self.max_h_disp:
+            self.max_h_disp = h
+
+    def landing_drift(self):
+        """**实测**着陆漂移：收尾起点 → 停桨点（水平）。
+
+        返回 (漂移 m, Δx, Δy) 或 None。
+        ⚠ 为什么必须实测：原来日志只给估算 `v²/(2·a_max)`，实飞里写着
+          「残余漂移 ≈ 0.02 m」而**实际漂了 10 m**（差 500 倍）——
+          估算完全没有把"刹车阶段实际发生了什么"算进去。
+        """
+        if self.ending_pos is None or self.stop_pos is None:
+            return None
+        dx = self.stop_pos[0] - self.ending_pos[0]
+        dy = self.stop_pos[1] - self.ending_pos[1]
+        return (math.hypot(dx, dy), dx, dy)
 
     # ---------------------------------------------------------------- 发布
     def publish_a(self):
@@ -731,7 +781,31 @@ class PhaseBGuidance(Node):
     # ================================================================ 主循环
     def tick(self):
         now = time.monotonic()
+
+        # ---------------- ★ 控制回路健康监测（2026-10-16 新增）----------------
+        #   动机：实飞里 `gz_finish` 的阻塞调用把主回路卡了 1.0 s（命中瞬间！），
+        #   但那 1 s 在日志里**看不出来** —— 只有对比两行的时间戳才发现。
+        #   ⇒ 现在主动测"相邻 tick 的墙钟间隔"，超过阈值就当场 warn 并记进报告。
+        #   ⚠ 这里量的是**主回路是否被阻塞**（含 gz 服务调用 / 日志 / 磁盘），
+        #     不是 PX4 的控制周期 —— 但正是它决定了 setpoint 有没有按时发出去。
+        if self.t_last_tick is not None:
+            gap = now - self.t_last_tick
+            if gap > self.loop_gap_max:
+                self.loop_gap_max = gap
+                self.loop_gap_max_at = now - self.t_start
+                self.loop_gap_max_state = self.state
+            if gap >= LOOP_GAP_WARN:
+                tw = now - self.t_start
+                self.loop_gaps.append((round(tw, 3), round(gap, 3), self.state))
+                self.warn(f"⚠ 控制回路空洞 {gap * 1000:.0f} ms"
+                          f"（t_wall={tw:.3f}s, state={self.state}）"
+                          f"—— 本周期**没有**发出加速度 setpoint；"
+                          f"检查是不是可视化 / 日志在阻塞主线程")
+        self.t_last_tick = now
+
         self.poll_service(now)
+
+        self.track_h_disp()          # 全程最大水平位移（报告用）
 
         # ---------------- Ctrl-C 收尾请求 ----------------
         # ⚠ 用 `ending` 而不是 `landing_phase` —— BRAKE 段还没进 landing_phase，
@@ -930,8 +1004,11 @@ class PhaseBGuidance(Node):
             if done or timed_out:
                 if done:
                     self.log(f"   ✓ 刹车完成：|v_h|={vh:.2f} m/s"
-                             f"（耗时 {now - self.brake_t0:.2f}s，"
-                             f"残余漂移 ≈ {vh**2 / (2 * 2.0):.2f} m）")
+                             f"（耗时 {now - self.brake_t0:.2f}s）")
+                    # ⚠ 这里只能给"剩余速度对应的估算刹车距离"，
+                    #   真实漂移必须用实测 —— 实飞里估算 0.02 m 而实测 10 m。
+                    self.log(f"      剩余速度对应的估算刹车距离 ≈ {vh**2 / (2 * 2.0):.2f} m"
+                             f"（**实测**着陆漂移见末尾报告的 [落点] 行）")
                 else:
                     self.warn(f"   ⚠ 刹车超时（{self.args.brake_timeout:.0f}s）："
                               f"|v_h|={vh:.2f} m/s —— 继续 LAND（会漂更多）")
@@ -989,6 +1066,7 @@ class PhaseBGuidance(Node):
                     self.log(f"✓ 已停桨（PX4 自动，alt={alt_s} m）")
                     self.soft_landing = True
                 self.disarmed = True
+                self.record_stop()
                 self.state = "DONE"
                 self.done_t = now
                 return
@@ -1007,6 +1085,7 @@ class PhaseBGuidance(Node):
             self.publish_descend_vel()
             if self.arming_state == ARMING_STATE_DISARMED:
                 self.disarmed = True
+                self.record_stop()
                 self.log("✓ 已停桨（arming_state=DISARMED）。")
                 self.state = "DONE"
                 self.done_t = now
@@ -1110,20 +1189,33 @@ class PhaseBGuidance(Node):
             self.warn("⚠ Gazebo 更新失败 —— 已停用可视化（制导不受影响）")
 
     def gz_finish(self, hit):
-        """收尾：命中画爆点 + 可选轨迹线。"""
+        """收尾：命中画爆点 + 可选轨迹线。
+
+        ★★ **必须非阻塞**（2026-10-16 实飞实测教训）：
+          以前这里直接调 `draw_trail` / `mark_point` / `hide_projectile`，
+          三次阻塞服务调用**各花 0.50 s**（= `GzScene.timeout_ms` 上限），
+          实飞日志证据：624.414「已画弹丸轨迹」→ 624.914「已标记命中点」
+          ⇒ **主回路被卡了整整 1.0 s**，而这 1 s 内 50 Hz 的加速度 setpoint
+          **一条都没发出去**，正好落在命中瞬间。
+          这违反本项目硬规矩：「可视化任何情况下都不得影响制导回路」。
+          ⇒ 现在只把动作**入队**，由 GzScene 的后台线程去发（主回路微秒级返回）。
+        """
         if self.gz is None or not self.gz.available:
             return
         try:
+            n_pts = 0
             if self.gz_trail:
-                self.gz.draw_trail(self.gz_trail)
-                self.log(f"  ── Gazebo 已画弹丸轨迹（{len(self.gz_trail)} 点）")
+                n_pts = len(self.gz_trail)
+                self.gz.queue_trail(self.gz_trail)
             if hit and self.gz_trail:
-                self.gz.mark_point(self.gz_trail[-1], ns="hit_mark", mid=1,
+                self.gz.queue_mark(self.gz_trail[-1], ns="hit_mark", mid=1,
                                    size=0.6, color=(1.0, 0.95, 0.1), ttl_ms=15000)
-                self.log("  ── Gazebo 已标记命中点")
-            self.gz.hide_projectile()      # 命中/脱靶后让弹丸"消失"
+            self.gz.queue_hide_projectile()
+            self.log(f"  ── Gazebo 收尾绘制已**派发给后台线程**"
+                     f"（轨迹 {n_pts} 点{' + 命中标记' if hit and n_pts else ''}，"
+                     f"不阻塞控制回路）")
         except Exception as e:             # noqa: BLE001
-            self.warn(f"⚠ Gazebo 收尾绘制失败（{e}）—— 不影响结果")
+            self.warn(f"⚠ Gazebo 收尾绘制排队失败（{e}）—— 不影响结果")
 
     def check_cruise_geometry(self):
         """巡航几何自检（仅在指定 --cruise-x 时有意义）。
@@ -1265,11 +1357,18 @@ class PhaseBGuidance(Node):
             self.log(f"       发射几何：位置 ENU=({p_enu[0]:+.2f},{p_enu[1]:+.2f},"
                      f"{p_enu[2]:+.2f})  速度=({v_enu[0]:+.2f},{v_enu[1]:+.2f},"
                      f"{v_enu[2]:+.2f}) |v_h|={v_h:.2f} m/s")
+            budget = 0.5 * self.args.a_max * 0.5 ** 2
             self.log(f"                 相对理想：Δx={dx:+.2f} Δy={dy:+.2f} "
                      f"Δz={dz:+.2f} m   ← 横向偏差会直接吃掉"
-                     f"『½·a_max·t_go² ≈ {0.5 * self.args.a_max * 0.5**2:.2f} m』的修正预算")
-            if abs(dy) > 0.5 or abs(dz) > 0.5:
-                self.warn(f"       ⚠ 发射几何偏差较大（Δy={dy:+.2f} Δz={dz:+.2f} m）"
+                     f"『½·a_max·t_go² ≈ {budget:.2f} m』的修正预算")
+            # ⚠ 阈值必须**与修正预算挂钩**，不能写死 0.5 m：
+            #   SETTLE 的容差本来就有 0.35 m + CRUISE 会再抬 0.15 m ⇒ Δz≈+0.50 是
+            #   **系统性**的、两个 law 都一样 ⇒ 根本不影响可比性，写死阈值会每次都误报，
+            #   导致告警被无视（实飞已踩：Δz=+0.50 触发"结果可能不可比"）。
+            geo_tol = 0.6 * budget          # ≈0.75 m（a_max=10 时）
+            if abs(dy) > geo_tol or abs(dz) > geo_tol:
+                self.warn(f"       ⚠ 发射几何偏差较大（Δy={dy:+.2f} Δz={dz:+.2f} m，"
+                          f"阈值 ±{geo_tol:.2f} = 60% 修正预算）"
                           f"—— 结果可能不可与其它 law 直接比较")
 
     def do_guided(self, now):
@@ -1387,6 +1486,10 @@ class PhaseBGuidance(Node):
         self.ending = True
         self.cur_a_enu = (0.0, 0.0, 0.0)
         now = time.monotonic()
+        # ★ 记下收尾起点的**真实位置**：报告里要用它算"实测着陆漂移"
+        #   （原来只给估算 v²/2a，实测差 500 倍：日志说 0.02 m、实际漂了 10 m）
+        p_enu, _ = self.state_enu()
+        self.ending_pos = p_enu
         self.land_t0 = now
         self.last_land_cmd = 0.0
         self.landed = False
@@ -1461,15 +1564,27 @@ class PhaseBGuidance(Node):
         """拼一行采样数据（列序 = `CSV_COLUMNS`）。
 
         CSV 落盘与"回传报告"共用这一份，保证两者**逐字段一致**（不会一边新一边旧）。
+
+        ★ 指令列的口径（2026-10-16 修正）：
+          · `state == GUIDED`  → 显示**制导核输出**（含 mode / t_go / lam_dot / Vc / R_est）
+          · 其余段            → 显示**本节点实际下发的加速度**（SETTLE/CRUISE/BRAKE 的
+                                 稳定与刹车指令），制导专属列**留空**
+        ⚠ 为什么要这样：`last_cmd` 在 GUIDED 结束后就**冻结**了，若继续打印，
+          收尾段会一直显示命中瞬间那一步的退化值（实测 `t_go=410969.7493` ——
+          因为终端时刻接近速度趋零、`t_go=R/Vc` 数值爆炸）。
+          把这些噪声当成"数据"展示，比留空危险得多。
         """
         row = [round(time.monotonic() - self.t_start, 3), round(self.t_rel, 4), self.state]
-        if self.last_cmd is not None:
+        if self.state == "GUIDED" and self.last_cmd is not None:
             c = self.last_cmd
             row += [round(c[1], 5), round(c[2], 5), round(c[3], 5),
                     round(c[4], 5), int(c[5]), int(c[8]), round(c[7], 4),
                     round(c[9], 6), round(c[10], 4), round(c[11], 4)]
         else:
-            row += [""] * 10
+            a = self.cur_a_enu
+            an = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+            row += [round(a[0], 5), round(a[1], 5), round(a[2], 5), round(an, 5),
+                    "", "", "", "", "", ""]
         if self.pos is not None:
             row += [round(self.pos.x, 4), round(self.pos.y, 4), round(self.pos.z, 4),
                     round(self.pos.vx, 4), round(self.pos.vy, 4), round(self.pos.vz, 4),
@@ -1517,10 +1632,15 @@ class PhaseBGuidance(Node):
                 self.csv_w.writerow(row)
                 self.last_csv_t = now
         if self.report_on:
-            # 制导相关段（SETTLE/CRUISE/GUIDED/BRAKE）用 report_hz；
-            # 起飞前爬升 / 降落收尾等低信息量段降到 REPORT_SLOW_HZ，避免刷屏
-            period = (self.report_period if self.state in REPORT_FAST_STATES
-                      else self.report_slow_period)
+            # 三档节奏：GUIDED 密（交会段短且是最关键的）；SETTLE/CRUISE/BRAKE 中；
+            # 起飞爬升 / 降落停桨等低信息量段最粗（1 Hz），避免刷屏。
+            st = self.state
+            if st in REPORT_FAST_STATES:
+                period = self.report_period
+            elif st in REPORT_MID_STATES:
+                period = self.report_mid_period
+            else:
+                period = self.report_slow_period
             if force or now - self.last_report_t >= period - 1e-6:
                 if row is None:
                     row = self.build_row()
@@ -1575,11 +1695,46 @@ class PhaseBGuidance(Node):
                  g["v"][0], g["v"][1], g["v"][2], g["vh"]))
             p("[偏差] Δx=%+.2f Δy=%+.2f Δz=%+.2f m   修正预算 ½·a_max·t_go² = %.2f m"
               % (g["dx"], g["dy"], g["dz"], g["budget"]))
+        # ★ 控制回路健康：一眼看出"有没有东西阻塞主回路"（2026-10-16 新增）
+        nominal_ms = 1000.0 / self.rate
+        gap_ms = self.loop_gap_max * 1000.0
+        if self.loop_gap_max_at is None:
+            p("[健康] 控制周期: 名义 %.1f ms；未采到相邻 tick 间隔（运行太短）"
+              % nominal_ms)
+        else:
+            tag = "✅ 正常" if self.loop_gap_max < LOOP_GAP_WARN else "⚠ 有空洞"
+            p("[健康] 控制周期: 名义 %.1f ms；**实测最大间隔 %.1f ms**"
+              " @ t_wall=%.3fs (state=%s)  %s"
+              % (nominal_ms, gap_ms, self.loop_gap_max_at,
+                 self.loop_gap_max_state, tag))
+            if self.loop_gaps:
+                tot = sum(g for _, g, _ in self.loop_gaps)
+                p("[健康] 空洞(≥%d ms) 共 %d 次、累计 %.0f ms —— 这些周期**没发出 setpoint**："
+                  % (int(LOOP_GAP_WARN * 1000), len(self.loop_gaps), tot * 1000))
+                for tw, gp, st in self.loop_gaps[:8]:
+                    p("         t_wall=%.3f  %5.0f ms  state=%s" % (tw, gp * 1000, st))
+                if len(self.loop_gaps) > 8:
+                    p("         …（另有 %d 次，见完整 CSV）" % (len(self.loop_gaps) - 8))
+        # ★ 实测落点 / 漂移（不是估算）
+        dr = self.landing_drift()
+        if dr is None:
+            p("[落点] (未采到收尾起点或停桨点)")
+        else:
+            d, ddx, ddy = dr
+            p("[落点] 收尾起点 ENU=(%+.2f,%+.2f) → 停桨点 ENU=(%+.2f,%+.2f)"
+              % (self.ending_pos[0], self.ending_pos[1],
+                 self.stop_pos[0], self.stop_pos[1]))
+            p("[落点] **实测**着陆漂移 = %.2f m（Δx=%+.2f Δy=%+.2f）"
+              "   全程最大水平位移 = %.1f m" % (d, ddx, ddy, self.max_h_disp))
         p("")
-        p("--- 时间序列（CSV 格式 · 制导段 %g Hz / 其余段 %g Hz · 共 %d 行）---"
-          % (self.report_hz, REPORT_SLOW_HZ, len(self.report_rows)))
+        p("--- 时间序列（CSV 格式 · 共 %d 行）---" % len(self.report_rows))
         p("# 时间列口径：t_wall=墙钟秒（全程单调，收尾段只有它能区分各步）；"
           "t_rel=制导相对秒（GUIDED 结束后冻结）")
+        p("# 指令列口径：state=GUIDED 时是**制导核输出**（含 mode/t_go/Vc/R_est）；"
+          "其余段 mode/t_go/Vc/R_est 留空，ax/ay/az/a_norm 是**本节点实际下发的加速度**")
+        p("# 三档采样：GUIDED=%g Hz（交会段只有约 0.5 s，必须密）；"
+          "SETTLE/CRUISE/BRAKE=%g Hz；起飞爬升/降落停桨=%g Hz"
+          % (self.report_hz, REPORT_MID_HZ, REPORT_SLOW_HZ))
         # ⚠ 用**逗号**分隔而不是空格：空字段（未进制导段时 mode/t_go/R_true… 都为空）
         #   在空格分隔下会**塌成 0 个 token** ⇒ 列错位、没法解析。
         #   逗号分隔后空字段是"两个逗号之间什么都没有"，列数恒定、可直接当 CSV 喂脚本。
@@ -1606,6 +1761,10 @@ class PhaseBGuidance(Node):
         p("着陆 = landed:%s  disarmed:%s  软着陆:%s"
           % (self.landed, self.disarmed,
              {None: "未判", True: "是", False: "否(离地过高)"}[self.soft_landing]))
+        if dr is not None:
+            p("着陆漂移(实测) = %.2f m   全程最大水平位移 = %.1f m" % (dr[0], self.max_h_disp))
+        p("控制回路最大间隔 = %.0f ms  (空洞 %d 次)"
+          % (self.loop_gap_max * 1000.0, len(self.loop_gaps)))
         if self.aborted:
             p("异常 = ABORT: %s" % self.abort_reason)
         p("")

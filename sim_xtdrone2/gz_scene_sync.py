@@ -253,11 +253,12 @@ class GzScene:
 
         self._lock = threading.Lock()
         self._pending = None            # 待写入的弹丸位置（ENU）
+        self._actions = []              # ★ 待执行的"一次性绘制"动作（非阻塞队列）
         self._thread = None
         self._running = False
         self._warned = False            # 只对"发不出去"告警一次，不刷屏
         self._created = set()           # 已创建的实体名
-        self.stats = {"set_pose": 0, "failed": 0}
+        self.stats = {"set_pose": 0, "failed": 0, "actions": 0}
 
         if _GZ_IMPORT_ERROR is not None:
             self._log(f"⚠ 无法 import gz 的 Python 绑定（{_GZ_IMPORT_ERROR}）"
@@ -367,6 +368,60 @@ class GzScene:
             self._pending = (float(p[0]), float(p[1]), float(p[2]), float(yaw))
 
     # ---------------------------------------------------------------- 轨迹
+    # ★★ 非阻塞队列（2026-10-16 实飞踩到）
+    #   背景：`draw_trail` / `mark_point` / `hide_projectile` 都是**阻塞**服务调用，
+    #         超时就 500 ms（`timeout_ms`）。实飞日志实测 `gz_finish` 里两次调用
+    #         **各花 0.50 s ⇒ 主回路被卡了整整 1.0 s**：
+    #             624.414 已画弹丸轨迹 / 624.914 已标记命中点（差 0.50 s）
+    #         而这 1 s 内 50 Hz 的加速度 setpoint **一条都没发出去**，
+    #         正好落在命中瞬间 ⇒ 违反本项目"可视化绝不允许影响制导回路"的硬规矩。
+    #   ⇒ 收尾绘制一律走 `queue_*`：主回路只入队（微秒级），后台线程负责真正发送。
+    def _enqueue(self, kind: str, payload) -> bool:
+        """把一个一次性绘制动作排进后台队列（**立即返回**，不阻塞调用者）。"""
+        if not self.available:
+            return False
+        with self._lock:
+            self._actions.append((kind, payload))
+        return True
+
+    def queue_trail(self, points, ns: str = TRAIL_NS, width: float = 0.04,
+                    color=(1.0, 0.35, 0.05)) -> bool:
+        """非阻塞版 `draw_trail`。"""
+        pts = [(float(p[0]), float(p[1]), float(p[2]))
+               for p in points if p is not None]
+        if len(pts) < 2:
+            return False
+        return self._enqueue("trail", (pts, ns, float(width), tuple(color)))
+
+    def queue_mark(self, p, ns: str = "pilot_mark", mid: int = 0,
+                   size: float = 0.5, color=(1.0, 1.0, 0.0),
+                   ttl_ms: int = 8000) -> bool:
+        """非阻塞版 `mark_point`。"""
+        return self._enqueue("mark", ((float(p[0]), float(p[1]), float(p[2])),
+                                      ns, int(mid), float(size), tuple(color),
+                                      int(ttl_ms)))
+
+    def queue_hide_projectile(self) -> bool:
+        """非阻塞版 `hide_projectile`。"""
+        return self._enqueue("hide", None)
+
+    def queue_clear_trail(self) -> bool:
+        """非阻塞版 `clear_trail`。"""
+        return self._enqueue("clear_trail", None)
+
+    def _run_action(self, kind: str, payload) -> None:
+        if kind == "trail":
+            pts, ns, width, color = payload
+            self.draw_trail(pts, ns=ns, width=width, color=color)
+        elif kind == "mark":
+            p, ns, mid, size, color, ttl = payload
+            self.mark_point(p, ns=ns, mid=mid, size=size, color=color, ttl_ms=ttl)
+        elif kind == "hide":
+            self.hide_projectile()
+        elif kind == "clear_trail":
+            self.clear_trail()
+        self.stats["actions"] += 1
+
     def draw_trail(self, points, ns: str = TRAIL_NS, width: float = 0.04,
                    color=(1.0, 0.35, 0.05)) -> bool:
         """把一串点画成折线（LINE_STRIP marker）。失败静默（只是装饰）。"""
@@ -439,8 +494,17 @@ class GzScene:
             with self._lock:
                 pend = self._pending
                 self._pending = None
+                # 每周期最多取几个动作：服务调用可能各花 100~500 ms，
+                # 取太多会让弹丸位置同步饿死（位置同步是"看起来连不连贯"的关键）
+                acts = self._actions[:4]
+                del self._actions[:len(acts)]
             if pend is not None:
                 self._do_set_pose(PROJECTILE_NAME, pend[:3], pend[3])
+            for kind, payload in acts:
+                try:
+                    self._run_action(kind, payload)
+                except Exception:                      # noqa: BLE001
+                    self.stats["failed"] += 1
             rest = dt - (time.monotonic() - t0)
             if rest > 0:
                 time.sleep(rest)

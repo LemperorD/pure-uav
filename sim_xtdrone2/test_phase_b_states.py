@@ -698,6 +698,73 @@ def main():
             break
     check(n3.hit, f"★ 可视化后端**全程抛异常**时制导仍命中（最近 {n3.min_R:.3f} m）")
     check(n3.state in ("LAND", "DONE"), "收尾流程仍然走完（异常未扩散）")
+
+    # ★★ 零阻塞断言（2026-10-16 实飞事故回归）：gz_finish 必须只**入队**，
+    #    绝不能在主回路里直接调阻塞的 draw_trail/mark_point/hide_projectile。
+    #    实飞证据：那两次调用各花 0.50 s ⇒ 主回路卡 1.0 s（命中瞬间没有 setpoint）。
+    class _RecordingGz:
+        """记录"哪些方法被调用了"，并把阻塞调用做得**明显很慢**。"""
+
+        available = True
+
+        def __init__(self):
+            self.queued = []
+            self.blocking_calls = []
+
+        def start(self):
+            return self
+
+        def ensure_tower(self, *a, **k):
+            return True
+
+        def ensure_launcher(self, *a, **k):
+            return True
+
+        def ensure_projectile(self):
+            return True
+
+        def set_projectile(self, *a, **k):
+            pass
+
+        def queue_trail(self, pts, **k):
+            self.queued.append(("trail", len(pts)))
+
+        def queue_mark(self, p, **k):
+            self.queued.append(("mark", tuple(p)))
+
+        def queue_hide_projectile(self):
+            self.queued.append(("hide", None))
+
+        # —— 以下都是阻塞 API：一旦被主回路调用就是 bug ——
+        def draw_trail(self, *a, **k):
+            self.blocking_calls.append("draw_trail")
+            raise AssertionError("gz_finish 不该在主回路里调 draw_trail（会阻塞）")
+
+        def mark_point(self, *a, **k):
+            self.blocking_calls.append("mark_point")
+            raise AssertionError("gz_finish 不该在主回路里调 mark_point（会阻塞）")
+
+        def hide_projectile(self):
+            self.blocking_calls.append("hide_projectile")
+            raise AssertionError("gz_finish 不该在主回路里调 hide_projectile（会阻塞）")
+
+        def close(self):
+            pass
+
+    rec = _RecordingGz()
+    n4 = new_node(lib, gz_viz=True, gz_trail=True)
+    n4.gz = rec
+    n4.gz_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.2), (2.0, 0.0, 8.4)]   # 伪造一段弹道
+    t0 = VT[0]
+    n4.gz_finish(hit=True)
+    dt = VT[0] - t0
+    check(dt == 0.0, f"gz_finish **零耗时**（虚拟时钟增量 {dt:.3f}s）")
+    check(not rec.blocking_calls,
+          f"gz_finish 没碰任何阻塞 API（实际 {rec.blocking_calls}）")
+    kinds = [k for k, _ in rec.queued]
+    check(kinds == ["trail", "mark", "hide"],
+          f"轨迹/命中标记/隐藏弹丸都已入队（实际 {kinds}）")
+    n4.close()
     check(len(warns3) >= 1, f"至少给出一次告警（实际 {len(warns3)} 次，不静默）")
     n3.close()
 
@@ -1072,6 +1139,30 @@ def main():
         check(tag in txt, f"报告含小节 {tag}")
     check("最近距离 =" in txt and "命中 =" in txt, "报告含汇总（最近距离/命中）")
     check("结束原因 = " in txt, "报告含结束原因（命中/脱靶/超时/中止）")
+    # ★ 新增：控制回路健康 + 实测落点
+    check("[健康] 控制周期" in txt, "报告含 [健康]（控制周期最大间隔）")
+    check("[落点]" in txt and "**实测**着陆漂移" in txt,
+          "报告含 [落点]（**实测**着陆漂移，不是估算）")
+    check("控制回路最大间隔 =" in txt, "汇总含控制回路最大间隔")
+
+    # ★ 制导专属列在非 GUIDED 段必须**留空**（实飞踩到：收尾段一直打印命中瞬间的
+    #   退化值 t_go=410969.7493，看着像"数据"其实毫无意义）
+    import csv as _csv2
+    with open(path, newline="", encoding="utf-8") as f:
+        crows = list(_csv2.DictReader(f))
+    bad_stale = [r for r in crows
+                 if r["state"] != "GUIDED" and r.get("t_go", "") not in ("", None)
+                 and r["t_go"] != ""]
+    check(not bad_stale,
+          f"非 GUIDED 段不打印制导专属列（t_go/mode/Vc/R_est 留空；"
+          f"违例 {len(bad_stale)} 行）")
+    guided_rows = [r for r in crows if r["state"] == "GUIDED"
+                   and r.get("t_go", "") != ""]
+    check(bool(guided_rows), f"GUIDED 段照常打印制导列（{len(guided_rows)} 行）")
+    # 非 GUIDED 段的 a_norm 应该是**本节点实际下发的加速度**（刹车/稳定/巡航都有值）
+    nz_brake = [r for r in crows if r["state"] == "BRAKE" and r.get("a_norm", "") != ""]
+    print(f"  非制导段指令列改显『实际下发加速度』：BRAKE {len(nz_brake)} 行有值")
+    check(bool(nz_brake), "BRAKE 段显示实际下发的刹车指令（不再留空）")
     check("着陆 = landed:" in txt, "报告含着陆状态")
     check("t_wall=墙钟秒" in txt, "报告说明了时间列口径（t_wall vs t_rel）")
 
@@ -1111,30 +1202,39 @@ def main():
           f"报告序列段可被 csv 模块解析且列数恒定（{len(got)} 行 × {len(hdr)} 列）")
     check(len(rows) >= 5, f"报告有足够采样行（{len(rows)} 行）")
 
-    # ★ 低信息量段（起飞前爬升 / 降落收尾）降采样：行间隔应 ≥ ~1 s（与 report_hz 无关）
-    slow = [r for r in rows if r["state"] not in M.REPORT_FAST_STATES]
-    fast = [r for r in rows if r["state"] in M.REPORT_FAST_STATES]
-    gaps = []
-    try:
-        tw = [float(r["t_wall"]) for r in slow]
-        gaps = [b - a for a, b in zip(tw, tw[1:])]
-    except ValueError:
-        pass
-    check(bool(slow) and all(g >= 0.9 for g in gaps),
-          f"低信息量段按 1 Hz 降采样（{len(slow)} 行，最小间隔 "
-          f"{min(gaps) if gaps else float('nan'):.2f}s）")
-    # 制导相关段必须比低信息量段**密**（否则降采样把要看的东西也稀掉了）
+    # ★ 三档采样：GUIDED 密 / SETTLE,CRUISE,BRAKE 中 / 其余粗
+    def _tiers(rs):
+        fast = [r for r in rs if r["state"] in M.REPORT_FAST_STATES]
+        mid = [r for r in rs if r["state"] in M.REPORT_MID_STATES]
+        slow = [r for r in rs
+                if r["state"] not in M.REPORT_FAST_STATES
+                and r["state"] not in M.REPORT_MID_STATES]
+        return fast, mid, slow
+
+    def _mingap(rs):
+        try:
+            tw = [float(r["t_wall"]) for r in rs]
+        except ValueError:
+            return float("nan")
+        if len(tw) < 2:
+            return float("nan")
+        return min(b - a for a, b in zip(tw, tw[1:]))
+
+    fast, mid, slow = _tiers(rows)
+    print(f"  三档行数：GUIDED {len(fast)} / 中档 {len(mid)} / 低速 {len(slow)}；"
+          f"最小间隔 {_mingap(fast):.2f}s / {_mingap(mid):.2f}s / {_mingap(slow):.2f}s")
+    check(bool(slow) and _mingap(slow) >= 0.9,
+          f"低信息量段按 {M.REPORT_SLOW_HZ:g} Hz 降采样"
+          f"（{len(slow)} 行，最小间隔 {_mingap(slow):.2f}s）")
+    check(not mid or _mingap(mid) >= 1.0 / M.REPORT_MID_HZ - 0.02,
+          f"中档段按 {M.REPORT_MID_HZ:g} Hz（{len(mid)} 行，"
+          f"最小间隔 {_mingap(mid):.2f}s）")
+    # ★ 最关键：交会段(GUIDED)必须**比低信息量段密得多**（实飞踩过：10 Hz 只剩 4 行）
     if len(fast) >= 3:
-        fw = [float(r["t_wall"]) for r in fast]
-        fgap = min(b - a for a, b in zip(fw, fw[1:]))
-        print(f"  制导段 {len(fast)} 行（最小间隔 {fgap:.2f}s）；"
-              f"低信息量段 {len(slow)} 行（最小间隔 "
-              f"{min(gaps) if gaps else float('nan'):.2f}s）")
-        check(fgap < 0.9,
-              f"制导段仍保持 report_hz 密度（最小间隔 {fgap:.2f}s < 0.9）")
+        check(_mingap(fast) < 0.9 * _mingap(slow) or _mingap(fast) < 0.03,
+              f"交会段保持高密度（最小间隔 {_mingap(fast):.3f}s）")
     # 报告总行数不能因爬升/降落而爆炸
-    check(len(rows) <= 120,
-          f"报告总行数受控（{len(rows)} 行 ≤ 120）")
+    check(len(rows) <= 200, f"报告总行数受控（{len(rows)} 行 ≤ 200）")
     # 提高 report_hz 不应让收尾段变长（证明降采样独立生效）
     nz2 = new_node(lib, csv=os.path.join(tempfile.gettempdir(), "sm_rep50.csv"),
                    csv_hz=10.0, report_hz=50.0, no_report=False)
@@ -1151,11 +1251,13 @@ def main():
         nz2.print_report()
     _, rows50 = parse_rows(buf3.getvalue())
     nz2.close()
-    slow50 = [r for r in rows50 if r["state"] not in M.REPORT_FAST_STATES]
-    print(f"  report_hz 10 ⇒ 低信息量段 {len(slow)} 行；report_hz 50 ⇒ {len(slow50)} 行"
+    slow50 = [r for r in rows50
+              if r["state"] not in M.REPORT_FAST_STATES
+              and r["state"] not in M.REPORT_MID_STATES]
+    print(f"  --report-hz 10 ⇒ 低速段 {len(slow)} 行；--report-hz 50 ⇒ {len(slow50)} 行"
           f"（应基本相同）")
     check(abs(len(slow50) - len(slow)) <= 2,
-          f"低信息量段行数不随 --report-hz 放大（{len(slow50)} vs {len(slow)}）")
+          f"低速段行数不随 --report-hz 放大（{len(slow50)} vs {len(slow)}）")
     # ⚠ 报告行不含 ROS logger 前缀（否则复制出来是噪声）
     check("[INFO]" not in txt, "报告块**不带** ROS 日志前缀（可直接复制）")
     # --no-report 时必须完全不打印
@@ -1166,6 +1268,40 @@ def main():
         nq.print_report()
     check(buf2.getvalue() == "", "--no-report ⇒ 不打印任何内容")
     nq.close()
+
+    # ---------------------------------------------------------------- 用例 13
+    print()
+    print("=" * 74)
+    print("用例 13：控制回路空洞监测（复现实飞 gz_finish 卡 1 s 的事故）")
+    print("=" * 74)
+    ng = new_node(lib, csv=os.path.join(tempfile.gettempdir(), "sm_gap.csv"))
+    fg = FakePX4(ng)
+    drive_to_guided(ng, fg)
+    check(ng.loop_gap_max < M.LOOP_GAP_WARN,
+          f"正常 tick 间隔 < {M.LOOP_GAP_WARN * 1000:.0f} ms"
+          f"（实测最大 {ng.loop_gap_max * 1000:.1f} ms）")
+    check(not ng.loop_gaps, f"正常运行时没有空洞记录（实际 {len(ng.loop_gaps)} 条）")
+    # 模拟"主回路被阻塞 0.5 s"（等价于一次 timeout=500ms 的 gz 服务调用）
+    VT[0] += 0.5
+    ng.tick()
+    check(len(ng.loop_gaps) == 1,
+          f"0.5 s 空洞被检出（实际 {len(ng.loop_gaps)} 条）")
+    if ng.loop_gaps:
+        tw, gp, st = ng.loop_gaps[0]
+        check(abs(gp - 0.52) < 0.03,
+              f"空洞时长记录正确（{gp:.3f}s；0.5 s 人为空洞 + 上一拍残留 0.02 s）")
+        check(st == ng.state, f"空洞状态记录正确（{st}）")
+    check(abs(ng.loop_gap_max - 0.52) < 0.03,
+          f"最大间隔已更新（{ng.loop_gap_max:.3f}s）")
+    check(any("控制回路空洞" in m for _, m in ng.logger.lines),
+          "空洞发生时**当场告警**（不静默）")
+    # 再来一次更大的空洞（等价于连续两次 500ms 调用 = 实飞的 gz_finish）
+    VT[0] += 1.0
+    ng.tick()
+    check(len(ng.loop_gaps) == 2, f"第二次空洞也被记录（{len(ng.loop_gaps)} 条）")
+    check(abs(ng.loop_gap_max - 1.0) < 0.02,
+          f"最大间隔更新到 1.0 s（{ng.loop_gap_max:.3f}s）")
+    ng.close()
 
     # ---------------------------------------------------------------- 汇总
     print()
