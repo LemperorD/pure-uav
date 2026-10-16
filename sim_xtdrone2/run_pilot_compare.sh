@@ -13,6 +13,11 @@
 #     1) 仿真已在另一个终端跑起来（见 README.md §1）
 #     2) 制导核已编译：bash build_guidance_shim.sh（只需要一次）
 #
+#   ★ Gazebo 可视化默认开启（--gz-viz --gz-trail）：在 GUI 里能看见防御塔、
+#      弹丸飞向塔、被拦截的瞬间、以及事后画出的弹道线。
+#      可视化**接不上 Gazebo 会自动降级**（只警告不报错），不影响制导结果。
+#      不想要画面时加 --no-gz-viz。
+#
 #   ★★ 默认在每个 law 之间**暂停**，等你重启仿真后再继续 ★★
 #      原因：跑完一个 law 后节点会 LAND + DISARM，无人机停在**拦截点附近**而非原点。
 #      紧接着跑下一个 law，无人机就从那里起飞 ⇒
@@ -22,23 +27,26 @@
 #      重启仿真 = 在跑 launch 的那个终端里 Ctrl-C，再重跑 launch，约 20 s。
 #
 #   用法：
-#     bash run_pilot_compare.sh              # 默认 PPN(0) + APN(2)，中间暂停等重启
+#     bash run_pilot_compare.sh              # 默认 PPN(0) + APN(2)，带画面，中间暂停等重启
 #     bash run_pilot_compare.sh 0            # 只跑 PPN
 #     bash run_pilot_compare.sh 0 2 1        # 自定义序列（0=PPN 1=TPN 2=APN）
 #     bash run_pilot_compare.sh --no-pause 0 2   # 不暂停（几何会漂移，仅用于快速冒烟）
+#     bash run_pilot_compare.sh --no-gz-viz 0 2  # 关掉 Gazebo 可视化（纯控制台）
 #
 #   产物：phase_b_pilot_law<k>.csv（每个 law 一份）
 # ---------------------------------------------------------------------------
 set -e
 
-# ---- 解析参数：可选 --no-pause，其余当作 law 列表 ----
+# ---- 解析参数：可选 --no-pause / --no-gz-viz，其余当作 law 列表 ----
 # （放在 source ROS 之前，这样 --help 在没有 ROS 的机器上也能用）
 PAUSE=1
+GZVIZ=1
 LAWS=()
 for a in "$@"; do
     case "$a" in
         --no-pause) PAUSE=0 ;;
-        -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+        --no-gz-viz) GZVIZ=0 ;;
+        -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
         *) LAWS+=("$a") ;;
     esac
 done
@@ -68,6 +76,12 @@ PILOT_ARGS=(
     --cruise-x=-4
 )
 
+# Gazebo 可视化（在 GUI 里看见弹丸飞向塔 / 被拦截）
+#   失败自动降级（不接 Gazebo 也能跑，只是看不到画面），不影响制导结果
+if [ "$GZVIZ" -eq 1 ]; then
+    PILOT_ARGS+=(--gz-viz --gz-trail)
+fi
+
 law_name() {
     case "$1" in
         0) echo "PPN" ;;
@@ -83,6 +97,7 @@ echo "  场景：无人机 8 m 高 · 5 m/s 迎击 · 飞到 x=−4 发射"
 echo "        弹丸 (−14,0,10) 14 m/s 俯角 6° → 塔（原点）"
 echo "  序列：$(for l in "${LAWS[@]}"; do printf '%s ' "$(law_name "$l")"; done)"
 echo "  间隔暂停：$([ $PAUSE -eq 1 ] && echo '开（推荐，需手动重启仿真）' || echo '关')"
+echo "  Gazebo 可视化：$([ $GZVIZ -eq 1 ] && echo '开（塔 + 弹丸 + 轨迹）' || echo '关')"
 echo "=============================================================="
 echo
 

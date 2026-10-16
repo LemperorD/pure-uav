@@ -155,6 +155,17 @@ MIN_ALTITUDE = 3.0                 # 安全围栏
 MAX_H_DISP = 25.0
 GUIDED_TIMEOUT = 8.0               # GUIDED 段超时（s，按目标相对时间）
 CRUISE_TIMEOUT = 8.0               # 巡航/预加速段超时（s，墙钟）
+ALT_ADJ_A_MAX = 3.0                # SETTLE 段垂直调整的最大加速度 (m/s²)
+ALT_SETTLE_TOL = 0.35              # 高度到位容差 (m)
+ALT_SETTLE_VTOL = 0.30             # 高度到位时的垂直速度容差 (m/s)
+ALT_SETTLE_TIMEOUT = 8.0           # 高度调整等待上限 (s)
+SETTLE_KP = 1.0                    # SETTLE 段水平位置增益 (1/s²)
+SETTLE_KD = 2.0                    # SETTLE 段水平速度阻尼 (1/s)
+SETTLE_XY_TOL = 0.25               # SETTLE 水平位置到位容差 (m)
+SETTLE_XY_VTOL = 0.20              # SETTLE 水平速度到位容差 (m/s)
+BRAKE_KD = 2.0                     # 着陆前刹车增益 (1/s)
+BRAKE_VTOL = 0.30                  # 刹车完成判据：|v_h| ≤ 此值 (m/s)
+BRAKE_TIMEOUT = 5.0                # 刹车段超时 (s)
 
 # 制导核的 mode 枚举（同 guidance_types.hpp）
 GMODE_PN, GMODE_APN, GMODE_HOLD, GMODE_SEARCH = 0, 1, 2, 3
@@ -280,6 +291,17 @@ class PhaseBGuidance(Node):
         self.cruise_x = args.cruise_x          # None = 速度达标即发射（旧行为）
         self.v_kp = args.v_kp                  # 巡航段速度保持增益
         self.cruise_timeout = args.cruise_timeout
+        # SETTLE 段水平稳定目标点（ENU）。"none"/"off" ⇒ 只做速度阻尼、不收敛位置
+        _sxy = str(args.settle_xy).strip().lower()
+        if _sxy in ("none", "off", "no", ""):
+            self.settle_xy = None
+        else:
+            _p = [float(x) for x in _sxy.replace(" ", "").split(",")]
+            if len(_p) != 2:
+                raise SystemExit(f"--settle-xy 需要 2 个分量（x,y）或 none：{args.settle_xy!r}")
+            self.settle_xy = (_p[0], _p[1])
+        self.settle_kp = args.settle_kp
+        self.settle_kd = args.settle_kd
         self.target_height = args.target_height
         self.rate = args.rate
 
@@ -296,6 +318,19 @@ class PhaseBGuidance(Node):
         self.lib_path = lib_path
         self.t_flight = self.lib.pgu_target_flight_time(self.guide)
         self.t_hits_ground = bool(self.lib.pgu_target_hits_ground(self.guide))
+
+        # ---- Gazebo 可视化（可选） ----
+        # ⚠ 只做"取数 + 摆位置"，不含算法；接不上 Gazebo 时自动降级，不报错。
+        self.gz = None
+        self.gz_trail = []
+        self.gz_tower_r = 1.2      # 与 scene_model.preset_pilot / 制导讲义一致
+        self.gz_tower_h = 3.0
+        if args.gz_viz:
+            try:
+                from gz_scene_sync import GzScene
+                self.gz = GzScene(world=args.gz_world, hz=args.gz_hz)
+            except Exception as e:                      # noqa: BLE001
+                self.warn(f"⚠ 加载 gz_scene_sync 失败（{e}）⇒ 跳过 Gazebo 可视化")
 
         # 制导核 I/O 缓冲
         self.gcmd = darr([0.0] * 19)
@@ -314,6 +349,9 @@ class PhaseBGuidance(Node):
         self.alt_kp = args.alt_kp
         self.alt_kd = args.alt_kd
         self.csv_path = args.csv
+        self.csv_hz = max(float(getattr(args, "csv_hz", 10.0) or 10.0), 0.1)
+        self.csv_period = 1.0 / self.csv_hz      # CSV 采样间隔（s）；默认 0.1 s
+        self.last_csv_t = -1e9                    # 上一次写 CSV 的墙钟（monotonic）
 
         # ---- 遥测 ----
         self.pos = None                # VehicleLocalPosition（NED）
@@ -371,7 +409,10 @@ class PhaseBGuidance(Node):
         self.land_stable_t = None
         self.disarm_t0 = 0.0
         self.force_disarm_sent = False
-        self.landing_phase = False            # True 时改发 cmd_vel_ned
+        self.ending = False                   # 收尾流程已启动（BRAKE/LAND/DISARM 全算）
+        self.landing_phase = False            # True 时改发 cmd_vel_ned（刹车段仍为 False）
+        self.brake_t0 = 0.0
+        self.soft_landing = None              # 停桨时是否"软着陆"（None=未判）
         self.off_ground_warned = False
 
         # ---- 接口 ----
@@ -413,6 +454,8 @@ class PhaseBGuidance(Node):
                 "lam_dot", "Vc", "R_est",
                 "px4_x", "px4_y", "px4_z", "px4_vx", "px4_vy", "px4_vz", "heading",
                 "enu_x", "enu_y", "enu_z", "enu_vx", "enu_vy", "enu_vz",
+                "roll_deg", "pitch_deg", "yaw_deg",
+                "q_w", "q_x", "q_y", "q_z",
                 "tgt_x", "tgt_y", "tgt_z", "tgt_vx", "tgt_vy", "tgt_vz",
                 "R_true", "sensor_valid",
                 "nav_state", "arming_state",
@@ -443,14 +486,23 @@ class PhaseBGuidance(Node):
                  f"t_go_freeze={self.args.t_go_freeze}   指令率 {self.rate:.0f} Hz")
         self.log(f"  预加速: {'ON' if self.cruise_on else 'OFF'}"
                  f"（朝 {self.boost_dir}，a={self.a_boost} m/s² 至 |v|≥{self.v_boost_min} m/s）")
+        xy_txt = "不收敛位置（仅速度阻尼）" if self.settle_xy is None \
+            else f"收敛到 ENU({self.settle_xy[0]:g},{self.settle_xy[1]:g})"
+        self.log(f"  稳定段: 高度→{self.target_height:.1f} m；水平 {xy_txt}"
+                 f"；横向保持={'ON' if self.args.cruise_lat_hold else 'OFF'}")
         self.log(f"  命中判定: R_true < {self.hit_radius} m")
+        self.log(f"  Gazebo 可视化: {'ON（塔 + 弹丸 + ' + ('轨迹线' if self.args.gz_trail else '无轨迹线') + '）' if self.args.gz_viz else 'OFF'}"
+                 + (f"  world={self.args.gz_world} @ {self.args.gz_hz:.0f} Hz" if self.args.gz_viz else ""))
         self.log("  符号约定: 日志里的 alt / 上升率 一律**上为正**；"
                  "CSV 同时给 px4_*(NED, z 向下为正) 与 enu_*(ENU, z 向上为正) 两套")
         self.log(f"  垂直保持辅助(非制导段): {'ON' if self.alt_hold else 'OFF'}（kp={self.alt_kp}, kd={self.alt_kd}）")
         self.log(f"  收尾: {'自动 LAND + 停桨' if self.auto_land else '不自动降落'} "
                  f"(land_timeout={self.land_timeout:.0f}s, 强制停桨兜底="
                  f"{'ON' if self.force_disarm_ok else 'OFF'})  Ctrl-C 一次=降落收尾，两次=强制退出")
-        self.log(f"  CSV={os.path.abspath(self.csv_path) if self.csv_path else '(关闭)'}")
+        self.log(f"  CSV={os.path.abspath(self.csv_path) if self.csv_path else '(关闭)'}"
+                 + (f"（采样 {self.csv_period * 1000:.0f} ms / {self.csv_hz:g} Hz，"
+                    f"列含 px4_*(NED) / enu_*(ENU) / roll,pitch,yaw(deg)+quaternion）"
+                    if self.csv_path else ""))
         self.log(bar)
 
     def now_us(self):
@@ -481,6 +533,31 @@ class PhaseBGuidance(Node):
             return None
         p = self.odom.pose.pose.position
         return (p.x, p.y, p.z)
+
+    def odom_att(self):
+        """从 /odometry 解 ENU 姿态：返回 (roll, pitch, yaw, q) 或 None。
+
+        - 四元数分量顺序 [w,x,y,z]（gz.msgs / nav_msgs/Odometry 都是**具名字段**，
+          按名访问，与顺序无关；与 PX4 uORB / MAVLink 的顺序也一致）。
+        - ENU：z 朝上 ⇒ yaw=0 朝东(+x)、yaw=+90° 朝北(+y)，与 `--target-azim`
+          同一口径（"方位角从 +x 逆时针"）。
+        - ⚠ NED 的 vehicle_local_position 只有 heading、没有 roll/pitch ⇒ 姿态
+          **只能**来自 Odometry（ENU 真值）。不自己发假值。
+        """
+        if self.odom is None:
+            return None
+        q = self.odom.pose.pose.orientation
+        w, x, y, z = q.w, q.x, q.y, q.z
+        if w * w + x * x + y * y + z * z < 1e-9:
+            return None
+        # ZYX 欧拉角（yaw-pitch-roll）标准式
+        sinp = 2.0 * (w * y - z * x)
+        sinp = max(-1.0, min(1.0, sinp))
+        roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+        pitch = math.asin(sinp)
+        yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        return (math.degrees(roll), math.degrees(pitch), math.degrees(yaw),
+                (w, x, y, z))
 
     # ------------------------------------------------ PX4 状态量 → ENU
     def state_enu(self):
@@ -616,8 +693,9 @@ class PhaseBGuidance(Node):
         self.poll_service(now)
 
         # ---------------- Ctrl-C 收尾请求 ----------------
-        if self.force_exit_requested and self.state != "DONE" \
-                and not self.landing_phase:
+        # ⚠ 用 `ending` 而不是 `landing_phase` —— BRAKE 段还没进 landing_phase，
+        #   若用它判断，第二次 Ctrl-C 会重复触发收尾。
+        if self.force_exit_requested and self.state != "DONE" and not self.ending:
             self.request_landing("Ctrl-C")
 
         # ---------------- 状态机 ----------------
@@ -709,12 +787,62 @@ class PhaseBGuidance(Node):
                     return
 
         elif self.state == "SETTLE":
+            # ★ 关键 1：把高度**主动调到** --target-height
+            #   原因：XTDrone2 的 TAKEOFF 把高度写死成 10 m
+            #     （multirotor_communication.py:320 `param7=10.0`），
+            #   我们的 --target-height 控制不了 PX4 爬多高 ⇒ 必须在这里补一次垂直调整。
+            #
+            # ★ 关键 2：**横向也要稳**（2026-10-16 实飞踩到）
+            #   accel-only 是纯前馈无阻尼（坑 1）：起飞残留的水平速度进 OFFBOARD 后
+            #   **永不衰减**。原先 SETTLE 只控垂直 ⇒ 横向一路漂（实测 PPN 发射时
+            #   ENU y=-0.99 m、APN 起点 x=+2.39 m，都偏离走廊）⇒ 横向偏差直接吃掉
+            #   "½·a_max·t_go² ≈ 1.25 m" 的全部修正预算 ⇒ PPN 脱靶。
+            #   ⇒ 这里把水平位置**收敛到 --settle-xy**（默认 0,0，即塔的正上方走廊）。
+            alt = -self.pos.z if self.pos is not None else None
+            v_z_up = 0.0
+            a = [0.0, 0.0, 0.0]
+            xy_err = None
+            v_h = 0.0
+            if alt is not None:
+                p_enu, v_enu = self.state_enu()
+                v_z_up = v_enu[2]
+                if self.alt_hold:
+                    a[2] = self.alt_kp * (self.target_height - alt) - self.alt_kd * v_z_up
+                    a[2] = max(-ALT_ADJ_A_MAX, min(ALT_ADJ_A_MAX, a[2]))
+                if self.settle_xy is not None:
+                    sx, sy = self.settle_xy
+                    a[0] = (self.settle_kp * (sx - p_enu[0]) - self.settle_kd * v_enu[0])
+                    a[1] = (self.settle_kp * (sy - p_enu[1]) - self.settle_kd * v_enu[1])
+                    a[0] = max(-ALT_ADJ_A_MAX, min(ALT_ADJ_A_MAX, a[0]))
+                    a[1] = max(-ALT_ADJ_A_MAX, min(ALT_ADJ_A_MAX, a[1]))
+                    xy_err = math.hypot(p_enu[0] - sx, p_enu[1] - sy)
+                    v_h = math.hypot(v_enu[0], v_enu[1])
+            self.cur_a_enu = tuple(a)
             self.publish_a()
-            if now - self.t_state >= 0.5:
-                self.log("[5/6] 稳定完毕 → 进入预加速" if self.cruise_on
-                         else "[5/6] 稳定完毕 → 直接开始制导（--no-cruise）")
+
+            # --no-alt-hold 时退回旧行为：只等固定 0.5 s，不做任何调整
+            settled = (not self.alt_hold) or (
+                alt is not None
+                and abs(alt - self.target_height) <= self.args.alt_settle_tol
+                and abs(v_z_up) <= self.args.alt_settle_vtol
+                and (xy_err is None
+                     or (xy_err <= self.args.settle_xy_tol
+                         and v_h <= self.args.settle_xy_vtol)))
+            if (settled and now - self.t_state >= 0.5) \
+                    or (now - self.t_state >= self.args.alt_settle_timeout):
+                if alt is not None:
+                    xy_txt = "" if xy_err is None else f"，水平偏差 {xy_err:.2f} m"
+                    if settled:
+                        self.log(f"[5/6] 稳定到位：alt={alt:.2f} m（目标 "
+                                 f"{self.target_height:.1f} m）{xy_txt}")
+                    else:
+                        self.warn(f"[5/6] ⚠ 未完全稳定（alt={alt:.2f} m / 目标 "
+                                  f"{self.target_height:.1f} m{xy_txt}）——"
+                                  f"已等 {self.args.alt_settle_timeout:.0f}s，继续")
+                self.alt_target = self.target_height   # 之后 alt_hold 维持这个高度
                 self.start_x = self.pos.x
                 self.start_y = self.pos.y
+                self.gz_setup()          # 摆塔 / 发射架 / 弹丸（--gz-viz 才动作）
                 if self.cruise_on:
                     self.check_cruise_geometry()
                     self.state = "CRUISE"
@@ -737,6 +865,43 @@ class PhaseBGuidance(Node):
         elif self.state == "GUIDED":
             self.do_guided(now)
             self.check_safety()
+
+        elif self.state == "BRAKE":
+            # 着陆前刹车：水平按 −kd·v_h 减速；垂直保持目标高度（仍在 OFFBOARD，可以发 accel）
+            if self.pos is None:
+                return
+            p_enu, v_enu = self.state_enu()
+            vh = math.hypot(v_enu[0], v_enu[1])
+            alt = p_enu[2]
+            a = [-self.args.brake_kd * v_enu[0],
+                 -self.args.brake_kd * v_enu[1],
+                 self.alt_kp * (self.target_height - alt) - self.alt_kd * v_enu[2]]
+            # 矢量等比限幅（铁律 2：禁止逐分量 clip）
+            na = math.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2)
+            if na > self.args.a_max and na > 1e-9:
+                k = self.args.a_max / na
+                a = [x * k for x in a]
+            self.cur_a_enu = tuple(a)
+            self.publish_a()
+
+            done = vh <= self.args.brake_vtol
+            timed_out = now - self.brake_t0 > self.args.brake_timeout
+            if done or timed_out:
+                if done:
+                    self.log(f"   ✓ 刹车完成：|v_h|={vh:.2f} m/s"
+                             f"（耗时 {now - self.brake_t0:.2f}s，"
+                             f"残余漂移 ≈ {vh**2 / (2 * 2.0):.2f} m）")
+                else:
+                    self.warn(f"   ⚠ 刹车超时（{self.args.brake_timeout:.0f}s）："
+                              f"|v_h|={vh:.2f} m/s —— 继续 LAND（会漂更多）")
+                self.log("→ 转入自动降落：LAND（AUTO_LAND 下降 + cmd_vel_ned）"
+                         "→ 落地后 DISARM 停桨。")
+                self.landing_phase = True
+                self.alt_hold = False
+                self.state = "LAND"
+                self.t_state = now
+                self.land_t0 = now
+                self.last_land_cmd = 0.0
 
         elif self.state == "LAND":
             self.publish_descend_vel()
@@ -767,7 +932,21 @@ class PhaseBGuidance(Node):
             else:
                 self.land_stable_t = None
             if self.arming_state == ARMING_STATE_DISARMED:
-                self.log(f"✓ 已停桨（PX4 自动，alt={alt if alt is None else round(alt, 2)} m）")
+                # ★ PX4 自己停的桨 —— 必须检查**高度**（2026-10-16 实飞踩到）
+                #   实飞 APN 那次在 **alt=0.73 m** 就报"✓ 已停桨（PX4 自动）"，
+                #   而 0.73 m 掉下来是**硬摔**，不是正常落地。原代码只看 + 号就打了 ✓。
+                alt_s = "?" if alt is None else f"{alt:.2f}"
+                if alt is not None and alt > LANDED_ALT + 0.15:
+                    self.warn(f"⚠ PX4 在我们的落地判据之外就停桨了：alt={alt_s} m "
+                              f"（判据要求 ≤{LANDED_ALT} m）")
+                    self.warn(f"   ⇒ 无人机是从 {alt_s} m **掉下来**的，不是落下来的；"
+                              f"真实机上可能摔坏桨/起落架。")
+                    self.warn("   可能原因：PX4 落地检测提前触发（LNDMC_* 参数、"
+                              "高度估计漂移、或下降速度太慢被误判为静止）。")
+                    self.soft_landing = False
+                else:
+                    self.log(f"✓ 已停桨（PX4 自动，alt={alt_s} m）")
+                    self.soft_landing = True
                 self.disarmed = True
                 self.state = "DONE"
                 self.done_t = now
@@ -828,6 +1007,7 @@ class PhaseBGuidance(Node):
         elif self.state == "DONE":
             if not self._exit_logged and now - self.done_t > self.linger:
                 self._exit_logged = True
+                self.log_row(force=True)      # 收尾补最后一行（绕过 0.1s 采样节流）
                 if self.disarmed:
                     self.log("收尾完成：已落地并停桨。节点退出。")
                 elif self.landed:
@@ -840,6 +1020,68 @@ class PhaseBGuidance(Node):
         self.log_row()
 
     # ---------------------------------------------------------------- 段
+    # ------------------------------------------------- Gazebo 可视化（可选）
+    def gz_setup(self):
+        """在 Gazebo 里摆好防御塔 + 敌方发射架 + 弹丸（弹丸先藏在视野外）。
+
+        ⚠ 只在 `--gz-viz` 且成功接上 Gazebo 时才有动作；任何失败都只警告不中断
+          （可视化是"锦上添花"，绝不能因为它挂掉而影响制导回路）。
+        """
+        if self.gz is None or not self.gz.available:
+            if self.gz is not None:
+                self.warn("⚠ Gazebo 可视化不可用（见上面的原因）—— 继续纯控制台运行")
+            return False
+        # ⚠ 全程 try/except：可视化是"锦上添花"，**任何**异常都不得中断制导回路
+        try:
+            self.gz.start()
+            ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
+            self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
+            ok_p = self.gz.ensure_projectile()
+        except Exception as e:                          # noqa: BLE001
+            self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
+            self.gz = None
+            return False
+        if ok_t and ok_p:
+            self.log(f"  ── Gazebo 可视化已就绪：防御塔 r={self.gz_tower_r} m / "
+                     f"h={self.gz_tower_h} m @ 原点；敌方发射架 @ "
+                     f"({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},0)；弹丸已就位")
+        else:
+            self.warn("⚠ Gazebo 实体创建失败（仿真在跑吗？世界名对吗？）"
+                      "—— 制导不受影响，继续运行")
+        return bool(ok_t and ok_p)
+
+    def gz_update(self, p_T_enu):
+        """每帧把**弹丸（目标）**位置推给 Gazebo（**非阻塞**，失败静默）。同时记轨迹点。
+
+        ⚠ 传的是 `p_T`（弹丸），不是 `p_M`（无人机）—— 无人机本身由 PX4/Gazebo 自己渲染。
+        ⚠ 包 try/except：绝不允许可视化把制导循环搞挂。
+        """
+        if self.gz is None or not self.gz.available:
+            return
+        try:
+            self.gz.set_projectile(p_T_enu)
+            if self.args.gz_trail:
+                self.gz_trail.append(tuple(p_T_enu))
+        except Exception:                               # noqa: BLE001
+            self.gz = None          # 一次失败就彻底停掉可视化，避免每帧刷屏
+            self.warn("⚠ Gazebo 更新失败 —— 已停用可视化（制导不受影响）")
+
+    def gz_finish(self, hit):
+        """收尾：命中画爆点 + 可选轨迹线。"""
+        if self.gz is None or not self.gz.available:
+            return
+        try:
+            if self.gz_trail:
+                self.gz.draw_trail(self.gz_trail)
+                self.log(f"  ── Gazebo 已画弹丸轨迹（{len(self.gz_trail)} 点）")
+            if hit and self.gz_trail:
+                self.gz.mark_point(self.gz_trail[-1], ns="hit_mark", mid=1,
+                                   size=0.6, color=(1.0, 0.95, 0.1), ttl_ms=15000)
+                self.log("  ── Gazebo 已标记命中点")
+            self.gz.hide_projectile()      # 命中/脱靶后让弹丸"消失"
+        except Exception as e:             # noqa: BLE001
+            self.warn(f"⚠ Gazebo 收尾绘制失败（{e}）—— 不影响结果")
+
     def check_cruise_geometry(self):
         """巡航几何自检（仅在指定 --cruise-x 时有意义）。
 
@@ -888,6 +1130,8 @@ class PhaseBGuidance(Node):
         if self.pos is None:
             return
         p_enu, v_enu = self.state_enu()
+        alt = -self.pos.z          # 以"地面 z=0"计的离地高度（本仿真无人机从原点起飞）
+        v_z_up = v_enu[2]          # ENU 的 z 速度（上为正）
         d = self.boost_dir
         v_norm = math.sqrt(v_enu[0] ** 2 + v_enu[1] ** 2 + v_enu[2] ** 2)
         speed_ok = v_norm >= self.v_boost_min
@@ -901,7 +1145,26 @@ class PhaseBGuidance(Node):
 
         a = [a_along * d[0], a_along * d[1], a_along * d[2]]
         if self.alt_hold and self.alt_target is not None:
-            a[2] += self.alt_kp * (p_enu[2] - self.alt_target) - self.alt_kd * v_enu[2]
+            # ⚠ 符号必须让"太高 → 向下加速"。ENU 的 z 向上为正，所以
+            #   a[2] = kp·(目标 − 当前) − kd·v_z
+            #   （原写成 (当前 − 目标) 是**正反馈**：偏差会被放大 —— 实飞日志里
+            #     起飞到位 10.13 m 却在发射时涨到 10.76 m，就是这个 bug 的表现。）
+            a[2] += self.alt_kp * (self.alt_target - alt) - self.alt_kd * v_z_up
+        # ★ 横向保持：巡航要走直线，不能被 accel-only 的"残留速度永不衰减"带偏。
+        #   （2026-10-16 实飞：PPN 发射时横向已偏 0.99 m，吃掉全部修正预算。）
+        #   ⚠ 只阻尼**垂直于 boost_dir 的水平分量** —— 不能直接阻尼 v_enu[0]/[1]：
+        #     巡航主方向常就是 ENU 的 ±x（boost_dir=(-1,0,0)），那样会把加速也阻尼掉
+        #     （实测：巡航段速度涨不起来、一路飞到 x=-22.6 然后超时）。这个错我犯过。
+        if self.args.cruise_lat_hold:
+            dhx, dhy = d[0], d[1]
+            nd = math.hypot(dhx, dhy)
+            if nd > 1e-6:
+                ux, uy = dhx / nd, dhy / nd
+                v_along_h = v_enu[0] * ux + v_enu[1] * uy
+                p_x = v_enu[0] - v_along_h * ux     # 水平速度的垂直分量
+                p_y = v_enu[1] - v_along_h * uy
+                a[0] += -self.settle_kd * p_x
+                a[1] += -self.settle_kd * p_y
         self.cur_a_enu = tuple(a)
         self.publish_a()
 
@@ -934,10 +1197,31 @@ class PhaseBGuidance(Node):
         self.t_launch_us = self.px4_us()
         self.t_rel = 0.0
         self.stable_t = None
-        self.log(f"[6/6] ── 目标发射！进入 GUIDED（PPN 闭环）")
+        law_name = ["PPN", "TPN", "APN"][int(self.args.law)] \
+            if 0 <= int(self.args.law) <= 2 else "?"
+        self.log(f"[6/6] ── 目标发射！进入 GUIDED（{law_name} 闭环）")
         self.log(f"       发射时刻 PX4 t={self.t_launch_us} µs；"
                  f"目标 {self.args.target_speed:.1f} m/s 仰角 {self.args.target_elev:.1f}° "
                  f"从 ({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) 出发")
+        # ★ 发射时刻的**几何报告**：判断"这次跑得可比吗"。
+        #   设计动机：2026-10-16 两次实跑的横向起点不同
+        #     （PPN 发射时 y=-0.99 m、APN 起点 x=+2.39 m），严格说不可比 ——
+        #   把偏差直接打出来，就不用靠翻日志推断了。
+        p_enu, v_enu = self.state_enu()
+        if p_enu is not None:
+            dx = p_enu[0] - (self.cruise_x if self.cruise_x is not None else 0.0)
+            dy = p_enu[1]
+            dz = p_enu[2] - self.target_height
+            v_h = math.hypot(v_enu[0], v_enu[1])
+            self.log(f"       发射几何：位置 ENU=({p_enu[0]:+.2f},{p_enu[1]:+.2f},"
+                     f"{p_enu[2]:+.2f})  速度=({v_enu[0]:+.2f},{v_enu[1]:+.2f},"
+                     f"{v_enu[2]:+.2f}) |v_h|={v_h:.2f} m/s")
+            self.log(f"                 相对理想：Δx={dx:+.2f} Δy={dy:+.2f} "
+                     f"Δz={dz:+.2f} m   ← 横向偏差会直接吃掉"
+                     f"『½·a_max·t_go² ≈ {0.5 * self.args.a_max * 0.5**2:.2f} m』的修正预算")
+            if abs(dy) > 0.5 or abs(dz) > 0.5:
+                self.warn(f"       ⚠ 发射几何偏差较大（Δy={dy:+.2f} Δz={dz:+.2f} m）"
+                          f"—— 结果可能不可与其它 law 直接比较")
 
     def do_guided(self, now):
         """制导段：真值 → 制导核 → a_cmd → PX4。"""
@@ -958,6 +1242,9 @@ class PhaseBGuidance(Node):
         dbg = list(self.gdbg)
         self.last_cmd = cmd
         self.last_dbg = dbg
+
+        # Gazebo 可视化：把弹丸真值位置推过去（dbg[0..2] = p_T，ENU）
+        self.gz_update((dbg[0], dbg[1], dbg[2]))
 
         a_enu = (cmd[1], cmd[2], cmd[3])
         self.cur_a_enu = a_enu
@@ -1022,6 +1309,7 @@ class PhaseBGuidance(Node):
 
     def finish(self, reason):
         """测试段正常结束（命中/脱靶/超时）→ 打印总结 → 转入降落。"""
+        self.gz_finish(self.hit)          # 命中画爆点 / 画轨迹（--gz-viz 才动作）
         self.print_summary(reason)
         self.cur_a_enu = (0.0, 0.0, 0.0)
         self.request_landing(f"测试结束（{reason}）")
@@ -1043,11 +1331,10 @@ class PhaseBGuidance(Node):
 
     def request_landing(self, note=""):
         """统一的收尾入口：跑完 / 中止 / Ctrl-C 都走这里。"""
-        if self.landing_phase:
+        if self.ending:
             return
+        self.ending = True
         self.cur_a_enu = (0.0, 0.0, 0.0)
-        self.alt_hold = False
-        self.landing_phase = True
         now = time.monotonic()
         self.land_t0 = now
         self.last_land_cmd = 0.0
@@ -1064,7 +1351,29 @@ class PhaseBGuidance(Node):
             self.state = "DONE"
             self.done_t = now
             return
+
+        # ★ 着陆前刹车（2026-10-16 数值审计发现）
+        #   PX4 的 AUTO_LAND 水平减速度有限（约 2 m/s²）⇒ 脱靶时那 5.87 m/s 会变成
+        #   刹车距离 v²/(2a) ≈ 8.6 m 的漂移（数值审计实测 8.55 m，落在 ENU x=−15.6，
+        #   超出声明安全盒 6.6 m）。我们在 OFFBOARD 里自己能控 ⇒ 先刹再 LAND，
+        #   a_max=10 时刹车距离只要 v²/(2·10) ≈ 1.7 m（约 1/5）。
+        vh = None
+        if self.pos is not None:
+            _, v_enu = self.state_enu()
+            vh = math.hypot(v_enu[0], v_enu[1])
+        if self.args.brake and vh is not None and vh > self.args.brake_vtol:
+            est = vh ** 2 / (2.0 * min(self.args.a_max, 2.0))
+            self.log(f"   ★ 先刹车：水平速度 {vh:.2f} m/s。若直接 LAND，AUTO_LAND 的"
+                     f"减速度(~2 m/s²)会带来 ~{est:.1f} m 漂移；先刹到 "
+                     f"≤{self.args.brake_vtol:.2f} m/s 再 LAND。")
+            self.state = "BRAKE"
+            self.brake_t0 = now
+            self.t_state = now
+            return
+
         self.log("→ 转入自动降落：LAND（AUTO_LAND 下降 + cmd_vel_ned）→ 落地后 DISARM 停桨。")
+        self.landing_phase = True
+        self.alt_hold = False
         self.state = "LAND"
         self.t_state = now
 
@@ -1090,12 +1399,27 @@ class PhaseBGuidance(Node):
             self.log(f"  OFFBOARD     : ✓ 已确认进入（nav_state=14）")
         else:
             self.log(f"  OFFBOARD     : ✗ 未确认")
+        if self.soft_landing is False:
+            self.log(f"  着陆质量     : ⚠ 非软着陆（停桨时离地过高，见上面 warn）")
+        elif self.soft_landing is True:
+            self.log(f"  着陆质量     : ✓ 软着陆（停桨时已贴地且近零速）")
         self.log(bar)
 
     # ---------------------------------------------------------------- 记录
-    def log_row(self):
+    def log_row(self, force=False):
+        """写一行 CSV。
+
+        `force=True` 绕过采样节流（用于收尾补最后一行）。
+        采样由 `--csv-hz`（默认 10 Hz = 0.1 s）控制：指令是 50 Hz，但 CSV 只按
+        0.1 s 一行落盘，便于回传分析（想看细节可 `--csv-hz 50`）。
+        """
         if self.csv_w is None:
             return
+        if not force:
+            now = time.monotonic()
+            if now - self.last_csv_t < self.csv_period - 1e-6:
+                return
+            self.last_csv_t = now
         row = [round(time.monotonic() - self.t_start, 3), round(self.t_rel, 4), self.state]
         if self.last_cmd is not None:
             c = self.last_cmd
@@ -1112,6 +1436,14 @@ class PhaseBGuidance(Node):
                     round(self.pos.vy, 4), round(self.pos.vx, 4), round(-self.pos.vz, 4)]
         else:
             row += [""] * 13
+        # 姿态：roll/pitch/yaw (deg) + 原始四元数 [w,x,y,z]（均 ENU，来自 /odometry）
+        att = self.odom_att()
+        if att is not None:
+            roll, pitch, yaw, q = att
+            row += [round(roll, 3), round(pitch, 3), round(yaw, 3),
+                    round(q[0], 6), round(q[1], 6), round(q[2], 6), round(q[3], 6)]
+        else:
+            row += [""] * 7
         if self.last_dbg is not None:
             d = self.last_dbg
             row += [round(d[0], 4), round(d[1], 4), round(d[2], 4),
@@ -1124,6 +1456,12 @@ class PhaseBGuidance(Node):
         self.csv_w.writerow(row)
 
     def close(self):
+        if self.gz is not None:
+            try:
+                self.gz.close()        # 停掉后台同步线程（实体保留，便于事后观察）
+            except Exception:                          # noqa: BLE001
+                pass
+            self.gz = None
         if self.csv_f is not None:
             try:
                 self.csv_f.close()
@@ -1176,6 +1514,16 @@ def build_parser():
                     help="巡航段速度保持增益 (1/s)：a = v_kp·(v_boost_min − v_沿boost_dir)")
     ap.add_argument("--cruise-timeout", type=float, default=CRUISE_TIMEOUT,
                     help="巡航/预加速段超时 (s)")
+    # Gazebo 可视化（塔 / 弹丸 / 轨迹）—— 见 gz_scene_sync.py
+    ap.add_argument("--gz-viz", action="store_true",
+                    help="在 Gazebo GUI 里显示防御塔 + 弹丸（含轨迹线）；"
+                         "接不上 Gazebo 时自动降级为纯控制台输出，不影响制导")
+    ap.add_argument("--gz-world", default="walls",
+                    help="Gazebo 世界名（XTDrone2 单机 demo 默认 walls）")
+    ap.add_argument("--gz-hz", type=float, default=30.0,
+                    help="弹丸位置同步频率 (Hz)")
+    ap.add_argument("--gz-trail", action="store_true",
+                    help="命中/脱靶后在 Gazebo 里画出弹丸轨迹线")
     # 飞行
     ap.add_argument("--target-height", type=float, default=10.0, help="起飞高度 (m)")
     ap.add_argument("--takeoff-tol", type=float, default=1.0)
@@ -1194,10 +1542,47 @@ def build_parser():
     ap.add_argument("--no-alt-hold", action="store_true", help="关闭非制导段的垂直保持辅助")
     ap.add_argument("--alt-kp", type=float, default=ALT_KP)
     ap.add_argument("--alt-kd", type=float, default=ALT_KD)
+    # 高度调整（SETTLE 段）：XTDrone2 的 TAKEOFF 高度写死 10 m，不受 --target-height 控制
+    ap.add_argument("--alt-settle-tol", type=float, default=ALT_SETTLE_TOL,
+                    help="SETTLE 段高度到位容差 (m)")
+    ap.add_argument("--alt-settle-vtol", type=float, default=ALT_SETTLE_VTOL,
+                    help="SETTLE 段高度到位时的垂直速度容差 (m/s)")
+    ap.add_argument("--alt-settle-timeout", type=float, default=ALT_SETTLE_TIMEOUT,
+                    help="SETTLE 段高度调整等待上限 (s)，超时则带警告继续")
+    # SETTLE 段水平稳定（★ 修 accel-only 无阻尼导致的横向漂移）
+    ap.add_argument("--settle-xy", default="0,0",
+                    help="SETTLE 段把水平位置收敛到的 ENU 点（如 0,0；"
+                         "填 none 只做速度阻尼、不收敛位置）")
+    ap.add_argument("--settle-kp", type=float, default=SETTLE_KP,
+                    help="SETTLE 段水平位置增益 (1/s²)")
+    ap.add_argument("--settle-kd", type=float, default=SETTLE_KD,
+                    help="SETTLE 段水平速度阻尼 (1/s)；巡航段横向阻尼也用它")
+    ap.add_argument("--settle-xy-tol", type=float, default=SETTLE_XY_TOL,
+                    help="SETTLE 水平位置到位容差 (m)")
+    ap.add_argument("--settle-xy-vtol", type=float, default=SETTLE_XY_VTOL,
+                    help="SETTLE 水平速度到位容差 (m/s)")
+    ap.add_argument("--cruise-lat-hold", action="store_true", default=True,
+                    help="巡航段保持横向（阻尼横向速度，走直线）")
+    ap.add_argument("--no-cruise-lat-hold", dest="cruise_lat_hold",
+                    action="store_false", help="关闭巡航段横向保持")
+    # ★ 着陆前刹车：避免 AUTO_LAND 的有限水平减速度导致大幅漂移
+    ap.add_argument("--brake", action="store_true", default=True,
+                    help="转 LAND 前先在 OFFBOARD 里把水平速度刹掉（大幅减小着陆漂移）")
+    ap.add_argument("--no-brake", dest="brake", action="store_false",
+                    help="关闭着陆前刹车（直接 LAND）")
+    ap.add_argument("--brake-kd", type=float, default=BRAKE_KD,
+                    help="刹车增益 (1/s)：a_h = −brake_kd·v_h")
+    ap.add_argument("--brake-vtol", type=float, default=BRAKE_VTOL,
+                    help="刹车完成判据 |v_h| ≤ 此值 (m/s)")
+    ap.add_argument("--brake-timeout", type=float, default=BRAKE_TIMEOUT,
+                    help="刹车段超时 (s)")
     ap.add_argument("--srv-timeout", type=float, default=SRV_TIMEOUT)
     # 其它
     ap.add_argument("--no-odom", action="store_true")
     ap.add_argument("--csv", default="phase_b_log.csv")
+    ap.add_argument("--csv-hz", type=float, default=10.0,
+                    help="CSV 采样频率 (Hz)。指令仍是 --rate（50 Hz），CSV 只按此"
+                         "间隔落盘；默认 0.1 s 一行，便于回传分析；想看细节可给 50")
     return ap
 
 
