@@ -41,11 +41,23 @@ target_link_libraries(test_guidance
     guidance_libs
 )
 
+# MAVLink 单位换算单元测试（解析侧接口适配层）
+add_executable(test_mavlink_units
+    test_interface/test_mavlink_units.cpp
+)
+target_include_directories(test_mavlink_units PUBLIC
+    ${CMAKE_SOURCE_DIR}/src/interface/mavlink_units/include
+)
+target_link_libraries(test_mavlink_units
+    mavlink_units
+)
+
 set_target_properties(
     shm_write
     shm_read
     test_camera
     test_guidance
+    test_mavlink_units
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR}
 )
