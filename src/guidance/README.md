@@ -6,20 +6,22 @@
 
 ```text
 src/guidance/
-├── CMakeLists.txt
-├── guidance_libs/                  # 制导算法库（供 app 调用）
+├── CMakeLists.txt                  # 拆成 3 个 target（见下"核心 / 仿真"）
+├── guidance_libs/                  # 制导算法库（源码目录）
 │   ├── include/
-│   │   ├── vec3.hpp                # 轻量三维向量（自带，不依赖 Eigen）
-│   │   ├── guidance_types.hpp      # 数据结构：输入 state / 输出 cmd
-│   │   ├── guidance.hpp            # 主接口 guidance_step()
-│   │   ├── pn_law.hpp              # PN 族：TPN / PPN / APN
-│   │   ├── sensor.hpp              # 传感器墙（M4）：三级逼真度
-│   │   └── target.hpp              # 目标模型（M2）：飞镖 / 抛体 / 机动
+│   │   ├── vec3.hpp                # 轻量三维向量（自带，不依赖 Eigen）  ← 核心
+│   │   ├── guidance_types.hpp      # 数据结构：输入 state / 输出 cmd      ← 核心
+│   │   ├── guidance.hpp            # 主接口 guidance_step()              ← 核心
+│   │   ├── pn_law.hpp              # PN 族：TPN / PPN / APN              ← 核心
+│   │   ├── quat.hpp                # 四元数通用数学（2026-10-16 从 sensor 移出）← 核心
+│   │   ├── sensor.hpp              # 传感器墙（M4）：三级逼真度           ← **仿真**
+│   │   └── target.hpp              # 目标模型（M2）：飞镖 / 抛体 / 机动    ← **仿真**
 │   └── src/
-│       ├── guidance.cpp            # 主流程（有效性→几何→选律→冻结→限幅）
-│       ├── pn_law.cpp              # 导引律实现
-│       ├── sensor.cpp              # 投影 / 像素噪声 / size 测距 / 延迟 / 丢帧
-│       └── target.cpp              # 目标弹道（解析式 + 预积分，含气动阻力）
+│       ├── guidance.cpp            # 主流程（有效性→几何→选律→冻结→限幅）← 核心
+│       ├── pn_law.cpp              # 导引律实现                            ← 核心
+│       ├── quat.cpp                # 四元数实现                            ← 核心
+│       ├── sensor.cpp              # 投影 / 像素噪声 / size 测距 / 延迟 / 丢帧 ← **仿真**
+│       └── target.cpp              # 目标弹道（解析式 + 预积分，含气动阻力）  ← **仿真**
 └── sim/
     ├── pn_sim.cpp                  # 3D 拦截数值仿真（输出 CSV）
     ├── plot_sim.py                 # 单场景画图（3D 轨迹 / R / λ̇ / |a|）
@@ -28,7 +30,30 @@ src/guidance/
     └── plot_target.py              # 目标模型画图（弹道 / 速率 / 加速度）
 ```
 
-单元测试在 `src/test/test_guidance/test_guidance.cpp`（14 组 97 条断言，产物 `bin/test/`）。
+## ★ 核心 / 仿真：两个 CMake target（2026-10-16）
+
+**保证机身不带仿真代码**，换真机时 `guidance_step` 一行不改。详见
+《制导讲义/换真机替换清单.md》。
+
+| target | 内容 | 谁链接 |
+| --- | --- | --- |
+| **`guidance_core`** | `guidance.cpp` + `pn_law.cpp` + `quat.cpp`（+ 纯头文件） | ★ **真机主循环**（只 link 它） |
+| **`guidance_sim`** | `sensor.cpp` + `target.cpp`（依赖 core，单向） | 只在仿真 / 离线测试里 link |
+| `guidance_libs` | **聚合名**（= core + sim，INTERFACE 目标） | 仅为向后兼容旧脚本；⚠ **机载不要 link** |
+
+**验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，
+而 `guidance_step` / `quat_rotate_vec` 齐全 ⇒ 核心库**不含任何仿真符号**。
+
+> **真机最小足迹** = `guidance_core` + `src/interface/`（`state_adapter` + `mavlink_units`）。
+> 真机的数据入口是 `state_adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
+> 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
+> （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
+
+单元测试在 `src/test/test_guidance/test_guidance.cpp`（15 组 126 条断言，产物 `bin/test/`）。
+> ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
+> 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
+> **只链接 `guidance_core`** —— 这是本轮解耦的直接体现。
+
 模块**自带 `vec3.hpp`，不依赖 `pure_math_tools`**，因此可独立编译/测试。
 
 ## 设计要点
@@ -207,7 +232,7 @@ v = 18 m/s 时  a_drag ≈ 0.70 m/s² ≈ 7% g
 ./scripts/autoBuild.sh          # 增量构建
 ```
 
-产物：`lib/libguidance_libs.so`、`bin/pn_sim`、`bin/test/test_guidance`。
+产物：`lib/libguidance_core.so` + `lib/libguidance_sim.so`、`bin/pn_sim`、`bin/test/test_guidance`。
 
 ## 测试
 

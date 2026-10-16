@@ -13,6 +13,9 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIBS="$HERE/../src/guidance/guidance_libs"
+# ⚠ pn_sim.cpp 在 src/guidance/**sim**/ 下，**不在** guidance_libs/sim/ 里
+#   （原脚本写的是 "$LIBS/sim/pn_sim.cpp"，路径不存在 —— 2026-10-16 修正）
+SIM="$HERE/../src/guidance/sim"
 TMP="${TMPDIR:-/tmp}/pgu_build"
 mkdir -p "$TMP"
 cd "$TMP"
@@ -24,18 +27,20 @@ else
 fi
 
 # 1) shim 动态库
+#    源文件列表 = guidance_core(guidance/pn_law/quat) + guidance_sim(sensor/target)
+#    ⚠ 新增源文件时这里要同步（quat.cpp 于 2026-10-16 从 sensor.cpp 拆出）
 g++ -O2 -std=c++17 -shared -static -static-libgcc -static-libstdc++ \
     -I "$LIBS/include" \
     "$HERE/pure_guidance_shim.cpp" \
-    "$LIBS/src/guidance.cpp" "$LIBS/src/pn_law.cpp" \
+    "$LIBS/src/guidance.cpp" "$LIBS/src/pn_law.cpp" "$LIBS/src/quat.cpp" \
     "$LIBS/src/sensor.cpp"  "$LIBS/src/target.cpp" \
     -o pure_guidance.dll
 
 # 2) 原版 pn_sim（对照基准）
 g++ -O2 -std=c++17 -static -static-libgcc -static-libstdc++ \
     -I "$LIBS/include" \
-    "$LIBS/sim/pn_sim.cpp" \
-    "$LIBS/src/guidance.cpp" "$LIBS/src/pn_law.cpp" \
+    "$SIM/pn_sim.cpp" \
+    "$LIBS/src/guidance.cpp" "$LIBS/src/pn_law.cpp" "$LIBS/src/quat.cpp" \
     "$LIBS/src/sensor.cpp"  "$LIBS/src/target.cpp" \
     -o pn_sim.exe
 

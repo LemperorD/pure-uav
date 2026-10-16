@@ -24,7 +24,7 @@
 
 #include "state_adapter.hpp"
 #include "state_check.hpp"
-#include "sensor.hpp"        // guidance_libs：交叉验证四元数旋转 / 生成随机姿态
+#include "quat.hpp"          // guidance_core：交叉验证四元数旋转（通用数学，不在仿真里）
 #include "guidance.hpp"      // guidance_step()
 
 using namespace pure_uav;

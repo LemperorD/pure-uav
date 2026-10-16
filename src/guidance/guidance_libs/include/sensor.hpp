@@ -7,6 +7,11 @@
 #include "guidance_types.hpp"
 #include "vec3.hpp"
 
+// 姿态 / 四元数工具已移到**核心**（`quat.hpp`）—— 它们语义上是通用刚体数学，
+// 不是仿真。这里保留 include 只为**向后兼容**（老代码 `#include "sensor.hpp"`
+// 仍能用到 quat_*）。⚠ 新代码建议直接 include "quat.hpp"。
+#include "quat.hpp"
+
 // ============================================================
 //  传感器墙（设计文档 M4）—— 仿真侧的"虚拟视觉"
 //
@@ -108,14 +113,6 @@ private:
     double t_prev_ = 0.0;
 };
 
-// 姿态工具：构造"机头朝 forward"的最小旋转四元数（相机随速度方向）
-// 供仿真把点质量模型补上姿态用。
-void quat_from_forward(const Vec3 &forward, double q[4]);
-
-// 四元数旋转矢量：v' = R(q)·v（q = [w,x,y,z]，机体→世界）
-Vec3 quat_rotate_vec(const double q[4], const Vec3 &v);
-
-// 逆旋转：世界→机体（= 用共轭四元数旋转）
-Vec3 quat_rotate_vec_inv(const double q[4], const Vec3 &v);
+// （四元数 / 姿态工具已移到 `quat.hpp`，见文件头的 include 说明。）
 
 } // namespace pure_uav

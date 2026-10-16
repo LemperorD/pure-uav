@@ -29,17 +29,21 @@ else
     echo "（/mnt/c 仓库不可读，使用本地 guidance_libs 副本）"
 fi
 
-if [ ! -f guidance_libs/src/target.cpp ] || [ ! -f pure_guidance_shim.cpp ]; then
+if [ ! -f guidance_libs/src/target.cpp ] || [ ! -f pure_guidance_shim.cpp ] \
+   || [ ! -f guidance_libs/src/quat.cpp ]; then
     echo "!! 缺源码（guidance_libs/ 或 pure_guidance_shim.cpp），请让助手同步" >&2
     exit 1
 fi
 
 # 2) 编译
+#    源文件列表 = guidance_core(guidance/pn_law/quat) + guidance_sim(sensor/target)
+#    ⚠ 新增源文件时这里要同步（quat.cpp 于 2026-10-16 从 sensor.cpp 拆出）
 g++ -O2 -std=c++17 -fPIC -shared \
     -I guidance_libs/include \
     pure_guidance_shim.cpp \
     guidance_libs/src/guidance.cpp \
     guidance_libs/src/pn_law.cpp \
+    guidance_libs/src/quat.cpp \
     guidance_libs/src/sensor.cpp \
     guidance_libs/src/target.cpp \
     -o libpure_guidance.so

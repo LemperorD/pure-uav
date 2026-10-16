@@ -35,7 +35,13 @@ struct Detection {
 struct GuidanceState {
     double t = 0.0;        // 时间戳(s)
     Vec3   los_hat;        // 视线方向单位矢量 û
-    double lam_dot = 0.0;  // 视线角速率 λ̇ (rad/s)
+    // ⚠ λ̇ **不是制导的输入** —— `guidance.cpp` **从不读取本字段**。
+    //   制导核自己算 ω：按 `GuidanceParams::los_rate_source` 二选一
+    //     · FROM_RELATIVE_VELOCITY：ω = (r × v_rel)/R²  （仿真，需 v_T）
+    //     · FROM_LOS_DIFFERENCE   ：ω = û × (dû/dt)     （真机，只需 û 历史）
+    //   算出的 ω 回填到输出 `GuidanceCmd::lam_dot`（调试量）。
+    //   本字段仅供**上游/日志对照**（例如视觉自己估了一路 λ̇ 想比对）——可选，留零即可。
+    double lam_dot = 0.0;  // [可选·调试] 视线角速率 λ̇ (rad/s)；制导不消费
     double range = 0.0;    // 相对距离 R (m)
     bool   valid = false;  // 本帧数据是否有效
 
