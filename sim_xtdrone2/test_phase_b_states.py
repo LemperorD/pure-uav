@@ -1071,6 +1071,7 @@ def main():
                 "--- 时间序列", "--- 汇总"):
         check(tag in txt, f"报告含小节 {tag}")
     check("最近距离 =" in txt and "命中 =" in txt, "报告含汇总（最近距离/命中）")
+    check("结束原因 = " in txt, "报告含结束原因（命中/脱靶/超时/中止）")
     check("着陆 = landed:" in txt, "报告含着陆状态")
     check("t_wall=墙钟秒" in txt, "报告说明了时间列口径（t_wall vs t_rel）")
 

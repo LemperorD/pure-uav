@@ -420,6 +420,7 @@ class PhaseBGuidance(Node):
         self.force_exit_requested = False
         self.aborted = False
         self.abort_reason = ""
+        self.finish_reason = None             # 结束原因（命中/脱靶/超时/中止）
         self._exit_logged = False
         self._linger_logged = False
 
@@ -1357,6 +1358,7 @@ class PhaseBGuidance(Node):
 
     def finish(self, reason):
         """测试段正常结束（命中/脱靶/超时）→ 打印总结 → 转入降落。"""
+        self.finish_reason = reason        # 记下来给"回传评估块"用
         self.gz_finish(self.hit)          # 命中画爆点 / 画轨迹（--gz-viz 才动作）
         self.print_summary(reason)
         self.cur_a_enu = (0.0, 0.0, 0.0)
@@ -1368,6 +1370,7 @@ class PhaseBGuidance(Node):
             return
         self.aborted = True
         self.abort_reason = reason
+        self.finish_reason = f"中止：{reason}"
         self.cur_a_enu = (0.0, 0.0, 0.0)
         self.publish_a()
         bar = "!" * 76
@@ -1586,6 +1589,8 @@ class PhaseBGuidance(Node):
             p(",".join(str(r[i]) for i in idx))
         p("")
         p("--- 汇总 ---")
+        if self.finish_reason:
+            p("结束原因 = %s" % self.finish_reason)
         if self.min_R is None:
             p("最近距离 = (未采到制导段数据)")
         else:
