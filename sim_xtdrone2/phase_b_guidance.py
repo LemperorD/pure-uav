@@ -96,10 +96,13 @@ Phase B —— XTDrone2 「制导闭环」验证节点
 import argparse
 import ctypes as C
 import csv
+import json
 import math
 import os
 import signal
+import subprocess
 import sys
+import tempfile
 import time
 
 import rclpy
@@ -211,6 +214,15 @@ REPORT_MID_HZ = 5.0
 # setpoint**（被 gz 服务调用 / 日志 / 磁盘阻塞）。PX4 的 offboard 失联阈值默认 ~1 s，
 # 所以这里取 0.2 s 作为"该管了"的界限（50 Hz 名义周期 0.02 s，是它的 10 倍）。
 LOOP_GAP_WARN = 0.20
+
+# 超过这个空洞长度就必须怀疑 PX4 的 offboard 失联保护已触发
+# （`COM_OF_LOSS_T` 默认 0.5~1.0 s）—— 一旦触发，PX4 会停止执行我们的 setpoint，
+#  实飞表现就是无人机**自由落体**（实测 6.87 m / 1.15 s、a≈7.8 m/s²）。
+OFFBOARD_LOSS_HINT = 0.60
+
+# BRAKE 段的"地面安全地板"（m）：刹车过程中若离地低于它，说明已不是"正常刹车"
+# （大概率是失控/遥测跳变）⇒ 立刻放弃横向刹车，转入 LAND 让它软着陆。
+BRAKE_ALT_FLOOR = 1.50
 
 # 报告块的起止标记（用户直接整段复制回传；我按标记截取）
 REPORT_BEGIN = "<<<<<<< BEGIN RM-PHASE-B-REPORT >>>>>>>"
@@ -414,7 +426,18 @@ class PhaseBGuidance(Node):
         self.loop_gap_max = 0.0                   # 相邻 tick 最大间隔（s）
         self.loop_gap_max_at = None               # 出现时刻（t_wall）
         self.loop_gap_max_state = None            # 出现时的状态
-        self.loop_gaps = []                       # [(t_wall, gap, state), ...]
+        self.loop_gaps = []                       # [(t_wall, gap, state, sim_dt), ...]
+        # ---- ★ 仿真时间基准（PX4 时间戳）----
+        #   ★ 为什么要它：实飞里 BRAKE 段出现"0.104 s 墙钟内位置跳 6.87 m"，
+        #     光看墙钟会以为是遥测坏了。加上仿真时间才发现那 0.104 s 墙钟里
+        #     **仿真推进了 1.149 s**（RTF≈11），位置跳变其实完全自洽。
+        self.sim_us_last = None                   # 上一拍的 PX4 时间戳（µs）
+        self.rtf_samples = []                     # 相邻拍的 仿真Δt/墙钟Δt
+        self.min_alt = None                       # 全程最低离地高度（ENU z）
+        self.min_alt_at = None                    # 出现时刻
+        self.min_alt_state = None                 # 出现时的状态
+        self.hard_ground_warned = False           # "制导/刹车段贴地"只警告一次
+        self.brake_alt_tgt = None                 # 刹车期间锁定的高度目标
         # ---- ★ 落点 / 漂移（**实测**，不是估算）----
         self.ending_pos = None                    # 收尾开始时的 ENU 位置
         self.stop_pos = None                      # 停桨时的 ENU 位置
@@ -648,12 +671,26 @@ class PhaseBGuidance(Node):
             self.stop_pos = p_enu
 
     def track_h_disp(self):
-        """更新全程最大水平位移（相对起飞点，NED 直算，不受 ENU 换算影响）。"""
+        """更新全程最大水平位移 + **全程最低离地高度**（报告 / 安全审计用）。"""
         if self.pos is None:
             return
         h = self.h_disp()
         if h > self.max_h_disp:
             self.max_h_disp = h
+        alt = -self.pos.z
+        if self.min_alt is None or alt < self.min_alt:
+            self.min_alt = alt
+            self.min_alt_at = time.monotonic() - self.t_start
+            self.min_alt_state = self.state
+        # ★ 安全审计：**制导 / 巡航 / 刹车**段本不该贴地（发射高度 8 m），
+        #   若贴地说明失去了控制（实飞就是在 BRAKE 段掉到 0.44 m）。
+        if (not self.hard_ground_warned
+                and self.state in ("CRUISE", "GUIDED", "BRAKE")
+                and alt < LANDED_ALT + 0.30):
+            self.hard_ground_warned = True
+            self.warn(f"⚠⚠ 严重：{self.state} 段离地只有 {alt:.2f} m"
+                      f"（此时并未进入降落流程）⇒ 已失去高度控制。"
+                      f"请检查该时刻附近有没有『控制回路空洞』告警。")
 
     def landing_drift(self):
         """**实测**着陆漂移：收尾起点 → 停桨点（水平）。
@@ -790,17 +827,40 @@ class PhaseBGuidance(Node):
         #     不是 PX4 的控制周期 —— 但正是它决定了 setpoint 有没有按时发出去。
         if self.t_last_tick is not None:
             gap = now - self.t_last_tick
+            # 仿真时间在这一拍推进了多少（µs → s）—— 解释"位置跳变"的关键
+            sim_dt = None
+            if self.pos is not None:
+                t_us = int(self.pos.timestamp)
+                if self.sim_us_last is not None:
+                    d_us = t_us - self.sim_us_last
+                    if 0 <= d_us < 60 * 1_000_000:      # 忽略回绕/异常跳变
+                        sim_dt = d_us * 1e-6
+                self.sim_us_last = t_us
+            if sim_dt is not None and gap > 1e-6:
+                self.rtf_samples.append(sim_dt / gap)
+                if len(self.rtf_samples) > 40000:
+                    del self.rtf_samples[:20000]
             if gap > self.loop_gap_max:
                 self.loop_gap_max = gap
                 self.loop_gap_max_at = now - self.t_start
                 self.loop_gap_max_state = self.state
             if gap >= LOOP_GAP_WARN:
                 tw = now - self.t_start
-                self.loop_gaps.append((round(tw, 3), round(gap, 3), self.state))
+                self.loop_gaps.append((round(tw, 3), round(gap, 3), self.state,
+                                       None if sim_dt is None else round(sim_dt, 3)))
+                extra = ""
+                if sim_dt is not None and gap > 1e-6:
+                    extra = (f"；该间隔内**仿真推进 {sim_dt:.3f}s**"
+                             f"（RTF={sim_dt / gap:.2f}）")
                 self.warn(f"⚠ 控制回路空洞 {gap * 1000:.0f} ms"
                           f"（t_wall={tw:.3f}s, state={self.state}）"
-                          f"—— 本周期**没有**发出加速度 setpoint；"
-                          f"检查是不是可视化 / 日志在阻塞主线程")
+                          f"—— 本周期**没有**发出加速度 setpoint{extra}")
+                if gap >= OFFBOARD_LOSS_HINT:
+                    self.warn(f"   ⚠⚠ 空洞 ≥ {OFFBOARD_LOSS_HINT:.1f}s："
+                              f"PX4 的 offboard 失联超时（COM_OF_LOSS_T，默认 0.5~1.0 s）"
+                              f"**很可能已触发** ⇒ PX4 会停用自己的 offboard 控制"
+                              f"（实飞表现为无人机**自由落体**）。"
+                              f"请查是谁在阻塞主线程（可视化 / 日志 / 磁盘）。")
         self.t_last_tick = now
 
         self.poll_service(now)
@@ -988,9 +1048,15 @@ class PhaseBGuidance(Node):
             p_enu, v_enu = self.state_enu()
             vh = math.hypot(v_enu[0], v_enu[1])
             alt = p_enu[2]
+            # ★ 高度目标 = **进入刹车时的高度**（不是固定 target_height）。
+            #   动机：原来固定追 8 m ⇒ 若刹车起点在 5 m，会先"爬回 8 m"再降落，
+            #   多出一段无意义的高度修正（用户要求"平稳回到地面"）。
+            #   ⚠ 但必须有**下限**：若进入时已低于 MIN_ALTITUDE（说明失控），
+            #     要主动拉升，绝不能"保持"在贴地高度。
+            alt_tgt = self.brake_alt_tgt
             a = [-self.args.brake_kd * v_enu[0],
                  -self.args.brake_kd * v_enu[1],
-                 self.alt_kp * (self.target_height - alt) - self.alt_kd * v_enu[2]]
+                 self.alt_kp * (alt_tgt - alt) - self.alt_kd * v_enu[2]]
             # 矢量等比限幅（铁律 2：禁止逐分量 clip）
             na = math.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2)
             if na > self.args.a_max and na > 1e-9:
@@ -998,6 +1064,22 @@ class PhaseBGuidance(Node):
                 a = [x * k for x in a]
             self.cur_a_enu = tuple(a)
             self.publish_a()
+
+            # ★★ 地面安全地板：刹车中若离地低于 floor，说明已不是"正常刹车"
+            #   （失控 / 遥测跳变）⇒ 立刻放弃横向刹车转入 LAND（软着陆最安全）。
+            #   实飞事故里刹车段的横向指令 10 m/s² 全被用来"救高度"，
+            #   继续刹车没有意义且会继续漂。
+            if alt < BRAKE_ALT_FLOOR and not self.hard_ground_warned:
+                self.hard_ground_warned = True
+                self.warn(f"⚠⚠ 刹车中离地仅 {alt:.2f} m（< 地板 {BRAKE_ALT_FLOOR:.1f} m）"
+                          f"⇒ 放弃横向刹车，立即转 LAND 软着陆（安全优先）")
+                self.landing_phase = True
+                self.alt_hold = False
+                self.state = "LAND"
+                self.t_state = now
+                self.land_t0 = now
+                self.last_land_cmd = 0.0
+                return
 
             done = vh <= self.args.brake_vtol
             timed_out = now - self.brake_t0 > self.args.brake_timeout
@@ -1191,31 +1273,61 @@ class PhaseBGuidance(Node):
     def gz_finish(self, hit):
         """收尾：命中画爆点 + 可选轨迹线。
 
-        ★★ **必须非阻塞**（2026-10-16 实飞实测教训）：
-          以前这里直接调 `draw_trail` / `mark_point` / `hide_projectile`，
-          三次阻塞服务调用**各花 0.50 s**（= `GzScene.timeout_ms` 上限），
-          实飞日志证据：624.414「已画弹丸轨迹」→ 624.914「已标记命中点」
-          ⇒ **主回路被卡了整整 1.0 s**，而这 1 s 内 50 Hz 的加速度 setpoint
-          **一条都没发出去**，正好落在命中瞬间。
-          这违反本项目硬规矩：「可视化任何情况下都不得影响制导回路」。
-          ⇒ 现在只把动作**入队**，由 GzScene 的后台线程去发（主回路微秒级返回）。
+        ★★ **必须在别的进程里做**（2026-10-16 实飞事故，两轮才定位到真因）：
+          第 1 轮：这些调用直接写在主回路上 ⇒ 两次各 0.50 s ⇒ 主回路卡 1.0 s。
+          第 2 轮：改成"放进后台线程队列" ⇒ **仍然卡 1.0 s**。
+                  原因：`gz.transport` 的阻塞请求和本节点**共用同一个 Python
+                  解释器** ⇒ 后台线程发请求一样抢 GIL。
+          事故后果（第 2 轮实飞实测）：命中瞬间主回路空洞 **1015 ms**，
+          那 1 s 里 PX4 收不到 offboard setpoint ⇒ 无人机**自由落体**
+          （垂直：6.87 m / 1.149 s 仿真时间，a≈7.8 m/s²≈重力；水平：匀速漂 5.8 m）
+          ⇒ 最终落点漂 **12.9 m**、最低掉到离地 **0.44 m**。
+          ⇒ 现在改为**子进程**（`subprocess.Popen` 立即返回，子进程自己去连 gz 画图）：
+            既不阻塞、也不抢 GIL、绘制时机还是命中瞬间。
+          子进程起不来时**降级**为线程队列（有风险，会明确警告）。
         """
         if self.gz is None or not self.gz.available:
             return
+        job = {
+            "world": self.args.gz_world,
+            "trail": [[float(p[0]), float(p[1]), float(p[2])]
+                      for p in (self.gz_trail or [])],
+            "mark": ([float(x) for x in self.gz_trail[-1]]
+                     if (hit and self.gz_trail) else None),
+            "hide": True,
+        }
+        n_pts = len(job["trail"])
+        if n_pts < 2:
+            job.pop("trail", None)
         try:
-            n_pts = 0
-            if self.gz_trail:
-                n_pts = len(self.gz_trail)
-                self.gz.queue_trail(self.gz_trail)
-            if hit and self.gz_trail:
-                self.gz.queue_mark(self.gz_trail[-1], ns="hit_mark", mid=1,
-                                   size=0.6, color=(1.0, 0.95, 0.1), ttl_ms=15000)
-            self.gz.queue_hide_projectile()
-            self.log(f"  ── Gazebo 收尾绘制已**派发给后台线程**"
-                     f"（轨迹 {n_pts} 点{' + 命中标记' if hit and n_pts else ''}，"
-                     f"不阻塞控制回路）")
+            path = os.path.join(tempfile.gettempdir(),
+                                f"gz_draw_{os.getpid()}_{int(time.time() * 1000)}.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(job, f)
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "gz_scene_sync.py")
+            # start_new_session：彻底独立，父进程退出也不影响它把图画完
+            subprocess.Popen([sys.executable, script, "--draw-json", path,
+                              "--world", self.args.gz_world, "--quiet"],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            self.log(f"  ── Gazebo 收尾绘制已交给**独立子进程**"
+                     f"（轨迹 {n_pts} 点{' + 命中标记' if job.get('mark') else ''}）"
+                     f"—— 不占用控制回路，也不会抢 GIL")
         except Exception as e:             # noqa: BLE001
-            self.warn(f"⚠ Gazebo 收尾绘制排队失败（{e}）—— 不影响结果")
+            self.warn(f"⚠ 子进程绘制启动失败（{e}）—— 降级为后台线程"
+                      f"（⚠ 线程仍可能抢 GIL 卡住主回路，仅作兜底）")
+            try:
+                if job.get("trail"):
+                    self.gz.queue_trail(job["trail"])
+                if job.get("mark"):
+                    self.gz.queue_mark(job["mark"], ns="hit_mark", mid=1,
+                                       size=0.6, color=(1.0, 0.95, 0.1),
+                                       ttl_ms=15000)
+                self.gz.queue_hide_projectile()
+            except Exception as e2:        # noqa: BLE001
+                self.warn(f"⚠ 兜底入队也失败（{e2}）—— 忽略")
 
     def check_cruise_geometry(self):
         """巡航几何自检（仅在指定 --cruise-x 时有意义）。
@@ -1520,6 +1632,13 @@ class PhaseBGuidance(Node):
             self.log(f"   ★ 先刹车：水平速度 {vh:.2f} m/s。若直接 LAND，AUTO_LAND 的"
                      f"减速度(~2 m/s²)会带来 ~{est:.1f} m 漂移；先刹到 "
                      f"≤{self.args.brake_vtol:.2f} m/s 再 LAND。")
+            # ★ 锁定刹车期间的高度目标 = 进入时的高度（但不低于 MIN_ALTITUDE，
+            #   否则失控贴地时会被"保持"在地面高度上）
+            p_now, _ = self.state_enu()
+            alt_now = p_now[2] if p_now is not None else self.target_height
+            self.brake_alt_tgt = max(alt_now, MIN_ALTITUDE)
+            self.log(f"     刹车期间高度目标锁定为 {self.brake_alt_tgt:.2f} m"
+                     f"（进入时 {alt_now:.2f} m，下限 {MIN_ALTITUDE:.1f} m）")
             self.state = "BRAKE"
             self.brake_t0 = now
             self.t_state = now
@@ -1708,13 +1827,26 @@ class PhaseBGuidance(Node):
               % (nominal_ms, gap_ms, self.loop_gap_max_at,
                  self.loop_gap_max_state, tag))
             if self.loop_gaps:
-                tot = sum(g for _, g, _ in self.loop_gaps)
+                tot = sum(g for _, g, _, _ in self.loop_gaps)
                 p("[健康] 空洞(≥%d ms) 共 %d 次、累计 %.0f ms —— 这些周期**没发出 setpoint**："
                   % (int(LOOP_GAP_WARN * 1000), len(self.loop_gaps), tot * 1000))
-                for tw, gp, st in self.loop_gaps[:8]:
-                    p("         t_wall=%.3f  %5.0f ms  state=%s" % (tw, gp * 1000, st))
+                for item in self.loop_gaps[:8]:
+                    tw, gp, st, sdt = (list(item) + [None])[:4]
+                    sdt_txt = ("" if sdt is None
+                               else "  仿真推进 %.3fs (RTF %.2f)" % (sdt, sdt / gp))
+                    p("         t_wall=%.3f  %5.0f ms  state=%-16s%s"
+                      % (tw, gp * 1000, st, sdt_txt))
                 if len(self.loop_gaps) > 8:
                     p("         …（另有 %d 次，见完整 CSV）" % (len(self.loop_gaps) - 8))
+        # ★ 仿真实时率（RTF）：解释"位置跳变"的关键 —— 墙钟 0.1 s 里仿真可能推进 1.1 s
+        if self.rtf_samples:
+            rs = sorted(self.rtf_samples)
+            n = len(rs)
+            p("[实时率] 仿真Δt/墙钟Δt：中位 %.2f  最小 %.2f  最大 %.2f  （%d 个采样）"
+              % (rs[n // 2], rs[0], rs[-1], n))
+            if rs[-1] > 2.0:
+                p("[实时率] ⚠ 最大 %.2f ⇒ 某一拍墙钟只走了很短时间但**仿真推进很多**，"
+                  "此时看到的位置跳变是**真的**（不是遥测坏了）" % rs[-1])
         # ★ 实测落点 / 漂移（不是估算）
         dr = self.landing_drift()
         if dr is None:
@@ -1726,6 +1858,11 @@ class PhaseBGuidance(Node):
                  self.stop_pos[0], self.stop_pos[1]))
             p("[落点] **实测**着陆漂移 = %.2f m（Δx=%+.2f Δy=%+.2f）"
               "   全程最大水平位移 = %.1f m" % (d, ddx, ddy, self.max_h_disp))
+        if self.min_alt is not None:
+            p("[落点] 全程最低离地 %.2f m @ t_wall=%.3fs (state=%s)%s"
+              % (self.min_alt, self.min_alt_at or 0.0, self.min_alt_state,
+                 "   ⚠ 制导/刹车段曾贴地 ⇒ 疑失控"
+                 if self.hard_ground_warned else ""))
         p("")
         p("--- 时间序列（CSV 格式 · 共 %d 行）---" % len(self.report_rows))
         p("# 时间列口径：t_wall=墙钟秒（全程单调，收尾段只有它能区分各步）；"
@@ -1763,8 +1900,12 @@ class PhaseBGuidance(Node):
              {None: "未判", True: "是", False: "否(离地过高)"}[self.soft_landing]))
         if dr is not None:
             p("着陆漂移(实测) = %.2f m   全程最大水平位移 = %.1f m" % (dr[0], self.max_h_disp))
-        p("控制回路最大间隔 = %.0f ms  (空洞 %d 次)"
-          % (self.loop_gap_max * 1000.0, len(self.loop_gaps)))
+        if self.min_alt is not None:
+            p("全程最低离地 = %.2f m @ state=%s" % (self.min_alt, self.min_alt_state))
+        p("控制回路最大间隔 = %.0f ms  (空洞 %d 次)%s"
+          % (self.loop_gap_max * 1000.0, len(self.loop_gaps),
+             "" if not self.rtf_samples else
+             "   RTF max %.2f" % max(self.rtf_samples)))
         if self.aborted:
             p("异常 = ABORT: %s" % self.abort_reason)
         p("")

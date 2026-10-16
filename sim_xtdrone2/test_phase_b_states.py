@@ -19,6 +19,7 @@
 退出码 0 = 全过。
 """
 import csv
+import json
 import math
 import os
 import sys
@@ -699,11 +700,14 @@ def main():
     check(n3.hit, f"★ 可视化后端**全程抛异常**时制导仍命中（最近 {n3.min_R:.3f} m）")
     check(n3.state in ("LAND", "DONE"), "收尾流程仍然走完（异常未扩散）")
 
-    # ★★ 零阻塞断言（2026-10-16 实飞事故回归）：gz_finish 必须只**入队**，
-    #    绝不能在主回路里直接调阻塞的 draw_trail/mark_point/hide_projectile。
-    #    实飞证据：那两次调用各花 0.50 s ⇒ 主回路卡 1.0 s（命中瞬间没有 setpoint）。
+    # ★★ 零阻塞断言（2026-10-16 实飞事故回归，两轮才定位真因）：
+    #    第 1 轮：gz_finish 里直接调阻塞 API ⇒ 主回路卡 1.0 s。
+    #    第 2 轮：改用"后台线程队列" ⇒ **仍然卡 1.0 s**（gz 阻塞请求抢 GIL）。
+    #    ⇒ 最终方案：**子进程**。这里断言 gz_finish：
+    #      ① 虚拟时钟零增量；② 不碰任何阻塞 API；③ 不起任何后台线程动作；
+    #      ④ 真的 spawn 了一个进程（用假的 spawner 记录）。
     class _RecordingGz:
-        """记录"哪些方法被调用了"，并把阻塞调用做得**明显很慢**。"""
+        """记录"哪些方法被调用了"，并把阻塞调用做成致命错误。"""
 
         available = True
 
@@ -726,45 +730,87 @@ def main():
         def set_projectile(self, *a, **k):
             pass
 
-        def queue_trail(self, pts, **k):
-            self.queued.append(("trail", len(pts)))
+        def queue_trail(self, *a, **k):
+            self.queued.append("queue_trail")
 
-        def queue_mark(self, p, **k):
-            self.queued.append(("mark", tuple(p)))
+        def queue_mark(self, *a, **k):
+            self.queued.append("queue_mark")
 
         def queue_hide_projectile(self):
-            self.queued.append(("hide", None))
+            self.queued.append("queue_hide_projectile")
 
-        # —— 以下都是阻塞 API：一旦被主回路调用就是 bug ——
+        # —— 以下都是阻塞 API：一旦被调用就是 bug ——
         def draw_trail(self, *a, **k):
             self.blocking_calls.append("draw_trail")
-            raise AssertionError("gz_finish 不该在主回路里调 draw_trail（会阻塞）")
+            raise AssertionError("不该调阻塞 API draw_trail")
 
         def mark_point(self, *a, **k):
             self.blocking_calls.append("mark_point")
-            raise AssertionError("gz_finish 不该在主回路里调 mark_point（会阻塞）")
+            raise AssertionError("不该调阻塞 API mark_point")
 
         def hide_projectile(self):
             self.blocking_calls.append("hide_projectile")
-            raise AssertionError("gz_finish 不该在主回路里调 hide_projectile（会阻塞）")
+            raise AssertionError("不该调阻塞 API hide_projectile")
 
         def close(self):
             pass
 
-    rec = _RecordingGz()
-    n4 = new_node(lib, gz_viz=True, gz_trail=True)
-    n4.gz = rec
-    n4.gz_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.2), (2.0, 0.0, 8.4)]   # 伪造一段弹道
-    t0 = VT[0]
-    n4.gz_finish(hit=True)
-    dt = VT[0] - t0
-    check(dt == 0.0, f"gz_finish **零耗时**（虚拟时钟增量 {dt:.3f}s）")
-    check(not rec.blocking_calls,
-          f"gz_finish 没碰任何阻塞 API（实际 {rec.blocking_calls}）")
-    kinds = [k for k, _ in rec.queued]
-    check(kinds == ["trail", "mark", "hide"],
-          f"轨迹/命中标记/隐藏弹丸都已入队（实际 {kinds}）")
-    n4.close()
+    spawned = []
+
+    class _FakePopen:
+        def __init__(self, cmd, **kw):
+            spawned.append((cmd, kw))
+
+    real_popen = M.subprocess.Popen
+    M.subprocess.Popen = _FakePopen          # 别真起进程（Windows 上没 Gazebo）
+    try:
+        rec = _RecordingGz()
+        n4 = new_node(lib, gz_viz=True, gz_trail=True)
+        n4.gz = rec
+        n4.gz_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.2), (2.0, 0.0, 8.4)]
+        t0 = VT[0]
+        n4.gz_finish(hit=True)
+        dt = VT[0] - t0
+        check(dt == 0.0, f"gz_finish **零耗时**（虚拟时钟增量 {dt:.3f}s）")
+        check(not rec.blocking_calls,
+              f"gz_finish 没碰任何阻塞 API（实际 {rec.blocking_calls}）")
+        check(not rec.queued,
+              f"gz_finish 不再走线程队列（实际 {rec.queued}）—— 线程仍会抢 GIL")
+        check(len(spawned) == 1, f"已 spawn 1 个子进程绘制（实际 {len(spawned)}）")
+        if spawned:
+            cmd, kw = spawned[0]
+            check("--draw-json" in cmd,
+                  f"子进程用 --draw-json 模式（cmd={cmd[2:5]}）")
+            check(kw.get("start_new_session") is True,
+                  "子进程独立会话（父进程退出也画完）")
+            # 任务 JSON 内容正确
+            jpath = cmd[cmd.index("--draw-json") + 1]
+            with open(jpath, encoding="utf-8") as f:
+                job = json.load(f)
+            check(len(job.get("trail", [])) == 3,
+                  f"JSON 里带上了 3 点轨迹（实际 {len(job.get('trail', []))}）")
+            check(job.get("mark") is not None, "JSON 里带上了命中标记点")
+            check(job.get("hide") is True, "JSON 里要求隐藏弹丸")
+            os.remove(jpath)
+        n4.close()
+
+        # ---- 子进程起不来 ⇒ 必须降级并**明确告警** ----
+        def _boom(*a, **k):
+            raise OSError("spawn failed")
+        M.subprocess.Popen = _boom
+        rec2 = _RecordingGz()
+        n5 = new_node(lib, gz_viz=True, gz_trail=True)
+        n5.gz = rec2
+        n5.gz_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.2)]
+        warns5 = []
+        n5.warn = lambda s: warns5.append(s)
+        n5.gz_finish(hit=True)
+        check(bool(warns5) and any("降级" in w for w in warns5),
+              f"spawn 失败时给出降级告警（{len(warns5)} 条）")
+        check(rec2.queued, f"降级到了线程队列（{rec2.queued}）")
+        n5.close()
+    finally:
+        M.subprocess.Popen = real_popen
     check(len(warns3) >= 1, f"至少给出一次告警（实际 {len(warns3)} 次，不静默）")
     n3.close()
 
@@ -1287,10 +1333,13 @@ def main():
     check(len(ng.loop_gaps) == 1,
           f"0.5 s 空洞被检出（实际 {len(ng.loop_gaps)} 条）")
     if ng.loop_gaps:
-        tw, gp, st = ng.loop_gaps[0]
+        tw, gp, st, sdt = ng.loop_gaps[0]
         check(abs(gp - 0.52) < 0.03,
               f"空洞时长记录正确（{gp:.3f}s；0.5 s 人为空洞 + 上一拍残留 0.02 s）")
         check(st == ng.state, f"空洞状态记录正确（{st}）")
+        # ★ 空洞里还要记"仿真推进了多少"（解释位置跳变的关键）
+        check(sdt is not None and sdt >= 0.0,
+              f"空洞记录了仿真时间推进量（{sdt}s）")
     check(abs(ng.loop_gap_max - 0.52) < 0.03,
           f"最大间隔已更新（{ng.loop_gap_max:.3f}s）")
     check(any("控制回路空洞" in m for _, m in ng.logger.lines),
@@ -1302,6 +1351,62 @@ def main():
     check(abs(ng.loop_gap_max - 1.0) < 0.02,
           f"最大间隔更新到 1.0 s（{ng.loop_gap_max:.3f}s）")
     ng.close()
+
+    # ---------------------------------------------------------------- 用例 14
+    print()
+    print("=" * 74)
+    print("用例 14：刹车段的地面安全地板 + 高度目标锁定（实飞'撞地'防护）")
+    print("=" * 74)
+    # 实飞事故：BRAKE 段无人机掉到离地 0.44 m（vz=-10 m/s）。原代码会继续
+    # 用 10 m/s² 的横向刹车指令跟这个"贴地"状态较劲 ⇒ 既危险又没意义。
+    # 修法：① 刹车高度目标锁定为**进入时的高度**（不再硬追 8 m）；
+    #       ② 离地 < BRAKE_ALT_FLOOR(1.5 m) ⇒ 立刻放弃横向刹车、转 LAND 软着陆。
+
+    # ① 高度目标锁定：从 5 m 进入刹车 ⇒ 目标应是 5 m，不是 8 m（不再白白爬升）
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    n.warn = lambda s: None
+    fx6 = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n, fx6)
+    for _ in range(1200):
+        step(n, fx6, 1)
+        if n.state in ("BRAKE", "LAND", "DONE"):
+            break
+    check(n.state in ("BRAKE", "LAND"), f"已到收尾段（当前 {n.state}）")
+    if n.state == "BRAKE":
+        check(n.brake_alt_tgt is not None,
+              f"刹车高度目标已锁定（{n.brake_alt_tgt}）")
+        check(abs(n.brake_alt_tgt - fx6.p[2]) < 1.5,
+              f"目标 = 进入时高度（{n.brake_alt_tgt:.2f} vs 实际 {fx6.p[2]:.2f} m）"
+              f"，而不是硬追 {PILOT_KW['target_height']} m")
+    n.close()
+
+    # ② 安全地板：把无人机强行按到 0.6 m 并给个大下降速度 ⇒ 应立刻退出 BRAKE 转 LAND
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    warns = []
+    n.warn = lambda s: warns.append(s)
+    fx7 = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n, fx7)
+    for _ in range(1200):
+        step(n, fx7, 1)
+        if n.state in ("BRAKE", "LAND", "DONE"):
+            break
+    entered = n.state
+    if entered == "BRAKE":
+        print(f"  已进入 BRAKE @ alt={fx7.p[2]:.2f} m ⇒ 模拟失控贴地")
+        fx7.p[2] = 0.60                       # 强行贴地（模拟实飞掉到 0.44 m）
+        fx7.v[2] = -10.0                      # 大下降速度
+        fx7.sync()
+        step(n, fx7, 1)
+        check(n.state == "LAND",
+              f"离地 {fx7.p[2]:.2f} m < 地板 ⇒ 立刻转 LAND（当前 {n.state}）")
+        check(any("地板" in w for w in warns),
+              f"给出明确告警（{len(warns)} 条）")
+        check(n.hard_ground_warned, "hard_ground_warned 已置位（不重复刷屏）")
+    else:
+        check(False, f"本用例需要先进入 BRAKE（实际 {entered}）")
+    n.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

@@ -568,6 +568,64 @@ def _demo(scene: GzScene, tower_r: float, tower_h: float,
     return 0
 
 
+def draw_from_json_file(path: str, world: str = DEFAULT_WORLD,
+                        verbose: bool = False) -> int:
+    """★ 一次性绘制（子进程模式）：读 JSON → 画轨迹 / 标记命中点 / 隐藏弹丸。
+
+    ⚠ 为什么需要"子进程"这条路（2026-10-16 实飞事故）：
+      `gz.transport` 的服务请求是**阻塞**的，且它和我们的控制节点共用同一个
+      Python 解释器 ⇒ 后台线程里发请求同样会**抢 GIL**，主回路照样被卡住。
+      实测：命中瞬间主回路空洞 **1015 ms**，而那 1 s 里 PX4 因为收不到 offboard
+      setpoint 而失控，无人机**自由落体 6.9 m 并横向漂 5.8 m** ⇒ 最终落点漂 12.9 m。
+      ⇒ 唯一可靠的办法是让绘制发生在**另一个进程**里：`subprocess.Popen` 立刻返回，
+        子进程自己去连 gz、画图、退出，永远不碰控制节点的 GIL。
+
+    JSON 格式：
+      {"world": "walls",
+       "trail": [[x,y,z], ...],          # 可选，≥2 点
+       "trail_color": [r,g,b],           # 可选
+       "mark": [x,y,z] | null,           # 可选
+       "mark_color": [r,g,b],            # 可选
+       "mark_ttl_ms": 15000,             # 可选
+       "clear_trail": false,             # 可选
+       "hide": true}                     # 可选
+    """
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            job = json.load(f)
+    except Exception as e:                                  # noqa: BLE001
+        print(f"⚠ 读绘制任务失败（{e}）", file=sys.stderr)
+        return 1
+    world = job.get("world") or world
+    scene = GzScene(world=world, timeout_ms=800, verbose=verbose)
+    if not scene.available:
+        if verbose:
+            print("⚠ 子进程接不上 Gazebo —— 跳过绘制")
+        return 1
+    try:
+        if job.get("clear_trail"):
+            scene.clear_trail()
+        trail = job.get("trail") or []
+        if len(trail) >= 2:
+            scene.draw_trail(trail, color=tuple(job.get("trail_color",
+                                                         (1.0, 0.35, 0.05))))
+        mk = job.get("mark")
+        if mk:
+            scene.mark_point(mk, ns="hit_mark", mid=1, size=0.6,
+                             color=tuple(job.get("mark_color", (1.0, 0.95, 0.1))),
+                             ttl_ms=int(job.get("mark_ttl_ms", 15000)))
+        if job.get("hide", True):
+            scene.hide_projectile()
+        if verbose:
+            print(f"✅ 子进程已完成绘制：轨迹 {len(trail)} 点"
+                  f"{' + 命中标记' if mk else ''}")
+    except Exception as e:                                  # noqa: BLE001
+        print(f"⚠ 子进程绘制异常（{e}）", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Gazebo 场景可视化同步（塔 / 弹丸 / 轨迹）—— 不含算法",
@@ -581,6 +639,9 @@ def main(argv=None) -> int:
                    help="★ 演示：放塔 + 让弹丸飞一条线（不用跑 ROS 即可验证）")
     g.add_argument("--tower", action="store_true", help="只放一座防御塔")
     g.add_argument("--clear", action="store_true", help="清掉本模块创建过的实体")
+    g.add_argument("--draw-json", default=None, metavar="FILE",
+                   help="★ 一次性绘制任务（JSON）—— 由控制节点以**子进程**方式调用，"
+                        "避免 gz 阻塞调用抢 GIL 卡住制导回路")
     ap.add_argument("--tower-radius", type=float, default=1.2)
     ap.add_argument("--tower-height", type=float, default=3.0)
     ap.add_argument("--from", dest="p0", default="-14,0,10",
@@ -596,6 +657,10 @@ def main(argv=None) -> int:
         if len(v) != 3:
             raise SystemExit(f"需要 3 个分量（x,y,z）：{s!r}")
         return tuple(v)
+
+    if args.draw_json:
+        return draw_from_json_file(args.draw_json, world=args.world,
+                                   verbose=not args.quiet)
 
     scene = GzScene(world=args.world, hz=args.hz, verbose=not args.quiet)
 
