@@ -41,6 +41,7 @@ bool Communicator::start(const std::string& device, int baud) {   //打开串口
         return true;
     }
     if (!port_.open(device, baud)) {
+        printf("打开串口失败: %s\n", device.c_str());
         return false;
     }
     port_.flush();   //清空缓冲

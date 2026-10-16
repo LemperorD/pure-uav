@@ -6,7 +6,7 @@ int main() {
     pure_uav::Communicator comm;
     comm.setSystemId(2);  
 
-    if (!comm.start("/dev/ttyUSB0", 921600)) {  
+    if (!comm.start("/dev/ttyACM0", 921600)) {  
         printf("打开串口失败\n");
         return 1;
     }

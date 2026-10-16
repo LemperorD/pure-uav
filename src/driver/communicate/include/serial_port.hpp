@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <iostream>
 #include <sys/types.h>
 
 namespace pure_uav {
