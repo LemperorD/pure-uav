@@ -154,6 +154,7 @@ ALT_KD = 2.0
 MIN_ALTITUDE = 3.0                 # 安全围栏
 MAX_H_DISP = 25.0
 GUIDED_TIMEOUT = 8.0               # GUIDED 段超时（s，按目标相对时间）
+CRUISE_TIMEOUT = 8.0               # 巡航/预加速段超时（s，墙钟）
 
 # 制导核的 mode 枚举（同 guidance_types.hpp）
 GMODE_PN, GMODE_APN, GMODE_HOLD, GMODE_SEARCH = 0, 1, 2, 3
@@ -276,6 +277,9 @@ class PhaseBGuidance(Node):
         self.v_boost_min = args.v_boost_min
         self.boost_dir = args.boost_dir
         self.cruise_on = not args.no_cruise
+        self.cruise_x = args.cruise_x          # None = 速度达标即发射（旧行为）
+        self.v_kp = args.v_kp                  # 巡航段速度保持增益
+        self.cruise_timeout = args.cruise_timeout
         self.target_height = args.target_height
         self.rate = args.rate
 
@@ -712,11 +716,16 @@ class PhaseBGuidance(Node):
                 self.start_x = self.pos.x
                 self.start_y = self.pos.y
                 if self.cruise_on:
+                    self.check_cruise_geometry()
                     self.state = "CRUISE"
                     self.cruise_t0 = now
-                    self.log(f"  ── CRUISE 预加速：朝 ({self.boost_dir[0]:+.2f},"
+                    goal = ""
+                    if self.cruise_x is not None:
+                        sign = "≤" if self.boost_dir[0] < 0.0 else "≥"
+                        goal = f"，巡航到 x {sign} {self.cruise_x:+.2f} m 后发射"
+                    self.log(f"  ── CRUISE 巡航：朝 ({self.boost_dir[0]:+.2f},"
                              f"{self.boost_dir[1]:+.2f},{self.boost_dir[2]:+.2f}) "
-                             f"a={self.a_boost:.1f} m/s²，直到 |v|≥{self.v_boost_min:.1f} m/s")
+                             f"a={self.a_boost:.1f} m/s²，目标 |v|≥{self.v_boost_min:.1f} m/s{goal}")
                 else:
                     self.begin_guided(now)
 
@@ -831,26 +840,92 @@ class PhaseBGuidance(Node):
         self.log_row()
 
     # ---------------------------------------------------------------- 段
+    def check_cruise_geometry(self):
+        """巡航几何自检（仅在指定 --cruise-x 时有意义）。
+
+        ⚠ 为什么需要它：跑完一个 law 后是 LAND + DISARM，无人机停在**拦截点附近**
+          而非原点。若紧接着跑第二个 law，起点就漂了 ⇒
+            ① 到 --cruise-x 的位移变短（甚至起点已在阈值之外，一达标就发射）；
+            ② 弹丸发射点是**绝对坐标**，与无人机的相对几何随之改变 ⇒ 两个 law 不可比。
+        这里把它变成**显式告警**，而不是静默给出不可比的结果。
+        """
+        if self.cruise_x is None:
+            return
+        d = self.boost_dir
+        if abs(d[0]) < 0.5:
+            self.warn(f"  ⚠ --cruise-x 只对沿 ±x 巡航有意义，但 boost_dir[0]="
+                      f"{d[0]:+.2f} ⇒ 位置判据可能永不成立")
+            return
+        # ⚠ 必须用 **ENU** 的 x —— `--cruise-x` 是按 ENU 定义的；
+        #   而 `self.start_x` 取自 PX4 的 NED（x=北），两者不可直接比较。
+        p_enu, _ = self.state_enu()
+        if p_enu is None:
+            return
+        x0 = p_enu[0]
+        beyond = (x0 <= self.cruise_x) if d[0] < 0.0 else (x0 >= self.cruise_x)
+        if beyond:
+            cmp_sign = "<" if d[0] < 0.0 else ">"
+            self.warn(f"  ⚠ 起点 x={x0:+.2f} m 已在巡航阈值 {self.cruise_x:+.2f} m "
+                      f"的 {cmp_sign} 侧 ⇒ 速度一达标就立刻发射，几何与守备场景不符。")
+            self.warn("     多半是上一次跑完停在拦截点、没回原点 —— "
+                      "请**重启仿真**后再跑（或接受本次几何已漂移）。")
+        elif abs(x0) > 1.5:
+            self.warn(f"  ⚠ 起点 x={x0:+.2f} m 偏离世界原点较多（守备场景预期 ≈0）"
+                      f" ⇒ 弹丸发射点（绝对坐标）与无人机的相对几何可能不符预期。")
+
     def do_cruise(self, now):
-        """预加速段：朝固定方向加速 + 垂直保持；到速度后交班制导。"""
+        """巡航/预加速段：**两阶段** —— 先加速到 v_boost_min，再把速度保持住。
+
+        · 阶段 1（|v| < v_boost_min）：朝 boost_dir 恒加速 a_boost（= 旧行为）
+        · 阶段 2（|v| ≥ v_boost_min）：沿 boost_dir 的 P 控制把速度**按住**，
+          不再继续加速 —— 守备场景要求"以一定速度匀速巡航"，而不是一路顶到上限。
+
+        发射判据：
+          · 未指定 --cruise-x → 速度一达标就发射（与旧版行为一致）
+          · 指定 --cruise-x   → 还要"x 已越过该值"才发射
+            （boost_dir 朝 −x 用 ≤，朝 +x 用 ≥；仅适用于沿 ±x 巡航）
+        """
         if self.pos is None:
             return
         p_enu, v_enu = self.state_enu()
         d = self.boost_dir
-        a = [self.a_boost * d[0], self.a_boost * d[1], self.a_boost * d[2]]
+        v_norm = math.sqrt(v_enu[0] ** 2 + v_enu[1] ** 2 + v_enu[2] ** 2)
+        speed_ok = v_norm >= self.v_boost_min
+
+        if not speed_ok:
+            a_along = self.a_boost                                  # 阶段 1：恒加速
+        else:
+            v_along = v_enu[0] * d[0] + v_enu[1] * d[1] + v_enu[2] * d[2]
+            a_along = self.v_kp * (self.v_boost_min - v_along)      # 阶段 2：速度保持
+            a_along = max(-self.a_boost, min(self.a_boost, a_along))
+
+        a = [a_along * d[0], a_along * d[1], a_along * d[2]]
         if self.alt_hold and self.alt_target is not None:
             a[2] += self.alt_kp * (p_enu[2] - self.alt_target) - self.alt_kd * v_enu[2]
         self.cur_a_enu = tuple(a)
         self.publish_a()
 
-        v_norm = math.sqrt(v_enu[0] ** 2 + v_enu[1] ** 2 + v_enu[2] ** 2)
-        if v_norm >= self.v_boost_min:
-            self.log(f"  ── CRUISE 完成：|v|={v_norm:.2f} m/s（耗时 {now - self.cruise_t0:.2f}s）"
-                     f" @ {tuple(round(x, 2) for x in p_enu)}")
-            self.begin_guided(now)
-            return
-        if now - self.cruise_t0 > 8.0:
-            self.abort(f"预加速超时（8s）：|v|={v_norm:.2f} m/s < {self.v_boost_min}")
+        if speed_ok:
+            if self.cruise_x is None:
+                reached = True                                      # 旧行为
+            else:
+                reached = (p_enu[0] <= self.cruise_x) if d[0] < 0.0 \
+                    else (p_enu[0] >= self.cruise_x)
+            if reached:
+                self.log(f"  ── CRUISE 完成：|v|={v_norm:.2f} m/s"
+                         f"（耗时 {now - self.cruise_t0:.2f}s）"
+                         f" @ {tuple(round(x, 2) for x in p_enu)}")
+                if self.cruise_x is not None:
+                    self.log(f"     到位判据 x={p_enu[0]:.2f} m（阈值 "
+                             f"{self.cruise_x:+.2f} m，偏差 {p_enu[0] - self.cruise_x:+.2f} m）")
+                self.begin_guided(now)
+                return
+        if now - self.cruise_t0 > self.cruise_timeout:
+            extra = ""
+            if self.cruise_x is not None:
+                extra = f"；当前 x={p_enu[0]:.2f} m（目标 {self.cruise_x:+.2f} m）"
+            self.abort(f"巡航超时（{self.cruise_timeout:.0f}s）：|v|={v_norm:.2f} m/s "
+                       f"< {self.v_boost_min}{extra}")
 
     def begin_guided(self, now):
         """进入制导段：记录目标发射时刻，t_rel 从这里开始。"""
@@ -1092,6 +1167,15 @@ def build_parser():
     ap.add_argument("--v-boost-min", type=float, default=5.0)
     ap.add_argument("--boost-dir", type=parse_vec3, default=(-1.0, 0.0, 0.0))
     ap.add_argument("--no-cruise", action="store_true", help="跳过预加速（悬停直接制导）")
+    # 巡航到位（守备场景用；不指定时行为与旧版完全一致）
+    ap.add_argument("--cruise-x", type=float, default=None,
+                    help="巡航发射位置判据（ENU x 坐标）：指定后需"
+                         "「速度达标 **且** x 已越过该值」才发射目标；"
+                         "不指定则速度一达标就发射（旧行为）")
+    ap.add_argument("--v-kp", type=float, default=1.5,
+                    help="巡航段速度保持增益 (1/s)：a = v_kp·(v_boost_min − v_沿boost_dir)")
+    ap.add_argument("--cruise-timeout", type=float, default=CRUISE_TIMEOUT,
+                    help="巡航/预加速段超时 (s)")
     # 飞行
     ap.add_argument("--target-height", type=float, default=10.0, help="起飞高度 (m)")
     ap.add_argument("--takeoff-tol", type=float, default=1.0)

@@ -71,6 +71,7 @@ for base in \
     sim_phase_b_offline.py \
     pure_guidance_shim.cpp \
     preflight.sh \
+    run_pilot_compare.sh \
     build_guidance_shim.sh ; do
     stem="${base%.*}"
     ext="${base##*.}"
@@ -87,7 +88,7 @@ done
 chmod +x phase_a_accel_path.py test_phase_a_states.py \
          phase_b_guidance.py  test_phase_b_states.py sim_phase_b_offline.py \
          scene_model.py viz_scene.py \
-         run_phase_a.sh run_phase_b.sh apply_update.sh \
+         run_phase_a.sh run_phase_b.sh run_pilot_compare.sh apply_update.sh \
          preflight.sh build_guidance_shim.sh \
          2>/dev/null || true
 
@@ -115,8 +116,12 @@ cat <<'EOF'
 == 下一步 ==
 先确认仿真在跑（另一个终端），然后：
 
-    bash run_phase_b.sh --namespace x500_0     # 阶段 B：制导闭环
+    bash run_pilot_compare.sh                  # pilot 守备场景：PPN + APN 对比（★推荐）
+    bash run_phase_b.sh --namespace x500_0     # 阶段 B：原演示场景（制导闭环）
     bash run_phase_a.sh --namespace x500_0     # 阶段 A：指令通路（如需复测）
+
+★ run_pilot_compare.sh 跑第二个 law 之前**必须重启仿真**
+  （跑完无人机停在拦截点而非原点，否则几何漂移；节点会自动 warn 提示）。
 
 跑完会自动 LAND + 停桨并退出（按一次 Ctrl-C 也会走同样的收尾流程；
 连按两次 Ctrl-C = 强制退出）。

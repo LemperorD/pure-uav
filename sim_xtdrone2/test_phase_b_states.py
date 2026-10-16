@@ -252,6 +252,7 @@ def mk_args(lib, **kw):
         target_mass=0.40, target_cd=0.50, target_area=2.83e-3, target_rho=1.225,
         law=0, N=6.0, a_max=10.0, t_go_freeze=0.10, hit_radius=0.5,
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
+        cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
         target_height=10.0, takeoff_tol=1.0, takeoff_timeout=60.0, rate=50.0,
         no_auto_land=False, no_disarm=False, no_force_disarm=False,
         land_timeout=90.0, land_down_speed=0.5, linger=3.0,
@@ -477,6 +478,100 @@ def main():
     # 两条都饱和到 a_max，所以比"峰值"没意义 —— 比 **最近距离**（N 确实进了制导核）
     check(abs(res[4.0][0] - res[8.0][0]) > 1e-4,
           f"N 改变了制导结果（最近 {res[4.0][0]:.3f} vs {res[8.0][0]:.3f} m）")
+
+    # ---------------------------------------------------------------- 用例 7
+    print()
+    print("=" * 74)
+    print("用例 7：守备场景巡航到位判据 --cruise-x（PPN/APN 实飞对比的前提）")
+    print("=" * 74)
+
+    def _vnorm(v):
+        return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) ** 0.5
+
+    # --- 7.1 指定 cruise_x：速度达标但**未到位** ⇒ 不应发射 ---
+    n = new_node(lib, cruise_x=-4.0)
+    fx = FakePX4(n, p_enu=(0.0, 0.0, 10.0))
+    x_speed_ok, state_speed_ok, fire_x = None, None, None
+    for _ in range(6000):
+        step(n, fx, 1)
+        if n.state == "GUIDED":
+            fire_x = fx.p[0]
+            break
+        if n.state == "CRUISE" and x_speed_ok is None and _vnorm(fx.v) >= 5.0:
+            x_speed_ok, state_speed_ok = fx.p[0], n.state
+    check(state_speed_ok == "CRUISE",
+          f"速度达标瞬间（|v|≥5 @ x={x_speed_ok:+.2f} m）仍停在 CRUISE —— 未提前发射")
+    check(fire_x is not None and fire_x <= -4.0,
+          f"最终在 x={fire_x:+.2f} m（≤ −4.0）才发射 —— 位置判据生效")
+    n.close()
+
+    # --- 7.2 不指定 cruise_x（旧行为）：速度达标即发射 ---
+    n = new_node(lib, cruise_x=None)
+    fx = FakePX4(n, p_enu=(0.0, 0.0, 10.0))
+    fire_x_old = None
+    for _ in range(6000):
+        step(n, fx, 1)
+        if n.state == "GUIDED":
+            fire_x_old = fx.p[0]
+            break
+    check(fire_x_old is not None and fire_x_old > -3.0,
+          f"未指定 --cruise-x ⇒ 速度达标即发射（x={fire_x_old:+.2f} m，远未到 −4）"
+          f" —— 向后兼容")
+    n.close()
+
+    # --- 7.3 起点已在阈值之外 ⇒ 必须**显式告警**，不静默 ---
+    n = new_node(lib, cruise_x=-4.0)
+    warns = []
+    n.warn = lambda s: warns.append(s)
+    fx = FakePX4(n, p_enu=(-6.0, 0.0, 10.0))      # 起点已在 −4 以西
+    for _ in range(3000):
+        step(n, fx, 1)
+        if n.state == "GUIDED":
+            break
+    check(any("已在巡航阈值" in w for w in warns),
+          "起点在阈值之外时给出显式告警（提示重启仿真，不静默出不可比结果）")
+    n.close()
+
+    # --- 7.4 巡航段速度被**保持**住（不再一路顶上去） ---
+    n = new_node(lib, cruise_x=-4.0)
+    fx = FakePX4(n, p_enu=(0.0, 0.0, 10.0))
+    v_peak = 0.0
+    for _ in range(6000):
+        step(n, fx, 1)
+        if n.state == "GUIDED":
+            break
+        if n.state == "CRUISE":
+            v_peak = max(v_peak, _vnorm(fx.v))
+    check(5.0 <= v_peak < 6.0,
+          f"巡航段速度保持有效（峰值 {v_peak:.2f} m/s，目标 5.0、上限 6.0）")
+    n.close()
+
+    # --- 7.5 ★ pilot 守备场景离线对比：PPN vs APN ---
+    print()
+    print("  7.5 pilot 守备场景离线对比"
+          "（8 m 高 / 5 m/s 迎击；弹丸 (−14,0,10) 14 m/s 俯角 6°）")
+    pilot = dict(target_p0=(-14.0, 0.0, 10.0), target_speed=14.0, target_elev=-6.0,
+                 target_height=8.0, v_boost_min=5.0, cruise_x=-4.0)
+    pres = {}
+    for law in (0, 2):
+        n = new_node(lib, law=law, **pilot)
+        n.log = lambda s: None          # 静音，保持测试输出整洁
+        n.warn = lambda s: None
+        fx = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+        for _ in range(8000):
+            step(n, fx, 1)
+            if n.state in ("LAND", "DONE"):
+                break
+        mr = n.min_R if n.min_R is not None else float("nan")
+        pres[law] = (mr, bool(n.hit))
+        n.close()
+    for law, nm in ((0, "PPN"), (2, "APN")):
+        print(f"    {nm}(law {law}) → 最近 {pres[law][0]:.3f} m  "
+              f"{'命中' if pres[law][1] else '未命中'}")
+    check(pres[0][1] and pres[2][1], "pilot 场景下 PPN / APN 均能命中")
+    check(pres[2][0] < pres[0][0],
+          f"APN 脱靶量小于 PPN（{pres[2][0]:.3f} vs {pres[0][0]:.3f} m）"
+          f" —— 证明 a_T⊥ 真进了制导核")
 
     # ---------------------------------------------------------------- 汇总
     print()
