@@ -1219,7 +1219,8 @@ python3 phase_b_guidance.py --csv-hz 2
 | `gz_scene_sync.py` | **在 Gazebo 里显示塔 / 弹丸 / 轨迹**（零侵入；见 §3.12） |
 | `verify_gz_msgs.py` | **校验 gz-msgs 字段/枚举名**是否与本机版本一致（见 §3.12） |
 | `audit_landing.py` | **着陆段数值审计**：逐帧打印着陆过程 + 判定停桨前状态是否合理（见 §3.11） |
-| `test_phase_b_states.py` | 阶段 B 离线回归（桩替 ROS + **真制导核** + 假 PX4 质点） |
+| `test_phase_b_states.py` | 阶段 B 离线回归（桩替 ROS + **真制导核** + 假 PX4 质点；用例 1~12） |
+| `sample_csv_pose_0p1s.csv` | **CSV 列格式参照**：离线跑一遍（真制导核 + 假 PX4），0.1 s 采样、带姿态列（见 §3.13） |
 | `sim_phase_b_offline.py` | 纯离线弹道仿真（三种模式：cruise / hot / **pilot**；见 §3.8、§3.9） |
 | `scene_model.py` | **场景实体模型**：塔 / 发射场 / 弹丸 / 无人机 / 场地（含 walls.sdf 真实墙体；见 §3.9、§3.10） |
 | `viz_scene.py` | **场景复现 + 拦截过程可视化**（Python 画图 / C++ 核心；见 §3.10） |
