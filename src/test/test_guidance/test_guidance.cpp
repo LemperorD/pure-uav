@@ -724,6 +724,138 @@ static void test_freeze_criterion() {
 }
 
 // ============================================================
+//  15. ★ 不变量（invariant）—— 内部口径冻结
+// ============================================================
+//
+// 《数据对齐-自决项详解.md》④「内部口径冻结」要求的四类不变量：
+//     |q| = 1          · |los_hat| = 1      · range ≥ 0      · 时间戳单调不减（见 15.3）
+// 这些是**制导契约**：上游（视觉 / 惯导 / 通信）无论怎么给数据，
+// 只要转换为内部口径后违反其中任何一条，制导就必然出错。
+// 本组测试把它们钉死，防止后续改动悄悄破坏。
+//
+// 配套：接口侧还有一套更完整的自检实现（`src/interface/state_adapter/state_check.hpp`，
+//       收到一帧就能体检并指出是哪个字段的问题），本组只做制导核的契约级验证。
+static void test_invariants() {
+    section("15. 不变量（内部口径冻结）");
+
+    // 判据（与 state_check.hpp 的阈值保持一致）
+    const double kQuatNormTol = 1e-9;
+    const double kLosNormTol  = 1e-9;
+
+    GuidanceParams p;   // 默认 PPN / N = 4 / a_max = 30
+
+    // --- 15.1 正常闭环：所有不变量成立 ---
+    {
+        GuidanceState st = make_state(0.5, 120.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(-10, 4, 0));
+        GuidanceMemory m;
+        const GuidanceCmd c = guidance_step(st, p, m);
+
+        // |q| = 1（默认单位四元数）
+        const double qn = std::sqrt(st.q[0] * st.q[0] + st.q[1] * st.q[1] +
+                                    st.q[2] * st.q[2] + st.q[3] * st.q[3]);
+        near(qn, 1.0, kQuatNormTol, "不变量 |q| = 1（默认 [1,0,0,0]）");
+        near(st.q[0], 1.0, 0.0, "  四元数顺序 [w,x,y,z]：q[0] = w = 1");
+
+        // |los_hat| = 1
+        near(norm(st.los_hat), 1.0, kLosNormTol, "不变量 |los_hat| = 1");
+
+        // range ≥ 0
+        ok(st.range >= 0.0, "不变量 range ≥ 0");
+
+        // 指令有限、限幅内
+        ok(std::isfinite(c.a_cmd.x) && std::isfinite(c.a_cmd.y) && std::isfinite(c.a_cmd.z),
+           "不变量 a_cmd 三个分量有限");
+        ok(norm(c.a_cmd) <= p.a_max + 1e-9, "不变量 |a_cmd| ≤ a_max");
+
+        // |a_cmd| 与 a_cmd_norm 一致
+        near(norm(c.a_cmd), c.a_cmd_norm, 1e-12, "不变量 |a_cmd| = a_cmd_norm");
+
+        // r_hat 是单位矢量（制导回填的视线方向）
+        near(norm(c.r_hat), 1.0, kLosNormTol, "不变量 |r_hat| = 1");
+
+        // cmd.t = state.t，R 回填正确
+        near(c.t, st.t, 0.0, "不变量 cmd.t = state.t");
+        near(c.R, st.range, 0.0, "不变量 cmd.R = state.range");
+    }
+
+    // --- 15.2 极端几何下不变量依然成立（限幅 / 冻结 / 丢失）---
+    {
+        // (a) 极大 λ̇：指令必被限幅，模长仍守 a_max
+        GuidanceState st = make_state(0.01, 500.0, Vec3(1, 0, 0), Vec3(30, 0, 0), Vec3(-30, 60, 0));
+        GuidanceParams pm = p;
+        pm.a_max = 5.0;
+        GuidanceMemory m;
+        const GuidanceCmd c = guidance_step(st, pm, m);
+        ok(c.sat, "极端几何：触发限幅");
+        ok(norm(c.a_cmd) <= pm.a_max + 1e-9, "  限幅后 |a_cmd| ≤ a_max（矢量等比缩放）");
+        near(norm(c.a_cmd), c.a_cmd_norm, 1e-12, "  |a_cmd| 与 a_cmd_norm 一致");
+        // 未限幅指令与限幅指令方向一致（等比缩放的直接后果）
+        if (norm(c.a_cmd_unsat) > 1e-9 && norm(c.a_cmd) > 1e-9) {
+            const double cosang = dot(normalized(c.a_cmd), normalized(c.a_cmd_unsat));
+            near(cosang, 1.0, 1e-12, "  限幅不改变方向（矢量等比缩放，非逐分量 clip）");
+        }
+
+        // (b) 末端冻结：R → 0 时 |a_cmd| 仍有限且 ≤ a_max
+        GuidanceState st2 = make_state(1.0, 0.05, Vec3(1, 0, 0), Vec3(15, 0, 0), Vec3(-15, 1, 0));
+        GuidanceMemory m2;
+        const GuidanceCmd c2 = guidance_step(st2, p, m2);
+        ok(std::isfinite(norm(c2.a_cmd)), "末端 R→0：a_cmd 仍有限（未发散）");
+        ok(norm(c2.a_cmd) <= p.a_max + 1e-9, "  末端 |a_cmd| ≤ a_max");
+        ok(c2.t_go >= 0.0, "  t_go ≥ 0");
+
+        // (c) 目标丢失：SEARCH + 零指令
+        GuidanceState st3 = make_state(1.0, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
+        st3.valid = false;
+        GuidanceMemory m3;
+        const GuidanceCmd c3 = guidance_step(st3, p, m3);
+        ok(c3.mode == GuidanceMode::SEARCH, "目标丢失：mode = SEARCH");
+        near(norm(c3.a_cmd), 0.0, 0.0, "  零指令");
+        ok(std::isfinite(c3.a_cmd_norm), "  a_cmd_norm 有限（不是 NaN）");
+    }
+
+    // --- 15.3 时间戳单调性：制导不动时间，只透传；契约要求上游单调 ---
+    {
+        GuidanceState st = make_state(1.234, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
+        GuidanceMemory m;
+        const GuidanceCmd c = guidance_step(st, p, m);
+        near(c.t, 1.234, 0.0, "时间戳透传：cmd.t = state.t");
+        ok(m.t_prev == st.t, "记忆里保存的时间戳 = 本帧时间戳");
+        ok(m.has_prev, "  has_prev = true");
+
+        // 差分法内部用 dt = t − t_prev；t 倒退会让 dt < 0 ⇒ 必须由上游保证单调
+        GuidanceParams pd = p;
+        pd.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
+        GuidanceMemory md;
+        GuidanceState s1 = make_state(1.0, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
+        guidance_step(s1, pd, md);
+        // 第二帧时间戳倒退（上游乱序）⇒ 制导核自身不做保护（防除零只挡 dt≈0）
+        GuidanceState s2 = make_state(0.5, 100.0, Vec3(1, 0.01, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
+        const GuidanceCmd cd = guidance_step(s2, pd, md);
+        std::printf("  （提示：时间戳倒退时 dt = %.3f s，制导不自行纠正 —— "
+                    "单调性由上游保证，见 state_adapter::StateTimeTracker）\n",
+                    s2.t - s1.t);
+        ok(std::isfinite(norm(cd.a_cmd)), "时间戳倒退时输出仍有限（不产生 NaN/Inf）");
+    }
+
+    // --- 15.4 单位约定的自证：内部一律 SI + rad + 秒 ---
+    {
+        // los_hat / v_M / a_cmd 都是"同一世界系里的矢量"，所以：
+        //   PPN 的 a = N(ω × v_M) 与 v_M、ω 同系；量纲 = (rad/s)·(m/s) = m/s²
+        GuidanceState st = make_state(2.0, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(-5, 5, 0));
+        GuidanceMemory m;
+        const GuidanceCmd c = guidance_step(st, p, m);
+        // 手算复核量纲：ω = (r × v_rel)/R², r = (100,0,0), v_rel = (-25,5,0)
+        const Vec3 r = st.los_hat * st.range;
+        const Vec3 v_rel = st.v_T - st.v_M;
+        const Vec3 omega = los_rate_vector(r, v_rel, st.range);
+        near(norm(omega), c.lam_dot, 1e-12, "λ̇ 量纲/数值：|ω| 与 cmd.lam_dot 一致 (rad/s)");
+        const Vec3 a_expect = pn_ppn(omega, st.v_M, p.N);
+        near_vec(c.a_cmd_unsat, a_expect, 1e-9,
+                 "PPN：a = N(ω × v_M)（单位 m/s²，世界系）");
+    }
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -741,6 +873,7 @@ int main() {
     test_sensor_latency();
     test_target_model();
     test_freeze_criterion();
+    test_invariants();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
