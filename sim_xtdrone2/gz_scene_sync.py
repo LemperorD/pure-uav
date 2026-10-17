@@ -140,6 +140,14 @@ UAV_REPLAY_ID = 1
 PROJ_TRAIL_NS = "replay_proj_trail"
 UAV_TRAIL_NS = "replay_uav_trail"
 
+# 轨迹颜色（两条线/两串珠子共用，保证 marker 模式与珠子模式视觉一致）
+PROJ_COLOR = (1.00, 0.35, 0.05)    # 弹丸：橙红
+UAV_COLOR = (0.20, 0.95, 0.35)     # 无人机：绿
+
+# 无 marker 时的"珠子"实体名前缀（注意：不要与其他实体重名）
+PROJ_BEAD_PREFIX = "replay_proj_bead"
+UAV_BEAD_PREFIX = "replay_uav_bead"
+
 
 # --------------------------------------------------------------------------
 #  SDF 模板（内联字符串 ⇒ 不依赖 models 目录，做成一件事只动一个文件）
@@ -188,6 +196,39 @@ def launcher_sdf(name: str, size: float = 0.5) -> str:
   </model>
 </sdf>
 """
+
+
+def bead_sdf(name: str, radius: float, color=(1.0, 0.35, 0.05)) -> str:
+    """★ 轨迹"珠子"：**静态**小球，用来在没有 `/marker` 时画出轨迹。
+
+    为什么需要它（2026-10-17 实飞踩到）：
+      `/marker` 服务由 Gazebo **GUI** 的 MarkerManager 插件提供。
+      实测用户环境里 `marker` 服务**不可用**（但 `create` / `set_pose` 都通）
+      ⇒ 轨迹线和命中点一条都画不出来，回放只剩两个小球在飞，看着像"没回放"。
+      ⇒ 兜底方案：用一串**静态小球实体**沿轨迹摆出来（虚线感），
+        只依赖 `create` 服务，**完全不需要 GUI 插件**。
+
+    ⚠ 与 projectile_sdf 的区别：
+      · 这里 `static=true` ⇒ 不会被物理推走，也不需要 `<inertial>`
+      · 无 collision ⇒ 不参与碰撞
+    """
+    r, g, b = color
+    return f"""<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="{name}">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry><sphere><radius>{radius}</radius></sphere></geometry>
+        <material>
+          <ambient>{r:.3f} {g:.3f} {b:.3f} 1</ambient>
+          <diffuse>{r:.3f} {g:.3f} {b:.3f} 1</diffuse>
+          <emissive>{min(r * 1.0, 1.0):.3f} {g * 0.4:.3f} {b * 0.2:.3f} 1</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>"""
 
 
 def projectile_sdf(name: str, radius: float) -> str:
@@ -294,6 +335,72 @@ class GzScene:
         except Exception:
             self.stats["failed"] += 1
             return False, None
+
+    # ------------------------------------------- 轨迹"珠子"（无 marker 时的兜底）
+    def ensure_beads(self, points, prefix: str, radius: float = 0.09,
+                     color=(1.0, 0.35, 0.05), stride: int = 2,
+                     max_beads: int = 40) -> int:
+        """沿轨迹摆一串**静态小球实体**，返回实际创建的数量（0 = 失败）。
+
+        · `stride`：每隔几个点放一个（2 ⇒ 虚线感，实体数减半，创建更快）
+        · `max_beads`：上限，避免长轨迹创建几百个实体拖慢回放
+        · 只依赖 `create` 服务 ⇒ 不需要 GUI 的 MarkerManager 插件
+        """
+        if not points or not self.available:
+            return 0
+        pts = [p for p in points if p is not None]
+        if len(pts) < 2:
+            return 0
+        idx = list(range(0, len(pts), max(1, int(stride))))
+        if idx and idx[-1] != len(pts) - 1:
+            idx.append(len(pts) - 1)
+        if len(idx) > max_beads:                      # 均匀抽稀
+            step = len(idx) / float(max_beads)
+            idx = [idx[int(i * step)] for i in range(max_beads - 1)] + [idx[-1]]
+        ok_n = 0
+        for k, i in enumerate(idx):
+            nm = f"{prefix}_{k}"
+            p = pts[i]
+            if self._create(nm, bead_sdf(nm, radius, color),
+                            (float(p[0]), float(p[1]), float(p[2]))):
+                ok_n += 1
+        return ok_n
+
+    def clear_beads(self, prefix: str, max_beads: int = 40) -> int:
+        """删掉 `ensure_beads` 创建的那串珠子（按名字逐个删）。
+
+        ⚠ **无条件尝试删**（不看 self._created）：上一次回放是**另一个进程**创建的，
+          它的名字不在本进程的 `_created` 里；只按 `_created` 过滤会留下旧珠子。
+          删不存在的实体只是返回 False，无害。
+        """
+        n = 0
+        for k in range(max_beads):
+            if self._remove(f"{prefix}_{k}"):
+                n += 1
+        return n
+
+    def ensure_hit_bead(self, p, radius: float = 0.22,
+                        color=(1.0, 0.95, 0.10)) -> bool:
+        """用**实体**标命中点（`marker` 不可用时的替代）。"""
+        if p is None or not self.available:
+            return False
+        return self._create("replay_hit_bead", bead_sdf("replay_hit_bead",
+                                                        radius, color),
+                            (float(p[0]), float(p[1]), float(p[2])))
+
+    def marker_available(self) -> bool:
+        """`/marker` 是否可用（用一次无害的 DELETE_ALL 探测）。"""
+        if not self.available:
+            return False
+        try:
+            m = marker_pb2.Marker()
+            m.ns = "__pgu_probe_ns__"
+            m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action",
+                                     MARKER_ACTION_DELETE_ALL)
+            ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
+            return bool(ok)
+        except Exception:                               # noqa: BLE001
+            return False
 
     # ------------------------------------------------------------ 服务自检
     def probe_services(self) -> dict:
@@ -831,25 +938,59 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
         return 1
 
     try:
-        # ---- ① 先清场，再摆好静态参照（轨迹线 / 发射架仍在）----
+        # ---- ① 探测 marker，再决定"用线画轨迹"还是"用珠子画轨迹" ----
+        #   ★ 2026-10-17 实飞：用户环境 `/marker` 不可用（GUI 插件缺失），
+        #     但 create/set_pose 都通。此时必须自动降级，否则回放只剩两个小球。
+        use_marker = scene.marker_available()
+
+        # ---- ② 清场（两种模式都要清，否则旧轨迹会叠在一起）----
         if job.get("clear", True):
-            scene.clear_trail()                    # 清 pilot_trail（实时那次的轨迹）
-            scene.marker_delete(PROJ_TRAIL_NS)     # 清上次回放留下的线/球
-            scene.marker_delete(UAV_TRAIL_NS)
-            scene.marker_delete(UAV_REPLAY_NS)
-            scene.marker_delete("hit_mark")
-        if len(proj) >= 2:
-            scene.draw_trail(proj, ns=PROJ_TRAIL_NS, width=0.05,
-                             color=(1.0, 0.35, 0.05))
-        if len(uav) >= 2:
-            scene.draw_trail(uav, ns=UAV_TRAIL_NS, width=0.05,
-                             color=(0.20, 0.95, 0.35))
-        if hit:
-            scene.mark_point(hit, ns="hit_mark", mid=1, size=0.7,
-                             color=(1.0, 0.95, 0.1), ttl_ms=60000)
+            scene.clear_beads(PROJ_BEAD_PREFIX)
+            scene.clear_beads(UAV_BEAD_PREFIX)
+            scene._remove("replay_hit_bead")
+            if use_marker:
+                scene.clear_trail()                # 清 pilot_trail（实时那次的轨迹）
+                scene.marker_delete(PROJ_TRAIL_NS)  # 清上次回放留下的线/球
+                scene.marker_delete(UAV_TRAIL_NS)
+                scene.marker_delete(UAV_REPLAY_NS)
+                scene.marker_delete("hit_mark")
+
+        # ---- ③ 摆静态参照：轨迹 + 命中点 ----
+        n_beads_p = n_beads_u = 0
+        if use_marker:
+            if len(proj) >= 2:
+                scene.draw_trail(proj, ns=PROJ_TRAIL_NS, width=0.05,
+                                 color=PROJ_COLOR)
+            if len(uav) >= 2:
+                scene.draw_trail(uav, ns=UAV_TRAIL_NS, width=0.05,
+                                 color=UAV_COLOR)
+            if hit:
+                scene.mark_point(hit, ns="hit_mark", mid=1, size=0.7,
+                                 color=(1.0, 0.95, 0.1), ttl_ms=60000)
+        else:
+            # ★ 降级：用一串静态小球实体摆出轨迹（只依赖 create 服务）
+            if len(proj) >= 2:
+                n_beads_p = scene.ensure_beads(proj, PROJ_BEAD_PREFIX,
+                                               radius=0.09, color=PROJ_COLOR)
+            if len(uav) >= 2:
+                n_beads_u = scene.ensure_beads(uav, UAV_BEAD_PREFIX,
+                                               radius=0.09, color=UAV_COLOR)
+            if hit:
+                scene.ensure_hit_bead(hit, radius=0.22)
+
         if verbose:
-            print(f"✅ 回放准备：弹丸 {len(proj)} 点 / 无人机 {len(uav)} 点；"
-                  f"轨迹线已画好，停 {lead_in:.1f}s 让你先看清全局…")
+            if use_marker:
+                print(f"✅ 回放准备（轨迹线模式）：弹丸 {len(proj)} 点 / "
+                      f"无人机 {len(uav)} 点，停 {lead_in:.1f}s 先看清全局…")
+            else:
+                print("⚠ `/marker` 服务不可用（Gazebo GUI 的 MarkerManager 插件缺失）")
+                print("  ⇒ **自动降级为「珠子」模式**：轨迹用一串静态小球摆出来")
+                print(f"     弹丸轨迹 {n_beads_p} 颗珠子 / 无人机轨迹 {n_beads_u} 颗珠子"
+                      f"{' / 命中点 1 颗黄球' if hit else ''}")
+                print("     视觉差别：轨迹是**虚线**（不是连续线），其余一样")
+                if n_beads_p == 0 and n_beads_u == 0:
+                    print("  ⚠⚠ 连珠子都没建出来（create 也失败了）⇒ 跑 "
+                          "`python3 gz_scene_sync.py --check` 自查")
         # 先停顿，给用户时间"看到两条轨迹长什么样"
         time.sleep(lead_in)
 
