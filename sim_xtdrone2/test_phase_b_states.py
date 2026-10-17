@@ -278,7 +278,8 @@ def mk_args(lib, **kw):
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
         # ⚠ 与真实 argparse 默认一致：回放**默认关**（2026-10-17 用户决定）。
         #   用例 8 测回放时会**显式**传 gz_replay=True，不依赖这里的默认值。
-        gz_proj_radius=0.25, gz_proj_preset=True, gz_replay=False,
+        gz_proj_radius=0.25, gz_proj_preset=True, gz_proj_pad_h=None,
+        gz_replay=False,
         replay_seconds=6.0, replay_hz=25.0, replay_hold=1.5, replay_lead_in=1.0,
         target_height=10.0, takeoff_tol=1.0, takeoff_timeout=60.0, rate=50.0,
         no_auto_land=False, no_disarm=False, no_force_disarm=False,
@@ -1961,22 +1962,28 @@ def main():
     r_on = _setup(True)
     check(bool(r_on.presets),
           f"默认（preset=True）⇒ 创建后立刻 set_projectile（{r_on.presets}）")
-    # ★ 更强的一条：**创建时**就把 pose 给发射点（不依赖 set_pose）
+    # ★ 更强的一条：**创建时**就把 pose 给"发射架顶面"（不依赖 set_pose）
     check(bool(r_on.created_at) and r_on.created_at[0] is not None,
           f"创建时直接给了位置 at={r_on.created_at[0] if r_on.created_at else None}"
           f"（不再先建在 HIDDEN_Z=-500）")
+    tgt = PILOT_KW["target_p0"]
+    pad_expect = M.GZ_LAUNCHER_SIZE + 0.25 + M.PROJ_PAD_GAP   # 顶面 + 球半径 + 间隙
     if r_on.created_at and r_on.created_at[0] is not None:
         a = r_on.created_at[0]
-        tgt = PILOT_KW["target_p0"]
-        check(abs(a[0] - tgt[0]) < 1e-9 and abs(a[1] - tgt[1]) < 1e-9
-              and abs(a[2] - tgt[2]) < 1e-9,
-              f"创建位置 = 发射点 {tgt}（实际 {a}）")
+        check(abs(a[0] - tgt[0]) < 1e-9 and abs(a[1] - tgt[1]) < 1e-9,
+              f"创建位置在发射架**正上方**（x,y = {tgt[0]:.1f},{tgt[1]:.1f}；"
+              f"实际 {a[0]:.2f},{a[1]:.2f}）")
+        check(abs(a[2] - pad_expect) < 1e-6,
+              f"高度 = 发射架顶面({M.GZ_LAUNCHER_SIZE}) + 球半径(0.25) + 间隙"
+              f"({M.PROJ_PAD_GAP}) = {pad_expect:.2f} m（实际 {a[2]:.2f}）"
+              f" —— 球**贴在发射架顶上**，不是悬在 10 m 高")
     if r_on.presets:
         p = r_on.presets[0]
         tgt = PILOT_KW["target_p0"]
         check(abs(p[0] - tgt[0]) < 1e-6 and abs(p[1] - tgt[1]) < 1e-6
-              and abs(p[2] - tgt[2]) < 1e-6,
-              f"摆到的是**发射点** {tgt}（实际 {p}）—— 不在发射前就消失")
+              and abs(p[2] - pad_expect) < 1e-6,
+              f"set_projectile 与创建位置**一致**（都在发射架顶面 z={p[2]:.2f}）"
+              f" —— 双保险不会把球又拉回 10 m 高")
     check(r_on.created and abs(r_on.created[0] - 0.25) < 1e-9,
           f"球半径用的是 --gz-proj-radius（{r_on.created}）而不是默认 0.06")
 

@@ -121,6 +121,9 @@ DEFAULT_WORLD = "walls"            # XTDrone2 单机 demo 默认世界（见 REA
 TOWER_NAME = "defense_tower"       # 防御塔（我方，原点）
 PROJECTILE_NAME = "enemy_dart"     # 弹丸（敌方）
 LAUNCHER_NAME = "enemy_launcher"   # 发射架（纯视觉，可选）
+# 发射架方块边长 (m)：`ensure_launcher` 默认 size，方块中心在 z=size/2，
+# **顶面在 z=size**。弹丸"贴在发射架顶面"时要用到它（见节点里的 preset 逻辑）。
+LAUNCHER_SIZE = 0.6
 
 TRAIL_NS = "pilot_trail"           # 轨迹 marker 的命名空间
 

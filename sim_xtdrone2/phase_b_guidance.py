@@ -288,6 +288,14 @@ OFFBOARD_LOSS_HINT = 0.60
 # BRAKE 段的"地面安全地板"（m）：刹车过程中若离地低于它，说明已不是"正常刹车"
 # （大概率是失控/遥测跳变）⇒ 立刻放弃横向刹车，转入 LAND 让它软着陆。
 BRAKE_ALT_FLOOR = 1.50
+
+# ★ 弹丸"停在发射架顶面"时，球底与顶面之间留的间隙 (m)
+#   0.02 就够（纯视觉，避免球嵌进方块里产生 z-fighting 闪烁）
+PROJ_PAD_GAP = 0.02
+
+# 发射架方块边长 (m)。⚠ **必须与 `gz_scene_sync.LAUNCHER_SIZE` 一致**
+#   （那边是延迟导入的，模块级拿不到；启动时会做一次一致性自检并 warn）
+GZ_LAUNCHER_SIZE = 0.6
 # 报告块的起止标记（用户直接整段复制回传；我按标记截取）
 REPORT_BEGIN = "<<<<<<< BEGIN RM-PHASE-B-REPORT >>>>>>>"
 REPORT_END = "<<<<<<< END RM-PHASE-B-REPORT >>>>>>>"
@@ -453,6 +461,9 @@ class PhaseBGuidance(Node):
         self.gz_flight_secs = None            # 交会段时长（s）
         self.gz_tower_r = 1.2      # 与 scene_model.preset_pilot / 制导讲义一致
         self.gz_tower_h = 3.0
+        # 发射架是边长此值的方块（与 gz_scene_sync.LAUNCHER_SIZE 一致）；
+        # **顶面在 z=size**（中心在 size/2）⇒ 弹丸"贴顶面"时用得到
+        self.gz_launcher_size = GZ_LAUNCHER_SIZE
         if args.gz_viz:
             try:
                 from gz_scene_sync import GzScene
@@ -1614,27 +1625,53 @@ class PhaseBGuidance(Node):
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
             # ⚠ 原来这行**忽略了返回值** ⇒ 发射架建失败也没人知道
             #   （2026-10-17 实测世界里根本没有 enemy_launcher，日志却毫无提示）
-            ok_l = self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
-            # ★ 创建时**直接放在发射点**（preset 开时），而不是先建在 HIDDEN_Z 再 set_pose。
-            #   理由：旧流程"建在地下 500 m → set_pose 移上来"是**两步都可能静默失败**；
-            #   直接建在目标位置 ⇒ 即使 set_pose 有问题，球一开始就在能看见的地方。
-            at = self.target_p0 if self.args.gz_proj_preset else None
+            ok_l = self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0),
+                                           self.gz_launcher_size)
+            # ⚠ 一致性自检：本文件里的 GZ_LAUNCHER_SIZE 必须与 gz_scene_sync 的一致，
+            #   否则"球心 = 边长 + 半径"算出来的高度会不对（球悬空或嵌进方块）。
+            try:
+                import gz_scene_sync as _gzs
+                if abs(float(_gzs.LAUNCHER_SIZE) - self.gz_launcher_size) > 1e-6:
+                    self.warn(f"⚠ 发射架边长不一致：节点 {self.gz_launcher_size} vs "
+                              f"gz_scene_sync {_gzs.LAUNCHER_SIZE} "
+                              f"⇒ 弹丸「贴顶面」的高度会算错")
+            except Exception:                          # noqa: BLE001
+                pass
+            # ★ 弹丸初始**显示位置**（2026-10-17 用户要求：停在发射架顶面中心）
+            #   与"弹道起点" target_p0 是**两个概念**，必须分开：
+            #     · 显示位置：发射架顶面中心 —— 用户一进 Gazebo 就能看见这个球
+            #     · 弹道起点：target_p0（默认 (-14,0,10)）—— TargetModel 算弹道用的真值
+            #   ⚠ GUIDED 一开始，`gz_update` 会把球逐帧写到 TargetModel 的位置，
+            #     所以球会**从发射架顶面瞬移到弹道起点**（默认 10 m 高）。
+            #     这是预期行为：它模拟"发射瞬间"，不是 bug。
+            #   发射架是边长 `LAUNCHER_SIZE` 的方块，中心在 z=size/2 ⇒ **顶面在 z=size**；
+            #   球底面贴顶面 ⇒ 球心 z = size + radius。
+            pad_z = (self.gz_launcher_size + self.args.gz_proj_radius
+                     + PROJ_PAD_GAP)
+            if self.args.gz_proj_pad_h is not None:
+                pad_z = float(self.args.gz_proj_pad_h)
+            at = ((self.target_p0[0], self.target_p0[1], pad_z)
+                  if self.args.gz_proj_preset else None)
             ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius, at=at)
-            # ★★ 弹丸可见性：创建时就放在发射点 + 再 set_pose 一次做**双保险**
-            #   （2026-10-17 用户反馈"Gazebo 模型列表里根本没有弹丸"）
+            # ★★ 弹丸可见性：创建时就放在**发射架顶面** + 再 set_pose 一次做**双保险**
             #   旧流程：创建在 HIDDEN_Z(-500) → set_pose 移上来
-            #           ⇒ 两步都可能静默失败，且发射前球在地下 500 m，压根不存在于视野
-            #   新流程：① create 时 pose 就给发射点（不依赖 set_pose）
+            #           ⇒ 两步都可能静默失败，且发射前球在地下 500 m，压根不在视野
+            #   新流程：① create 时 pose 就给"发射架顶面"（不依赖 set_pose）
             #           ② 再 set_projectile 一次（有些 gz 版本会忽略 EntityFactory.pose，
-            #              这一步兜住那种情况）
+            #              这一步兜住那种情况）—— 注意给的是**同一个位置**，
+            #              不能给 target_p0，否则球又跑到 10 m 高去了。
             #   ⚠ **零风险**：不改变几何、不等待、不卡控制回路 ——
             #     弹丸位置在 GUIDED 段仍由 TargetModel 逐帧写入（见 gz_update）。
             if ok_p and self.args.gz_proj_preset:
-                self.gz.set_projectile(self.target_p0)   # 双保险
-                self.log(f"  ── 弹丸已**摆在发射点** ({self.target_p0[0]:.1f},"
-                         f"{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) "
-                         f"r={self.args.gz_proj_radius:.2f} m（static 结构），"
-                         f"发射前就能看见（--no-gz-proj-preset 可关）")
+                self.gz.set_projectile((self.target_p0[0], self.target_p0[1], pad_z))
+                self.log(f"  ── 弹丸已**停在发射架顶面中心** "
+                         f"({self.target_p0[0]:.2f},{self.target_p0[1]:.2f},"
+                         f"{pad_z:.2f})  r={self.args.gz_proj_radius:.2f} m "
+                         f"（发射架顶面 z={self.gz_launcher_size:.2f} + 球半径）")
+                self.log(f"     ⚠ 发射瞬间（GUIDED 开始）球会**跳到弹道起点** "
+                         f"z={self.target_p0[2]:.1f} m —— 这是模拟发射，不是 bug")
+                self.log(f"     （--no-gz-proj-preset 可改成藏在视野外；"
+                         f"--gz-proj-pad-h=1.2 可指定球心高度）")
         except Exception as e:                          # noqa: BLE001
             self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
             self.gz = None
@@ -2573,11 +2610,15 @@ def build_parser():
                          "**远大于**真实弹径 0.06 m：真弹只有 12 cm，"
                          "在十几米外 + 0.5 s 的交会里人眼根本看不见")
     ap.add_argument("--gz-proj-preset", action="store_true", default=True,
-                    help="★ 创建弹丸后**直接摆在发射点**（而不是藏到地下 500 m），"
-                         "这样 CRUISE 期间就能先看见这个球。默认开")
+                    help="★ 创建弹丸后**停在发射架顶面中心**（默认开），"
+                         "这样一进 Gazebo 就能看见这个球，确认渲染没问题")
     ap.add_argument("--no-gz-proj-preset", dest="gz_proj_preset",
                     action="store_false",
-                    help="弹丸创建后仍藏到视野外（旧行为：只在 GUIDED 段 0.5 s 内出现）")
+                    help="弹丸创建后藏到视野外（旧行为：只在 GUIDED 段 0.5 s 内出现）")
+    ap.add_argument("--gz-proj-pad-h", type=float, default=None,
+                    help="弹丸停在发射架时**球心的高度** (m)。默认自动 = "
+                         "发射架顶面(0.6) + 球半径 + 0.02，即球底刚好贴着顶面。"
+                         "想让它悬高一点就指定一个大值（如 1.5）")
     # ★ 慢速回放（2026-10-17 用户明确要求**默认关闭**）
     #   代码保留（--gz-replay 可手动打开），但不再自动触发、也不再往控制台打印提示。
     #   背景：用户环境的 `/marker` 服务不可用（Gazebo GUI 的 MarkerManager 插件缺失），
