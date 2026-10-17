@@ -805,7 +805,17 @@ def main():
             check(len(job.get("trail", [])) == 3,
                   f"JSON 里带上了 3 点轨迹（实际 {len(job.get('trail', []))}）")
             check(job.get("mark") is not None, "JSON 里带上了命中标记点")
-            check(job.get("hide") is True, "JSON 里要求隐藏弹丸")
+            # ★ 2026-10-17 改：跑完**不隐藏弹丸**，而是放回发射架顶面（park）
+            #   原来 hide=True ⇒ 每次跑完球被移到 z=-500 ⇒ 用户以为"弹丸消失了"
+            check(job.get("hide") is False,
+                  "JSON 里**不再隐藏**弹丸（hide=False）")
+            park = job.get("park")
+            check(bool(park), f"JSON 里带 park（放回发射架顶面）：{park}")
+            if park:
+                pad_expect = (M.GZ_LAUNCHER_SIZE + 1.0 * 0.25 + M.PROJ_PAD_GAP)
+                check(abs(park[2] - pad_expect) < 1e-6,
+                      f"park 高度 = 发射架顶面+球半径+间隙 = {pad_expect:.2f}"
+                      f"（实际 {park[2]:.2f}）")
             os.remove(jpath)
         n4.close()
 
@@ -2022,6 +2032,90 @@ def main():
     check(min_r_off is not None and min_r_on is not None
           and abs(min_r_off - min_r_on) < 1e-9,
           f"preset **不改变制导结果**（{min_r_off} vs {min_r_on}）—— 纯可视化改动")
+
+    # ---------------------------------------------------------------- 用例 19
+    print()
+    print("=" * 74)
+    print("用例 19：建实体超时假失败 + 重试（\"发射架与弹丸都消失了\"的根因）")
+    print("=" * 74)
+    # 实测现象：塔正常、发射架和弹丸双双消失。
+    # 根因两条叠加：
+    #   ① GzScene 默认 timeout_ms=500，"解析 SDF + 插入世界"常超时 ⇒ 假失败
+    #   ② _create 是"先删后建" ⇒ 失败时旧实体已被删 ⇒ 模型凭空消失
+    # 直接用 gz_scene_sync 里的 GzScene（phase_b_guidance 是延迟导入的，拿不到）
+    import importlib.util as _ilu2
+    _gs = _ilu2.spec_from_file_location(
+        "gzmod19", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "gz_scene_sync.py"))
+    GZ = _ilu2.module_from_spec(_gs)
+    _gs.loader.exec_module(GZ)
+
+    print(f"  CREATE_TIMEOUT_MS = {GZ.CREATE_TIMEOUT_MS}")
+    check(GZ.CREATE_TIMEOUT_MS >= 2000,
+          f"建实体超时 ≥ 2000 ms（实际 {GZ.CREATE_TIMEOUT_MS}）"
+          f"—— 远大于 set_pose 用的短超时")
+
+    # 用假 gz node 模拟"第一次超时、第二次成功"
+    class _FakeNode2:
+        def __init__(self, fail_times):
+            self.n = 0
+            self.fail_times = fail_times
+            self.timeouts = []
+
+        def request(self, svc, msg, mtype, rtype, tmo):
+            self.timeouts.append(tmo)
+            self.n += 1
+            if self.n <= self.fail_times:
+                return False, None          # 模拟超时
+            rep = types.SimpleNamespace(data=True)
+            return True, rep
+
+    # ★ 用 `object.__new__` 绕过 __init__（不需要真的连 gz），
+    #   直接测 `_create_with_retry`（**纯逻辑**，不碰 protobuf）——
+    #   这一层正是"超时假失败 + 先删后建把模型弄没了"的关键。
+    def _mk_probe_scene(logs=None):
+        s = object.__new__(GZ.GzScene)
+        s.available = True
+        s.world = "walls"
+        s.timeout_ms = 500
+        s._created = set()
+        s.stats = {"set_pose": 0, "failed": 0}
+        s.verbose = False
+        s._log = (lambda m: logs.append(m)) if logs is not None else (lambda m: None)
+        return s
+
+    # ① 第 1 次超时、第 2 次成功 ⇒ 重试生效
+    calls = {"n": 0}
+
+    def _flaky():
+        calls["n"] += 1
+        if calls["n"] <= 1:
+            return False, None           # 模拟超时
+        return True, types.SimpleNamespace(data=True)
+
+    sc = _mk_probe_scene()
+    ok = sc._create_with_retry("probe_x", "<sdf/>", _flaky)
+    check(ok, "第 1 次超时、第 2 次成功 ⇒ 整体 True（**重试生效**）")
+    check(calls["n"] == 2, f"确实重试了 1 次（共 {calls['n']} 次尝试）")
+    check("probe_x" in sc._created, "成功后记入 _created")
+
+    # ② 永远失败 ⇒ 明确报错 + 打 SDF + 说明旧实体已被删
+    logs2 = []
+
+    def _always_fail():
+        return False, None
+
+    bad = _mk_probe_scene(logs=logs2)
+    ok2 = bad._create_with_retry(
+        "probe_y", "<sdf version='1.9'><model name='m'/></sdf>", _always_fail)
+    check(not ok2, "重试后仍失败 ⇒ 返回 False")
+    check(any("创建实体" in s and "失败" in s for s in logs2),
+          "失败时明确报错（不再静默）")
+    check(any("<sdf" in s for s in logs2),
+          "失败时把 **SDF 打出来**（便于对照 Gazebo 终端的解析错误）")
+    check(any("已被删掉" in s for s in logs2),
+          "失败时提示『旧实体已被删掉』（解释「为什么模型消失了」）")
+    check(bad.stats["failed"] >= 1, f"失败计数 +1（{bad.stats['failed']}）")
 
     # ---------------------------------------------------------------- 汇总
     print()

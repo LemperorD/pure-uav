@@ -130,6 +130,11 @@ TRAIL_NS = "pilot_trail"           # 轨迹 marker 的命名空间
 # 弹丸"藏起来"时放到这里（远在地下，不在任何默认视野里）
 HIDDEN_Z = -500.0
 
+# ★ 建实体的服务超时（ms）—— 与 set_pose 的短超时**分开**
+#   实测：`GzScene` 默认 500 ms，"解析 SDF + 插入世界"很容易超时
+#   ⇒ 表现为"塔建成功、发射架和弹丸双双失败"，而且因为"先删后建"还会把旧的删掉。
+CREATE_TIMEOUT_MS = 3000
+
 # 服务名模板（gz-sim 8 / Harmonic）
 SVC_CREATE = "/world/{world}/create"
 SVC_SET_POSE = "/world/{world}/set_pose"
@@ -329,18 +334,55 @@ class GzScene:
         except Exception as e:
             self._log(f"⚠ 初始化 gz.transport 失败（{e}）⇒ Gazebo 可视化已禁用")
 
-    # ---------------------------------------------------------------- 基础
+    # ------------------------------------------------------ 读回世界真实状态
+    def snapshot_positions(self, timeout: float = 3.0) -> dict:
+        """★ 读回 `/world/<w>/pose/info`，返回 `{名字: (x,y,z)}`（一次性快照）。
+
+        ★ 为什么这是**唯一可信**的验证手段（2026-10-17 三次踩坑的总结）：
+          · `create` 返回 True ≠ 模型真的在世界里
+          · `set_pose` 返回 True ≠ 模型真的动了
+          ⇒ 只有读回世界的真实状态才算数。
+        失败时返回 `{}`（调用方应把"空字典"当作"读不到"，不要当作"世界是空的"）。
+        """
+        if not self.available:
+            return {}
+        out = {"d": None}
+        try:
+            from gz.msgs10 import pose_v_pb2
+
+            def _cb(msg):
+                if out["d"] is not None:
+                    return
+                out["d"] = {pz.name: (pz.position.x, pz.position.y,
+                                      pz.position.z) for pz in msg.pose}
+
+            self._node.subscribe(pose_v_pb2.Pose_V,
+                                 f"/world/{self.world}/pose/info", _cb)
+            n = max(1, int(timeout / 0.05))
+            for _ in range(n):
+                if out["d"] is not None:
+                    break
+                time.sleep(0.05)
+        except Exception:                                  # noqa: BLE001
+            return {}
+        return out["d"] or {}
+
+    # ------------------------------------------------------------------ 基础
     def _log(self, s: str):
         if self.verbose:
             print(s, flush=True)
 
-    def _req(self, service: str, msg, rep_type):
-        """发一个服务请求。返回 (ok, response)；异常一律吞掉并计数。"""
+    def _req(self, service: str, msg, rep_type, timeout_ms=None):
+        """发一个服务请求。返回 (ok, response)；异常一律吞掉并计数。
+
+        `timeout_ms` 可**按调用点覆盖**：建实体（解析 SDF + 插入世界）比
+        set_pose 慢得多，用同一个短超时会误判成失败（见 `_create` 注释）。
+        """
         if not self.available:
             return False, None
         try:
             ok, rep = self._node.request(service, msg, type(msg), rep_type,
-                                         self.timeout_ms)
+                                         int(timeout_ms or self.timeout_ms))
             return bool(ok), rep
         except Exception:
             self.stats["failed"] += 1
@@ -475,25 +517,71 @@ class GzScene:
 
         return res
 
-    def _create(self, name: str, sdf: str, pose=(0.0, 0.0, 0.0)) -> bool:
-        """创建一个实体（同名先删，避免 allow_renaming 引发的重复名）。"""
-        self._remove(name)                       # 忽略失败
-        req = entity_factory_pb2.EntityFactory()
-        req.sdf = sdf
-        req.name = name
-        req.pose.position.x = float(pose[0])
-        req.pose.position.y = float(pose[1])
-        req.pose.position.z = float(pose[2])
-        req.pose.orientation.w = 1.0
-        ok, rep = self._req(self._svc_create, req, boolean_pb2.Boolean)
-        if ok and rep is not None and rep.data:
-            self._created.add(name)
-            return True
-        if not self._warned:
-            self._warned = True
-            self._log(f"⚠ Gazebo 未响应 {self._svc_create}"
-                      f" ⇒ 请确认仿真在跑（gz topic -l 能看到 /world/{self.world}）；"
-                      f"可视化将静默跳过")
+    def _create(self, name: str, sdf: str, pose=(0.0, 0.0, 0.0),
+                pre_remove: bool = True) -> bool:
+        """创建一个实体。**同名先删**（避免 allow_renaming 引发重复名）。
+
+        ★★ 两次实测教训（2026-10-17）：
+
+        ① **超时太短会假失败**：本类的默认 `timeout_ms=500`，但"建实体"
+           要先让 gz 解析 SDF 再插入世界，**很容易超过 500 ms**
+           （尤其同一次 run 里建第 2、3 个实体时）。
+           ⇒ 症状正是用户看到的：**塔建成功、发射架和弹丸双双失败**。
+           ⇒ 现在建实体单独用 `CREATE_TIMEOUT_MS`（3000 ms），并**失败重试 1 次**。
+
+        ② **"先删后建"是破坏性的**：`create` 失败时旧实体已被删掉 ⇒ 模型凭空消失。
+           ⇒ 失败时必须把 SDF 打出来 + 指向 Gazebo 终端的报错，不能静默。
+        """
+        if pre_remove:
+            self._remove(name)                       # 忽略失败
+
+        # ★ 重试/超时/报错的核心逻辑抽成 `_create_with_retry`，
+        #   它**不碰任何 protobuf** ⇒ 无 gz 环境也能单测（用例 19 就是这么测的）。
+        def _attempt():
+            req = entity_factory_pb2.EntityFactory()
+            req.sdf = sdf
+            req.name = name
+            req.pose.position.x = float(pose[0])
+            req.pose.position.y = float(pose[1])
+            req.pose.position.z = float(pose[2])
+            req.pose.orientation.w = 1.0
+            ok, rep = self._req(self._svc_create, req, boolean_pb2.Boolean,
+                                timeout_ms=CREATE_TIMEOUT_MS)
+            return bool(ok and rep is not None and rep.data), rep
+
+        return self._create_with_retry(name, sdf, _attempt)
+
+    def _create_with_retry(self, name: str, sdf: str, attempt_fn,
+                           attempts: int = 2) -> bool:
+        """`_create` 的重试/报错内核。**纯逻辑，不依赖 protobuf / gz。**
+
+        `attempt_fn()` 返回 `(成功?, 响应)`；失败会重试，最终失败时把 SDF 打出来。
+        抽出来的目的：这一层是"超时假失败 + 先删后建把模型弄没了"的关键，
+        必须能被离线单测覆盖（本机没有 Gazebo）。
+        """
+        ok = False
+        rep = None
+        for i in range(max(1, attempts)):
+            ok, rep = attempt_fn()
+            if ok:
+                self._created.add(name)
+                return True
+            if i + 1 < max(1, attempts):
+                self._log(f"⚠ 创建 `{name}` 第 {i + 1} 次失败（ok={ok}, "
+                          f"data={None if rep is None else getattr(rep, 'data', None)}）"
+                          f"⇒ 可能是超时，重试…")
+                time.sleep(0.2)
+        # ★ 失败必须**说清楚是哪一步、SDF 长什么样**（原来是静默 + 只告警一次）
+        self.stats["failed"] = self.stats.get("failed", 0) + 1
+        self._log(f"⚠ 创建实体 `{name}` **失败**（重试后仍失败："
+                  f"ok={ok}, data={None if rep is None else getattr(rep, 'data', None)}）")
+        self._log("   ⇒ 若该实体原本存在，它现在已被删掉了（先删后建）。")
+        self._log("   ⇒ 请到 **Gazebo 自己的终端**看紧接着的报错"
+                  "（通常含 `Error` / `SDF` / `Unable to find`）。")
+        self._log("   ⇒ 本次用到的 SDF：")
+        for _ln in str(sdf).splitlines():
+            if _ln.strip():
+                self._log("       " + _ln.rstrip())
         return False
 
     def _remove(self, name: str) -> bool:
@@ -882,7 +970,16 @@ def draw_from_json_file(path: str, world: str = DEFAULT_WORLD,
             scene.mark_point(mk, ns="hit_mark", mid=1, size=0.6,
                              color=tuple(job.get("mark_color", (1.0, 0.95, 0.1))),
                              ttl_ms=int(job.get("mark_ttl_ms", 15000)))
-        if job.get("hide", True):
+        # ★ 收尾位置：**优先 park（放回发射架顶面）**，其次 hide（藏到视野外）
+        #   （2026-10-17：原来默认 hide=True ⇒ 每次跑完球消失，用户以为坏了）
+        park = job.get("park")
+        if park:
+            scene._do_set_pose(PROJECTILE_NAME,
+                               (float(park[0]), float(park[1]), float(park[2])))
+            if verbose:
+                print(f"   弹丸已放回发射架顶面 ({park[0]:+.2f},{park[1]:+.2f},"
+                      f"{park[2]:.2f})")
+        elif job.get("hide", False):
             scene.hide_projectile()
         if verbose:
             print(f"✅ 子进程已完成绘制：轨迹 {len(trail)} 点"
@@ -1189,7 +1286,26 @@ def rebuild_scene(p=(-14.0, 0.0, 10.0), radius: float = 0.25,
             mark = "✅" if ok else "❌"
             print(f"  {mark} {nm:<20} {label:<6} "
                   f"({pos[0]:+7.2f},{pos[1]:+7.2f},{pos[2]:+7.2f})"
-                  + ("" if ok else "   ← **创建失败！**"))
+                  + ("" if ok else "   ← **create 服务说失败**"))
+
+        # ★★ 关键一步：**读回世界的真实状态**，不信用 create 的返回值
+        #   （`create` 返回 True ≠ 模型真的加载了 —— 已被坑过多次）
+        print()
+        print("  --- 读回世界真实状态（/pose/info）---")
+        snap = scene.snapshot_positions(timeout=3.0)
+        if not snap:
+            print("  ⚠ 读不到 /pose/info（订阅超时）⇒ 无法验证，只能看 Gazebo 画面")
+        else:
+            for nm, label, ok, want in results:
+                got = snap.get(nm)
+                if got is None:
+                    print(f"  ❌ {nm:<20} {label:<6} **读回：世界里没有它**")
+                else:
+                    d = max(abs(got[k] - want[k]) for k in range(3))
+                    flag = "✅" if d < 0.3 else "⚠"
+                    print(f"  {flag} {nm:<20} {label:<6} "
+                          f"读回 ({got[0]:+7.2f},{got[1]:+7.2f},{got[2]:+7.2f})"
+                          f"  期望 z={want[2]:.2f}")
         print("-" * 68)
         if all(r[2] for r in results):
             print("  ✅ 三样都建好了。现在去 Gazebo 看：")

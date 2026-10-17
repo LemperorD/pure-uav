@@ -467,7 +467,13 @@ class PhaseBGuidance(Node):
         if args.gz_viz:
             try:
                 from gz_scene_sync import GzScene
-                self.gz = GzScene(world=args.gz_world, hz=args.gz_hz)
+                # ⚠ timeout_ms 原来是默认 500 ms —— 太短！
+                #   建实体要"解析 SDF + 插入世界"，实测常超 500 ms ⇒ 假失败
+                #   （而且"先删后建"会把旧实体删掉 ⇒ 模型凭空消失）。
+                #   `_create` 内部已改用 CREATE_TIMEOUT_MS(3000 ms)，
+                #   这里把基础超时提到 1000 ms，set_pose 也更稳。
+                self.gz = GzScene(world=args.gz_world, hz=args.gz_hz,
+                                  timeout_ms=1000)
             except Exception as e:                      # noqa: BLE001
                 self.warn(f"⚠ 加载 gz_scene_sync 失败（{e}）⇒ 跳过 Gazebo 可视化")
 
@@ -1733,7 +1739,14 @@ class PhaseBGuidance(Node):
                       for p in (self.gz_trail or [])],
             "mark": ([float(x) for x in self.gz_trail[-1]]
                      if (hit and self.gz_trail) else None),
-            "hide": True,
+            # ★ 跑完后**不要把弹丸藏起来**（2026-10-17 用户反馈"弹丸消失了"）
+            #   原来这里 `"hide": True` ⇒ 每次跑完球被移到 z=-500（地下）⇒
+            #   用户在 Gazebo 里看到的就是"球不见了"。
+            #   ⇒ 改成 `"park"`：把球**放回发射架顶面**，场景保持完整、随时能看见。
+            "hide": False,
+            "park": [self.target_p0[0], self.target_p0[1],
+                     self.gz_launcher_size + self.args.gz_proj_radius
+                     + PROJ_PAD_GAP] if self.args.gz_proj_preset else None,
         }
         n_pts = len(job["trail"])
         if n_pts < 2:
