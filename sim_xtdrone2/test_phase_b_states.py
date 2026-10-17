@@ -1607,6 +1607,134 @@ def main():
           f"没有进入 CRUISE（当前 {n.state}）—— 拒绝低空水平机动")
     n.close()
 
+    # ---------------------------------------------------------------- 用例 16
+    print()
+    print("=" * 74)
+    print("用例 16：起飞前自检 + 起飞段姿态监控（复现\"不在原点起飞 ⇒ 桨叶打地\"）")
+    print("=" * 74)
+    # 实飞两次事故的**真实起点**（从 CSV 里读出来的）：
+    #   PPN: ENU=(-9.568, +0.894, +0.048)  离原点 9.61 m
+    #   APN: ENU=(-10.495, +0.049, +0.203) 离原点 10.49 m（= PPN 的停桨点）
+    REAL_PPN_START = (-9.568, 0.894, 0.048)
+    REAL_APN_START = (-10.495, 0.049, 0.203)
+
+    def _precheck(p_enu, arming=1, nav=4, no_precheck=False, odom_tilt=None):
+        """跑到 PRECHECK 结束后返回 (是否拒绝, state, warns, logs)
+
+        ⚠ 注意要**同时**收集 log 与 warn：`refuse()` 走的是 `log()`（红色报错横幅），
+          而分级告警走 `warn()`。只查其中一个会误判成"没给文案"。
+        """
+        n = new_node(lib, no_precheck=no_precheck)
+        ws, lg = [], []
+        n.log = lambda s: lg.append(s)
+        n.warn = lambda s: ws.append(s)
+        fx = FakePX4(n, p_enu=p_enu)
+        fx.v = [0.0, 0.0, 0.0]
+        fx.sync()
+        n.arming_state = arming
+        n.nav_state = nav
+        if odom_tilt is not None:
+            a_ = math.radians(odom_tilt)
+            q = (math.cos(a_ / 2), math.sin(a_ / 2), 0.0, 0.0)   # 纯 roll
+            n.odom = types.SimpleNamespace(pose=types.SimpleNamespace(
+                pose=types.SimpleNamespace(
+                    position=types.SimpleNamespace(x=p_enu[0], y=p_enu[1],
+                                                   z=p_enu[2]),
+                    orientation=types.SimpleNamespace(w=q[0], x=q[1],
+                                                      y=q[2], z=q[3]))))
+        step(n, fx, 1)
+        res = (n.refused, n.state, ws, lg)
+        n.close()
+        return res
+
+    # ① 复现 PPN 的真实起点 ⇒ 必须拒绝启动
+    ref, st, ws, lg = _precheck(REAL_PPN_START)
+    check(ref, f"PPN 真实起点（离原点 9.61 m）⇒ **拒绝启动**（state={st}）")
+    check(st != "ARM", f"没有进入 ARM（当前 {st}）—— 关键：不能先解锁再发现")
+    check(any("离原点" in s for s in lg),
+          f"报错文案指出『离原点太远』（log {len(lg)} 条）")
+    check(any("重启仿真" in s for s in lg), "报错文案给出『请重启仿真』的指引")
+
+    # ② 复现 APN 的真实起点 ⇒ 同样拒绝
+    ref2, st2, ws2, _ = _precheck(REAL_APN_START)
+    check(ref2, f"APN 真实起点（离原点 10.49 m）⇒ 拒绝启动（state={st2}）")
+
+    # ③ 地面 + 原点附近 + 水平 ⇒ 放行
+    ref3, st3, _, _ = _precheck((0.10, 0.05, 0.04), odom_tilt=2.0)
+    check(not ref3 and st3 == "ARM", f"正常起点 ⇒ 放行并进入 ARM（state={st3}）")
+
+    # ④ 地面但姿态歪了（20°）⇒ 拒绝
+    ref4, st4, ws4, lg4 = _precheck((0.05, 0.05, 0.04), odom_tilt=20.0)
+    check(ref4, f"地面姿态 20° > {M.PAD_MAX_TILT:.0f}° ⇒ 拒绝启动")
+    check(any("倾斜" in s for s in lg4), "报错文案指出『机体倾斜』")
+
+    # ⑤ 已经 ARMED ⇒ 拒绝（上一轮没退干净）
+    ref5, _, ws5, lg5 = _precheck((0.05, 0.05, 0.04), arming=2)
+    check(ref5, "地面但已 ARMED ⇒ 拒绝启动（上一轮没退干净）")
+    check(any("ARMED" in s for s in lg5), "报错文案指出『已处于 ARMED』")
+
+    # ⑥ 已经在 OFFBOARD ⇒ 拒绝
+    ref6, _, ws6, lg6 = _precheck((0.05, 0.05, 0.04), nav=14)
+    check(ref6, "地面但已在 OFFBOARD ⇒ 拒绝启动")
+    check(any("OFFBOARD" in s for s in lg6), "报错文案指出『已处于 OFFBOARD』")
+
+    # ⑦ 空中接管（alt=10 m）⇒ 放行（测试/中途介入场景不受影响）
+    ref7, st7, ws7, _ = _precheck((0.0, 0.0, 10.0), arming=2, nav=14)
+    check(not ref7, f"空中接管（10 m, ARMED, OFFBOARD）⇒ 放行（state={st7}）")
+    check(any("空中接管" in s for s in ws7), "明确提示『按空中接管处理』")
+
+    # ⑧ --no-precheck ⇒ 跳过检查直接 ARM
+    ref8, st8, _, _ = _precheck(REAL_PPN_START, no_precheck=True)
+    check(not ref8 and st8 in ("ARM", "CONFIRM_ARM"),
+          f"--no-precheck ⇒ 跳过检查直接往下走（state={st8}）")
+
+    # ⑨ 起飞段低空大姿态 ⇒ 告警 / 中止
+    #   实飞实测：PPN roll=58.1° @ alt=0.08 m；APN roll=58.9° @ 0.24 m、pitch=−74.1°
+    def _tilt_monitor(roll_deg, pitch_deg, alt):
+        n = new_node(lib, **PILOT_KW)
+        n.log = lambda s: None
+        ws = []
+        n.warn = lambda s: ws.append(s)
+        n.odom = None
+        n.state = "WAIT_HEIGHT"
+        n.t_state = VT[0]
+        n.stable_t = None
+        fx = FakePX4(n, p_enu=(0.0, 0.0, alt))
+        fx.sync()
+        n.arming_state = 2
+        n.nav_state = 17
+        a1, b1 = math.radians(roll_deg / 2), math.radians(pitch_deg / 2)
+        # 近似：单一轴旋转（只为造姿态角，不必精确）
+        import math as _m
+        cr, sr = _m.cos(a1), _m.sin(a1)
+        cp, sp = _m.cos(b1), _m.sin(b1)
+        q = (cr * cp, sr * cp, cr * sp, -sr * sp)
+        n.odom = types.SimpleNamespace(pose=types.SimpleNamespace(
+            pose=types.SimpleNamespace(
+                position=types.SimpleNamespace(x=0.0, y=0.0, z=alt),
+                orientation=types.SimpleNamespace(w=q[0], x=q[1],
+                                                  y=q[2], z=q[3]))))
+        step(n, fx, 1)
+        res = (n.aborted, n.takeoff_tilt_max, ws)
+        n.close()
+        return res
+
+    ab9, tmax9, ws9 = _tilt_monitor(30.0, 0.0, 0.5)
+    check(tmax9 >= 25.0, f"低空 30° 姿态被记录（tilt_max={tmax9:.1f}°）")
+    check(any("桨叶打地" in w for w in ws9), "30° ⇒ 告警（超过 25° 阈值）")
+    check(not ab9, "30° 还不中止（只是告警）")
+
+    ab10, tmax10, _ = _tilt_monitor(58.0, 0.0, 0.08)
+    check(ab10, f"复现实飞 PPN：roll=58° @ 0.08 m ⇒ **中止**（tilt_max={tmax10:.0f}°）")
+
+    ab11, _, _ = _tilt_monitor(-74.0, 0.0, 0.68)
+    check(ab11, "复现实飞 APN：pitch=−74° @ 0.68 m ⇒ 中止")
+
+    # ⑩ 高空姿态大不该管（起飞段监控只管低空）
+    ab12, tmax12, _ = _tilt_monitor(50.0, 0.0, 6.0)
+    check(not ab12 and tmax12 == 0.0,
+          "6 m 高度的大姿态不触发起飞段监控（只管 <2.5 m）")
+
     # ---------------------------------------------------------------- 汇总
     print()
     print("=" * 74)

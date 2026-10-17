@@ -148,6 +148,14 @@ DISARM_TIMEOUT = 20.0
 LANDED_ALT = 0.30
 LANDED_VZ = 0.08
 LANDED_HOLD = 1.0
+
+# ★★ 降落两阶段（2026-10-17 实飞事故后改：原来一发 NAV_LAND 就把控制权全交给
+#   PX4 的 AUTO_LAND，它的内置减速曲线让高度**卡在 0.54 m 不动**，
+#   随后提前判定落地并停桨 ⇒ 无人机从 0.54 m 掉下来。
+#   ⇒ 先自己（OFFBOARD + cmd_vel_ned）主动降到 LAND_HANDOVER_ALT，
+#     再交给 AUTO_LAND 完成最后一段（低空交给 PX4 更稳，落地检测也正常）。
+LAND_HANDOVER_ALT = 0.60          # 交给 AUTO_LAND 的高度 (m)
+LAND_STUCK_SEC = 4.0              # 主动下降"卡住"多久就提前交给 AUTO_LAND (s)
 FORCE_DISARM_AFTER = 6.0
 FORCE_DISARM_HOLD = 3.0
 
@@ -176,6 +184,19 @@ TAKEOFF_MIN_AGL = 2.5              # 允许水平机动的最小离地高度 (m)
 #   桨叶半径 0.25 m ⇒ 桨尖下沉 ≈ 0.25·sin17° ≈ 0.073 m；
 #   再算起落架 ~0.2 m + EKF 低空高度误差（可达 0.2 m）⇒ 2.5 m 有 >8 倍余量。
 #   同时它低于 MIN_ALTITUDE(3.0)，不会和安全围栏互相打架。
+
+# ★★ 起飞前自检 + 起飞段姿态监控（2026-10-17 第二次实飞事故后新增）
+#   实测事故：两轮实飞都是**在远离原点的位置起飞**（9.61 m / 10.49 m），
+#   而且 APN 那次起点正好是 PPN 的停桨点 ⇒ **跑第二个 law 前没重启仿真**。
+#   在这种位置上 PX4 的 AUTO_TAKEOFF 会在低空出现巨大姿态：
+#     PPN: roll=58° @ alt=0.08 m ；APN: roll=59° @ 0.24 m、pitch=−74° @ 0.68 m
+#   ⇒ 桨叶必然扫地。而这些姿态**不是我们发的**（此刻 nav_state=17，PX4 自控），
+#     所以只能在"起飞前"和"起飞中"两个环节拦截。
+PAD_MAX_H = 1.5                    # 地面启动时允许的最大水平偏离原点距离 (m)
+PAD_MAX_ALT = 1.0                  # 高度低于它视为"在地面启动"（否则按空中接管处理）
+PAD_MAX_TILT = 15.0                # 地面启动时允许的最大姿态角 (deg)
+TAKEOFF_MAX_TILT = 25.0            # 起飞段（低空）允许的最大姿态角 (deg)，超过就告警
+TAKEOFF_ABORT_TILT = 45.0          # 起飞段（低空）姿态超过它 ⇒ 直接中止（必打地）
 
 GUIDED_TIMEOUT = 8.0               # GUIDED 段超时（s，按目标相对时间）
 CRUISE_TIMEOUT = 8.0               # 巡航/预加速段超时（s，墙钟）
@@ -236,6 +257,11 @@ REPORT_MID_HZ = 5.0
 # 所以这里取 0.2 s 作为"该管了"的界限（50 Hz 名义周期 0.02 s，是它的 10 倍）。
 LOOP_GAP_WARN = 0.20
 
+# RTF 只在相邻 tick 间隔 ≥ 此值时统计（s）。理由：`pos.timestamp` 是按**话题周期**
+# 量化的（SITL 20~30 ms），若两次 tick 只隔 1~2 ms，sim_dt 却是整个话题周期
+# ⇒ RTF 会算出 100+ 的**假值**（实测：报告里出现 `RTF max 103.10`，纯噪声）。
+RTF_MIN_GAP = 0.005
+
 # 超过这个空洞长度就必须怀疑 PX4 的 offboard 失联保护已触发
 # （`COM_OF_LOSS_T` 默认 0.5~1.0 s）—— 一旦触发，PX4 会停止执行我们的 setpoint，
 #  实飞表现就是无人机**自由落体**（实测 6.87 m / 1.15 s、a≈7.8 m/s²）。
@@ -244,7 +270,6 @@ OFFBOARD_LOSS_HINT = 0.60
 # BRAKE 段的"地面安全地板"（m）：刹车过程中若离地低于它，说明已不是"正常刹车"
 # （大概率是失控/遥测跳变）⇒ 立刻放弃横向刹车，转入 LAND 让它软着陆。
 BRAKE_ALT_FLOOR = 1.50
-
 # 报告块的起止标记（用户直接整段复制回传；我按标记截取）
 REPORT_BEGIN = "<<<<<<< BEGIN RM-PHASE-B-REPORT >>>>>>>"
 REPORT_END = "<<<<<<< END RM-PHASE-B-REPORT >>>>>>>"
@@ -466,6 +491,10 @@ class PhaseBGuidance(Node):
         self.min_alt_state = None                 # 出现时的状态
         self.hard_ground_warned = False           # "制导/刹车段贴地"只警告一次
         self.brake_alt_tgt = None                 # 刹车期间锁定的高度目标
+        # 降落两阶段（LAND 段：先主动下降 → 再交给 AUTO_LAND）
+        self.land_auto_sent = False               # 是否已交给 PX4 的 AUTO_LAND
+        self.land_stuck_t = None                  # 主动下降"卡住"计时起点
+        self.land_last_alt = None                 # 上一拍的下降高度（判卡住用）
         # 起飞安全门限相关的一次性告警标记（避免每拍刷屏）
         self.low_takeoff_warned = False           # WAIT_HEIGHT：容差内但低于门限
         self.low_xy_warned = False                # SETTLE/CRUISE：低空被撤掉水平指令
@@ -483,10 +512,10 @@ class PhaseBGuidance(Node):
         self.odom_ok = False
 
         # ---- 状态机 ----
-        # ARM → CONFIRM_ARM → TAKEOFF → WAIT_HEIGHT
+        # PRECHECK → ARM → CONFIRM_ARM → TAKEOFF → WAIT_HEIGHT
         #     → OFFBOARD → CONFIRM_OFFBOARD → SETTLE
         #     → CRUISE → GUIDED → LAND → DISARM → DONE
-        self.state = "ARM"
+        self.state = "PRECHECK" if not getattr(args, "no_precheck", False) else "ARM"
         self.t_state = time.monotonic()
         self.t_start = time.monotonic()
         self.done_t = None
@@ -495,6 +524,13 @@ class PhaseBGuidance(Node):
         self.aborted = False
         self.abort_reason = ""
         self.finish_reason = None             # 结束原因（命中/脱靶/超时/中止）
+        # ---- 起飞前自检（★ 2026-10-17）----
+        self.refused = False                  # 自检拒绝启动（不进入降落：本来没起飞）
+        self.refuse_reason = ""
+        self.pad_checked = False              # 自检是否已通过
+        self.on_ground_start = None           # True=地面启动 / False=空中接管
+        self.takeoff_tilt_warned = False      # 起飞段大姿态只告警一次
+        self.takeoff_tilt_max = 0.0           # 起飞段（低空）最大姿态角（报告用）
         self._exit_logged = False
         self._linger_logged = False
 
@@ -849,6 +885,133 @@ class PhaseBGuidance(Node):
             self.log("      （服务 success 只说明通信节点收到了；是否真进 OFFBOARD 以 vehicle_status 为准）")
 
     # ================================================================ 主循环
+    # ================================================= 起飞前自检 / 拒绝启动
+    def do_precheck(self, now):
+        """起飞前自检（★ 2026-10-17 实飞事故后新增，防止"在错误位置起飞"）。
+
+        【为什么必须有这一步】
+          两次实飞都是在**远离原点**的位置起飞的：
+            · PPN：起点 ENU=(-9.57, +0.89) ⇒ 离原点 **9.61 m**
+            · APN：起点 ENU=(-10.50, +0.05) ⇒ 离原点 **10.49 m**
+              —— 正好是 PPN 的停桨点，说明跑第二个 law 前**没重启仿真**
+          在这种位置上 PX4 的 AUTO_TAKEOFF 会在低空甩出巨大姿态：
+            · PPN: roll=58° @ alt=0.08 m
+            · APN: roll=59° @ 0.24 m、pitch=−74° @ 0.68 m
+          ⇒ 桨叶扫地。**这些姿态不是我们发的**（当时 nav_state=17，PX4 自控），
+            所以只能在起飞前拦截 —— 光加上"低空不给水平加速度"是拦不住的。
+
+        【分级】
+          · 致命（拒绝启动，不做降落：本来就没起飞）：离原点太远 / 已解锁 / 已在 OFFBOARD
+          · 告警（继续跑）：姿态略大、非地面启动
+        """
+        if self.pos is None:
+            if now - self.t_state > 10.0:
+                self.refuse("收不到 vehicle_local_position —— 仿真没起来？"
+                            "或 ns 不对（--namespace）")
+            return
+
+        p_enu, _ = self.state_enu()
+        alt = -self.pos.z
+        h = math.hypot(p_enu[0], p_enu[1]) if p_enu is not None else 0.0
+        att = self.odom_att()
+        tilt = 0.0
+        if att is not None:
+            tilt = max(abs(att[0]), abs(att[1]))
+        on_ground = alt < PAD_MAX_ALT
+
+        self.on_ground_start = on_ground
+        self.log(f"[0/6] 起飞前自检：ENU=({p_enu[0]:+.2f},{p_enu[1]:+.2f},"
+                 f"{p_enu[2]:+.2f})  离原点 {h:.2f} m  "
+                 f"姿态={('?' if att is None else '%.1f/%.1f°' % (att[0], att[1]))}  "
+                 f"nav_state={self.nav_state}  arming={self.arming_state}")
+
+        fatal = []
+        notes = []
+        if on_ground:
+            # —— 地面启动：必须在起飞点、水平、已停桨 ——
+            if h > PAD_MAX_H:
+                fatal.append(f"离原点 {h:.2f} m > {PAD_MAX_H:.1f} m")
+            if att is not None and tilt > PAD_MAX_TILT:
+                fatal.append(f"机体倾斜 {tilt:.1f}° > {PAD_MAX_TILT:.0f}°")
+            if self.arming_state == ARMING_STATE_ARMED:
+                fatal.append("已经处于 ARMED（上一轮没退干净）")
+            if self.nav_state == NAV_STATE_OFFBOARD:
+                fatal.append("已经处于 OFFBOARD（上一轮没退干净）")
+        else:
+            # —— 空中接管：允许，但明确提示（不是从地面开始的测试） ——
+            notes.append(f"高度 {alt:.2f} m > {PAD_MAX_ALT:.1f} m ⇒ 按空中接管处理"
+                         f"（不是从地面起飞）")
+            if not self.arming_state == ARMING_STATE_ARMED:
+                fatal.append(f"空中但未解锁（arming_state={self.arming_state}）")
+
+        if fatal:
+            self.refuse("；".join(fatal) + "。"
+                        " ★ 最可能的原因：**上一次运行结束后没有重启仿真**，"
+                        "无人机还停在拦截点。请 Ctrl-C 停掉 launch，"
+                        "重新执行 ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py，"
+                        "等无人机回到原点后再跑。"
+                        "（确认环境没问题时可用 --no-precheck 跳过本检查）")
+            return
+
+        for n in notes:
+            self.warn("   " + n)
+        self.pad_checked = True
+        self.log("[0/6] ✓ 自检通过，开始 ARM")
+        self.state = "ARM"
+        self.t_state = now
+
+    def refuse(self, reason):
+        """**拒绝启动**：不进入降落流程（本来就没起飞），直接退出。
+
+        ⚠ 与 `abort()` 的区别：`abort()` 会走 LAND→DISARM 收尾；这里没起飞，
+          走降落反而危险（可能在空中无控漂移）。所以只报错 + 置 should_exit。
+        """
+        if self.refused:
+            return
+        self.refused = True
+        self.refuse_reason = reason
+        bar = "!" * 76
+        self.log("")
+        self.log(bar)
+        self.log("!! 起飞前自检**拒绝启动** —— 不执行本次测试")
+        self.log(bar)
+        for line in str(reason).split("；"):
+            if line.strip():
+                self.log("   · " + line.strip())
+        self.log(bar)
+        self.log("   为什么拦：在错误位置/姿态起飞，低空会甩出 50~70° 姿态，"
+                 "桨叶必然扫地（2026-10-17 两次实飞都发生了）。")
+        self.log("")
+        self.should_exit = True
+
+    def update_takeoff_tilt(self):
+        """起飞段姿态监控（★ 低空大姿态 = 桨叶打地的直接征兆）。
+
+        量的是**低空**（alt < TAKEOFF_MIN_AGL）时的姿态角。
+        这些姿态是 PX4 的 AUTO_TAKEOFF 产生的（不是我们发的），
+        但我们能做的只有：**发现异常就告警/中止**，别让它在坏状态上继续跑。
+        """
+        if self.pos is None:
+            return
+        alt = -self.pos.z
+        if alt >= TAKEOFF_MIN_AGL:
+            return
+        att = self.odom_att()
+        if att is None:
+            return
+        tilt = max(abs(att[0]), abs(att[1]))
+        if tilt > self.takeoff_tilt_max:
+            self.takeoff_tilt_max = tilt
+        if tilt >= TAKEOFF_ABORT_TILT:
+            self.abort(f"起飞段低空姿态 {tilt:.0f}° ≥ {TAKEOFF_ABORT_TILT:.0f}°"
+                       f"（alt={alt:.2f} m）—— 桨叶必然打地，立即中止")
+        elif tilt >= TAKEOFF_MAX_TILT and not self.takeoff_tilt_warned:
+            self.takeoff_tilt_warned = True
+            self.warn(f"⚠ 起飞段低空姿态 {tilt:.0f}°（alt={alt:.2f} m，"
+                      f"roll={att[0]:+.1f}° pitch={att[1]:+.1f}°）"
+                      f"—— 超过 {TAKEOFF_MAX_TILT:.0f}° 有桨叶打地风险。"
+                      f"常见原因：起飞点不在原点 / 上一轮没重启仿真")
+
     def tick(self):
         now = time.monotonic()
 
@@ -869,7 +1032,10 @@ class PhaseBGuidance(Node):
                     if 0 <= d_us < 60 * 1_000_000:      # 忽略回绕/异常跳变
                         sim_dt = d_us * 1e-6
                 self.sim_us_last = t_us
-            if sim_dt is not None and gap > 1e-6:
+            # ⚠ RTF 只在"足够长的间隔"上算：`pos.timestamp` 是**话题周期**量化的
+            #   （SITL 20~30 ms），若两次 tick 挨得很近（gap < 5 ms），
+            #   sim_dt 却是整整一个话题周期 ⇒ RTF 会算出 100+ 的假值（实测踩到）。
+            if sim_dt is not None and gap >= RTF_MIN_GAP:
                 self.rtf_samples.append(sim_dt / gap)
                 if len(self.rtf_samples) > 40000:
                     del self.rtf_samples[:20000]
@@ -907,6 +1073,10 @@ class PhaseBGuidance(Node):
             self.request_landing("Ctrl-C")
 
         # ---------------- 状态机 ----------------
+        if self.state == "PRECHECK":
+            self.do_precheck(now)
+            return
+
         if self.state == "ARM":
             if self.issue("ARM"):
                 self.log("  → 发出 ARM")
@@ -936,6 +1106,7 @@ class PhaseBGuidance(Node):
                 self.log(f"[2/6] TAKEOFF …（目标 {self.target_height:.1f} m）")
 
         elif self.state == "WAIT_HEIGHT":
+            self.update_takeoff_tilt()      # ★ 低空大姿态监控（防桨叶打地）
             alt = -self.pos.z if self.pos is not None else None
             if alt is None:
                 if not self.no_pos_warned:
@@ -1168,15 +1339,52 @@ class PhaseBGuidance(Node):
                 self.last_land_cmd = 0.0
 
         elif self.state == "LAND":
-            self.publish_descend_vel()
-            if now - self.last_land_cmd >= LAND_RESEND_SEC:
-                self.last_land_cmd = now
-                self.publish_land()
-                if self.nav_state != NAV_STATE_AUTO_LAND:
-                    self.log(f"      LAND 已发（nav_state={self.nav_state}，"
-                             f"期望 {NAV_STATE_AUTO_LAND}=AUTO_LAND）")
+            # ★★ 主动下降优先，AUTO_LAND 兜底（2026-10-17 实飞事故后改）
+            #   事故现象：LAND 段高度**卡在 0.54 m 不动**（vz≈+0.02 m/s），
+            #     然后 PX4 提前判定落地、直接停桨 ⇒ 无人机从 0.54 m **掉下来**，
+            #     报告里 `landed=False 软着陆=否`。
+            #   根因：一发 `NAV_LAND` 就把控制权交给 PX4 的 AUTO_LAND，
+            #     而它的下降速度指令是**内置减速曲线** —— 从 8 m 一路降下来，
+            #     速度在 0.5 m 附近已经被吃到 0 ⇒ 落地检测判静止 ⇒ 判落地。
+            #     此时我们发的 `cmd_vel_ned` **完全无效**（AUTO_LAND 下不执行外部
+            #     velocity setpoint），只能眼看着它卡住。
+            #   ⇒ 改成：先**留在 OFFBOARD**，用自己的 cmd_vel_ned 以
+            #     `--land-down-speed` 主动下降到 `LAND_HANDOVER_ALT`，
+            #     再交给 AUTO_LAND 完成最后一段（低空交给 PX4 更稳，且它能正常判落地）。
             alt = -self.pos.z if self.pos is not None else None
             vz = self.pos.vz if self.pos is not None else None
+            handover = (alt is not None and alt <= LAND_HANDOVER_ALT)
+            if not handover:
+                # —— 阶段 1：OFFBOARD 主动下降（可控）——
+                self.publish_descend_vel()
+                if alt is not None and vz is not None:
+                    # 卡住检测：高度几乎不变 + 垂直速度为 0 ⇒ 没在下降
+                    if (self.land_stuck_t is None
+                            or abs(alt - self.land_last_alt) > 0.05):
+                        self.land_stuck_t = now
+                        self.land_last_alt = alt
+                if (self.land_stuck_t is not None
+                        and now - self.land_stuck_t > LAND_STUCK_SEC):
+                    self.warn(f"⚠ 主动下降卡住了（{LAND_STUCK_SEC:.1f}s 内高度几乎不变，"
+                              f"alt={alt:.2f} m）⇒ 提前交给 PX4 的 AUTO_LAND 兜底")
+                    handover = True
+                if not handover:
+                    self.cur_a_enu = (0.0, 0.0, 0.0)   # 本段不发加速度（只发速度）
+
+            # —— 阶段 2：交给 PX4 的 AUTO_LAND（兜底 / 最后一段）——
+            if handover:
+                if not self.land_auto_sent:
+                    self.land_auto_sent = True
+                    self.log(f"      → 在 {('?' if alt is None else '%.2f m' % alt)} "
+                             f"交给 PX4 的 AUTO_LAND 完成最后下降"
+                             f"（≤{LAND_HANDOVER_ALT:.1f} m）")
+                self.publish_descend_vel()
+                if now - self.last_land_cmd >= LAND_RESEND_SEC:
+                    self.last_land_cmd = now
+                    self.publish_land()
+                    if self.nav_state != NAV_STATE_AUTO_LAND:
+                        self.log(f"      LAND 已发（nav_state={self.nav_state}，"
+                                 f"期望 {NAV_STATE_AUTO_LAND}=AUTO_LAND）")
             on_ground = (alt is not None and vz is not None
                          and alt <= LANDED_ALT and abs(vz) <= LANDED_VZ)
             if on_ground:
@@ -1743,6 +1951,9 @@ class PhaseBGuidance(Node):
         self.ending_pos = p_enu
         self.land_t0 = now
         self.last_land_cmd = 0.0
+        self.land_auto_sent = False        # 降落两阶段：重置"是否已交给 AUTO_LAND"
+        self.land_stuck_t = None
+        self.land_last_alt = None
         self.landed = False
         self.disarmed = False
         self.land_stable_t = None
@@ -2007,6 +2218,19 @@ class PhaseBGuidance(Node):
             if rs[-1] > 2.0:
                 p("[实时率] ⚠ 最大 %.2f ⇒ 某一拍墙钟只走了很短时间但**仿真推进很多**，"
                   "此时看到的位置跳变是**真的**（不是遥测坏了）" % rs[-1])
+        # ★ 起飞段低空姿态（桨叶打地的直接征兆）
+        if self.takeoff_tilt_max > 0.0:
+            p("[起飞] 低空(<%.1fm) 最大姿态角 = %.1f°%s"
+              % (TAKEOFF_MIN_AGL, self.takeoff_tilt_max,
+                 "   ✅ 正常（<%.0f°）" % TAKEOFF_MAX_TILT
+                 if self.takeoff_tilt_max < TAKEOFF_MAX_TILT
+                 else "   ⚠ 偏大（≥%.0f°）⇒ 有桨叶打地风险" % TAKEOFF_MAX_TILT))
+        if self.pad_checked:
+            p("[自检] 已通过（%s）"
+              % ("地面启动，在原点附近" if self.on_ground_start
+                 else "空中接管（不是从地面起飞）"))
+        if self.refused:
+            p("[自检] ✗ **拒绝启动**：%s" % self.refuse_reason)
         # ★ 实测落点 / 漂移（不是估算）
         dr = self.landing_drift()
         if dr is None:
@@ -2162,6 +2386,10 @@ def build_parser():
     # 飞行
     ap.add_argument("--target-height", type=float, default=10.0, help="起飞高度 (m)")
     ap.add_argument("--takeoff-tol", type=float, default=1.0)
+    ap.add_argument("--no-precheck", action="store_true",
+                    help="★ 跳过起飞前自检（默认**会检查**：无人机是否在原点、"
+                         "是否已解锁/已在 OFFBOARD、姿态是否水平）。"
+                         "在错误位置起飞快会导致低空 50~70° 姿态、桨叶打地")
     ap.add_argument("--takeoff-timeout", type=float, default=60.0)
     ap.add_argument("--rate", type=float, default=50.0, help="制导/指令频率 (Hz)")
     # 收尾
