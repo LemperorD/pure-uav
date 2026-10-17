@@ -1924,7 +1924,8 @@ def main():
 
         def __init__(self):
             self.presets = []
-            self.created = []
+            self.created = []          # (radius, at) —— at 为创建时位置
+            self.created_at = []
 
         def start(self):
             return self
@@ -1935,8 +1936,9 @@ def main():
         def ensure_launcher(self, *a, **k):
             return True
 
-        def ensure_projectile(self, r=0.06):
+        def ensure_projectile(self, r=0.06, at=None):
             self.created.append(r)
+            self.created_at.append(at)
             return True
 
         def set_projectile(self, p, yaw=0.0):
@@ -1959,6 +1961,16 @@ def main():
     r_on = _setup(True)
     check(bool(r_on.presets),
           f"默认（preset=True）⇒ 创建后立刻 set_projectile（{r_on.presets}）")
+    # ★ 更强的一条：**创建时**就把 pose 给发射点（不依赖 set_pose）
+    check(bool(r_on.created_at) and r_on.created_at[0] is not None,
+          f"创建时直接给了位置 at={r_on.created_at[0] if r_on.created_at else None}"
+          f"（不再先建在 HIDDEN_Z=-500）")
+    if r_on.created_at and r_on.created_at[0] is not None:
+        a = r_on.created_at[0]
+        tgt = PILOT_KW["target_p0"]
+        check(abs(a[0] - tgt[0]) < 1e-9 and abs(a[1] - tgt[1]) < 1e-9
+              and abs(a[2] - tgt[2]) < 1e-9,
+              f"创建位置 = 发射点 {tgt}（实际 {a}）")
     if r_on.presets:
         p = r_on.presets[0]
         tgt = PILOT_KW["target_p0"]

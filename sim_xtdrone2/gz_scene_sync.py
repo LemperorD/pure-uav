@@ -234,26 +234,27 @@ def bead_sdf(name: str, radius: float, color=(1.0, 0.35, 0.05)) -> str:
 def projectile_sdf(name: str, radius: float) -> str:
     """弹丸：小球。
 
-    ⚠ 关键设计：`static=false` + **`<gravity>false</gravity>`** + **无 collision**：
-        · 不是 static ⇒ pose 可以被 set_pose 服务直接改（动态实体的标准做法）；
-        · 关重力、无碰撞、无外力 ⇒ 物理引擎不会把它推走，位置完全由我们说了算
-          ⇒ **所见即 TargetModel 所算**（与制导用的弹道逐帧一致），
-             而不是让 Gazebo 自己另算一条弹道（那样会和制导的依据对不上）。
+    ★★ 2026-10-17 重大修正：**改为 `static=true`，与塔/发射架同构**。
+      用户实测：塔和发射架在 Gazebo 里**能显示**，弹丸**完全不出现**
+      （连模型列表里都没有）。两者唯一的差别就在这里 ——
+        · 塔 / 发射架：`static=true` + 只有 `<visual>` + **无 inertial**
+        · 旧弹丸    ：`static=false` + `<inertial>` + `<gravity>false>`
+      ⇒ 说明"动态 + 无 collision + 只靠 gravity=false"这套在 gz-sim 8 里
+        很可能被物理引擎判为退化（无碰撞体的动态体）而**没真正加载**，
+        但 `create` 服务仍返回 True ⇒ 我们一直以为"创建成功"。
+      ⇒ 现在统一用最简单、已实测可显示的 static 结构。
+
+    ⚠ 关于"static 能不能被 set_pose 移动"——**可以**。
+      `/world/<world>/set_pose` 改的是 Pose 组件，与 static 标志无关。
+      我们本来就是"位置完全由 TargetModel 逐帧写入"，
+      不需要物理引擎参与（关重力、无碰撞都是为了让 Gazebo 别自己另算一条弹道）。
+      ⇒ static 反而更纯粹：**所见即 TargetModel 所算**。
     """
     return f"""<?xml version="1.0"?>
 <sdf version="1.9">
   <model name="{name}">
-    <static>false</static>
+    <static>true</static>
     <link name="link">
-      <gravity>false</gravity>
-      <inertial>
-        <mass>0.4</mass>
-        <inertia>
-          <ixx>0.0006</ixx><ixy>0</ixy><ixz>0</ixz>
-          <iyy>0.0006</iyy><iyz>0</iyz>
-          <izz>0.0006</izz>
-        </inertia>
-      </inertial>
       <visual name="visual">
         <geometry><sphere><radius>{radius}</radius></sphere></geometry>
         <material>
@@ -599,10 +600,21 @@ class GzScene:
         return self._create(LAUNCHER_NAME, launcher_sdf(LAUNCHER_NAME, size),
                             (p[0], p[1], size * 0.5))
 
-    def ensure_projectile(self, radius: float = 0.06) -> bool:
-        """（重新）创建弹丸，**先藏在视野外**（HIDDEN_Z）。"""
-        return self._create(PROJECTILE_NAME, projectile_sdf(PROJECTILE_NAME, radius),
-                            (0.0, 0.0, HIDDEN_Z))
+    def ensure_projectile(self, radius: float = 0.06, at=None) -> bool:
+        """（重新）创建弹丸。
+
+        `at` 给定时**直接创建在该位置**（推荐），否则藏在视野外（HIDDEN_Z）。
+
+        ★ 为什么推荐传 `at`（2026-10-17）：
+          旧流程是"创建在 HIDDEN_Z → 再 set_pose 移到发射点"，**两步都可能静默失败**。
+          直接建在目标位置 ⇒ 少一层依赖：即使 `set_pose` 有问题，
+          球一开始就在能看见的地方。
+        """
+        pose = (0.0, 0.0, HIDDEN_Z) if at is None else (float(at[0]),
+                                                        float(at[1]),
+                                                        float(at[2]))
+        return self._create(PROJECTILE_NAME,
+                            projectile_sdf(PROJECTILE_NAME, radius), pose)
 
     def hide_projectile(self) -> None:
         """把弹丸移出视野（等价于"消失"），命中/脱靶后调用。"""
@@ -1039,6 +1051,105 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
     return 0
 
 
+def list_entities(world: str = DEFAULT_WORLD, verbose: bool = True) -> int:
+    """★ 列出世界里**所有模型**的名字 + 位置，并标出我们关心的那几个。
+
+    为什么需要它（2026-10-17）：
+      用户反馈"Gazebo 模型列表里没有弹丸，但塔和发射架有"。
+      这时候最需要的是**客观事实**：`enemy_dart` 到底存不存在？在哪？
+      `create` 服务返回 True ≠ 模型真的被加载了（可能是 SDF 解析失败但被 accept）。
+
+    实现：直接读 `/world/<world>/state` 这个 topic 的**一次性采样**
+    （用 gz.transport 订阅，收第一条就退订），比逐个 `gz model` 查询更省事。
+    """
+    import json as _json
+    scene = GzScene(world=world, timeout_ms=1500, verbose=verbose)
+    if not scene.available:
+        print("❌ 接不上 Gazebo（见上面的原因）")
+        return 1
+
+    got = {"names": None, "err": None}
+
+    def _cb(msg):
+        if got["names"] is not None:
+            return
+        try:
+            items = []
+            for pz in msg.pose:
+                items.append((pz.name,
+                              (pz.position.x, pz.position.y, pz.position.z)))
+            got["names"] = items
+        except Exception as e:                             # noqa: BLE001
+            got["err"] = e
+
+    try:
+        # ★ 用 `/world/<world>/pose/info`（`gz.msgs.Pose_V`）—— 一条消息就带**所有实体**
+        #   的 name + position。
+        #   ⚠ 别用 `/world/<world>/stats`（`WorldStatistics`）：它只有 `model_count`
+        #     （数量），**没有模型名列表** —— 我第一版就写错了。
+        from gz.msgs10 import pose_v_pb2
+        node = scene._node
+        node.subscribe(pose_v_pb2.Pose_V, f"/world/{world}/pose/info", _cb)
+        for _ in range(80):                    # 最多等 4 s（pose/info 通常 ~几十 Hz）
+            if got["names"] is not None:
+                break
+            time.sleep(0.05)
+    except Exception as e:                                  # noqa: BLE001
+        got["err"] = e
+
+    print()
+    print("=" * 70)
+    print(f"  世界里的模型列表    world={world}")
+    print("=" * 70)
+    if got["err"] is not None:
+        print(f"  ⚠ 读 stats 失败：{got['err']}")
+        print("  ⇒ 可以退一步用 CLI 查：")
+        print(f"       gz model --list")
+        print(f"       gz model -m enemy_dart -p")
+        print()
+        return 1
+    if got["names"] is None:
+        print("  ⚠ 3 s 内没收到 /stats 消息（仿真没在跑？世界名不对？）")
+        print(f"  可以退一步用 CLI：gz model --list")
+        print()
+        return 1
+
+    want = {TOWER_NAME: "防御塔", LAUNCHER_NAME: "发射架",
+            PROJECTILE_NAME: "★弹丸★"}
+    found = {}
+    for nm, pos in got["names"]:
+        tag = ""
+        if nm in want:
+            tag = f"   ← {want[nm]}"
+            found[nm] = pos
+        pos_s = ("(?,?,?)" if pos is None
+                 else f"({pos[0]:+8.2f},{pos[1]:+8.2f},{pos[2]:+8.2f})")
+        print(f"  {nm:<24} {pos_s}{tag}")
+    print("-" * 70)
+    print("  我们创建的三样东西：")
+    for nm, label in ((TOWER_NAME, "防御塔"), (LAUNCHER_NAME, "发射架"),
+                      (PROJECTILE_NAME, "弹丸")):
+        if nm in found:
+            pos = found[nm]
+            extra = ""
+            if nm == PROJECTILE_NAME and pos is not None and pos[2] < -100:
+                extra = ("   ⚠ z 极低 ⇒ 仍被藏在视野外（HIDDEN_Z），"
+                         "说明 set_pose 没把它移回来")
+            print(f"    ✅ {nm:<22} {label}{extra}")
+        else:
+            print(f"    ❌ {nm:<22} {label} —— **世界里没有这个模型！**")
+    if PROJECTILE_NAME not in found:
+        print()
+        print("  ⇒ 弹丸压根没创建成功（create 返回 True 也不代表真加载了）。")
+        print("    可能原因：SDF 结构被 gz-sim 拒绝。已把 projectile_sdf 改成")
+        print("    与塔/发射架**同构**的 static 结构（2026-10-17 修正）。")
+        print("    换新版后重跑本命令应能看到 ✅。")
+    print("=" * 70)
+    print()
+    scene.close()
+    return 0
+
+
 def show_projectile(p=(-14.0, 0.0, 10.0), radius: float = 0.25,
                     seconds: float = 10.0, world: str = DEFAULT_WORLD,
                     with_tower: bool = True, verbose: bool = True) -> int:
@@ -1171,6 +1282,9 @@ def main(argv=None) -> int:
     g.add_argument("--check", action="store_true",
                    help="★ **服务自检**：逐个探测 create / set_pose / marker 服务是否可用。"
                         "画面上没东西（比如回放没动）时先跑这个")
+    g.add_argument("--list-entities", action="store_true",
+                   help="★ **列出世界里的所有模型**（名字+位置），并标出塔/发射架/弹丸"
+                        "是否真的存在。'模型列表里没有弹丸'时跑这个")
     g.add_argument("--show-projectile", type=float, default=None, metavar="SEC",
                    help="★ **弹丸可见性诊断**：把弹丸静止摆在发射点展示 SEC 秒"
                         "（旁边放塔做参照）。用来区分「球没渲染」和「飞太快看不见」。"
@@ -1205,6 +1319,8 @@ def main(argv=None) -> int:
                                      verbose=not args.quiet)
     if args.check:
         return run_check(args.world, verbose=not args.quiet)
+    if args.list_entities:
+        return list_entities(args.world, verbose=not args.quiet)
     if args.show_projectile is not None:
         return show_projectile(p=_vec(args.p0), radius=args.proj_radius,
                                seconds=args.show_projectile, world=args.world,

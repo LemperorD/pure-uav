@@ -1613,21 +1613,26 @@ class PhaseBGuidance(Node):
             self.gz.start()
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
             self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
-            ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius)
-            # ★★ 创建后不要藏在 HIDDEN_Z(-500)，而是**摆到发射点让用户先看见**
-            #   （2026-10-17 用户反馈"看不见弹丸"）
-            #   原因：原来弹丸创建时就在地下 500 m，只有 GUIDED 段那 ~0.5 s 才出现，
-            #         而且是从 14 m 外飞过来的 ⇒ 人眼必然抓不住。
-            #   ⇒ 现在 SETTLE 一结束就把它摆在发射点静止可见，
-            #     CRUISE 期间（约 1.5~3 s）用户能先确认"这个球我看得见"。
-            #   ⚠ **零风险**：不改变任何几何、不等待、不卡控制回路 ——
+            # ★ 创建时**直接放在发射点**（preset 开时），而不是先建在 HIDDEN_Z 再 set_pose。
+            #   理由：旧流程"建在地下 500 m → set_pose 移上来"是**两步都可能静默失败**；
+            #   直接建在目标位置 ⇒ 即使 set_pose 有问题，球一开始就在能看见的地方。
+            at = self.target_p0 if self.args.gz_proj_preset else None
+            ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius, at=at)
+            # ★★ 弹丸可见性：创建时就放在发射点 + 再 set_pose 一次做**双保险**
+            #   （2026-10-17 用户反馈"Gazebo 模型列表里根本没有弹丸"）
+            #   旧流程：创建在 HIDDEN_Z(-500) → set_pose 移上来
+            #           ⇒ 两步都可能静默失败，且发射前球在地下 500 m，压根不存在于视野
+            #   新流程：① create 时 pose 就给发射点（不依赖 set_pose）
+            #           ② 再 set_projectile 一次（有些 gz 版本会忽略 EntityFactory.pose，
+            #              这一步兜住那种情况）
+            #   ⚠ **零风险**：不改变几何、不等待、不卡控制回路 ——
             #     弹丸位置在 GUIDED 段仍由 TargetModel 逐帧写入（见 gz_update）。
             if ok_p and self.args.gz_proj_preset:
-                self.gz.set_projectile(self.target_p0)
+                self.gz.set_projectile(self.target_p0)   # 双保险
                 self.log(f"  ── 弹丸已**摆在发射点** ({self.target_p0[0]:.1f},"
                          f"{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) "
-                         f"r={self.args.gz_proj_radius:.2f} m，发射前就能看见"
-                         f"（--no-gz-proj-preset 可关）")
+                         f"r={self.args.gz_proj_radius:.2f} m（static 结构），"
+                         f"发射前就能看见（--no-gz-proj-preset 可关）")
         except Exception as e:                          # noqa: BLE001
             self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
             self.gz = None

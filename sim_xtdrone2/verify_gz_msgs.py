@@ -64,6 +64,9 @@ EXPECT_FIELDS = {
                "material", "point"],
     "Color": ["r", "g", "b", "a"],
     "Material": ["ambient", "diffuse", "emissive"],
+    # ★ `/world/<world>/pose/info` 发的是 Pose_V（一条消息带所有实体）
+    #   2026-10-17 新增：用来「列出世界里有哪些模型」（--list-entities）
+    "Pose_V": ["pose"],
 }
 # 这些是**消息类型**字段，用来确认 lifetime 不是 double 之类
 EXPECT_MSGTYPE = {
@@ -73,10 +76,11 @@ EXPECT_MSGTYPE = {
     ("Marker", "material"): "Material",
     ("Pose", "position"): "Vector3d",
     ("Pose", "orientation"): "Quaternion",
+    ("Pose_V", "pose"): "Pose",          # 是**repeated Pose**
 }
 
 FILES = ["entity_factory", "pose", "quaternion", "vector3d", "entity",
-         "marker", "color", "material", "time", "boolean"]
+         "marker", "color", "material", "time", "boolean", "pose_v"]
 
 
 # ==========================================================================
