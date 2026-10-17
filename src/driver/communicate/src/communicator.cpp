@@ -87,6 +87,7 @@ void Communicator::recvLoop() {
                             mavlink_heartbeat_t hb;
                             mavlink_msg_heartbeat_decode(&msg, &hb);
                             fcu_sysid_.store(msg.sysid);   // 学习飞控 sysid
+                            autopilot_.store(hb.autopilot);   // 学习飞控固件类型
                             custom_mode_.store(hb.custom_mode);
                             connected_.store(true);
                             last_heartbeat = steady_clock::now();
@@ -229,6 +230,23 @@ const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
     }
 }
 
+const char* Communicator::arducopterModeNameCn(uint8_t custom_mode) const {
+    switch (custom_mode) {
+        case arducopter_mode::STABILIZE: return "自稳";
+        case arducopter_mode::ACRO:      return "特技";
+        case arducopter_mode::ALT_HOLD:  return "定高";
+        case arducopter_mode::AUTO:      return "自动任务";
+        case arducopter_mode::GUIDED:    return "引导";
+        case arducopter_mode::LOITER:    return "悬停";
+        case arducopter_mode::RTL:       return "返航";
+        case arducopter_mode::CIRCLE:    return "环绕";
+        case arducopter_mode::LAND:      return "降落";
+        case arducopter_mode::POSHOLD:   return "定点";
+        case arducopter_mode::SMARTRTL:  return "智能返航";
+        default: return "未知";
+    }
+}
+
 const char* Communicator::ackResultNameCn(uint8_t result) const {
     switch (result) {
         case MAV_RESULT_ACCEPTED:             return "已接受";  //0
@@ -340,16 +358,25 @@ bool Communicator::sendLand(int timeout_ms, uint8_t* result) {   //命令PX4自�
 }
 
 bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {   //设置飞行模式
-    uint8_t main_mode = (custom_mode >> 16) & 0xFF;
-    uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
-                                  MAV_CMD_DO_SET_MODE, 0,
-                                  MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode,
-                                  0, 0, 0, 0);
+    if (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) {
+        // ArduPilot：param2 直接填模式数字，param3 不用
+        mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+                                      MAV_CMD_DO_SET_MODE, 0,
+                                      MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode, 0,
+                                      0, 0, 0, 0);
+    } else {
+        // PX4：拆主/子模式填 param2/param3
+        uint8_t main_mode = (custom_mode >> 16) & 0xFF;
+        uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
+        mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+                                      MAV_CMD_DO_SET_MODE, 0,
+                                      MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode,
+                                      0, 0, 0, 0);
+    }
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len)) return false;
     return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
@@ -358,11 +385,13 @@ bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* re
 bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁1/加锁0
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
+    // ArduPilot 解锁需要 force arm 魔法数字 21196；PX4 用 0
+    const float force = (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) ? 21196.0f : 0.0f;
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
                                   MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                                  arm ? 1.0f : 0.0f, 0, 0, 0, 0, 0, 0);
+                                  arm ? 1.0f : 0.0f, force, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len)) return false;
     return waitForAck(MAV_CMD_COMPONENT_ARM_DISARM, timeout_ms, result);
@@ -439,7 +468,18 @@ bool Communicator::getSystemTime(SystemTime& out) const {
 }
 
 const char* Communicator::getFlightModeNameCn() const {
-    return px4ModeNameCn(custom_mode_.load());
+    if (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) {
+        return arducopterModeNameCn(static_cast<uint8_t>(custom_mode_.load()));
+    }
+    return px4ModeNameCn(custom_mode_.load());  // 默认按 PX4
+}
+
+const char* Communicator::getAutopilotNameCn() const {
+    switch (autopilot_.load()) {
+        case MAV_AUTOPILOT_ARDUPILOTMEGA: return "ArduPilot";
+        case MAV_AUTOPILOT_PX4:           return "PX4";
+        default:                          return "未知";
+    }
 }
 
 const char* Communicator::getLastAck() const {

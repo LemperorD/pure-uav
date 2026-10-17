@@ -15,8 +15,8 @@ int main() {
     printf("等待飞控心跳...\n");
 
     while (true) {
-        printf("[连接=%d 模式=%s(0x%08X) ACK=%s(%u)]\n",
-               comm.isConnected(), comm.getFlightModeNameCn(), comm.getCustomMode(),
+        printf("[固件=%s 连接=%d 模式=%s(0x%08X) ACK=%s(%u)]\n",
+               comm.getAutopilotNameCn(), comm.isConnected(), comm.getFlightModeNameCn(), comm.getCustomMode(),
                comm.getLastAck(), comm.lastAckResult());
 
         pure_uav::Attitude a;

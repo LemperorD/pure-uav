@@ -111,6 +111,21 @@ constexpr uint32_t AUTO_RTL     = (5u << 24) | (4u << 16);  //自动-返航
 constexpr uint32_t AUTO_LAND    = (6u << 24) | (4u << 16);  //自动-降落
 }  // namespace px4_mode
 
+// ArduPilot ArduCopter 飞行模式  作为 bool sendSetMode(uint32_t custom_mode)的输入
+namespace arducopter_mode {
+constexpr uint8_t STABILIZE = 0;   // 自稳
+constexpr uint8_t ACRO      = 1;   // 特技
+constexpr uint8_t ALT_HOLD  = 2;   // 定高
+constexpr uint8_t AUTO      = 3;   // 自动任务
+constexpr uint8_t GUIDED    = 4;   // 引导（离板控制，对应 PX4 Offboard）
+constexpr uint8_t LOITER    = 5;   // 悬停
+constexpr uint8_t RTL       = 6;   // 返航
+constexpr uint8_t CIRCLE    = 7;   // 环绕
+constexpr uint8_t LAND      = 9;   // 降落
+constexpr uint8_t POSHOLD   = 16;  // 定点
+constexpr uint8_t SMARTRTL  = 21;  // 智能返航
+}  // namespace arducopter_mode
+
 // 通信模块配置
 struct CommConfig {
     std::string device = "/dev/ttyACM0";
@@ -174,6 +189,8 @@ public:
     bool isConnected() const { return connected_.load(); }  //连接是否成功
     uint32_t getCustomMode() const { return custom_mode_.load(); } //飞行模式（完整 custom_mode 值）
     const char* getFlightModeNameCn() const;    // 当前飞行模式中文名
+    uint8_t getAutopilot() const { return autopilot_.load(); }    // 飞控固件类型（3=ArduPilot, 12=PX4）
+    const char* getAutopilotNameCn() const;     // 飞控固件中文名
     uint8_t lastAckResult() const { return last_ack_result_.load(); } //最近一次 ACK 结果
     const char* getLastAck() const;  // 最近一次 ACK 结果中文名（未收到返回"未收到"）
 
@@ -182,6 +199,7 @@ private:
     bool sendMessage(const uint8_t* buf, uint16_t len);  // 串口写
     bool waitForAck(uint16_t command, int timeout_ms, uint8_t* result);  // 等某条命令的 ACK（超时返回 false）
     const char* px4ModeNameCn(uint32_t custom_mode) const;  // PX4 飞行模式 → 中文名
+    const char* arducopterModeNameCn(uint8_t custom_mode) const;  // ArduCopter 飞行模式 → 中文名
     const char* ackResultNameCn(uint8_t result) const;      // ACK result → 中文名
 
     CommConfig cfg_;  // 运行时配置（start 时保存）
@@ -194,6 +212,7 @@ private:
     uint8_t sysid_ = 2;   // 上位机 system id
     uint8_t compid_ = 1;    // 上位机 component id
     std::atomic<uint8_t> fcu_sysid_{1};  // 飞控 system id（从心跳学习）
+    std::atomic<uint8_t> autopilot_{0};  // 飞控固件类型（3=ArduPilot, 12=PX4, 0=未知）
 
     mutable std::mutex data_mutex_;
     Attitude attitude_;  //roll  pitch  yaw  rad   四元数
