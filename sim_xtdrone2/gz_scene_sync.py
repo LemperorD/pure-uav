@@ -295,6 +295,69 @@ class GzScene:
             self.stats["failed"] += 1
             return False, None
 
+    # ------------------------------------------------------------ 服务自检
+    def probe_services(self) -> dict:
+        """★ 逐个探测本模块用到的 gz 服务是否**真的可用**，返回 {名字: (ok, 说明)}。
+
+        为什么需要它（2026-10-17 实飞踩到）：
+          回放"启动了但画面没东西"。而轨迹线 / 命中点全靠 `/marker` 服务，
+          它由 **Gazebo GUI 的 MarkerManager 插件**提供 —— 如果 GUI 没起、
+          或插件没加载，`_req` 只会**静默返回 False**（异常被吞、只计数），
+          于是"看起来在放、其实什么都没画"。
+          ⇒ 必须有一个能直接回答"这个服务到底通不通"的工具。
+
+        探测方式：用一个**无害**的请求打一下，只看有没有响应
+        （marker 用 DELETE_ALL 删一个不存在的 ns，不影响任何东西）。
+        """
+        res = {}
+        if not self.available:
+            return {"_transport": (False, "gz.transport 初始化失败：" +
+                                   str(_GZ_IMPORT_ERROR or "未知"))}
+
+        # ① 实体创建服务
+        try:
+            req = entity_factory_pb2.EntityFactory()
+            req.sdf = "<sdf version='1.9'><model name='__probe__'/></sdf>"
+            req.name = "__pgu_probe__"
+            req.allow_renaming = True
+            ok, _ = self._req(self._svc_create, req, boolean_pb2.Boolean)
+            res["create"] = (ok, "建实体（塔/发射架/弹丸）")
+        except Exception as e:                              # noqa: BLE001
+            res["create"] = (False, f"异常：{e}")
+        # 顺手删掉探针实体
+        try:
+            ent = entity_pb2.Entity()
+            ent.name = "__pgu_probe__"
+            self._req(self._svc_remove, ent, boolean_pb2.Boolean)
+        except Exception:                                   # noqa: BLE001
+            pass
+
+        # ② 移动实体服务（弹丸飞行、回放靠它）
+        try:
+            p = pose_pb2.Pose()
+            p.name = PROJECTILE_NAME
+            p.orientation.w = 1.0
+            ok, _ = self._req(self._svc_set_pose, p, boolean_pb2.Boolean)
+            res["set_pose"] = (ok, f"移动实体（弹丸 / 回放小球）"
+                                   f"{'' if ok else ' ← 弹丸不会动！'}")
+        except Exception as e:                              # noqa: BLE001
+            res["set_pose"] = (False, f"异常：{e}")
+
+        # ③ marker 服务（轨迹线 / 命中点 —— 需要 GUI 插件）
+        try:
+            m = marker_pb2.Marker()
+            m.ns = "__pgu_probe_ns__"
+            m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action",
+                                     MARKER_ACTION_DELETE_ALL)
+            ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
+            res["marker"] = (ok, "画轨迹线 / 命中点（需 Gazebo **GUI** 的 "
+                                 "MarkerManager 插件）"
+                                 + ("" if ok else " ← 轨迹线和黄球都不会出现！"))
+        except Exception as e:                              # noqa: BLE001
+            res["marker"] = (False, f"异常：{e}")
+
+        return res
+
     def _create(self, name: str, sdf: str, pose=(0.0, 0.0, 0.0)) -> bool:
         """创建一个实体（同名先删，避免 allow_renaming 引发的重复名）。"""
         self._remove(name)                       # 忽略失败
@@ -835,6 +898,51 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
     return 0
 
 
+def run_check(world: str = DEFAULT_WORLD, verbose: bool = True) -> int:
+    """★ 服务自检：一眼看出"画不出来"到底卡在哪个服务。
+
+    输出示例：
+        gz.transport          ✅
+        create     (建实体)    ✅
+        set_pose   (移动弹丸)  ✅
+        marker     (轨迹/命中点) ❌  ← 需要 Gazebo GUI 的 MarkerManager 插件
+
+    退出码：全通 0；有失败 1。
+    """
+    scene = GzScene(world=world, timeout_ms=1200, verbose=verbose)
+    res = scene.probe_services()
+    print()
+    print("=" * 68)
+    print(f"  Gazebo 服务自检    world={world}")
+    print("=" * 68)
+    all_ok = True
+    for key, (ok, desc) in res.items():
+        mark = "✅" if ok else "❌"
+        if not ok:
+            all_ok = False
+        print(f"  {key:<12} {mark}   {desc}")
+    print("=" * 68)
+    if not all_ok:
+        print("  诊断建议：")
+        if not res.get("marker", (True,))[0]:
+            print("   · marker 失败 ⇒ **轨迹线和命中点不会出现**（回放只剩小球在飞）。")
+            print("     原因：`/marker` 服务由 Gazebo **GUI** 的 MarkerManager 插件提供。")
+            print("     处理：确认启动的是**带 GUI 的** Gazebo（不要 headless / -s），")
+            print("           或先在 GUI 里看一眼 Plugins 里有没有 MarkerManager。")
+        if not res.get("set_pose", (True,))[0]:
+            print("   · set_pose 失败 ⇒ 弹丸（和回放小球）根本不会动。")
+            print("     处理：确认世界名对（--world）、仿真正在跑、实体已创建。")
+        if not res.get("create", (True,))[0]:
+            print("   · create 失败 ⇒ 塔 / 发射架 / 弹丸都建不出来。")
+            print("     处理：确认世界名对、仿真没卡死。")
+        print()
+        print("   另外：这些服务名依赖 gz-sim 8（Harmonic），可用 `gz service -l` 核对。")
+    else:
+        print("  ✅ 全部可用 —— 可视化链路没问题。")
+    print()
+    return 0 if all_ok else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Gazebo 场景可视化同步（塔 / 弹丸 / 轨迹）—— 不含算法",
@@ -854,6 +962,9 @@ def main(argv=None) -> int:
     g.add_argument("--replay-json", default=None, metavar="FILE",
                    help="★ **慢速回放**一次交会（JSON）—— 弹丸交会只有 ~0.5 s，"
                         "实时看不清；用回放拉长到几秒并在相遇帧停顿")
+    g.add_argument("--check", action="store_true",
+                   help="★ **服务自检**：逐个探测 create / set_pose / marker 服务是否可用。"
+                        "画面上没东西（比如回放没动）时先跑这个")
     g.add_argument("--set-rtf", type=float, default=None, metavar="FACTOR",
                    help="设置 Gazebo 实时率（慢放）：1.0=实时，0.2=5 倍慢放。"
                         "⚠ 会让**墙钟超时判据偏早**，建议只在看画面时临时用，别低于 0.3")
@@ -879,6 +990,8 @@ def main(argv=None) -> int:
     if args.replay_json:
         return replay_from_json_file(args.replay_json, world=args.world,
                                      verbose=not args.quiet)
+    if args.check:
+        return run_check(args.world, verbose=not args.quiet)
     if args.set_rtf is not None:
         scene0 = GzScene(world=args.world, verbose=not args.quiet)
         ok = scene0.set_rtf(args.set_rtf)

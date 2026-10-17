@@ -1743,12 +1743,21 @@ class PhaseBGuidance(Node):
         try:
             script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                   "gz_scene_sync.py")
-            subprocess.Popen([sys.executable, script,
-                              "--replay-json", self.gz_replay_job,
-                              "--world", self.args.gz_world],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            # ★★ 子进程输出**必须留痕**（2026-10-17 实飞踩到）
+            #   原先把 stdout/stderr 丢进 DEVNULL ⇒ 子进程崩了也看不见，
+            #   现象就是"提示说回放已启动，但 Gazebo 里什么都没动"，无从排查。
+            #   ⇒ 改写到日志文件，并在 1.5 s 后**检查子进程是否还活着**：
+            #     · 挂了 ⇒ 直接把日志尾巴打出来（错误立刻可见）
+            #     · 活着 ⇒ 提示日志路径，供事后排查
+            logpath = self.gz_replay_job.replace(".json", ".log")
+            # ⚠ 开完就要**立刻关掉父进程这一侧的句柄**：Popen 会把 fd dup 给子进程，
+            #   子进程照样能写；父进程不关会泄漏（实测：后续 os.remove 报 WinError 32）。
+            with open(logpath, "w", encoding="utf-8") as logf:
+                proc = subprocess.Popen([sys.executable, "-u", script,
+                                         "--replay-json", self.gz_replay_job,
+                                         "--world", self.args.gz_world],
+                                        stdout=logf, stderr=subprocess.STDOUT,
+                                        start_new_session=True)
             p = print
             p("")
             p("=" * 70)
@@ -1766,12 +1775,45 @@ class PhaseBGuidance(Node):
             p("       绿   小球    = 无人机重放位置")
             p("       黄   大球    = 命中点（保留 60 s，便于截图）")
             p("")
-            p("     想再慢/停更久：")
-            p("       bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4")
-            p("     错过/想重看（用这次的任务文件手动重放）：")
-            p("       python3 gz_scene_sync.py --replay-json %s" % self.gz_replay_job)
+            p("     日志：%s" % logpath)
+            p("     想再慢/停更久：bash run_pilot_compare.sh "
+              "--replay-seconds=15 --replay-hold=4")
+            p("     错过/想重看：python3 gz_scene_sync.py --replay-json %s"
+              % self.gz_replay_job)
             p("=" * 70)
             p("")
+            sys.stdout.flush()
+
+            # ★ 1.5 s 后查活：子进程若已退出，说明回放根本没跑起来 —— 立刻报出来。
+            #   用 time.sleep 会阻塞控制回路（此时已是 DONE 之后，无控制任务，
+            #   但仍尽量短，并且只在收尾阶段执行）。
+            time.sleep(1.5)
+            # ⚠ 防御：测试桩 / 非标准 Popen 可能没有 poll()
+            rc = proc.poll() if hasattr(proc, "poll") else None
+            if rc is not None:
+                p("  ⚠⚠ 回放子进程**已退出**（exit=%s）—— 回放没跑起来。"
+                  % rc)
+                p("     下面是它的输出（这就是原因）：")
+                p("-" * 70)
+                try:
+                    with open(logpath, encoding="utf-8", errors="replace") as f:
+                        for line in f.read().splitlines()[-25:]:
+                            p("     " + line)
+                except Exception as e:                     # noqa: BLE001
+                    p(f"     （读日志失败：{e}）")
+                p("-" * 70)
+                p("     常见原因：")
+                p("       ① `/marker` 服务不可用 ⇒ 轨迹线/命中点画不出来")
+                p("          （它由 Gazebo **GUI** 的 MarkerManager 插件提供，"
+                  "headless 就没有）")
+                p("       ② 世界名不对（--gz-world）或仿真没在跑")
+                p("     自检一下：python3 gz_scene_sync.py --check")
+                p("")
+            else:
+                p("  ✓ 回放子进程存活（pid=%s），画面应在 1 s 内开始动" % proc.pid)
+                p("    若 Gazebo 里仍没东西：多半是 `/marker` 不通 ⇒ 跑 "
+                  "`python3 gz_scene_sync.py --check` 确认")
+                p("")
             sys.stdout.flush()
         except Exception as e:             # noqa: BLE001
             self.warn(f"⚠ 回放启动失败（{e}）—— 忽略（不影响结果）")

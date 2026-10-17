@@ -19,6 +19,8 @@
 退出码 0 = 全过。
 """
 import csv
+import contextlib as _ctx
+import io as _io
 import json
 import math
 import os
@@ -765,6 +767,11 @@ def main():
     class _FakePopen:
         def __init__(self, cmd, **kw):
             spawned.append((cmd, kw))
+            self.pid = 12345
+            self._rc = None          # None = 还活着（模拟正常回放）
+
+        def poll(self):
+            return self._rc
 
     real_popen = M.subprocess.Popen
     M.subprocess.Popen = _FakePopen          # 别真起进程（Windows 上没 Gazebo）
@@ -874,6 +881,62 @@ def main():
             check(ip(trail, -1.0) == (0.0, 0.0, 0.0), "插值 f<0 被夹到起点")
             check(ip([], 0.5) is None, "空轨迹插值返回 None")
             check(ip([(1.0, 2.0, 3.0)], 0.7) == (1.0, 2.0, 3.0), "单点轨迹返回该点")
+        # ---- ★ 回放子进程"提前退出"必须被报出来（2026-10-17 实飞教训）----
+        #   原来子进程输出丢 DEVNULL ⇒ 崩了也看不见，现象是
+        #   "提示说回放已启动，但 Gazebo 里什么都没动"，无从排查。
+        class _DeadPopen(_FakePopen):
+            def poll(self):
+                return 1                 # 已退出，exit=1
+
+        spawned.clear()
+        M.subprocess.Popen = _DeadPopen
+        rec4 = _RecordingGz()
+        n7 = new_node(lib, gz_viz=True, gz_trail=True, gz_replay=True)
+        n7.gz = rec4
+        n7.gz_trail = [(0.0, 0.0, 8.0), (2.0, 0.0, 8.1)]
+        n7.gz_uav_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.0)]
+        n7.gz_flight_secs = 0.5
+        n7.gz_finish(hit=True)
+        buf7 = _io.StringIO()
+        with _ctx.redirect_stdout(buf7):
+            n7.gz_launch_replay()
+        txt7 = buf7.getvalue()
+        check("回放子进程**已退出**" in txt7,
+              "子进程提前退出 ⇒ **明确报出来**（不再静默）")
+        check("--check" in txt7, "并提示跑 `gz_scene_sync.py --check` 自查服务")
+        check("日志：" in txt7, "打印子进程日志路径（供事后排查）")
+        if n7.gz_replay_job:
+            for ext in (".json", ".log"):
+                fp = n7.gz_replay_job.replace(".json", ext)
+                if os.path.exists(fp):
+                    os.remove(fp)
+        n7.close()
+
+        # ---- 子进程存活时也要给出确认 + 日志路径 ----
+        spawned.clear()
+        M.subprocess.Popen = _FakePopen
+        rec5 = _RecordingGz()
+        n8 = new_node(lib, gz_viz=True, gz_trail=True, gz_replay=True)
+        n8.gz = rec5
+        n8.gz_trail = [(0.0, 0.0, 8.0), (2.0, 0.0, 8.1)]
+        n8.gz_uav_trail = [(0.0, 0.0, 8.0), (1.0, 0.0, 8.0)]
+        n8.gz_flight_secs = 0.5
+        n8.gz_finish(hit=True)
+        buf8 = _io.StringIO()
+        with _ctx.redirect_stdout(buf8):
+            n8.gz_launch_replay()
+        txt8 = buf8.getvalue()
+        check("回放子进程存活" in txt8, "存活时明确告知 pid（知道它真在跑）")
+        # ⚠ spawned[0] 是 gz_finish 起的**绘制**子进程，回放是后面那个
+        replay_cmds = [c for c, _ in spawned if "--replay-json" in c]
+        check(bool(replay_cmds) and "-u" in replay_cmds[0],
+              "回放子进程用 -u 无缓冲启动（日志能实时写出）")
+        if n8.gz_replay_job:
+            for ext in (".json", ".log"):
+                fp = n8.gz_replay_job.replace(".json", ext)
+                if os.path.exists(fp):
+                    os.remove(fp)
+        n8.close()
     finally:
         M.subprocess.Popen = real_popen
     check(len(warns3) >= 1, f"至少给出一次告警（实际 {len(warns3)} 次，不静默）")
@@ -1219,8 +1282,7 @@ def main():
           f"force=True 绕过 0.1 Hz 节流（写出 {n_force} 行，期望 2）")
 
     # ---- ④ 回传评估块（可整段复制的报告）----
-    import io as _io
-    import contextlib as _ctx
+    # （_io / _ctx 已在文件顶部 import，此处不再重复）
 
     path = os.path.join(tempfile.gettempdir(), "sm_report.csv")
     if os.path.exists(path):
