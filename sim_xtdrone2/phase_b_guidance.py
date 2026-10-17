@@ -1614,6 +1614,20 @@ class PhaseBGuidance(Node):
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
             self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
             ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius)
+            # ★★ 创建后不要藏在 HIDDEN_Z(-500)，而是**摆到发射点让用户先看见**
+            #   （2026-10-17 用户反馈"看不见弹丸"）
+            #   原因：原来弹丸创建时就在地下 500 m，只有 GUIDED 段那 ~0.5 s 才出现，
+            #         而且是从 14 m 外飞过来的 ⇒ 人眼必然抓不住。
+            #   ⇒ 现在 SETTLE 一结束就把它摆在发射点静止可见，
+            #     CRUISE 期间（约 1.5~3 s）用户能先确认"这个球我看得见"。
+            #   ⚠ **零风险**：不改变任何几何、不等待、不卡控制回路 ——
+            #     弹丸位置在 GUIDED 段仍由 TargetModel 逐帧写入（见 gz_update）。
+            if ok_p and self.args.gz_proj_preset:
+                self.gz.set_projectile(self.target_p0)
+                self.log(f"  ── 弹丸已**摆在发射点** ({self.target_p0[0]:.1f},"
+                         f"{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) "
+                         f"r={self.args.gz_proj_radius:.2f} m，发射前就能看见"
+                         f"（--no-gz-proj-preset 可关）")
         except Exception as e:                          # noqa: BLE001
             self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
             self.gz = None
@@ -2544,6 +2558,12 @@ def build_parser():
                     help="★ Gazebo 里弹丸球的半径 (m)。默认 0.25（直径 0.5 m）——"
                          "**远大于**真实弹径 0.06 m：真弹只有 12 cm，"
                          "在十几米外 + 0.5 s 的交会里人眼根本看不见")
+    ap.add_argument("--gz-proj-preset", action="store_true", default=True,
+                    help="★ 创建弹丸后**直接摆在发射点**（而不是藏到地下 500 m），"
+                         "这样 CRUISE 期间就能先看见这个球。默认开")
+    ap.add_argument("--no-gz-proj-preset", dest="gz_proj_preset",
+                    action="store_false",
+                    help="弹丸创建后仍藏到视野外（旧行为：只在 GUIDED 段 0.5 s 内出现）")
     # ★ 慢速回放（2026-10-17 用户明确要求**默认关闭**）
     #   代码保留（--gz-replay 可手动打开），但不再自动触发、也不再往控制台打印提示。
     #   背景：用户环境的 `/marker` 服务不可用（Gazebo GUI 的 MarkerManager 插件缺失），

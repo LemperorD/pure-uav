@@ -278,7 +278,7 @@ def mk_args(lib, **kw):
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
         # ⚠ 与真实 argparse 默认一致：回放**默认关**（2026-10-17 用户决定）。
         #   用例 8 测回放时会**显式**传 gz_replay=True，不依赖这里的默认值。
-        gz_proj_radius=0.25, gz_replay=False,
+        gz_proj_radius=0.25, gz_proj_preset=True, gz_replay=False,
         replay_seconds=6.0, replay_hz=25.0, replay_hold=1.5, replay_lead_in=1.0,
         target_height=10.0, takeoff_tol=1.0, takeoff_timeout=60.0, rate=50.0,
         no_auto_land=False, no_disarm=False, no_force_disarm=False,
@@ -1907,6 +1907,102 @@ def main():
           f"归位加速度受速度限幅约束（a_x={a[0]:.2f} ≤ "
           f"{M.RETURN_KD_VEL * M.RETURN_V_MAX:.2f}）—— 不会飙高速")
     n4.close()
+
+    # ---------------------------------------------------------------- 用例 18
+    print()
+    print("=" * 74)
+    print("用例 18：弹丸可见性 —— 创建后摆到发射点（而不是藏到地下 500 m）")
+    print("=" * 74)
+    # 用户反馈"看不见弹丸"。查因：ensure_projectile 把球建在 HIDDEN_Z=-500，
+    # 只有 GUIDED 段那 ~0.5 s 才出现，且从 14 m 外飞来 ⇒ 人眼抓不住。
+    # 修法：gz_setup 时就把球摆到发射点（零风险：不改几何、不等待）。
+
+    class _RecGz:
+        """记录 set_projectile 收到的位置。"""
+
+        available = True
+
+        def __init__(self):
+            self.presets = []
+            self.created = []
+
+        def start(self):
+            return self
+
+        def ensure_tower(self, *a, **k):
+            return True
+
+        def ensure_launcher(self, *a, **k):
+            return True
+
+        def ensure_projectile(self, r=0.06):
+            self.created.append(r)
+            return True
+
+        def set_projectile(self, p, yaw=0.0):
+            self.presets.append(tuple(p))
+
+        def close(self):
+            pass
+
+    def _setup(preset):
+        n = new_node(lib, **PILOT_KW)
+        n.log = lambda s: None
+        n.warn = lambda s: None
+        n.args.gz_proj_preset = preset
+        rec = _RecGz()
+        n.gz = rec
+        n.gz_setup()
+        n.close()
+        return rec
+
+    r_on = _setup(True)
+    check(bool(r_on.presets),
+          f"默认（preset=True）⇒ 创建后立刻 set_projectile（{r_on.presets}）")
+    if r_on.presets:
+        p = r_on.presets[0]
+        tgt = PILOT_KW["target_p0"]
+        check(abs(p[0] - tgt[0]) < 1e-6 and abs(p[1] - tgt[1]) < 1e-6
+              and abs(p[2] - tgt[2]) < 1e-6,
+              f"摆到的是**发射点** {tgt}（实际 {p}）—— 不在发射前就消失")
+    check(r_on.created and abs(r_on.created[0] - 0.25) < 1e-9,
+          f"球半径用的是 --gz-proj-radius（{r_on.created}）而不是默认 0.06")
+
+    r_off = _setup(False)
+    check(not r_off.presets,
+          "--no-gz-proj-preset ⇒ 不 set_projectile（旧行为：藏在视野外）")
+
+    # ★ 关键：preset 不能改变制导结果（几何必须一模一样）
+    n1 = new_node(lib, **PILOT_KW)
+    n1.log = lambda s: None
+    n1.warn = lambda s: None
+    n1.args.gz_proj_preset = False          # 走旧行为
+    fx1 = FakePX4(n1, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n1, fx1)
+    for _ in range(1200):
+        step(n1, fx1, 1)
+        if n1.state != "GUIDED":
+            break
+    min_r_off = n1.min_R
+    n1.close()
+
+    n2 = new_node(lib, **PILOT_KW)
+    n2.log = lambda s: None
+    n2.warn = lambda s: None
+    n2.args.gz_proj_preset = True           # 新行为
+    fx2 = FakePX4(n2, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n2, fx2)
+    for _ in range(1200):
+        step(n2, fx2, 1)
+        if n2.state != "GUIDED":
+            break
+    min_r_on = n2.min_R
+    n2.close()
+
+    print(f"  最近距离：preset=False {min_r_off}  vs  preset=True {min_r_on}")
+    check(min_r_off is not None and min_r_on is not None
+          and abs(min_r_off - min_r_on) < 1e-9,
+          f"preset **不改变制导结果**（{min_r_off} vs {min_r_on}）—— 纯可视化改动")
 
     # ---------------------------------------------------------------- 汇总
     print()

@@ -1039,6 +1039,71 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
     return 0
 
 
+def show_projectile(p=(-14.0, 0.0, 10.0), radius: float = 0.25,
+                    seconds: float = 10.0, world: str = DEFAULT_WORLD,
+                    with_tower: bool = True, verbose: bool = True) -> int:
+    """★ **弹丸可见性诊断**：把弹丸静止摆在指定位置 N 秒，让你确认"能不能看见这个球"。
+
+    为什么需要它（2026-10-17）：
+      · `ensure_projectile()` 创建时把弹丸放在 `HIDDEN_Z = -500`（地下 500 m）
+        ⇒ **发射前它根本不在场上**，只有 GUIDED 段那 ~0.5 s 才出现、且从 14 m 外飞来。
+      · 所以"看不见弹丸"可能有两个完全不同的原因：
+          ① 球压根没渲染出来（尺寸/颜色/世界名/Create 失败）
+          ② 渲染正常，但**只存在 0.5 秒 + 距离远**，人眼抓不住
+      ⇒ 这个命令把变量分离掉：**球静止、单独存在、旁边有塔做参照物**。
+        能看见 ⇒ 渲染没问题，问题在"时间太短"；
+        看不见 ⇒ 是尺寸/位置/颜色问题，与制导无关。
+
+    同时放**防御塔**做尺寸参照（不然"球到底多小"没有直觉）。
+
+    用法：
+        python3 gz_scene_sync.py --show-projectile 15
+        python3 gz_scene_sync.py --show-projectile 15 --proj-radius 0.5
+    """
+    scene = GzScene(world=world, timeout_ms=800, verbose=verbose)
+    if not scene.available:
+        print("❌ 接不上 Gazebo（见上面的原因）")
+        return 1
+    try:
+        if with_tower:
+            scene.ensure_tower(1.2, 3.0)          # 原点：给个尺寸参照
+            scene.ensure_launcher((p[0], p[1], 0.0))
+        ok = scene.ensure_projectile(radius)      # 先在 HIDDEN_Z 建出来
+        if not ok:
+            print("❌ 弹丸实体创建失败（create 服务不通？跑 --check 看看）")
+            return 1
+        # ★ 关键：从"藏起来"移到**可见位置**
+        moved = scene._do_set_pose(PROJECTILE_NAME, (float(p[0]), float(p[1]),
+                                                     float(p[2])))
+        if not moved:
+            print("❌ set_pose 失败 ⇒ 球建出来了但移不到该位置"
+                  "（跑 --check 看 set_pose 是否 ✅）")
+            return 1
+        print()
+        print("=" * 66)
+        print("  ★ 弹丸可见性诊断")
+        print("=" * 66)
+        print(f"  弹丸位置  ENU = ({p[0]:+.2f}, {p[1]:+.2f}, {p[2]:+.2f})")
+        print(f"  球半径    = {radius:.3f} m （直径 {radius * 2:.2f} m）")
+        print(f"  在旁边放了防御塔（原点，r=1.2 m h=3.0 m）做尺寸参照")
+        print(f"  静止展示  {seconds:.0f} 秒 —— 现在去看 Gazebo")
+        print()
+        print("  请回答：**你能不能看见那个橙红色小球？**")
+        print("    · 能看见 ⇒ 渲染没问题，问题是它只在场上存在 0.5 s（飞太快），")
+        print("               可以降速或加长展示时间")
+        print("    · 看不见 ⇒ 是尺寸/颜色/视角问题 ⇒ 加大 --proj-radius 再试")
+        print("=" * 66)
+        print()
+        sys.stdout.flush()
+        time.sleep(max(0.5, float(seconds)))
+        # 展示完藏回去，免得留在场上干扰后续
+        scene.hide_projectile()
+        print("（展示结束，弹丸已移回视野外）")
+        return 0
+    finally:
+        scene.close()
+
+
 def run_check(world: str = DEFAULT_WORLD, verbose: bool = True) -> int:
     """★ 服务自检：一眼看出"画不出来"到底卡在哪个服务。
 
@@ -1106,13 +1171,20 @@ def main(argv=None) -> int:
     g.add_argument("--check", action="store_true",
                    help="★ **服务自检**：逐个探测 create / set_pose / marker 服务是否可用。"
                         "画面上没东西（比如回放没动）时先跑这个")
+    g.add_argument("--show-projectile", type=float, default=None, metavar="SEC",
+                   help="★ **弹丸可见性诊断**：把弹丸静止摆在发射点展示 SEC 秒"
+                        "（旁边放塔做参照）。用来区分「球没渲染」和「飞太快看不见」。"
+                        "用法：--show-projectile 15")
     g.add_argument("--set-rtf", type=float, default=None, metavar="FACTOR",
                    help="设置 Gazebo 实时率（慢放）：1.0=实时，0.2=5 倍慢放。"
                         "⚠ 会让**墙钟超时判据偏早**，建议只在看画面时临时用，别低于 0.3")
     ap.add_argument("--tower-radius", type=float, default=1.2)
     ap.add_argument("--tower-height", type=float, default=3.0)
     ap.add_argument("--from", dest="p0", default="-14,0,10",
-                    help="demo 弹丸起点（ENU，逗号分隔）")
+                    help="demo / --show-projectile 的弹丸位置（ENU，逗号分隔）")
+    ap.add_argument("--proj-radius", type=float, default=0.25,
+                    help="--show-projectile 用的球半径 (m)。默认 0.25（与制导节点一致）；"
+                         "看不见就加大到 0.5 再试")
     ap.add_argument("--to", dest="p1", default="2,0,2.0",
                     help="demo 弹丸终点（ENU，逗号分隔）")
     ap.add_argument("--seconds", type=float, default=8.0, help="demo 飞行时长 (s)")
@@ -1133,6 +1205,10 @@ def main(argv=None) -> int:
                                      verbose=not args.quiet)
     if args.check:
         return run_check(args.world, verbose=not args.quiet)
+    if args.show_projectile is not None:
+        return show_projectile(p=_vec(args.p0), radius=args.proj_radius,
+                               seconds=args.show_projectile, world=args.world,
+                               verbose=not args.quiet)
     if args.set_rtf is not None:
         scene0 = GzScene(world=args.world, verbose=not args.quiet)
         ok = scene0.set_rtf(args.set_rtf)
