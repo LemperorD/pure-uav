@@ -115,19 +115,23 @@ for LAW in "${LAWS[@]}"; do
         echo "--------------------------------------------------------------"
         echo
     else
-        # ---- 后续 law 之前：暂停，等用户重启仿真 ----
+        # ---- 后续 law 之前：暂停，检查上一轮是否归位成功 ----
         echo "=============================================================="
-        echo "  ★★ 下一个 law（${NAME}）之前，请**重启仿真** ★★"
+        echo "  下一个 law（${NAME}）之前"
         echo "=============================================================="
-        echo "  1) 到跑 launch 的那个终端按 Ctrl-C 停掉仿真"
-        echo "  2) 重新执行："
-        echo "       ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py"
-        echo "     等约 20 s（QGC 里能看到无人机重新出现在原点）"
-        echo "  3) 回到本终端，按 Enter 继续"
-        echo "     （若确实不想重启，直接按 Enter —— 但几何会漂移，结果不可比）"
+        echo "  ★ 本节点收尾时会把无人机**飞回起点**再降落（--return-to-start，默认开）。"
+        echo "    若上一轮日志里出现了这一行："
+        echo "        ✓ 已归位到起点：水平误差 x.xx m、|v_h|=x.xx m/s"
+        echo "    则**不必重启仿真**，直接按 Enter 继续即可（起飞前自检会替你把关）。"
+        echo
+        echo "    若看到的是『⚠ 归位超时』或『⚠⚠ 收尾机动中离地仅』："
+        echo "    请重启仿真："
+        echo "      1) 到跑 launch 的终端按 Ctrl-C 停掉仿真"
+        echo "      2) ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py"
+        echo "    等约 20 s（QGC 里能看到无人机重新出现在原点）"
         echo "--------------------------------------------------------------"
         if [ -t 0 ]; then
-            read -r -p "  重启仿真后按 Enter 继续…（Ctrl-C 中止）" _ || true
+            read -r -p "  继续请按 Enter（Ctrl-C 中止）…" _ || true
         else
             echo "  （stdin 非终端，跳过暂停）"
         fi

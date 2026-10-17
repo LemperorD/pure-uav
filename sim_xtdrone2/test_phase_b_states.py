@@ -284,6 +284,9 @@ def mk_args(lib, **kw):
         settle_xy="0,0", settle_kp=1.0, settle_kd=2.0,
         settle_xy_tol=0.25, settle_xy_vtol=0.20, cruise_lat_hold=True,
         brake=True, brake_kd=2.0, brake_vtol=0.30, brake_timeout=5.0,
+        # ★ 归位默认**关**（老用例都在测"原地刹车"的行为）；
+        #   专门测归位的用例 17 会显式置 True。
+        return_to_start=False, return_tol=0.25, return_vmax=2.0,
         no_odom=True,
         csv=os.path.join(tempfile.gettempdir(), "sm_test_b.csv"),
         csv_hz=10.0,
@@ -1734,6 +1737,112 @@ def main():
     ab12, tmax12, _ = _tilt_monitor(50.0, 0.0, 6.0)
     check(not ab12 and tmax12 == 0.0,
           "6 m 高度的大姿态不触发起飞段监控（只管 <2.5 m）")
+
+    # ---------------------------------------------------------------- 用例 17
+    print()
+    print("=" * 74)
+    print("用例 17：收尾归位（飞回起点再降落 ⇒ 下一轮不必重启仿真）")
+    print("=" * 74)
+    # 用户提出：跑完停在拦截点，下一轮就在远离原点处起飞 ⇒ 低空大姿态 ⇒ 桨叶打地。
+    # 修法：BRAKE 段同时做"刹车 + 归位"（位置→速度级联，限速 RETURN_V_MAX）。
+
+    def _run_with_return(return_on):
+        """跑完一整轮（含收尾），返回 (归位成功?, 落点距起点, 日志)"""
+        n = new_node(lib, **PILOT_KW)
+        n.args.return_to_start = return_on
+        logs = []
+        n.log = lambda s: logs.append(s)
+        n.warn = lambda s: logs.append("[WARN] " + s)
+        fx = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+        start = (fx.p[0], fx.p[1])
+        drive_to_guided(n, fx)
+        for _ in range(4000):
+            step(n, fx, 1)
+            if n.should_exit:
+                break
+        final = (fx.p[0], fx.p[1])
+        dist = ((final[0] - start[0]) ** 2 + (final[1] - start[1]) ** 2) ** 0.5
+        res = (n.return_ok, dist, logs, n.state)
+        n.close()
+        return res
+
+    ok_on, dist_on, logs_on, st_on = _run_with_return(True)
+    ok_off, dist_off, logs_off, st_off = _run_with_return(False)
+    print(f"  归位 ON ：return_ok={ok_on}  落点离起点 {dist_on:.2f} m  state={st_on}")
+    print(f"  归位 OFF：return_ok={ok_off} 落点离起点 {dist_off:.2f} m  state={st_off}")
+
+    check(ok_on, "归位 ON ⇒ return_ok=True（到起点容差内）")
+    check(any("已归位到起点" in s for s in logs_on),
+          "日志给出『已归位到起点』+ 误差")
+    check(any("下一轮不必重启仿真" in s for s in logs_on),
+          "日志明确告诉用户『下一轮不必重启仿真』")
+    check(dist_on <= 1.5,
+          f"归位 ON ⇒ 落点在起点 1.5 m 内（实测 {dist_on:.2f} m）—— 下次自检能通过")
+    check(dist_off > 3.0,
+          f"归位 OFF ⇒ 落点仍在拦截点附近（实测 {dist_off:.2f} m）—— 证明归位真的起作用")
+    check(dist_on < dist_off,
+          f"归位显著减小落点偏差（{dist_on:.2f} vs {dist_off:.2f} m）")
+    check(st_on == "DONE" and st_off == "DONE", "两种情况都正常收尾到 DONE")
+
+    # ★ 关键：归位后落点必须能通过下一轮的 PRECHECK（这才是"不用重启"的判据）
+    n2 = new_node(lib, **PILOT_KW)
+    n2.log = lambda s: None
+    n2.warn = lambda s: None
+    n2.arming_state = 1        # DISARMED
+    n2.nav_state = 4
+    fx2 = FakePX4(n2, p_enu=(dist_on * 0.5, dist_on * 0.5, 0.05))
+    fx2.v = [0.0, 0.0, 0.0]
+    fx2.sync()
+    n2.odom = None
+    step(n2, fx2, 1)
+    check(not n2.refused,
+          f"归位后的落点能通过起飞前自检（dist={dist_on * 0.707:.2f} m，未拒绝）")
+    n2.close()
+
+    # ★ 归位期间的低空保护：贴地时必须撤掉水平指令（不能为了归位去打桨）
+    n3 = new_node(lib, **PILOT_KW)
+    n3.args.return_to_start = True
+    n3.log = lambda s: None
+    ws3 = []
+    n3.warn = lambda s: ws3.append(s)
+    fx3 = FakePX4(n3, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n3, fx3)
+    n3.return_xy = (0.0, 0.0)
+    n3.state = "BRAKE"
+    n3.brake_t0 = VT[0]
+    n3.brake_alt_tgt = 8.0
+    fx3.p = [-6.0, 0.0, 0.9]        # 贴地 0.9 m，离起点 6 m
+    fx3.v = [0.0, 0.0, 0.0]
+    fx3.sync()
+    step(n3, fx3, 1)
+    a = n3.cur_a_enu
+    check(abs(a[0]) < 1e-9 and abs(a[1]) < 1e-9,
+          f"归位时贴地 ⇒ 水平指令被撤成 0（a=({a[0]:.3f},{a[1]:.3f})）")
+    check(any("撤掉水平指令" in w for w in ws3), "给出『撤掉水平指令』告警")
+    n3.close()
+
+    # ★ 归位速度限幅：远距离时速度不超过 RETURN_V_MAX
+    n4 = new_node(lib, **PILOT_KW)
+    n4.args.return_to_start = True
+    n4.log = lambda s: None
+    n4.warn = lambda s: None
+    fx4 = FakePX4(n4, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n4, fx4)
+    n4.return_xy = (0.0, 0.0)
+    n4.state = "BRAKE"
+    n4.brake_t0 = VT[0]
+    n4.brake_alt_tgt = 8.0
+    fx4.p = [-20.0, 0.0, 8.0]       # 离起点 20 m
+    fx4.v = [0.0, 0.0, 0.0]
+    fx4.sync()
+    step(n4, fx4, 1)
+    a = n4.cur_a_enu
+    # v_tgt = kp*20 = 9 m/s，被限到 RETURN_V_MAX=2 ⇒ a_x = kd*(2-0)=5
+    check(a[0] > 0, f"归位朝 +x（回起点方向），a_x={a[0]:.2f}")
+    check(a[0] <= M.RETURN_KD_VEL * M.RETURN_V_MAX + 1e-6,
+          f"归位加速度受速度限幅约束（a_x={a[0]:.2f} ≤ "
+          f"{M.RETURN_KD_VEL * M.RETURN_V_MAX:.2f}）—— 不会飙高速")
+    n4.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

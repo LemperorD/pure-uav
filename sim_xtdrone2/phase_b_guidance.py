@@ -156,6 +156,24 @@ LANDED_HOLD = 1.0
 #     再交给 AUTO_LAND 完成最后一段（低空交给 PX4 更稳，落地检测也正常）。
 LAND_HANDOVER_ALT = 0.60          # 交给 AUTO_LAND 的高度 (m)
 LAND_STUCK_SEC = 4.0              # 主动下降"卡住"多久就提前交给 AUTO_LAND (s)
+
+# ★★ 收尾"归位"（2026-10-17 用户提出：飞回起点再降落，省掉每次重启仿真）
+#   【为什么值得做】跑完一个 law 后无人机停在拦截点（实测 x≈−8~−10 m），
+#     下一次跑就会在**远离原点处起飞** ⇒ 低空 58° 姿态 ⇒ 桨叶打地（已两次实飞）。
+#     归位后落点回到起飞点附近 ⇒ 下一轮 `PRECHECK` 能直接通过，不必重启仿真。
+#   【为什么用"位置级联"而不是"先刹停再飞回去"】
+#     刹车与归位都是水平机动，可以合并：一次减速 + 一次回飞最省时间，
+#     而且不会出现"急刹 → 掉头 → 再加速"的来回摆动。
+#     控制律：v_target = kp·(p_start − p_now) 限幅 ±RETURN_V_MAX
+#             a_h      = kd·(v_target − v_now)        限幅 ±a_max
+#   ★ 高度上限保护：归位期间高度目标 = 进入时高度（不低于 MIN_ALTITUDE），
+#     并且**复用 TAKEOFF_MIN_AGL 那道闸** —— 低空一律不许水平机动。
+RETURN_KP_POS = 0.45              # 位置环增益 (1/s)
+RETURN_KD_VEL = 2.5               # 速度环增益 (1/s)
+RETURN_V_MAX = 2.0                # 归位最大水平速度 (m/s) —— 保守，别飞太快
+RETURN_XY_TOL = 0.25              # 归位到位容差 (m)
+RETURN_TIMEOUT = 30.0             # 归位超时 (s) —— 超时就在当前位置降落
+RETURN_LOW_ALT = 3.0              # 归位期间保底高度（低于它先拉高再归位）
 FORCE_DISARM_AFTER = 6.0
 FORCE_DISARM_HOLD = 3.0
 
@@ -491,6 +509,9 @@ class PhaseBGuidance(Node):
         self.min_alt_state = None                 # 出现时的状态
         self.hard_ground_warned = False           # "制导/刹车段贴地"只警告一次
         self.brake_alt_tgt = None                 # 刹车期间锁定的高度目标
+        # 收尾归位（飞回起点再降落 ⇒ 下一轮不必重启仿真）
+        self.return_xy = (0.0, 0.0)               # 归位目标（ENU，SETTLE 时记录）
+        self.return_ok = False                    # 归位是否成功到位（报告用）
         # 降落两阶段（LAND 段：先主动下降 → 再交给 AUTO_LAND）
         self.land_auto_sent = False               # 是否已交给 PX4 的 AUTO_LAND
         self.land_stuck_t = None                  # 主动下降"卡住"计时起点
@@ -1252,6 +1273,22 @@ class PhaseBGuidance(Node):
                 self.alt_target = self.target_height   # 之后 alt_hold 维持这个高度
                 self.start_x = self.pos.x
                 self.start_y = self.pos.y
+                # ★ 记下**归位目标**（ENU）：收尾时飞回这里再降落 ⇒ 下一轮不必重启仿真
+                #   ⚠ start_x/start_y 是 NED（x=北）；归位控制全用 ENU ⇒ 这里单独存一份 ENU。
+                p_set, _ = self.state_enu()
+                self.return_xy = ((p_set[0], p_set[1]) if p_set is not None
+                                  else (0.0, 0.0))
+                self.log(f"  ── 收尾归位目标（ENU）=({self.return_xy[0]:+.2f},"
+                         f"{self.return_xy[1]:+.2f})   "
+                         f"[--no-return 可关闭；关闭后下一轮需重启仿真]")
+                # ⚠ 自检查的是"离**世界原点**"，而归位目标是"本次的起飞点"。
+                #   若本次起点本身就偏了（如 --settle-xy 改了位置、或上一轮没退干净），
+                #   归位回去**仍然过不了下一轮自检** ⇒ 必须提前说清，别让人白跑一轮。
+                h0 = math.hypot(self.return_xy[0], self.return_xy[1])
+                if h0 > PAD_MAX_H:
+                    self.warn(f"⚠ 本次起飞点离世界原点 {h0:.2f} m（> {PAD_MAX_H:.1f} m）"
+                              f"⇒ 归位只会回到这个偏掉的起点，**下一轮自检仍会拒绝启动**。"
+                              f"请检查 --settle-xy 或先重启仿真。")
                 self.gz_setup()          # 摆塔 / 发射架 / 弹丸（--gz-viz 才动作）
                 if self.cruise_on:
                     self.check_cruise_geometry()
@@ -1277,7 +1314,15 @@ class PhaseBGuidance(Node):
             self.check_safety()
 
         elif self.state == "BRAKE":
-            # 着陆前刹车：水平按 −kd·v_h 减速；垂直保持目标高度（仍在 OFFBOARD，可以发 accel）
+            # 着陆前收尾机动：**刹车 + 归位到起点**（一次做完，避免"急刹→掉头→再飞"）
+            #   ① 刹车：AUTO_LAND 水平减速度只有 ~2 m/s²，5 m/s 会漂 7 m ⇒ 先自己刹
+            #   ② 归位：飞回 SETTLE 时记下的起点 (start_x, start_y)。
+            #      动机（2026-10-17 用户提出）：跑完停在拦截点，下一轮就在远离原点处
+            #      起飞 ⇒ 低空 58° 姿态 ⇒ 桨叶打地（已两次实飞）。
+            #      归位后落点回到起点附近 ⇒ 下一轮 PRECHECK 直接通过，**不必重启仿真**。
+            #   控制律：位置→速度级联（比"位置 PD 直接出加速度"更不容易超调）
+            #     v_tgt = kp·(p_start − p)        限幅 ±RETURN_V_MAX
+            #     a_h   = kd·(v_tgt − v)          再整体矢量限幅
             if self.pos is None:
                 return
             p_enu, v_enu = self.state_enu()
@@ -1289,9 +1334,40 @@ class PhaseBGuidance(Node):
             #   ⚠ 但必须有**下限**：若进入时已低于 MIN_ALTITUDE（说明失控），
             #     要主动拉升，绝不能"保持"在贴地高度。
             alt_tgt = self.brake_alt_tgt
-            a = [-self.args.brake_kd * v_enu[0],
-                 -self.args.brake_kd * v_enu[1],
-                 self.alt_kp * (alt_tgt - alt) - self.alt_kd * v_enu[2]]
+            a = [0.0, 0.0, 0.0]
+            a[2] = self.alt_kp * (alt_tgt - alt) - self.alt_kd * v_enu[2]
+
+            xy_err = None
+            if self.args.return_to_start:
+                # 起点用 ENU（start_x/Y 存的是 NED，见 SETTLE 段；这里换成 ENU 起点）
+                tx, ty = self.return_xy
+                ex, ey = tx - p_enu[0], ty - p_enu[1]
+                xy_err = math.hypot(ex, ey)
+                # 位置环 → 目标速度（限幅，避免远距离时飙高速）
+                vtx = RETURN_KP_POS * ex
+                vty = RETURN_KP_POS * ey
+                nv = math.hypot(vtx, vty)
+                vmax = max(float(self.args.return_vmax), 0.1)
+                if nv > vmax and nv > 1e-9:
+                    k = vmax / nv
+                    vtx, vty = vtx * k, vty * k
+                # 速度环 → 加速度
+                a[0] = RETURN_KD_VEL * (vtx - v_enu[0])
+                a[1] = RETURN_KD_VEL * (vty - v_enu[1])
+            else:
+                # 老行为：只刹车（−kd·v），不归位
+                a[0] = -self.args.brake_kd * v_enu[0]
+                a[1] = -self.args.brake_kd * v_enu[1]
+
+            # ★★ 起飞安全门限复用：低空一律不许水平机动（要归位先拉高）
+            if alt < TAKEOFF_MIN_AGL:
+                if not self.low_xy_warned:
+                    self.low_xy_warned = True
+                    self.warn(f"⚠ 收尾机动机动时离地仅 {alt:.2f} m（< 门限 "
+                              f"{TAKEOFF_MIN_AGL:.1f} m）⇒ 撤掉水平指令、只拉高度")
+                a[0] = 0.0
+                a[1] = 0.0
+                a[2] = max(a[2], ALT_ADJ_A_MAX)
             # 矢量等比限幅（铁律 2：禁止逐分量 clip）
             na = math.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2)
             if na > self.args.a_max and na > 1e-9:
@@ -1301,13 +1377,13 @@ class PhaseBGuidance(Node):
             self.publish_a()
 
             # ★★ 地面安全地板：刹车中若离地低于 floor，说明已不是"正常刹车"
-            #   （失控 / 遥测跳变）⇒ 立刻放弃横向刹车转入 LAND（软着陆最安全）。
+            #   （失控 / 遥测跳变）⇒ 立刻放弃横向机动转入 LAND（软着陆最安全）。
             #   实飞事故里刹车段的横向指令 10 m/s² 全被用来"救高度"，
             #   继续刹车没有意义且会继续漂。
             if alt < BRAKE_ALT_FLOOR and not self.hard_ground_warned:
                 self.hard_ground_warned = True
-                self.warn(f"⚠⚠ 刹车中离地仅 {alt:.2f} m（< 地板 {BRAKE_ALT_FLOOR:.1f} m）"
-                          f"⇒ 放弃横向刹车，立即转 LAND 软着陆（安全优先）")
+                self.warn(f"⚠⚠ 收尾机动中离地仅 {alt:.2f} m（< 地板 {BRAKE_ALT_FLOOR:.1f} m）"
+                          f"⇒ 放弃横向机动，立即转 LAND 软着陆（安全优先）")
                 self.landing_phase = True
                 self.alt_hold = False
                 self.state = "LAND"
@@ -1316,21 +1392,44 @@ class PhaseBGuidance(Node):
                 self.last_land_cmd = 0.0
                 return
 
-            done = vh <= self.args.brake_vtol
-            timed_out = now - self.brake_t0 > self.args.brake_timeout
+            # ---- 完成判据 ----
+            #   · 不归位：速度刹到 brake_vtol 就算完（老行为）
+            #   · 归位  ：速度要小**且**位置到起点容差内
+            speed_ok = vh <= self.args.brake_vtol
+            if self.args.return_to_start:
+                pos_ok = (xy_err is not None and xy_err <= self.args.return_tol
+                          and vh <= max(self.args.brake_vtol, 0.30))
+                done = pos_ok
+                timed_out = (now - self.brake_t0
+                             > max(self.args.brake_timeout, RETURN_TIMEOUT))
+            else:
+                done = speed_ok
+                timed_out = now - self.brake_t0 > self.args.brake_timeout
+
             if done or timed_out:
                 if done:
-                    self.log(f"   ✓ 刹车完成：|v_h|={vh:.2f} m/s"
-                             f"（耗时 {now - self.brake_t0:.2f}s）")
+                    if self.args.return_to_start:
+                        self.return_ok = True
+                        self.log(f"   ✓ 已归位到起点：水平误差 {xy_err:.2f} m、"
+                                 f"|v_h|={vh:.2f} m/s（耗时 {now - self.brake_t0:.1f}s）")
+                        self.log(f"      ★ 落点回到起飞点附近 ⇒ **下一轮不必重启仿真**")
+                    else:
+                        self.log(f"   ✓ 刹车完成：|v_h|={vh:.2f} m/s"
+                                 f"（耗时 {now - self.brake_t0:.2f}s）")
                     # ⚠ 这里只能给"剩余速度对应的估算刹车距离"，
                     #   真实漂移必须用实测 —— 实飞里估算 0.02 m 而实测 10 m。
                     self.log(f"      剩余速度对应的估算刹车距离 ≈ {vh**2 / (2 * 2.0):.2f} m"
                              f"（**实测**着陆漂移见末尾报告的 [落点] 行）")
                 else:
-                    self.warn(f"   ⚠ 刹车超时（{self.args.brake_timeout:.0f}s）："
-                              f"|v_h|={vh:.2f} m/s —— 继续 LAND（会漂更多）")
-                self.log("→ 转入自动降落：LAND（AUTO_LAND 下降 + cmd_vel_ned）"
-                         "→ 落地后 DISARM 停桨。")
+                    if self.args.return_to_start:
+                        self.warn(f"   ⚠ 归位超时（{max(self.args.brake_timeout, RETURN_TIMEOUT):.0f}s）："
+                                  f"水平误差 {xy_err:.2f} m、|v_h|={vh:.2f} m/s"
+                                  f" —— 就在当前位置降落（下一轮**请重启仿真**）")
+                    else:
+                        self.warn(f"   ⚠ 刹车超时（{self.args.brake_timeout:.0f}s）："
+                                  f"|v_h|={vh:.2f} m/s —— 继续 LAND（会漂更多）")
+                self.log("→ 转入自动降落：LAND（先自己降到 "
+                         f"{LAND_HANDOVER_ALT:.1f} m，再交给 AUTO_LAND）→ 落地后 DISARM 停桨。")
                 self.landing_phase = True
                 self.alt_hold = False
                 self.state = "LAND"
@@ -2284,6 +2383,13 @@ class PhaseBGuidance(Node):
              {None: "未判", True: "是", False: "否(离地过高)"}[self.soft_landing]))
         if dr is not None:
             p("着陆漂移(实测) = %.2f m   全程最大水平位移 = %.1f m" % (dr[0], self.max_h_disp))
+        if self.args.return_to_start:
+            p("归位 = %s（目标 ENU=(%+.2f,%+.2f)，容差 %.2f m）"
+              % ("✓ 已回到起点 ⇒ 下一轮可**不重启仿真**" if self.return_ok
+                 else "✗ 未到位/超时 ⇒ **下一轮请重启仿真**",
+                 self.return_xy[0], self.return_xy[1], self.args.return_tol))
+        else:
+            p("归位 = 已关闭（--no-return）⇒ 落点在拦截点，下一轮需重启仿真")
         if self.min_alt is not None:
             p("全程最低离地 = %.2f m @ state=%s" % (self.min_alt, self.min_alt_state))
         p("控制回路最大间隔 = %.0f ms  (空洞 %d 次)%s"
@@ -2439,6 +2545,18 @@ def build_parser():
                     help="刹车完成判据 |v_h| ≤ 此值 (m/s)")
     ap.add_argument("--brake-timeout", type=float, default=BRAKE_TIMEOUT,
                     help="刹车段超时 (s)")
+    # ★ 收尾归位（用户 2026-10-17 提出：飞回起点再降落 ⇒ 下一轮不必重启仿真）
+    ap.add_argument("--return-to-start", action="store_true", default=True,
+                    help="★ 收尾时先**飞回起飞点**再降落（默认开）。"
+                         "这样落点回到起点附近，下一轮 --run 的起飞前自检能直接通过，"
+                         "不用每次重启仿真")
+    ap.add_argument("--no-return", dest="return_to_start", action="store_false",
+                    help="关闭归位（落点就在拦截点；⚠ 下一轮必须重启仿真，"
+                         "否则会在远离原点处起飞导致桨叶打地）")
+    ap.add_argument("--return-tol", type=float, default=RETURN_XY_TOL,
+                    help="归位到位容差 (m)")
+    ap.add_argument("--return-vmax", type=float, default=RETURN_V_MAX,
+                    help="归位最大水平速度 (m/s)")
     ap.add_argument("--srv-timeout", type=float, default=SRV_TIMEOUT)
     # 其它
     ap.add_argument("--no-odom", action="store_true")

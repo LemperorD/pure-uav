@@ -170,20 +170,39 @@ fi
 
 cat <<'EOF'
 
-== 下一步 ==
-先确认仿真在跑（另一个终端），然后：
+==============================================================
+  ⚠⚠ 本脚本**只做「换版 + 离线自检」——不会让无人机起飞**。
+      上面那一大堆 PASS 都是**离线回归测试**（假 PX4 桩，纯数学），
+      Gazebo / XTDrone2 里**不会有任何动作**，这是正常的。
 
-    bash run_pilot_compare.sh                  # pilot 守备场景：PPN + APN 对比（★推荐）
-                                               # 默认在 Gazebo 里显示防御塔 + 弹丸 + 弹道
-                                               # 加 --no-gz-viz 关掉画面
-    python3 gz_scene_sync.py --demo            # 只验证 Gazebo 可视化链路（不用 ROS 节点）
+      要真正飞，必须在**另一个终端**执行：
+          bash run_pilot_compare.sh
+     并且先确认仿真已在跑（见下）。
+      判断有没有真飞：终端里应出现
+          [INFO] [...][phase_b_guidance]:   → 发出 ARM
+      只有 PASS 没有 [INFO] ⇒ 飞行节点根本没启动。
+==============================================================
+
+== 下一步 ==
+先确认仿真在跑（终端 1），然后**另开一个终端**（终端 2）：
+
+    终端 1：ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py
+    终端 2：bash run_pilot_compare.sh          # pilot 守备场景：PPN + APN 对比（★推荐）
+                                              # 默认在 Gazebo 里显示防御塔 + 弹丸 + 弹道
+                                              # 加 --no-gz-viz 关掉画面
+
+    其它工具（都不需要仿真在跑，除非另有说明）：
+    python3 gz_scene_sync.py --demo            # 只验证 Gazebo 可视化链路（需要仿真正在跑）
     python3 gz_scene_sync.py --clear           # 清掉塔 / 弹丸 / 轨迹
+    python3 test_phase_b_states.py             # 单独跑离线回归（就是上面那些 PASS）
     bash run_phase_b.sh --namespace x500_0     # 阶段 B：原演示场景（制导闭环）
     bash run_phase_a.sh --namespace x500_0     # 阶段 A：指令通路（如需复测）
 
-★ run_pilot_compare.sh 跑第二个 law 之前**必须重启仿真**
-  （跑完无人机停在拦截点而非原点，否则几何漂移；节点会自动 warn 提示）。
+★ 归位已默认开启（--return-to-start）：每个 law 跑完会把无人机**飞回起点**再降落，
+  所以**下一个 law 不必重启仿真** —— 只要上一轮日志里有
+      ✓ 已归位到起点：水平误差 x.xx m
+  若看到「⚠ 归位超时」，那才需要重启仿真（节点也会提示）。
 
-跑完会自动 LAND + 停桨并退出（按一次 Ctrl-C 也会走同样的收尾流程；
+跑完会自动归位 + LAND + 停桨并退出（按一次 Ctrl-C 也会走同样的收尾流程；
 连按两次 Ctrl-C = 强制退出）。
 EOF
