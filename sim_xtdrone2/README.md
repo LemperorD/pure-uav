@@ -1835,6 +1835,146 @@ python3 phase_b_guidance.py --no-return           # 关掉归位（落点在拦�
 
 ---
 
+## 3.19 ★★ 渲染链路审查（2026-10-17）：4 个真 bug + 5 处加固
+
+> 起因：用户要求"把仿真相关代码从初始化、数据加载、执行到结果展示审一遍，
+> 重点排查渲染（刷新 / 坐标 / 帧同步 / 资源释放）"。
+> 逐行读完 `phase_b_guidance.py`（可视化段）、`gz_scene_sync.py`、
+> `scene_model.py`、`sim_phase_b_offline.py`、`viz_scene.py` 后的结论。
+> 详见 `制导讲义/仿真渲染审查.md`。
+
+### ① 🔴 最严重：`gz_setup()` 挂在 SETTLE→CRUISE 上，会把 offboard setpoint 断掉
+
+- `gz_setup` 内部全是**阻塞**服务调用：`refresh_snapshot` ≤1.5 s，
+  三个 `ensure_*` 每个最长 3 s×2 次重试 ⇒ **最坏十几秒**。
+- 它原来调用在 `[5/6] 稳定到位` 之后、`CRUISE` 之前 —— 那一段**每 20 ms**
+  必须发一条 offboard setpoint。一旦被卡 ≥ `COM_OF_LOSS_T`(0.5~1.0 s)，
+  PX4 就停用自己的 offboard 控制 ⇒ **10 m 高自由落体**
+  （与 §5.1 那次"落点漂 12.9 m"完全同一机理，只是触发源换成了"建实体"）。
+- ⇒ **挪到"解锁之前"**（`do_precheck` 通过、`state=ARM` 之前）：此刻还在地上、
+  PX4 不在 offboard，卡多久都无害。空中接管场景**直接跳过**并告警。
+- ⇒ `gz_setup` 加 `self.gz_ready` 幂等短路：第二次调用**一个服务请求都不发**。
+
+### ② 🔴 命中标记被 `--gz-trail` 绑死
+
+`gz_finish` 的 `mark` 取 `gz_trail[-1]`，而 `gz_trail` 只有 `--gz-trail` 才记录
+⇒ 只开 `--gz-viz` 时**命中黄球静默消失**（日志一字不提）。
+⇒ 新增 `gz_last_p_T`（每帧记 1 个三元组，零成本），命中点与轨迹开关**解耦**。
+同理 `--gz-replay` 依赖 `--gz-trail`，现在启动时就会**提前告警**。
+
+### ③ 🟠 `pose/info` 订阅泄漏
+
+`snapshot_positions` 每次调用 `subscribe` 一次、**从不退订**；`list_entities` /
+`watch_projectile` 还各自再订一份。`pose/info` 是高频话题（几十 Hz × 全实体）
+⇒ 越调越卡。⇒ 改成**全类唯一订阅**（`_ensure_pose_sub`），回调只刷新
+`self._pose_latest`，快照直接读缓存 + "等一帧新的"。
+
+### ④ 🟠 两个线程同时用同一个 gz Node
+
+主线程（`gz_setup` / `gz_finish` 兜底）与后台 `_worker` 都会 `node.request()`；
+pybind 在阻塞期间放开 GIL ⇒ 请求可能**同时在飞**，create/set_pose 的先后顺序
+得不到保证。⇒ 所有请求串行化（`_req_lock`），代价只是后台线程多等几十 ms。
+
+### ⑤ 其余加固
+
+| 位置 | 问题 | 处理 |
+|---|---|---|
+| `_ensure` | 读不到快照时走"创建"，但实体已存在 ⇒ create 重名失败，日志误报"创建失败" | create 失败后用 `set_pose` 当探针，能推动即判定"已存在" |
+| `ensure_beads` | 每颗珠子"先删后建" ⇒ 40 颗 = 80 次阻塞请求，回放开场几十秒 | `pre_remove=False`（调用方已 `clear_beads`） |
+| `replay` | `/marker` 不可用时**无人机小球压根不存在**，控制台却说"绿球 = 无人机" | 新增 `movable_ball_sdf` + `replay_uav_ball`，逐帧 `set_pose` |
+| `gz_finish` | park 高度**漏了** `--gz-proj-pad-h` ⇒ 跑完球跳到另一个高度 | 统一 `gz_pad_z()`，setup 与 park 共用 |
+| `gz_finish` | 绘制子进程 `stdout/stderr=DEVNULL` ⇒ 崩了没痕迹（回放那条路已踩过） | 写日志文件 + 打印路径 |
+| `draw/replay` | `%TEMP%` 里每轮多两个 json（含完整轨迹） | 绘制任务用 `delete_job` 自删；回放任务保留（要能手动重放） |
+| `clear_trail` | 直接 `marker_pb2.Marker.DELETE_ALL`，绕过版本自检 | 统一走 `_resolve_enum` |
+| `marker_delete` | 文档说"按 ns+id 删单个"，实现是 `DELETE_ALL` | 文档改对（回放要清整条轨迹） |
+| `sim_phase_b_offline.run` | CSV 没有 `try/finally` ⇒ 异常时句柄不关（Windows 会锁文件） | 包 `try/finally` |
+| `viz_scene.fig_anim` | `tr["t"][1]` 越界 / 步长为 0 直接崩；`ani.save` 失败时 figure 泄漏 | 前置校验 + `try/finally: plt.close(fig)` |
+| `viz_scene.read_traj` | 空单元格 `float('')` ⇒ ValueError，整条出图链死 | 解析失败记 NaN |
+| 场景 | 塔在原点、无人机也从原点起飞 ⇒ 起飞段**穿过塔身**（纯视觉） | 新增 `--gz-tower-xy=0,-6`；默认仍原点并**告警提示** |
+
+### 新增/变化的命令行参数
+
+```bash
+--gz-tower-xy=0,-6        # 把防御塔挪开（默认 0,0 = 原点，被守护目标）
+--no-gz-proj-preset       # 旧行为：弹丸藏在视野外
+--gz-proj-pad-h=1.2       # 球心高度（setup 与收尾 park 现在用同一个值）
+```
+
+---
+
+## 3.20 ★★ 实跑反馈修复（2026-10-17 晚，v31）：开场 2 秒阻塞 + 实体留在错误位置
+
+> v30 的首轮实跑（APN law 2）**命中了**（R_true=0.209 m），起飞倾角 0.9°，
+> 归位 0.25 m —— 但日志里有三处必须修的问题。报告见《仿真渲染审查.md》§10。
+
+### ① 🔴 `gz_setup` 挪到 ARM 之前是对的，但**开场首个服务请求会超时**
+
+实跑日志（节选）：
+
+```
+[0/6] ✓ 自检通过，开始 ARM
+   ✓ defense_tower 已存在（drift=0.00 m）⇒ 复用，未重建
+⚠ set_pose 失败 ⇒ 请确认仿真在跑、世界名是 'walls'
+   ✓ enemy_launcher 已存在但偏了 2.00 m ⇒ 只移动（不重建）⚠ 移动失败
+   ✓ enemy_dart     已存在但偏了 14.00 m ⇒ 只移动（不重建）⚠ 移动失败
+⚠ 控制回路空洞 2028 ms（t_wall=2.106s, state=ARM）
+```
+
+- **2028 ms = 2 × 1000 ms 超时**，正好是那两次 `set_pose`；
+- 而同一次 run 的 GUIDED 段 30 Hz `set_pose` **全部成功**（统计 15 次）；
+- ⇒ 根因：**进程内第一条服务请求要花时间做发现/握手**，1 s 不够。
+- 后果：发射架停在旧发射点、弹丸被 `--check` 搬到世界原点 ⇒ **画面位置不对**
+  （比"模型消失"更难判断）。
+
+修法三条：
+1. `warmup()`：开场先发一次**虚构实体名**的长超时请求把连接养起来；
+2. `SET_POSE_TIMEOUT_MS = 3000` + 摆场景时 `retries=1`；
+3. `_do_set_pose` 改为**看响应体 `data`**（原来 `ok=True` 就算成功，
+   连"实体名找不到"都算成功）；
+4. 偏得太远又移不动 ⇒ **重建**（`recreate_if_stuck`，此刻在地面，安全）。
+
+### ② 🟠 `--check` 号称"只读"，却把弹丸搬到了原点
+
+`probe_services` 原来拿 `PROJECTILE_NAME` 当探针，而 `Pose.position` 默认 `(0,0,0)`
+⇒ 一次诊断把球瞬移到世界原点（塔基里）。这就是上面 `drift=14.00 m` 的来源。
+⇒ 探针改用虚构名 `PROBE_POSE_NAME = "__pgu_warmup__"`，
+只看"有没有响应"判断服务是否可达，**不动任何实体**。
+
+### ③ 🟠 地面段的空洞被当成"自由落体"
+
+`state=ARM`（还在地上、PX4 没进 offboard）的 2028 ms 空洞，报告却喊
+「很可能已触发 offboard 失联 ⇒ 自由落体」。实测起飞完全正常
+（低空最大倾角 0.9°）⇒ 属于误报，会把人带偏。
+⇒ 空洞按"是否在 offboard 义务期"分级：
+
+```python
+NO_SETPOINT_STATES = ("PRECHECK", "ARM", "CONFIRM_ARM", "POST_ARM",
+                      "TAKEOFF", "WAIT_HEIGHT")
+```
+
+- 地面段：只记录 + 解释「此刻还不需要发 setpoint ⇒ 不会失联」，
+  **不计入**判据；
+- 飞行段：照旧告警 + `COM_OF_LOSS_T` 提示；
+- 报告新增一行 `[健康] 飞行段(offboard 义务期)最大间隔 … ms ← 这个才影响飞行`，
+  空洞列表每条标 `⚠ 飞行段` / `地面段(无害)`。
+
+### ④ 另外三处
+
+| 位置 | 问题 | 处理 |
+|---|---|---|
+| PRECHECK | 第一轮 `[0/6] 姿态=?` —— `/odometry` 未到，**姿态检查被静默跳过** | 只缺姿态时**非阻塞**等（下一拍再判，≤ `PRECHECK_ODOM_GRACE=3s`）；等不到就带告警继续；有 fatal 则立刻拒绝不等待 |
+| `[落点]` | 归位 ON 时输出「着陆漂移 6.92 m / 归位 ✓」自相矛盾（漂移从 GUIDED 结束算，而 BRAKE 含"飞回起点"） | 单独记 `land_pos`（进入 LAND 的位置）：**着陆漂移 = LAND 起点→停桨点**，另给「刹车+归位段位移」 |
+| `[落点]` | 「全程最低离地 0.06 m @ state=PRECHECK」是噪声（飞机趴在地上） | 只在 `SETTLE/CRUISE/GUIDED/BRAKE` 统计，改成「飞行段最低离地」 |
+| `[实时率]` | `RTF max 165.84` 假值：阻塞恢复后拿到的是**旧话题消息** | 丢弃「间隔 <0.1 s 却推进 >0.3 s」的陈旧样本，报告注明剔除数 |
+
+### 回归
+
+`test_phase_b_states.py` **290 PASS / 0 FAIL**（新增用例 13.5 / 21 / 22 / 23 / 24），
+`test_phase_a_states.py`、`test_guidance_shim.py` 全绿；
+`sim_phase_b_offline.py` 结果不变（PPN 0.392 m），`viz_scene.py` 出图正常。
+
+---
+
 ## 4. 请回报给我什么
 
 跑仿真后如有异常，把 **节点日志**（`[1/6]`…`[6/6]`、`★ 命中！`、末尾汇总表 + 收尾几行）

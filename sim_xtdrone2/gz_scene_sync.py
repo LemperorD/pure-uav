@@ -135,6 +135,20 @@ HIDDEN_Z = -500.0
 #   ⇒ 表现为"塔建成功、发射架和弹丸双双失败"，而且因为"先删后建"还会把旧的删掉。
 CREATE_TIMEOUT_MS = 3000
 
+# ★ 摆位置（set_pose）在**开场**也要长超时（2026-10-17 实跑根因）
+#   实测日志（v30 第一轮）：t=2.106s 处出现 **2028 ms 主回路空洞**，
+#   正好等于 `2 × 1000 ms` —— 就是开场那两次 set_pose 各超时一次：
+#       ✓ defense_tower 已存在（复用，没发请求）
+#       ⚠ set_pose 失败
+#       ✓ enemy_launcher 已存在但偏了 2.00 m ⇒ 只移动 ⚠ 移动失败
+#       ✓ enemy_dart     已存在但偏了 14.00 m ⇒ 只移动 ⚠ 移动失败
+#   而同一次 run 的 GUIDED 段 30 Hz 的 set_pose **全部成功**（统计 15 次）。
+#   ⇒ 结论：**进程内第一条服务请求要花时间做发现/握手**，1 s 不够。
+#   ⇒ 新增 `warmup()`（开场先做一次长超时的无害往返）+ `SET_POSE_TIMEOUT_MS`
+#      + `_do_set_pose(..., retries=1)`（只给"摆场景"这类一次性调用用，
+#      后台 30 Hz 的逐帧同步不加，避免失败时累积背压）。
+SET_POSE_TIMEOUT_MS = 3000
+
 # 服务名模板（gz-sim 8 / Harmonic）
 SVC_CREATE = "/world/{world}/create"
 SVC_SET_POSE = "/world/{world}/set_pose"
@@ -155,6 +169,15 @@ UAV_COLOR = (0.20, 0.95, 0.35)     # 无人机：绿
 # 无 marker 时的"珠子"实体名前缀（注意：不要与其他实体重名）
 PROJ_BEAD_PREFIX = "replay_proj_bead"
 UAV_BEAD_PREFIX = "replay_uav_bead"
+# 无 marker 时代表"无人机当前位置"的可移动小球（marker 的替代品）
+UAV_BALL_NAME = "replay_uav_ball"
+
+# ★ 探针用的**虚构实体名**（永远不存在于世界里）。
+#   用途：① `warmup()` 预热连接；② `probe_services()` 探测 set_pose 是否可达。
+#   ⚠ 2026-10-17 实跑教训：`--check` 原来拿**真弹丸**当探针，而 `Pose` 的
+#     position 默认是 (0,0,0) ⇒ 一个"只读诊断"把弹丸搬到了世界原点（塔基里）。
+#     ⇒ 探针**绝不能**碰塔/发射架/弹丸，必须用虚构名。
+PROBE_POSE_NAME = "__pgu_warmup__"
 
 
 # --------------------------------------------------------------------------
@@ -239,6 +262,49 @@ def bead_sdf(name: str, radius: float, color=(1.0, 0.35, 0.05)) -> str:
 </sdf>"""
 
 
+def movable_ball_sdf(name: str, radius: float,
+                     color=(0.20, 0.95, 0.35)) -> str:
+    """★ **可被 set_pose 移动**的小球（回放里代表无人机）。
+
+    为什么需要它（2026-10-17 审查发现）：
+      回放里"无人机位置"原来只用 `marker_move()` 画，而 `/marker` 在用户环境
+      **不可用** ⇒ 降级成"珠子"模式后，弹丸小球会动、**无人机小球压根不存在**，
+      但控制台还在打印"绿 小球 = 无人机重放位置" ⇒ 用户以为回放又坏了。
+    ⇒ 这里用一个真实实体当"无人机替身"，只依赖 create + set_pose。
+
+    结构与 `projectile_sdf` 同构（dynamic + 关重力 + 无 collision）：
+      · 不是 static ⇒ set_pose 一定能推动它（这条已在实机上验证过）；
+      · 关重力、无碰撞 ⇒ 物理引擎不会把它推走。
+    """
+    r, g, b = color
+    return f"""<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="{name}">
+    <static>false</static>
+    <link name="link">
+      <gravity>false</gravity>
+      <inertial>
+        <mass>0.4</mass>
+        <inertia>
+          <ixx>0.0006</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0006</iyy><iyz>0</iyz>
+          <izz>0.0006</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry><sphere><radius>{radius}</radius></sphere></geometry>
+        <material>
+          <ambient>{r:.3f} {g:.3f} {b:.3f} 1</ambient>
+          <diffuse>{r:.3f} {g:.3f} {b:.3f} 1</diffuse>
+          <emissive>{r * 0.4:.3f} {g * 1.0:.3f} {b * 0.4:.3f} 1</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+"""
+
+
 def projectile_sdf(name: str, radius: float) -> str:
     """弹丸：小球。
 
@@ -315,6 +381,15 @@ class GzScene:
         self._svc_remove = SVC_REMOVE.format(world=world)
 
         self._lock = threading.Lock()
+        # ★ 服务调用**串行化**（2026-10-17 审查新增）
+        #   同一个 `gz.transport.Node` 会被两个线程用：
+        #     · 主线程：create / set_pose（gz_setup / gz_finish 的兜底路径）
+        #     · 后台线程：每帧 set_pose（_worker）
+        #   pybind 在阻塞请求期间会放开 GIL ⇒ 两个 `request()` 可能真的**同时在飞**。
+        #   gz-transport 内部按 id 配对响应，功能上大多不炸，但顺序得不到保证
+        #   （例如"先 create 再 set_pose"可能被重排 ⇒ 报"实体不存在"）。
+        #   ⇒ 所有服务请求走同一把锁，代价只是后台线程多等几十 ms（它不参与控制）。
+        self._req_lock = threading.Lock()
         self._pending = None            # 待写入的弹丸位置（ENU）
         self._actions = []              # ★ 待执行的"一次性绘制"动作（非阻塞队列）
         self._thread = None
@@ -323,6 +398,12 @@ class GzScene:
         self._created = set()           # 已创建的实体名
         self.stats = {"set_pose": 0, "failed": 0, "actions": 0, "reused": 0}
         self._snap = None               # 世界真实状态缓存（_ensure 判断"已存在否"）
+        self._last_err = None           # 最近一次服务请求失败的原因（错误提示用）
+        # ★ pose/info 只订阅**一次**（原来是"每次快照都 subscribe"⇒ 订阅泄漏，
+        #   每次调用都多一个回调，pose/info 又是高频话题 ⇒ 越跑越慢）
+        self._pose_sub = None
+        self._pose_latest = None        # 最近一帧 {名字: (x,y,z)}
+        self._pose_hits = 0             # 收到的消息条数（判"有没有新帧"）
 
         if _GZ_IMPORT_ERROR is not None:
             self._log(f"⚠ 无法 import gz 的 Python 绑定（{_GZ_IMPORT_ERROR}）"
@@ -336,7 +417,37 @@ class GzScene:
             self._log(f"⚠ 初始化 gz.transport 失败（{e}）⇒ Gazebo 可视化已禁用")
 
     # ------------------------------------------------------ 读回世界真实状态
-    def snapshot_positions(self, timeout: float = 3.0) -> dict:
+    def _ensure_pose_sub(self):
+        """★ 建立**唯一**一个 `/pose/info` 订阅（幂等）。
+
+        原来是"每调一次 `snapshot_positions` 就 subscribe 一次、从不退订"：
+          · 同一个进程里调 3 次 ⇒ 3 个回调，每条 pose/info 消息算 3 遍；
+          · `pose/info` 是高频话题（几十 Hz × 世界上所有实体）⇒ 越跑越卡，
+            而且旧回调里的 `out["d"]` 是**已经返回给调用方**的临时字典（纯浪费）。
+        现在改成：订阅一次、回调只刷新 `self._pose_latest`，快照直接读缓存。
+        """
+        if self._pose_sub is not None or not self.available:
+            return self._pose_sub
+        try:
+            from gz.msgs10 import pose_v_pb2
+
+            def _cb(msg):
+                try:
+                    self._pose_latest = {pz.name: (pz.position.x, pz.position.y,
+                                                   pz.position.z)
+                                         for pz in msg.pose}
+                    self._pose_hits += 1
+                except Exception:                      # noqa: BLE001
+                    pass
+
+            self._pose_sub = self._node.subscribe(
+                pose_v_pb2.Pose_V, f"/world/{self.world}/pose/info", _cb)
+        except Exception as e:                                  # noqa: BLE001
+            self._log(f"   ⚠ 订阅 /pose/info 失败（{e}）⇒ 无法读回世界状态")
+            self._pose_sub = None
+        return self._pose_sub
+
+    def snapshot_positions(self, timeout: float = 3.0, fresh: bool = True) -> dict:
         """★ 读回 `/world/<w>/pose/info`，返回 `{名字: (x,y,z)}`（一次性快照）。
 
         ★ 为什么这是**唯一可信**的验证手段（2026-10-17 三次踩坑的总结）：
@@ -344,29 +455,22 @@ class GzScene:
           · `set_pose` 返回 True ≠ 模型真的动了
           ⇒ 只有读回世界的真实状态才算数。
         失败时返回 `{}`（调用方应把"空字典"当作"读不到"，不要当作"世界是空的"）。
+
+        `fresh=True` 时**等一帧新的**再说（默认）：否则可能拿到上一拍的缓存，
+        刚 create 完就查会误判"世界里没有它"。
         """
-        if not self.available:
+        if not self.available or self._ensure_pose_sub() is None:
             return {}
-        out = {"d": None}
-        try:
-            from gz.msgs10 import pose_v_pb2
+        t0 = self._pose_hits
+        deadline = time.monotonic() + max(0.05, float(timeout))
+        while fresh and self._pose_hits == t0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return dict(self._pose_latest) if self._pose_latest else {}
 
-            def _cb(msg):
-                if out["d"] is not None:
-                    return
-                out["d"] = {pz.name: (pz.position.x, pz.position.y,
-                                      pz.position.z) for pz in msg.pose}
-
-            self._node.subscribe(pose_v_pb2.Pose_V,
-                                 f"/world/{self.world}/pose/info", _cb)
-            n = max(1, int(timeout / 0.05))
-            for _ in range(n):
-                if out["d"] is not None:
-                    break
-                time.sleep(0.05)
-        except Exception:                                  # noqa: BLE001
-            return {}
-        return out["d"] or {}
+    def pose_of(self, name: str, timeout: float = 1.0):
+        """单个实体的真实位置；读不到返回 None。"""
+        snap = self.snapshot_positions(timeout=timeout, fresh=False)
+        return snap.get(name)
 
     # ------------------------------------------------------------------ 基础
     def _log(self, s: str):
@@ -378,16 +482,61 @@ class GzScene:
 
         `timeout_ms` 可**按调用点覆盖**：建实体（解析 SDF + 插入世界）比
         set_pose 慢得多，用同一个短超时会误判成失败（见 `_create` 注释）。
+
+        ⚠ **`ok` 只代表"服务响应了"**，不代表操作成功 —— 响应体里的 `data`
+          才是结果。判断成败要用 `ok and rep.data`（`_create` / `_do_set_pose` 已这么做）。
         """
         if not self.available:
+            self._last_err = "gz.transport 不可用"
             return False, None
         try:
-            ok, rep = self._node.request(service, msg, type(msg), rep_type,
-                                         int(timeout_ms or self.timeout_ms))
+            # ★ 加锁：主线程与后台线程共用同一个 gz Node（已发生过的坑见 __init__）
+            with self._req_lock:
+                ok, rep = self._node.request(service, msg, type(msg), rep_type,
+                                            int(timeout_ms or self.timeout_ms))
+            self._last_err = None if ok else "超时/无响应"
             return bool(ok), rep
-        except Exception:
+        except Exception as e:                          # noqa: BLE001
             self.stats["failed"] += 1
+            self._last_err = f"{type(e).__name__}: {e}"
             return False, None
+
+    def warmup(self, timeout_ms: int = CREATE_TIMEOUT_MS) -> bool:
+        """★ **开场预热**：做一次无害的服务往返，把发现/握手做掉。
+
+        为什么需要（2026-10-17 实跑实测）：
+          进程内**第一条**服务请求要花时间做服务发现，1 s 的默认超时不够
+          ⇒ 表现为"开场两次 set_pose 各超时 1 s，主回路空洞 2028 ms"，
+            而同一进程后面 30 Hz 的 set_pose 全部成功。
+          ⇒ 先把连接养起来，个别请求的超时就不会算到"摆场景"头上。
+
+        实现：给 `set_pose` 发一个**不存在的实体名**（`PROBE_POSE_NAME`）
+        ⇒ 服务会立刻回一个 `data=False`，**不动任何东西**，只看"有没有响应"。
+        """
+        if not self.available:
+            return False
+        ok, _ = self._warmup_send(timeout_ms)
+        self._log(f"   gz 服务预热：{'✅ 已连通' if ok else '⚠ 无响应（继续尝试）'}")
+        return ok
+
+    def _warmup_send(self, timeout_ms: int):
+        """预热请求本体（唯一碰 protobuf 的地方 ⇒ 单测里替换它）。"""
+        req = pose_pb2.Pose()
+        req.name = PROBE_POSE_NAME
+        req.orientation.w = 1.0
+        return self._req(self._svc_set_pose, req, boolean_pb2.Boolean,
+                         timeout_ms=timeout_ms)
+
+    def _probe_pose_req(self):
+        """`--check` 的 set_pose 探针消息：**虚构实体名**（不动任何真实体）。
+
+        ⚠ 与 `_warmup_send` 里的消息同一个名字 —— 两处都必须用 `PROBE_POSE_NAME`。
+        """
+        req = pose_pb2.Pose()
+        req.name = PROBE_POSE_NAME
+        req.position.x = req.position.y = req.position.z = 0.0
+        req.orientation.w = 1.0
+        return req
 
     # ------------------------------------------- 轨迹"珠子"（无 marker 时的兜底）
     def ensure_beads(self, points, prefix: str, radius: float = 0.09,
@@ -414,8 +563,13 @@ class GzScene:
         for k, i in enumerate(idx):
             nm = f"{prefix}_{k}"
             p = pts[i]
+            # ⚠ `pre_remove=False`：调用方（回放）**已经**先 `clear_beads()` 清过场了。
+            #   原来每个珠子都走"先删后建" ⇒ 40 颗珠子要发 80 次服务请求
+            #   （40 删 + 40 建，每次都是阻塞调用）⇒ 回放开场要等十几秒甚至更久，
+            #   用户看到的就是"提示说回放已启动，画面半天没动静"。
             if self._create(nm, bead_sdf(nm, radius, color),
-                            (float(p[0]), float(p[1]), float(p[2]))):
+                            (float(p[0]), float(p[1]), float(p[2])),
+                            pre_remove=False):
                 ok_n += 1
         return ok_n
 
@@ -494,10 +648,15 @@ class GzScene:
 
         # ② 移动实体服务（弹丸飞行、回放靠它）
         try:
-            p = pose_pb2.Pose()
-            p.name = PROJECTILE_NAME
-            p.orientation.w = 1.0
-            ok, _ = self._req(self._svc_set_pose, p, boolean_pb2.Boolean)
+            # ★★ 2026-10-17 实跑发现：这里原来用 `PROJECTILE_NAME` 探测，
+            #   而 `Pose` 的 position 默认是 (0,0,0) ⇒ **`--check` 会把弹丸搬到世界原点**，
+            #   而它自称"只读诊断"。实测后果：跑飞行时弹丸 `drift=14.00 m`
+            #   （在原点，正好在塔基里），然后 set_pose 又超时 ⇒ 球就留在塔里了。
+            #   ⇒ 改成给一个**不存在的名字**：gz 会立刻回 `data=False`，
+            #     我们只看"有没有响应"来判断服务是否可用，**不动任何实体**。
+            p = self._probe_pose_req()
+            ok, _ = self._req(self._svc_set_pose, p, boolean_pb2.Boolean,
+                              timeout_ms=SET_POSE_TIMEOUT_MS)
             res["set_pose"] = (ok, f"移动实体（弹丸 / 回放小球）"
                                    f"{'' if ok else ' ← 弹丸不会动！'}")
         except Exception as e:                              # noqa: BLE001
@@ -595,7 +754,20 @@ class GzScene:
             self._created.discard(name)
         return got
 
-    def _do_set_pose(self, name: str, p, yaw: float = 0.0) -> bool:
+    def _do_set_pose(self, name: str, p, yaw: float = 0.0,
+                     timeout_ms=None, retries: int = 0) -> bool:
+        """把实体移动到 `p`（ENU）。
+
+        ★★ 2026-10-17 实跑后补强（原来只管发出去，不管真的成功）：
+          ① **必须看响应体 `data`**：`ok=True` 只说明"服务回了话"，
+             `data=False`（实体名不对 / 找不到）原来被当成**成功**；
+          ② **超时可覆盖 + 可重试**：开场第一次请求要多花时间做发现，
+             1 s 不够（实测两次各超时 1 s ⇒ 2028 ms 空洞、发射架和弹丸留在旧位置）；
+          ③ 失败时把**具体原因**（超时 / 响应 False / 异常）打出来
+             —— 原来只有一句"请确认仿真在跑"，对排查没有帮助。
+        重试只给"摆场景"这类一次性调用用；后台 30 Hz 逐帧同步不重试
+        （否则失败时会累积背压，把位置同步饿死）。
+        """
         req = pose_pb2.Pose()
         req.name = name
         req.position.x = float(p[0])
@@ -606,16 +778,51 @@ class GzScene:
         req.orientation.y = 0.0
         req.orientation.z = math.sin(yaw * 0.5)
         req.orientation.w = math.cos(yaw * 0.5)
-        ok, _ = self._req(self._svc_set_pose, req, boolean_pb2.Boolean)
-        if ok:
-            self.stats["set_pose"] += 1
-        else:
-            self.stats["failed"] += 1
-            if not self._warned:
-                self._warned = True
-                self._log(f"⚠ set_pose 失败 ⇒ 请确认仿真在跑、世界名是 "
-                          f"'{self.world}'（当前启动命令见 README §1）")
-        return ok
+
+        def _send():
+            ok, rep = self._req(self._svc_set_pose, req, boolean_pb2.Boolean,
+                                timeout_ms=timeout_ms)
+            return ok, rep
+
+        # 重试/判定内核抽成纯逻辑（不碰 protobuf）⇒ 无 gz 也能单测（用例 21）
+        return self._set_pose_with_retry(name, _send, retries=retries)
+
+    def _set_pose_with_retry(self, name: str, send_fn, retries: int = 0) -> bool:
+        """`_do_set_pose` 的**重试 + 成功判定**内核（纯逻辑，不依赖 protobuf/gz）。
+
+        `send_fn()` 返回 `(收到了响应?, 响应对象)`。成功条件 = 收到响应 **且**
+        `response.data` 为 True。
+
+        ★ 为什么要单独抽出来（2026-10-17 实跑）：
+          ① `ok=True` 只代表"服务回了话"，`data=False`（实体名找不到）
+             原来被当成**成功**；
+          ② 开场第一次请求要多花时间做发现，1 s 不够（两次各超时 1 s ⇒
+             2028 ms 空洞 + 发射架/弹丸留在旧位置）；
+          ③ 这一层是"成败判定"的关键，必须能离线单测（本机没有 Gazebo）。
+        """
+        ok = False
+        reason = ""
+        n = max(1, 1 + int(retries))
+        for i in range(n):
+            ok, rep = send_fn()
+            if ok and rep is not None and bool(getattr(rep, "data", False)):
+                self.stats["set_pose"] += 1
+                return True
+            ok = False
+            if rep is not None and getattr(rep, "data", None) is False:
+                reason = "服务回了 data=False（实体名找不到？）"
+                break                      # 名字问题重试也没用
+            reason = f"无响应/超时（{self._last_err or '未知'}）"
+            if i + 1 < n:
+                self._log(f"⚠ set_pose(`{name}`) 第 {i + 1} 次失败（{reason}）⇒ 重试…")
+                time.sleep(0.15)
+        self.stats["failed"] += 1
+        if not self._warned:
+            self._warned = True
+            self._log(f"⚠ set_pose 失败：{reason}"
+                      f" ⇒ 请确认仿真在跑、世界名是 '{self.world}'"
+                      f"（当前启动命令见 README §1）")
+        return False
 
     # ------------------------------------------------------------ 场景元素
     def set_rtf(self, factor: float) -> bool:
@@ -677,18 +884,26 @@ class GzScene:
         return ok
 
     def marker_delete(self, ns: str, mid: int = 0) -> bool:
-        """删掉某个 marker（按 ns+id）。"""
+        """删掉**某个 ns 下的全部** marker（按 `DELETE_ALL`）。
+
+        ⚠ 原名/文档写的是"按 ns+id 删单个"，但实现一直是 `DELETE_ALL`
+          （2026-10-17 审查发现文档与行为不符）。这里保留 `DELETE_ALL` 行为
+          —— 回放开场要清的就是整条轨迹/整串无人机标记，
+          但**把文档改对**，`mid` 仅作兼容保留，不参与过滤。
+        """
         m = marker_pb2.Marker()
         m.ns = ns
         m.id = int(mid)
-        # DELETE_MARKER=1（删单个）；DELETE_ALL=2（删该 ns 全部）
+        # DELETE_ALL：删该 ns 下全部。gz 的 DELETE_MARKER(1) 只删单个 id，
+        # 而回放里一条轨迹/一串标记会用多个 id ⇒ 必须用 DELETE_ALL。
         m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action",
                                  MARKER_ACTION_DELETE_ALL)
         ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
         return ok
 
     # ------------------------------------------- 幂等"确保存在"（绝不先删）
-    def _ensure(self, name: str, sdf: str, pose, tol: float = 0.10) -> bool:
+    def _ensure(self, name: str, sdf: str, pose, tol: float = 0.10,
+                recreate_if_stuck: bool = False) -> bool:
         """★ **幂等**：已存在就复用，不存在才创建；**绝不"先删后建"**。
 
         为什么必须这样（2026-10-17 用户实测"起飞后球和发射塔又没有了"）：
@@ -711,13 +926,41 @@ class GzScene:
                 self._log(f"   ✓ `{name}` 已存在（drift={drift:.2f} m）⇒ 复用，未重建")
                 return True
             # 存在但位置不对 ⇒ 只移动，**不删**
-            ok = self._do_set_pose(name, pose)
+            #   ★ 用长超时 + 重试（开场第一次请求要多花时间做发现，见 SET_POSE_TIMEOUT_MS）
+            ok = self._do_set_pose(name, pose, timeout_ms=SET_POSE_TIMEOUT_MS,
+                                   retries=1)
             self.stats["reused"] = self.stats.get("reused", 0) + 1
             self._log(f"   ✓ `{name}` 已存在但偏了 {drift:.2f} m ⇒ **只移动**"
                       f"（不重建）{'成功' if ok else '⚠ 移动失败'}")
-            return ok
+            if ok:
+                return True
+            # ★★ 移动失败 + 偏得离谱 ⇒ **重建**（2026-10-17 实跑新增）
+            #   实测场景：`--check` 把弹丸搬到原点、上一轮的发射架停在旧发射点，
+            #   而 set_pose 又超时 ⇒ 实体留在**错误位置**，画面上"模型在但位置不对"，
+            #   比"模型消失"更难判断。
+            #   ⚠ 只有调用方明确允许时才重建（`recreate_if_stuck=True`），且**只在
+            #     地面段调用**（节点在 PRECHECK 里摆场景）⇒ 删了再建失败也不会影响飞行。
+            #     回放里的"无人机替身"**不**走这条路（它本来就每帧在动）。
+            if recreate_if_stuck:
+                self._log(f"   ⇒ 移动失败且偏了 {drift:.2f} m ⇒ **重建**"
+                          f"（此刻在地面，安全；重建失败的话模型会消失，日志会说明）")
+                return self._create(name, sdf, pose, pre_remove=True)
+            return False
         # 不存在 ⇒ 创建（pre_remove=False：既然不存在，没必要再删一次）
-        return self._create(name, sdf, pose, pre_remove=False)
+        ok = self._create(name, sdf, pose, pre_remove=False)
+        if not ok:
+            # ★ 2026-10-17 审查：`snapshot_positions` 读不到（仿真刚起 / 话题还没发）
+            #   时 `_snap` 是空字典 ⇒ 这里会走"创建"，而实体其实**已经存在**
+            #   ⇒ create 因重名失败，日志报"创建失败"，但模型好好的在场上。
+            #   用一次 set_pose 做**探针**：能推动 ⇒ 实体确实存在，按"已就位"处理。
+            #   （set_pose 打到不存在的名字会返回 False，所以这个探针是可靠的）
+            if self._do_set_pose(name, pose):
+                self._created.add(name)
+                self.stats["reused"] = self.stats.get("reused", 0) + 1
+                self._log(f"   ✓ `{name}` 创建报错但 set_pose 成功 ⇒ "
+                          f"判定为**已存在**（按已就位处理，未重建）")
+                return True
+        return ok
 
     def refresh_snapshot(self, timeout: float = 1.5) -> dict:
         """刷新"世界真实状态"缓存（供 `_ensure` 判断"已存在否"）。
@@ -737,12 +980,13 @@ class GzScene:
                      center=(0.0, 0.0)) -> bool:
         """**确保**防御塔存在（幂等）。塔底贴地 ⇒ 圆柱几何中心在 (cx, cy, height/2)。"""
         pose = (center[0], center[1], height * 0.5)
-        return self._ensure(TOWER_NAME, tower_sdf(TOWER_NAME, radius, height), pose)
+        return self._ensure(TOWER_NAME, tower_sdf(TOWER_NAME, radius, height), pose,
+                            recreate_if_stuck=True)
 
     def ensure_launcher(self, p=(0.0, 0.0, 0.0), size: float = 0.6) -> bool:
         """**确保**敌方发射架存在（幂等）。"""
         return self._ensure(LAUNCHER_NAME, launcher_sdf(LAUNCHER_NAME, size),
-                            (p[0], p[1], size * 0.5))
+                            (p[0], p[1], size * 0.5), recreate_if_stuck=True)
 
     def ensure_projectile(self, radius: float = 0.06, at=None) -> bool:
         """**确保**弹丸存在（幂等；已存在就只移动，不重建）。
@@ -762,7 +1006,8 @@ class GzScene:
                                                         float(at[2]))
         return self._ensure(PROJECTILE_NAME,
                             projectile_sdf(PROJECTILE_NAME, radius), pose,
-                            tol=0.30)     # 球常被 park/飞行移动过，容差放宽
+                            tol=0.30,      # 球常被 park/飞行移动过，容差放宽
+                            recreate_if_stuck=True)
 
     def hide_projectile(self) -> None:
         """把弹丸移出视野（等价于"消失"），命中/脱靶后调用。"""
@@ -879,7 +1124,10 @@ class GzScene:
         m = marker_pb2.Marker()
         m.ns = TRAIL_NS
         m.id = 0
-        m.action = marker_pb2.Marker.DELETE_ALL
+        # ⚠ 原来这里直接写 `marker_pb2.Marker.DELETE_ALL`（绕过 _resolve_enum）
+        #   ⇒ 换 gz-msgs 版本时不会给出"可用名列表"的友好报错，只会 AttributeError。
+        m.action = _resolve_enum(marker_pb2.Marker, "Marker.Action",
+                                 MARKER_ACTION_DELETE_ALL)
         self._req(SVC_MARKER, m, boolean_pb2.Boolean)
 
     # -------------------------------------------------------- 后台同步线程
@@ -997,12 +1245,27 @@ def draw_from_json_file(path: str, world: str = DEFAULT_WORLD,
        "hide": true}                     # 可选
     """
     import json
+    import os
     try:
         with open(path, encoding="utf-8") as f:
             job = json.load(f)
     except Exception as e:                                  # noqa: BLE001
         print(f"⚠ 读绘制任务失败（{e}）", file=sys.stderr)
         return 1
+    try:
+        return _draw_job(job, world, verbose)
+    finally:
+        # ★ 任务文件是本进程的**一次性输入**（回放任务除外，用户要能手动重放），
+        #   原来从不删除 ⇒ %TEMP% 里每跑一轮就多两个 json（还带完整轨迹）。
+        if job.get("delete_job"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _draw_job(job: dict, world: str, verbose: bool) -> int:
+    """`draw_from_json_file` 的实际绘制部分（拆出来才能用 finally 兜清理）。"""
     world = job.get("world") or world
     scene = GzScene(world=world, timeout_ms=800, verbose=verbose)
     if not scene.available:
@@ -1038,6 +1301,8 @@ def draw_from_json_file(path: str, world: str = DEFAULT_WORLD,
     except Exception as e:                                  # noqa: BLE001
         print(f"⚠ 子进程绘制异常（{e}）", file=sys.stderr)
         return 1
+    finally:
+        scene.close()          # 本函数没起后台线程，关一下（幂等、无副作用）
     return 0
 
 
@@ -1126,6 +1391,7 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
 
         # ---- ③ 摆静态参照：轨迹 + 命中点 ----
         n_beads_p = n_beads_u = 0
+        uav_ball_ok = False        # 无 marker 时"无人机替身"是否建好
         if use_marker:
             if len(proj) >= 2:
                 scene.draw_trail(proj, ns=PROJ_TRAIL_NS, width=0.05,
@@ -1146,6 +1412,16 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
                                                radius=0.09, color=UAV_COLOR)
             if hit:
                 scene.ensure_hit_bead(hit, radius=0.22)
+            # ★★ 2026-10-17 审查：没有 marker 时，"无人机当前位置"原来**完全没有**
+            #   —— `marker_move()` 会静默失败，画面上只有弹丸在飞，
+            #   而控制台还写着"绿 小球 = 无人机重放位置" ⇒ 用户以为回放又坏了。
+            #   ⇒ 用一个可移动实体当替身，逐帧 set_pose（同样只依赖 create+set_pose）。
+            if uav:
+                scene.refresh_snapshot(timeout=1.0)
+                if scene._ensure(UAV_BALL_NAME,
+                                 movable_ball_sdf(UAV_BALL_NAME, 0.35, UAV_COLOR),
+                                 (uav[0][0], uav[0][1], uav[0][2]), tol=0.50):
+                    uav_ball_ok = True
 
         if verbose:
             if use_marker:
@@ -1157,6 +1433,7 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
                 print(f"     弹丸轨迹 {n_beads_p} 颗珠子 / 无人机轨迹 {n_beads_u} 颗珠子"
                       f"{' / 命中点 1 颗黄球' if hit else ''}")
                 print("     视觉差别：轨迹是**虚线**（不是连续线），其余一样")
+                print(f"     无人机替身：{'✅ 已创建实体（绿色小球会跟着动）' if uav_ball_ok else '⚠ 没建出来，只有弹丸会动'}")
                 if n_beads_p == 0 and n_beads_u == 0:
                     print("  ⚠⚠ 连珠子都没建出来（create 也失败了）⇒ 跑 "
                           "`python3 gz_scene_sync.py --check` 自查")
@@ -1188,8 +1465,12 @@ def replay_from_json_file(path: str, world: str = DEFAULT_WORLD,
             if pp is not None:
                 scene._do_set_pose(PROJECTILE_NAME, pp)
             if pu is not None:
-                scene.marker_move(pu, ns=UAV_REPLAY_NS, mid=UAV_REPLAY_ID,
-                                  size=0.35, color=(0.20, 0.95, 0.35))
+                if use_marker:
+                    scene.marker_move(pu, ns=UAV_REPLAY_NS, mid=UAV_REPLAY_ID,
+                                      size=0.35, color=(0.20, 0.95, 0.35))
+                elif uav_ball_ok:
+                    # ★ 降级路径：无人机替身实体逐帧移动（原来这里什么都不做）
+                    scene._do_set_pose(UAV_BALL_NAME, pu)
             if verbose and near_idx is not None and i == near_idx:
                 print(f"   ★ 交会帧（进度 {f * 100:.0f}%）—— 停顿 {hold:.1f}s")
             if hold > 0 and near_idx is not None and i == near_idx:
@@ -1235,26 +1516,16 @@ def watch_projectile(seconds: float = 8.0, world: str = DEFAULT_WORLD,
         print("❌ 弹丸创建失败 ⇒ 先跑 --rebuild-scene 看是哪一步挂了")
         return 1
 
-    # 起一个 pose/info 订阅，持续更新"弹丸真实位置"
-    latest = {"p": None}
-    try:
-        from gz.msgs10 import pose_v_pb2
-
-        def _cb(msg):
-            for pz in msg.pose:
-                if pz.name == PROJECTILE_NAME:
-                    latest["p"] = (pz.position.x, pz.position.y, pz.position.z)
-                    return
-
-        scene._node.subscribe(pose_v_pb2.Pose_V,
-                              f"/world/{world}/pose/info", _cb)
-    except Exception as e:                                  # noqa: BLE001
-        print(f"⚠ 订阅 pose/info 失败（{e}）—— 只能看「指令是否发出」，"
-              f"无法读回真实位置")
+    # 用**共享**的 pose/info 订阅持续更新"弹丸真实位置"
+    #   （原来这里再 subscribe 一次 ⇒ 与 snapshot_positions 各留一个永不退订的回调）
+    if scene._ensure_pose_sub() is None:
+        print("⚠ 订阅 /pose/info 失败 —— 只能看「指令是否发出」，"
+              "无法读回真实位置")
     time.sleep(0.5)          # 先收几帧初始状态
 
     n = max(2, int(seconds / 0.4))
     ok_n = 0
+    got_last = None
     print()
     print("=" * 72)
     print("  弹丸移动闭环验证（发 set_pose → 读回真实位置）")
@@ -1263,7 +1534,8 @@ def watch_projectile(seconds: float = 8.0, world: str = DEFAULT_WORLD,
         tgt = (p0[0] + 0.5 * i, p0[1], p0[2] + 0.15 * i)   # 斜向上慢飞
         scene._do_set_pose(PROJECTILE_NAME, tgt)
         time.sleep(0.4)
-        got = latest["p"]
+        got = scene.pose_of(PROJECTILE_NAME)     # 读共享订阅的最新缓存
+        got_last = got if got is not None else got_last
         if got is None:
             print(f"  t={i * 0.4:4.1f}s  要 ({tgt[0]:+6.2f},{tgt[1]:+6.2f},"
                   f"{tgt[2]:+6.2f})  实际 读不到位置  ⚠")
@@ -1275,7 +1547,7 @@ def watch_projectile(seconds: float = 8.0, world: str = DEFAULT_WORLD,
               f"{tgt[2]:+6.2f})  实际 ({got[0]:+6.2f},{got[1]:+6.2f},"
               f"{got[2]:+6.2f})  误差 {err:4.2f} m  {'✅' if good else '❌'}")
     print("-" * 72)
-    if latest["p"] is None:
+    if got_last is None:
         print("  ⚠ 全程读不到弹丸位置 ⇒ /pose/info 里没有 enemy_dart")
         print("    ⇒ 球可能压根没加载（跑 --rebuild-scene / --list-entities 确认）")
         rc = 1
@@ -1391,41 +1663,25 @@ def list_entities(world: str = DEFAULT_WORLD, verbose: bool = True) -> int:
       这时候最需要的是**客观事实**：`enemy_dart` 到底存不存在？在哪？
       `create` 服务返回 True ≠ 模型真的被加载了（可能是 SDF 解析失败但被 accept）。
 
-    实现：直接读 `/world/<world>/state` 这个 topic 的**一次性采样**
-    （用 gz.transport 订阅，收第一条就退订），比逐个 `gz model` 查询更省事。
+    实现：读 `/world/<world>/pose/info`（`gz.msgs.Pose_V`）的一次性快照
+    （共享订阅 + 等一帧新的），比逐个 `gz model` 查询更省事。
     """
-    import json as _json
     scene = GzScene(world=world, timeout_ms=1500, verbose=verbose)
     if not scene.available:
         print("❌ 接不上 Gazebo（见上面的原因）")
         return 1
 
     got = {"names": None, "err": None}
-
-    def _cb(msg):
-        if got["names"] is not None:
-            return
-        try:
-            items = []
-            for pz in msg.pose:
-                items.append((pz.name,
-                              (pz.position.x, pz.position.y, pz.position.z)))
-            got["names"] = items
-        except Exception as e:                             # noqa: BLE001
-            got["err"] = e
-
     try:
         # ★ 用 `/world/<world>/pose/info`（`gz.msgs.Pose_V`）—— 一条消息就带**所有实体**
         #   的 name + position。
-        #   ⚠ 别用 `/world/<world>/stats`（`WorldStatistics`）：它只有 `model_count`
+        #   ⚠ 别用 `/world/<world>/stats`（WorldStatistics）：它只有 `model_count`
         #     （数量），**没有模型名列表** —— 我第一版就写错了。
-        from gz.msgs10 import pose_v_pb2
-        node = scene._node
-        node.subscribe(pose_v_pb2.Pose_V, f"/world/{world}/pose/info", _cb)
-        for _ in range(80):                    # 最多等 4 s（pose/info 通常 ~几十 Hz）
-            if got["names"] is not None:
-                break
-            time.sleep(0.05)
+        # ★ 2026-10-17 审查：复用 `snapshot_positions` 的**共享**订阅（原来在这里
+        #   再 subscribe 一个永不退订的回调；dict 保序，所以打印顺序不变）。
+        snap = scene.snapshot_positions(timeout=4.0)
+        if snap:
+            got["names"] = list(snap.items())
     except Exception as e:                                  # noqa: BLE001
         got["err"] = e
 
@@ -1588,6 +1844,8 @@ def run_check(world: str = DEFAULT_WORLD, verbose: bool = True) -> int:
         print("   另外：这些服务名依赖 gz-sim 8（Harmonic），可用 `gz service -l` 核对。")
     else:
         print("  ✅ 全部可用 —— 可视化链路没问题。")
+    print("  ℹ 本自检只发**虚构实体名**（`%s`）的探针请求，"
+          "不会移动 / 创建任何真实模型。" % PROBE_POSE_NAME)
     print()
     return 0 if all_ok else 1
 

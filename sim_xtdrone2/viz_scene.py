@@ -115,7 +115,12 @@ def nominal_projectile(L, sc, dt=0.005):
 
 
 def read_traj(path):
-    """读仿真导出的 CSV → dict of np.ndarray。"""
+    """读仿真导出的 CSV → dict of np.ndarray。
+
+    ⚠ 2026-10-17 审查：原来对非 `phase` 列一律 `float(x)`
+      ⇒ 只要某列出现空串（制导前 `t_go/lam_dot/Vc` 本来就是 nan/空）就 ValueError，
+        整个出图流程直接死。这里改成"解析不了就记 NaN"，不中断。
+    """
     cols = {}
     with open(path, newline="", encoding="utf-8") as fp:
         rd = csv.DictReader(fp)
@@ -128,8 +133,14 @@ def read_traj(path):
     for k, v in cols.items():
         if k == "phase":
             out[k] = np.array(v, dtype=object)
-        else:
-            out[k] = np.array([float(x) for x in v], dtype=float)
+            continue
+        vals = []
+        for x in v:
+            try:
+                vals.append(float(x))
+            except (TypeError, ValueError):
+                vals.append(float("nan"))
+        out[k] = np.array(vals, dtype=float)
     return out
 
 
@@ -519,7 +530,17 @@ def fig_anim(scene, law, res, tr, nom_pts, out_path, fps=20):
         return
     tower, fld = scene.tower, scene.field_
     n = len(tr["t"])
-    step = max(1, int(round((1.0 / fps) / (tr["t"][1] - tr["t"][0]))))
+    # ★ 2026-10-17 审查：原来直接算 `tr["t"][1] - tr["t"][0]`
+    #   ⇒ 只有一个采样点会 IndexError、采样步长为 0 会 ZeroDivisionError，
+    #     而这只是"可选动画"，不该让整个出图流程崩掉。
+    if n < 2:
+        print("  ! 轨迹采样点太少（<2），跳过动画")
+        return
+    dt_csv = float(tr["t"][1] - tr["t"][0])
+    if not (dt_csv > 0.0):
+        print(f"  ! 轨迹时间步长异常（{dt_csv}），跳过动画")
+        return
+    step = max(1, int(round((1.0 / fps) / dt_csv)))
 
     fig = plt.figure(figsize=(13.5, 6.2))
     # 左：俯视；右：侧视
@@ -577,8 +598,12 @@ def fig_anim(scene, law, res, tr, nom_pts, out_path, fps=20):
                  f"（脱靶 {res['min_R']:.3f} m）", fontsize=13, fontweight="bold")
     frames = list(range(0, n, step))
     ani = FuncAnimation(fig, upd, frames=frames, interval=1000 / fps, blit=False)
-    ani.save(out_path, writer=PillowWriter(fps=fps))
-    plt.close(fig)
+    # ★ 2026-10-17 审查：`ani.save` 抛异常时 `plt.close(fig)` 不会执行
+    #   ⇒ 每失败一次泄漏一个 figure（matplotlib 会一直攒着，长时间批量跑就爆内存）。
+    try:
+        ani.save(out_path, writer=PillowWriter(fps=fps))
+    finally:
+        plt.close(fig)
     print(f"  ✓ {out_path}")
 
 

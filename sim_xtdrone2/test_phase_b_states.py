@@ -728,6 +728,12 @@ def main():
         def start(self):
             return self
 
+        def warmup(self, timeout_ms=3000):
+            return True
+
+        def warmup(self, timeout_ms=3000):
+            return True
+
         def ensure_tower(self, *a, **k):
             return True
 
@@ -1473,13 +1479,16 @@ def main():
     check(len(ng.loop_gaps) == 1,
           f"0.5 s 空洞被检出（实际 {len(ng.loop_gaps)} 条）")
     if ng.loop_gaps:
-        tw, gp, st, sdt = ng.loop_gaps[0]
+        tw, gp, st, sdt, duty = ng.loop_gaps[0]
         check(abs(gp - 0.52) < 0.03,
               f"空洞时长记录正确（{gp:.3f}s；0.5 s 人为空洞 + 上一拍残留 0.02 s）")
         check(st == ng.state, f"空洞状态记录正确（{st}）")
         # ★ 空洞里还要记"仿真推进了多少"（解释位置跳变的关键）
         check(sdt is not None and sdt >= 0.0,
               f"空洞记录了仿真时间推进量（{sdt}s）")
+        # ★ 2026-10-17 新增：必须标记"这段是否需要发 setpoint"
+        check(duty is True,
+              f"GUIDED 段的空洞被标成『飞行段』（{duty}）—— 这才是真事故")
     check(abs(ng.loop_gap_max - 0.52) < 0.03,
           f"最大间隔已更新（{ng.loop_gap_max:.3f}s）")
     check(any("控制回路空洞" in m for _, m in ng.logger.lines),
@@ -1490,7 +1499,49 @@ def main():
     check(len(ng.loop_gaps) == 2, f"第二次空洞也被记录（{len(ng.loop_gaps)} 条）")
     check(abs(ng.loop_gap_max - 1.0) < 0.02,
           f"最大间隔更新到 1.0 s（{ng.loop_gap_max:.3f}s）")
+    # ★ 飞行段空洞要计入"会影响飞行"的统计
+    check(ng.loop_gap_flight_max >= 1.0,
+          f"飞行段最大间隔被单独统计（{ng.loop_gap_flight_max:.3f}s）")
     ng.close()
+
+    # ------------------------------------------------------------- 用例 13.5
+    print()
+    print("=" * 74)
+    print("用例 13.5：地面段空洞**不得**被当成 offboard 失联（v30 实跑误报）")
+    print("=" * 74)
+    # 实跑日志（v30 第一轮）：把 gz_setup 挪到 ARM 之前后，开场出现
+    #   ⚠ 控制回路空洞 2028 ms（t_wall=2.106s, state=ARM）
+    #   ⚠⚠ 空洞 ≥ 0.6s：PX4 的 offboard 失联超时**很可能已触发** ⇒ 自由落体
+    # 但当时飞机还在地上、PX4 根本没进 offboard ⇒ 起飞完全正常（倾角 0.9°）。
+    # ⇒ 空洞必须按"是否在 offboard 义务期"分级。
+    ngg = new_node(lib, csv=os.path.join(tempfile.gettempdir(), "sm_gap_ground.csv"),
+                   no_report=False, report_hz=10.0)
+    fgg = FakePX4(ngg)
+    ngg.state = "ARM"                      # 地面上、还没起飞
+    ngg.tick()
+    VT[0] += 2.028                          # 模拟开场 2028 ms 阻塞（实测值）
+    ngg.tick()
+    check(len(ngg.loop_gaps) == 1, f"地面段空洞被记录（{len(ngg.loop_gaps)} 条）")
+    if ngg.loop_gaps:
+        check(ngg.loop_gaps[0][4] is False,
+              f"标成『地面段』而非飞行段（{ngg.loop_gaps[0][4]}）")
+    check(ngg.loop_gap_flight_max == 0.0,
+          f"不计入飞行段最大间隔（{ngg.loop_gap_flight_max}）—— 不污染判据")
+    txt_g = "\n".join(m for _, m in ngg.logger.lines)
+    check("不需要发 setpoint" in txt_g,
+          "明确解释『此刻还不需要发 setpoint ⇒ 不会 offboard 失联』")
+    check("自由落体" not in txt_g,
+          "**不再**喊『很可能已触发 offboard 失联 ⇒ 自由落体』（误报已消除）")
+    buf_g = _io.StringIO()
+    with _ctx.redirect_stdout(buf_g):
+        ngg.print_report()
+    rp_g = buf_g.getvalue()
+    check("飞行段(offboard 义务期)最大间隔" not in rp_g,
+          "报告里不出现『飞行段有空洞』（地面段空洞不进这个指标）")
+    check("地面段(无害)" in rp_g,
+          "报告条目明确标注『地面段(无害)』")
+    check("地面段 1" in rp_g, "报告按『飞行段/地面段』分开计数")
+    ngg.close()
 
     # ---------------------------------------------------------------- 用例 14
     print()
@@ -1859,6 +1910,32 @@ def main():
           f"归位显著减小落点偏差（{dist_on:.2f} vs {dist_off:.2f} m）")
     check(st_on == "DONE" and st_off == "DONE", "两种情况都正常收尾到 DONE")
 
+    # ★ 2026-10-17 实跑：报告里"着陆漂移 6.92 m"和"归位 ✓"同时出现（自相矛盾）
+    #   —— 因为"着陆漂移"是从**收尾起点**算的，而 BRAKE 段包含了"飞回起点"的机动。
+    #   ⇒ 现在拆成两个数：刹车+归位段位移（有意机动） / 着陆漂移（进入 LAND 之后）。
+    _n_r = new_node(lib, **PILOT_KW)
+    _n_r.log = lambda s: None
+    _n_r.warn = lambda s: None
+    _fx_r = FakePX4(_n_r)
+    drive_to_guided(_n_r, _fx_r)
+    for _ in range(4000):
+        step(_n_r, _fx_r, 1)
+        if _n_r.state == "DONE":
+            break
+    if _n_r.land_pos is not None and _n_r.ending_pos is not None:
+        _span = _n_r.return_span()
+        _drift = _n_r.landing_drift()
+        check(_span is not None and _span >= 0.0,
+              f"能单独算出『刹车+归位段位移』（{_span}）")
+        check(_drift is not None and _drift[0] >= 0.0,
+              f"着陆漂移从**进入 LAND** 起算（{_drift[0]:.2f} m）")
+        # 归位 ON 时，两个数不该互相打脸：漂移必须显著小于"归位段位移 + 漂移"
+        if _span > 0.5:
+            check(_drift[0] < _span,
+                  f"着陆漂移({_drift[0]:.2f} m) 明显小于归位段位移({_span:.2f} m)"
+                  f" —— 不再把『有意飞回起点』算进着陆漂移")
+    _n_r.close()
+
     # ★ 关键：归位后落点必须能通过下一轮的 PRECHECK（这才是"不用重启"的判据）
     n2 = new_node(lib, **PILOT_KW)
     n2.log = lambda s: None
@@ -1941,6 +2018,9 @@ def main():
 
         def start(self):
             return self
+
+        def warmup(self, timeout_ms=3000):
+            return True
 
         def refresh_snapshot(self, timeout=1.5):
             self.snap_calls += 1
@@ -2158,8 +2238,9 @@ def main():
     # ② 已存在但位置偏了 ⇒ **只移动，不重建**
     marks = {"posed": None, "created": 0}
 
-    def _sp(name, p, yaw=0.0):
+    def _sp(name, p, yaw=0.0, timeout_ms=None, retries=0):
         marks["posed"] = (name, tuple(p))
+        marks["pose_kw"] = (timeout_ms, retries)
         return True
 
     s2 = _mk_ensure_scene({GZ.PROJECTILE_NAME: (-14.0, 0.0, -500.0)})
@@ -2176,6 +2257,8 @@ def main():
           f"**没有重建**（_create 调用 {marks['created']} 次）")
     check(marks["posed"] is not None and abs(marks["posed"][1][2] - 0.87) < 1e-9,
           f"只做了 set_pose 移到 0.87（实际 {marks['posed']}）")
+    check(marks.get("pose_kw") == (GZ.SET_POSE_TIMEOUT_MS, 1),
+          f"摆场景的 set_pose 用长超时 + 重试 1 次（实际 {marks.get('pose_kw')}）")
 
     # ③ 不存在 ⇒ 才创建（且 pre_remove=False，不再先删）
     calls = {}
@@ -2210,15 +2293,18 @@ def main():
         def start(self):
             return self
 
+        def warmup(self, timeout_ms=3000):
+            return True
+
         def refresh_snapshot(self, timeout=1.5):
             self.snapped += 1
             return dict(self.existing)
 
-        def ensure_tower(self, r, h):
+        def ensure_tower(self, r, h, center=(0.0, 0.0)):
             if GZ.TOWER_NAME in self.existing:
                 return True
             self.created.append(GZ.TOWER_NAME)
-            self.existing[GZ.TOWER_NAME] = (0.0, 0.0, h / 2)
+            self.existing[GZ.TOWER_NAME] = (center[0], center[1], h / 2)
             return True
 
         def ensure_launcher(self, p, size):
@@ -2256,7 +2342,338 @@ def main():
     check(len(second) == 3,
           f"第二次**一样都没新建**（仍是 {len(second)} 次创建：{second}）"
           f"—— 已存在就被复用")
-    check(ig.snapped == 2, f"每次 gz_setup 都先刷新快照（{ig.snapped} 次）")
+    # ★ 2026-10-17 审查后语义变了（更严格）：
+    #   场景改在**解锁之前**摆好（do_precheck），`gz_setup` 加了 `gz_ready` 幂等短路
+    #   ⇒ 第二次调用既不刷新快照、也不发任何服务请求（零开销），
+    #     而不是"再查一遍快照、再逐个 ensure"。
+    #   这一点很关键：SETTLE→CRUISE 那一段每 20 ms 要发一条 offboard setpoint，
+    #   任何服务调用都可能把主回路卡过 COM_OF_LOSS_T ⇒ 自由落体。
+    check(ig.snapped == 1,
+          f"第二次 gz_setup **完全短路**（快照只刷了 {ig.snapped} 次，应为 1）")
+
+    # ---------------------------------------------------------------- 用例 21
+    print()
+    print("=" * 74)
+    print("用例 21：开场 set_pose 首次超时（v30 实跑：2028 ms 空洞 + 发射架/弹丸留在旧位置）")
+    print("=" * 74)
+    # 实跑日志：
+    #   ✓ defense_tower 已存在（复用，没发请求）
+    #   ⚠ set_pose 失败
+    #   ✓ enemy_launcher 已存在但偏了 2.00 m ⇒ 只移动 ⚠ 移动失败
+    #   ✓ enemy_dart     已存在但偏了 14.00 m ⇒ 只移动 ⚠ 移动失败
+    #   ⚠ 控制回路空洞 2028 ms（正好 = 2 × 1000 ms 超时）
+    # 而同一次 run 的 GUIDED 段 30 Hz set_pose 全部成功（15 次）。
+    # ⇒ 根因：**进程内第一条服务请求要做发现/握手**，1 s 不够。
+    # ⇒ 修法：warmup() 预热 + SET_POSE_TIMEOUT_MS(3000) + 摆场景时重试 1 次。
+    check(GZ.SET_POSE_TIMEOUT_MS >= 2000,
+          f"set_pose 超时 ≥ 2000 ms（实际 {GZ.SET_POSE_TIMEOUT_MS}）—— 远大于旧的 1000")
+    check(GZ.SET_POSE_TIMEOUT_MS < GZ.CREATE_TIMEOUT_MS * 3,
+          "set_pose 超时没夸张到和建实体一样（避免失败时把主回路卡太久）")
+
+    class _SlowPose:
+        """模拟"第一次 set_pose 超时、之后正常"的 gz 后端。
+
+        ⚠ 只桩 `_set_pose_with_retry` 之外的**发送**部分（send_fn），
+          判定/重试用的是**真实代码** —— 这样测的才是会被踩到的逻辑。
+        """
+        available = True
+        world = "walls"
+        _log = lambda self, s: None
+        _last_err = None
+        _warned = True
+        _set_pose_with_retry = GZ.GzScene._set_pose_with_retry
+
+        class _Rep:
+            def __init__(self, data):
+                self.data = data
+
+        def __init__(self, fail_n=1, data_false=False):
+            self.calls = 0
+            self.fail_n = fail_n
+            self.data_false = data_false
+            self.stats = {"set_pose": 0, "failed": 0}
+
+        def _send(self):
+            self.calls += 1
+            if self.data_false:
+                return True, self._Rep(False)
+            if self.calls <= self.fail_n:
+                return False, None            # 超时
+            return True, self._Rep(True)
+
+    sp = _SlowPose(fail_n=1)
+    ok = sp._set_pose_with_retry("enemy_launcher", sp._send, retries=1)
+    check(ok, "第 1 次超时、第 2 次成功 ⇒ 整体成功（**重试生效**）")
+    check(sp.calls == 2, f"确实重试了 1 次（共 {sp.calls} 次）")
+    check(sp.stats["set_pose"] == 1, "成功后计入 set_pose 统计")
+
+    sp2 = _SlowPose(fail_n=99)
+    ok2 = sp2._set_pose_with_retry("enemy_launcher", sp2._send, retries=1)
+    check(not ok2, "全超时 ⇒ 返回 False（不谎报成功）")
+    check(sp2.stats["failed"] >= 1, "失败计入 failed 统计")
+    check(sp2.calls == 2, f"超时**值得**重试（发了 {sp2.calls} 次）")
+
+    # ★ 关键：`ok=True` 但响应体 data=False（实体名找不到）必须算失败
+    sp3 = _SlowPose(data_false=True)
+    ok3 = sp3._set_pose_with_retry("no_such_entity", sp3._send, retries=1)
+    check(not ok3, "响应体 data=False ⇒ **算失败**（旧代码会当成成功）")
+    check(sp3.calls == 1, f"名字问题不浪费重试（只发了 {sp3.calls} 次）")
+
+    # ★ 摆场景必须走"长超时 + 重试"这条路径（否则实跑的 2028 ms 空洞会复现）
+    import inspect as _insp
+    src_pos = _insp.getsource(GZ.GzScene._do_set_pose)
+    check("_set_pose_with_retry" in src_pos,
+          "_do_set_pose 的成败判定走统一内核（data=False 不再算成功）")
+    check("retries" in src_pos, "_do_set_pose 支持重试参数")
+
+    # 预热：给不存在的名字发一次长超时请求，只看"有没有响应"
+    class _Warm:
+        available = True
+        world = "walls"
+        _log = lambda self, s: None
+        warmup = GZ.GzScene.warmup
+
+        def __init__(self, ok=True, captured=None):
+            self.ok = ok
+            self.captured = captured if captured is not None else []
+
+        def _warmup_send(self, timeout_ms):
+            self.captured.append(timeout_ms)
+            return self.ok, None
+
+    wm = _Warm(ok=True)
+    check(wm.warmup() is True, "预热：服务有响应 ⇒ True")
+    check(wm.captured and wm.captured[0] >= 2000,
+          f"预热用长超时（{wm.captured} ms）—— 第一条请求要多花时间做发现")
+    wm2 = _Warm(ok=False)
+    check(wm2.warmup() is False, "预热：无响应 ⇒ False（调用方继续尝试，不崩）")
+    check(GZ.PROBE_POSE_NAME != GZ.PROJECTILE_NAME
+          and GZ.PROBE_POSE_NAME != GZ.TOWER_NAME
+          and GZ.PROBE_POSE_NAME != GZ.LAUNCHER_NAME,
+          f"预热/探针用的是虚构名 `{GZ.PROBE_POSE_NAME}` ⇒ 不会动任何真实体")
+
+    # 节点侧：gz_setup 必须先 warmup 再摆实体
+    class _WarmGz(_IdemGz):
+        def __init__(self):
+            super().__init__()
+            self.order = []
+
+        def warmup(self, timeout_ms=3000):
+            self.order.append("warmup")
+            return True
+
+        def refresh_snapshot(self, timeout=1.5):
+            self.order.append("snapshot")
+            return super().refresh_snapshot(timeout)
+
+        def ensure_tower(self, r, h, center=(0.0, 0.0)):
+            self.order.append("tower")
+            return super().ensure_tower(r, h, center)
+
+    wg = _WarmGz()
+    n_w = new_node(lib, **PILOT_KW)
+    n_w.log = lambda s: None
+    n_w.warn = lambda s: None
+    n_w.gz = wg
+    n_w.gz_setup()
+    n_w.close()
+    check(wg.order[:2] == ["warmup", "snapshot"],
+          f"gz_setup 先预热再读快照（实际 {wg.order[:3]}）—— 第一条请求才不会超时")
+
+    # ---------------------------------------------------------------- 用例 22
+    print()
+    print("=" * 74)
+    print("用例 22：`--check` 必须**只读**（v30 实跑：它把弹丸搬到了原点）")
+    print("=" * 74)
+    # 实跑后果：`--check` 之后弹丸位于 (0,0,0)（世界原点、塔基里），
+    # 于是飞行时读到 `drift=14.00 m`，而 set_pose 又超时 ⇒ 球留在塔里。
+    # ⚠ 本机没有 gz-msgs ⇒ 用"假 protobuf"跑**真** `probe_services` 代码路径
+    #   （既能验名字，也能验不改位置）。
+    def _install_fake_protos(GZ, pose_log, rep_data=False):
+        class _Vec:
+            def __init__(self):
+                self.x = self.y = self.z = 0.0
+
+        class _Quat:
+            def __init__(self):
+                self.x = self.y = self.z = 0.0
+                self.w = 0.0
+
+        class _Pose:
+            def __init__(self):
+                self.name = ""
+                self.position = _Vec()
+                self.orientation = _Quat()
+                pose_log.append(self)
+
+        class _EF:
+            def __init__(self):
+                self.sdf = self.name = ""
+                self.pose = _Pose()
+                self.allow_renaming = False
+
+        class _Marker:
+            ADD_MODIFY = 0
+            DELETE_ALL = 2
+            DELETE_MARKER = 1
+            LINE_STRIP = 3
+            SPHERE = 6
+
+            def __init__(self):
+                self.ns = ""
+                self.id = 0
+                self.action = 0
+                self.type = 0
+
+        class _Entity:
+            class Type:
+                MODEL = 2
+
+            def __init__(self):
+                self.name = ""
+                self.type = 0
+
+        class _Boolean:
+            def __init__(self):
+                self.data = rep_data
+
+        GZ.pose_pb2 = types.SimpleNamespace(Pose=_Pose)
+        GZ.entity_factory_pb2 = types.SimpleNamespace(EntityFactory=_EF)
+        GZ.marker_pb2 = types.SimpleNamespace(Marker=_Marker)
+        GZ.entity_pb2 = types.SimpleNamespace(Entity=_Entity)
+        GZ.boolean_pb2 = types.SimpleNamespace(Boolean=_Boolean)
+        return _Boolean
+
+    class _ProbeSpy:
+        _probe_pose_req = GZ.GzScene._probe_pose_req   # 用真实现（只发虚构名）
+
+        def __init__(self):
+            self.sent = []
+
+        def _req(self, svc, msg, rep_type, timeout_ms=None):
+            pos = getattr(msg, "position", None)
+            self.sent.append((svc, getattr(msg, "name", ""),
+                              None if pos is None else (pos.x, pos.y, pos.z),
+                              timeout_ms))
+            return True, rep_type()          # 收到响应（data=False）
+    pose_log = []
+    ps = _ProbeSpy()
+    ps.available = True
+    ps.world = "walls"
+    ps._log = lambda s: None
+    ps._svc_create = "/world/walls/create"
+    ps._svc_set_pose = "/world/walls/set_pose"
+    ps._svc_remove = "/world/walls/remove"
+    ps.marker_available = lambda: False
+    ps.probe_services = GZ.GzScene.probe_services.__get__(ps, _ProbeSpy)
+    _install_fake_protos(GZ, pose_log)
+    res = ps.probe_services()
+    check(res["set_pose"][0] is True, f"set_pose 服务可达 ⇒ ✅（{res['set_pose']}）")
+    pose_sends = [s for s in ps.sent if s[0].endswith("set_pose")]
+    check(len(pose_sends) == 1, f"只发了一次 set_pose 探针（{len(pose_sends)} 次）")
+    if pose_sends:
+        nm, pos, _tmo = pose_sends[0][1], pose_sends[0][2], pose_sends[0][3]
+        check(nm == GZ.PROBE_POSE_NAME,
+              f"探针用**虚构名** `{nm}` ⇒ 绝不碰真弹丸（旧代码用的是 enemy_dart）")
+        check(pos == (0.0, 0.0, 0.0) and nm != GZ.PROJECTILE_NAME,
+              "虚构名 + 原点也不会有副作用（该名字不存在）")
+    check(pose_sends and pose_sends[0][3] >= 2000,
+          f"探针用长超时（{pose_sends[0][3] if pose_sends else None} ms）"
+          f"—— 否则首条请求会被误判成『服务不可用』")
+    # 名字层面兜底：模块常量必须与三个真实体不同
+    check(all(GZ.PROBE_POSE_NAME != n for n in
+              (GZ.TOWER_NAME, GZ.LAUNCHER_NAME, GZ.PROJECTILE_NAME)),
+          "`PROBE_POSE_NAME` 与塔/发射架/弹丸都不同名")
+    # 源码层面兜底：probe_services 里不得再出现 PROJECTILE_NAME 作为探针目标
+    import inspect as _insp
+    src_probe = _insp.getsource(GZ.GzScene.probe_services)
+    check("name = PROJECTILE_NAME" not in src_probe,
+          "probe_services 里不再把真弹丸当探针目标")
+
+    # ---------------------------------------------------------------- 用例 23
+    print()
+    print("=" * 74)
+    print("用例 23：飞行段最低离地高度（不要把地面待机算成『贴地』）")
+    print("=" * 74)
+    n_m = new_node(lib, **PILOT_KW)
+    n_m.log = lambda s: None
+    n_m.warn = lambda s: None
+    fx_m = FakePX4(n_m)
+    n_m.state = "PRECHECK"
+    step(n_m, fx_m, 3)                       # 还在地上（0.1 m 量级）
+    check(n_m.min_alt is None,
+          f"地面段不统计最低离地（实际 {n_m.min_alt}）—— 否则报告里全是 0.06 m 噪声")
+    n_m.state = "CRUISE"
+    n_m.cruise_t0 = T0 = n_m.t_state if getattr(n_m, "t_state", None) else 0.0
+    fx_m.p = [0.0, 0.0, 8.0]
+    fx_m.sync()
+    step(n_m, fx_m, 2)
+    check(n_m.min_alt is not None and abs(n_m.min_alt - 8.0) < 0.2,
+          f"飞行段开始统计（{n_m.min_alt:.2f} m）")
+    n_m.close()
+
+    # ---------------------------------------------------------------- 用例 24
+    print()
+    print("=" * 74)
+    print("用例 24：PRECHECK 等 `/odometry`（实跑 `[0/6] 姿态=?` ⇒ 姿态检查被静默跳过）")
+    print("=" * 74)
+    # 实跑日志第一行就是 `[0/6] 起飞前自检：... 姿态=?` —— 第一轮 PRECHECK 时
+    # `/odometry` 还没到，`att is None` ⇒ **姿态那一项检查根本没执行**，
+    # 而它正是"上一轮没退干净、机体歪着"的唯一拦口。
+    # ⇒ 修法：若唯一缺的证据就是姿态，且还在地面 ⇒ 先放一放（**不 sleep**，
+    #   下一拍再判），最多 PRECHECK_ODOM_GRACE 秒；等不到就带告警继续。
+    def _mk_no_odom():
+        n = new_node(lib)
+        ws, lg = [], []
+        n.log = lambda s: lg.append(s)
+        n.warn = lambda s: ws.append(s)
+        fx = FakePX4(n, p_enu=(0.10, 0.05, 0.04))
+        fx.sync()
+        n.arming_state = 1
+        n.nav_state = 4
+        n.odom = None
+        return n, fx, ws, lg
+
+    n_o, fx_o, ws_o, lg_o = _mk_no_odom()
+    step(n_o, fx_o, 1)
+    check(n_o.state == "PRECHECK",
+          f"没有 odom 时**先不判通过**（当前 {n_o.state}）—— 否则姿态检查等于没做")
+    check(any("等 `/odometry`" in s for s in lg_o),
+          f"日志说明在等 odom（log {len(lg_o)} 条）")
+    check(not any("自检通过" in s for s in lg_o), "还没宣布『自检通过』")
+    # odom 到了 ⇒ 立刻判通过
+    n_o.odom = types.SimpleNamespace(pose=types.SimpleNamespace(
+        pose=types.SimpleNamespace(
+            position=types.SimpleNamespace(x=0.0, y=0.0, z=0.0),
+            orientation=types.SimpleNamespace(w=1.0, x=0.0, y=0.0, z=0.0))))
+    step(n_o, fx_o, 1)
+    check(n_o.state == "ARM", f"odom 到了 ⇒ 正常放行（当前 {n_o.state}）")
+    n_o.close()
+
+    # 一直等不到 ⇒ 过了宽限就带告警继续（不能因为 odom 没来就永远不飞）
+    n_o2, fx_o2, ws_o2, lg_o2 = _mk_no_odom()
+    step(n_o2, fx_o2, 1)
+    VT[0] += M.PRECHECK_ODOM_GRACE + 0.5
+    step(n_o2, fx_o2, 1)
+    check(n_o2.state == "ARM",
+          f"超过 {M.PRECHECK_ODOM_GRACE:.0f}s 仍无 odom ⇒ 带告警继续（当前 {n_o2.state}）")
+    check(any("姿态检查跳过" in w for w in ws_o2),
+          "明确告警『姿态检查跳过』（不静默）")
+    n_o2.close()
+
+    # odom 晚到但**离原点太远** ⇒ 不等，立刻拒绝（fatal 优先，不能拖时间）
+    n_o3, fx_o3, ws_o3, lg_o3 = _mk_no_odom()
+    fx_o3.p = [0.0, 0.0, 0.04]
+    fx_o3.sync()
+    n_o3.pos.x = 9.0                     # NED x=北 ⇒ ENU y=9 ⇒ 离原点 9 m
+    fx_o3.sync = lambda: None
+    n_o3.pos = types.SimpleNamespace(x=9.0, y=0.0, z=-0.04,
+                                     vx=0.0, vy=0.0, vz=0.0, timestamp=0,
+                                     heading=0.0)
+    step(n_o3, fx_o3, 1)
+    check(n_o3.refused and n_o3.state == "PRECHECK",
+          f"离原点太远 ⇒ **立刻**拒绝（不等 odom；当前 {n_o3.state}）")
+    n_o3.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

@@ -285,6 +285,23 @@ RTF_MIN_GAP = 0.005
 #  实飞表现就是无人机**自由落体**（实测 6.87 m / 1.15 s、a≈7.8 m/s²）。
 OFFBOARD_LOSS_HINT = 0.60
 
+# ★★ 这些状态里我们**本来就不承担 setpoint 义务**，主回路被阻塞是**无害的**
+#   （2026-10-17 实测：把 `gz_setup` 挪到 ARM 之前后，开场出现过一次 2028 ms 空洞，
+#    但当时 state=ARM、飞机还在地上、PX4 也没进 offboard ⇒ 起飞完全正常
+#    —— 而旧文案照旧喊"很可能已触发 offboard 失联 ⇒ 自由落体"，属于**误报**）。
+#   ⇒ 空洞按"是否在 offboard 义务期"分级：地面段只记录、不喊自由落体，
+#     报告里也分开统计（判"有没有问题"只看飞行段）。
+NO_SETPOINT_STATES = ("PRECHECK", "ARM", "CONFIRM_ARM", "POST_ARM",
+                      "TAKEOFF", "WAIT_HEIGHT")
+
+# ★ 只在这几个状态统计"最低离地高度"：它们本该在 8~10 m 高度飞行，
+#   贴地就说明失去了高度控制。降阶段（LAND/DISARM）本来就该贴地，不算。
+AIRBORNE_AUDIT_STATES = ("SETTLE", "CRUISE", "GUIDED", "BRAKE")
+
+# ★ PRECHECK 等 `/odometry` 的宽限（s）：没有 odom 就没有 roll/pitch，
+#   姿态检查会被静默跳过（实跑 `[0/6] 姿态=?`）。等待是**非阻塞**的（下一拍再判）。
+PRECHECK_ODOM_GRACE = 3.0
+
 # BRAKE 段的"地面安全地板"（m）：刹车过程中若离地低于它，说明已不是"正常刹车"
 # （大概率是失控/遥测跳变）⇒ 立刻放弃横向刹车，转入 LAND 让它软着陆。
 BRAKE_ALT_FLOOR = 1.50
@@ -400,6 +417,20 @@ def parse_vec3(s):
     return tuple(parts)
 
 
+def parse_vec2(s, default=(0.0, 0.0)):
+    """解析 "x,y"（容忍空格/多余分隔符）；解析不了就回退默认值并返回默认。
+
+    ⚠ 故意**不抛异常**：这是可视化参数，写错了不该让整个飞行节点起不来。
+    """
+    try:
+        parts = [float(x) for x in str(s).replace(" ", "").split(",") if x != ""]
+        if len(parts) >= 2:
+            return (parts[0], parts[1])
+    except Exception:                                  # noqa: BLE001
+        pass
+    return tuple(default)
+
+
 # ============================================================================
 #  节点
 # ============================================================================
@@ -455,12 +486,17 @@ class PhaseBGuidance(Node):
         self.gz_uav_trail = []                # 无人机轨迹（ENU，回放用）
         self.gz_proj_pos_sent = 0             # 实际推给 Gazebo 的弹丸位置次数
         self.gz_proj_pos_req = 0              # 请求更新的次数（每帧一次）
+        self.gz_last_p_T = None               # ★ 最后一帧弹丸位置（命中标记用，与 --gz-trail 解耦）
         self.gz_replay_job = None             # 回放任务 JSON 路径（收尾时启动）
         self.gz_setpose_t0 = None             # 制导开始时的 set_pose 计数（算有效帧率）
         self.gz_setpose_t1 = None             # 命中/结束时
         self.gz_flight_secs = None            # 交会段时长（s）
         self.gz_tower_r = 1.2      # 与 scene_model.preset_pilot / 制导讲义一致
         self.gz_tower_h = 3.0
+        # ★ 塔的水平位置（ENU）。默认原点 = 被守护的目标；
+        #   但无人机也从原点起飞 ⇒ 起飞段会穿过塔身（纯视觉）。可在命令行挪开。
+        self.gz_tower_xy = parse_vec2(getattr(args, "gz_tower_xy", "0,0"), (0.0, 0.0))
+        self.gz_ready = False      # ★ 场景是否已摆好（gz_setup 幂等开关）
         # 发射架是边长此值的方块（与 gz_scene_sync.LAUNCHER_SIZE 一致）；
         # **顶面在 z=size**（中心在 size/2）⇒ 弹丸"贴顶面"时用得到
         self.gz_launcher_size = GZ_LAUNCHER_SIZE
@@ -476,6 +512,12 @@ class PhaseBGuidance(Node):
                                   timeout_ms=1000)
             except Exception as e:                      # noqa: BLE001
                 self.warn(f"⚠ 加载 gz_scene_sync 失败（{e}）⇒ 跳过 Gazebo 可视化")
+        # ★ 2026-10-17 审查：`--gz-replay` 只放"轨迹 + 命中点"，而轨迹只有
+        #   `--gz-trail` 才记 ⇒ 两者没同时给时，"回放已启动"但画面空。
+        #   这里提前说清楚（不要等到落地后才发现）。
+        if args.gz_viz and args.gz_replay and not args.gz_trail:
+            self.warn("⚠ --gz-replay 还需要 --gz-trail（否则没有轨迹可放）"
+                      "⇒ 本次回放会被跳过")
 
         # 制导核 I/O 缓冲
         self.gcmd = darr([0.0] * 19)
@@ -514,14 +556,18 @@ class PhaseBGuidance(Node):
         self.loop_gap_max = 0.0                   # 相邻 tick 最大间隔（s）
         self.loop_gap_max_at = None               # 出现时刻（t_wall）
         self.loop_gap_max_state = None            # 出现时的状态
-        self.loop_gaps = []                       # [(t_wall, gap, state, sim_dt), ...]
+        self.loop_gaps = []                       # [(t_wall, gap, state, sim_dt, on_duty), ...]
+        # ★ 只有"飞行段（offboard 义务期）"的空洞才算事故；地面段的无害
+        self.loop_gap_flight_max = 0.0
+        self.loop_gap_flight_total = 0.0
+        self.rtf_stale = 0                        # 被丢弃的"话题陈旧"RTF 样本数
         # ---- ★ 仿真时间基准（PX4 时间戳）----
         #   ★ 为什么要它：实飞里 BRAKE 段出现"0.104 s 墙钟内位置跳 6.87 m"，
         #     光看墙钟会以为是遥测坏了。加上仿真时间才发现那 0.104 s 墙钟里
         #     **仿真推进了 1.149 s**（RTF≈11），位置跳变其实完全自洽。
         self.sim_us_last = None                   # 上一拍的 PX4 时间戳（µs）
         self.rtf_samples = []                     # 相邻拍的 仿真Δt/墙钟Δt
-        self.min_alt = None                       # 全程最低离地高度（ENU z）
+        self.min_alt = None                       # 飞行段最低离地高度（ENU z）
         self.min_alt_at = None                    # 出现时刻
         self.min_alt_state = None                 # 出现时的状态
         self.hard_ground_warned = False           # "制导/刹车段贴地"只警告一次
@@ -538,6 +584,8 @@ class PhaseBGuidance(Node):
         self.low_xy_warned = False                # SETTLE/CRUISE：低空被撤掉水平指令
         # ---- ★ 落点 / 漂移（**实测**，不是估算）----
         self.ending_pos = None                    # 收尾开始时的 ENU 位置
+        # ★ 进入 LAND 时的位置（真正的"着陆漂移"起点；BRAKE 段还含"归位"机动）
+        self.land_pos = None
         self.stop_pos = None                      # 停桨时的 ENU 位置
         self.max_h_disp = 0.0                     # 全程最大水平位移（相对起点）
 
@@ -566,6 +614,9 @@ class PhaseBGuidance(Node):
         self.refused = False                  # 自检拒绝启动（不进入降落：本来没起飞）
         self.refuse_reason = ""
         self.pad_checked = False              # 自检是否已通过
+        # ★ PRECHECK 等 `/odometry` 的日志只打一次（没有 odom 就没有 roll/pitch，
+        #   姿态检查会被静默跳过 —— 实跑 `[0/6] 姿态=?` 就是这个问题）
+        self.odom_wait_logged = False
         self.on_ground_start = None           # True=地面启动 / False=空中接管
         self.takeoff_tilt_warned = False      # 起飞段大姿态只告警一次
         self.takeoff_tilt_max = 0.0           # 起飞段（低空）最大姿态角（报告用）
@@ -778,17 +829,23 @@ class PhaseBGuidance(Node):
             self.stop_pos = p_enu
 
     def track_h_disp(self):
-        """更新全程最大水平位移 + **全程最低离地高度**（报告 / 安全审计用）。"""
+        """更新全程最大水平位移 + **飞行段最低离地高度**（报告 / 安全审计用）。"""
         if self.pos is None:
             return
         h = self.h_disp()
         if h > self.max_h_disp:
             self.max_h_disp = h
         alt = -self.pos.z
-        if self.min_alt is None or alt < self.min_alt:
-            self.min_alt = alt
-            self.min_alt_at = time.monotonic() - self.t_start
-            self.min_alt_state = self.state
+        # ★ 2026-10-17：**只在飞行段统计**最低高度。
+        #   原来从 PRECHECK 就开始记 ⇒ 报告里出现
+        #   「全程最低离地 0.06 m @ state=PRECHECK」这种噪声（那是飞机趴在地上，
+        #   本来就应该贴地），反而掩盖"飞行中真的掉到 0.44 m"这种真事故。
+        #   降落段（LAND/DISARM）也排除 —— 它本来就该贴地。
+        if self.state in AIRBORNE_AUDIT_STATES:
+            if self.min_alt is None or alt < self.min_alt:
+                self.min_alt = alt
+                self.min_alt_at = time.monotonic() - self.t_start
+                self.min_alt_state = self.state
         # ★ 安全审计：**制导 / 巡航 / 刹车**段本不该贴地（发射高度 8 m），
         #   若贴地说明失去了控制（实飞就是在 BRAKE 段掉到 0.44 m）。
         if (not self.hard_ground_warned
@@ -800,18 +857,30 @@ class PhaseBGuidance(Node):
                       f"请检查该时刻附近有没有『控制回路空洞』告警。")
 
     def landing_drift(self):
-        """**实测**着陆漂移：收尾起点 → 停桨点（水平）。
+        """**实测**着陆漂移：进入 LAND 的位置 → 停桨点（水平）。
 
         返回 (漂移 m, Δx, Δy) 或 None。
         ⚠ 为什么必须实测：原来日志只给估算 `v²/(2·a_max)`，实飞里写着
           「残余漂移 ≈ 0.02 m」而**实际漂了 10 m**（差 500 倍）——
           估算完全没有把"刹车阶段实际发生了什么"算进去。
+        ★ 2026-10-17：起点改成"进入 LAND 的位置"，而不是"收尾起点"。
+          BRAKE 段现在还兼做**归位**（有意飞回起点 7 m），若从收尾起点算，
+          会得到"着陆漂移 6.92 m"和"归位 ✓"同时成立的自相矛盾输出。
+          `return_pos`/`brake_span` 另外给"归位段飞了多远"。
         """
-        if self.ending_pos is None or self.stop_pos is None:
+        start = self.land_pos if self.land_pos is not None else self.ending_pos
+        if start is None or self.stop_pos is None:
             return None
-        dx = self.stop_pos[0] - self.ending_pos[0]
-        dy = self.stop_pos[1] - self.ending_pos[1]
+        dx = self.stop_pos[0] - start[0]
+        dy = self.stop_pos[1] - start[1]
         return (math.hypot(dx, dy), dx, dy)
+
+    def return_span(self):
+        """收尾起点 → 进入 LAND 的水平位移（= BRAKE 段"刹车 + 归位"飞了多远）。"""
+        if self.ending_pos is None or self.land_pos is None:
+            return None
+        return math.hypot(self.land_pos[0] - self.ending_pos[0],
+                          self.land_pos[1] - self.ending_pos[1])
 
     # ---------------------------------------------------------------- 发布
     def publish_a(self):
@@ -982,6 +1051,22 @@ class PhaseBGuidance(Node):
             if not self.arming_state == ARMING_STATE_ARMED:
                 fatal.append(f"空中但未解锁（arming_state={self.arming_state}）")
 
+        # ★★ 2026-10-17 实跑：`[0/6] 姿态=?` —— 第一轮 PRECHECK 时 `/odometry`
+        #   还没到，于是**姿态那一项检查被静默跳过**（sensor 一旦晚到就形同虚设）。
+        #   ⇒ 若"唯一缺的证据"就是姿态，且还在地面：先放一放，下一拍再判
+        #     （**不 sleep**，不占用控制回路），最多等 `PRECHECK_ODOM_GRACE` 秒；
+        #     等不到就带着明确告警继续（不能因为 odom 没来就永远不飞）。
+        if (on_ground and att is None and not fatal
+                and now - self.t_state < PRECHECK_ODOM_GRACE):
+            if not self.odom_wait_logged:
+                self.odom_wait_logged = True
+                self.log(f"[0/6] 等 `/odometry` 到了再判姿态"
+                         f"（最多 {PRECHECK_ODOM_GRACE:.0f}s；没有它就没有 roll/pitch）")
+            return
+        if on_ground and att is None and not fatal:
+            notes.append(f"始终没收到 `/odometry` ⇒ **姿态检查跳过**"
+                         f"（无法判断是否倾斜；请确认 odom 桥接在跑）")
+
         if fatal:
             self.refuse("；".join(fatal) + "。"
                         " ★ 最可能的原因：**上一次运行结束后没有重启仿真**，"
@@ -995,6 +1080,21 @@ class PhaseBGuidance(Node):
             self.warn("   " + n)
         self.pad_checked = True
         self.log("[0/6] ✓ 自检通过，开始 ARM")
+        # ★★ 2026-10-17 审查：**在这里**把 Gazebo 场景摆好，而不是等到"起飞到位"之后。
+        #   为什么（这是本次审查里唯一的**飞行安全**级问题）：
+        #     `gz_setup()` 里全是**阻塞**服务调用 —— `refresh_snapshot` 最多 1.5 s，
+        #     三个 `ensure_*` 每个最多 3 s×2 次重试 ⇒ 最坏能卡十几秒。
+        #     它原来挂在 SETTLE→CRUISE 的转换点上（`[5/6] 稳定到位` 之后），
+        #     那一段**每 20 ms 就有一条 offboard setpoint**必须发出去；
+        #     一旦被卡住 ≥ COM_OF_LOSS_T(0.5~1.0 s)，PX4 就停用自己的 offboard 控制
+        #     ⇒ 10 m 高**自由落体**（这正是 2026-10-16 那次"落点漂 12.9 m"的同一机理）。
+        #   ⇒ 挪到**解锁之前**：此刻飞机还在地上、PX4 不在 offboard，卡多久都无害。
+        #     （只有在"地面启动"时才做；空中接管时跳过，见 gz_setup 里的判断）
+        if on_ground:
+            self.gz_setup()
+        else:
+            self.warn("   ⚠ 空中接管：跳过 Gazebo 场景摆放"
+                      "（它会阻塞数秒，空中做会让 PX4 触发 offboard 失联）")
         self.state = "ARM"
         self.t_state = now
 
@@ -1073,18 +1173,31 @@ class PhaseBGuidance(Node):
             # ⚠ RTF 只在"足够长的间隔"上算：`pos.timestamp` 是**话题周期**量化的
             #   （SITL 20~30 ms），若两次 tick 挨得很近（gap < 5 ms），
             #   sim_dt 却是整整一个话题周期 ⇒ RTF 会算出 100+ 的假值（实测踩到）。
-            if sim_dt is not None and gap >= RTF_MIN_GAP:
+            # ★ 2026-10-17 又踩到第二种假值：主回路被阻塞后，下一拍拿到的 `pos`
+            #   可能**还是被阻塞前的旧消息**（回调还没来得及跑）⇒ 下一拍 sim_dt
+            #   一下子等于整个阻塞时长，而 gap 只有 20 ms ⇒ RTF 算出 165.84。
+            #   ⇒ 间隔很短却"仿真推进很多"，只可能是话题陈旧，直接丢弃这个样本。
+            stale = (gap < 0.10 and sim_dt is not None and sim_dt > 0.30)
+            if sim_dt is not None and gap >= RTF_MIN_GAP and not stale:
                 self.rtf_samples.append(sim_dt / gap)
                 if len(self.rtf_samples) > 40000:
                     del self.rtf_samples[:20000]
+            elif stale:
+                self.rtf_stale += 1
             if gap > self.loop_gap_max:
                 self.loop_gap_max = gap
                 self.loop_gap_max_at = now - self.t_start
                 self.loop_gap_max_state = self.state
             if gap >= LOOP_GAP_WARN:
                 tw = now - self.t_start
+                # ★ 分级：地面段（我们本来就不用发 setpoint）与飞行段分开记
+                on_duty = self.state not in NO_SETPOINT_STATES
                 self.loop_gaps.append((round(tw, 3), round(gap, 3), self.state,
-                                       None if sim_dt is None else round(sim_dt, 3)))
+                                       None if sim_dt is None else round(sim_dt, 3),
+                                       on_duty))
+                if on_duty:
+                    self.loop_gap_flight_max = max(self.loop_gap_flight_max, gap)
+                    self.loop_gap_flight_total += gap
                 extra = ""
                 if sim_dt is not None and gap > 1e-6:
                     extra = (f"；该间隔内**仿真推进 {sim_dt:.3f}s**"
@@ -1092,7 +1205,11 @@ class PhaseBGuidance(Node):
                 self.warn(f"⚠ 控制回路空洞 {gap * 1000:.0f} ms"
                           f"（t_wall={tw:.3f}s, state={self.state}）"
                           f"—— 本周期**没有**发出加速度 setpoint{extra}")
-                if gap >= OFFBOARD_LOSS_HINT:
+                if not on_duty:
+                    self.warn(f"   ℹ 但此刻 state={self.state} **还不需要发 setpoint**"
+                              f"（飞机在地面 / PX4 自控起飞段）⇒ 不会触发 offboard 失联，"
+                              f"对飞行无影响；只是把后续步骤推迟了 {gap:.1f}s。")
+                elif gap >= OFFBOARD_LOSS_HINT:
                     self.warn(f"   ⚠⚠ 空洞 ≥ {OFFBOARD_LOSS_HINT:.1f}s："
                               f"PX4 的 offboard 失联超时（COM_OF_LOSS_T，默认 0.5~1.0 s）"
                               f"**很可能已触发** ⇒ PX4 会停用自己的 offboard 控制"
@@ -1306,7 +1423,11 @@ class PhaseBGuidance(Node):
                     self.warn(f"⚠ 本次起飞点离世界原点 {h0:.2f} m（> {PAD_MAX_H:.1f} m）"
                               f"⇒ 归位只会回到这个偏掉的起点，**下一轮自检仍会拒绝启动**。"
                               f"请检查 --settle-xy 或先重启仿真。")
-                self.gz_setup()          # 摆塔 / 发射架 / 弹丸（--gz-viz 才动作）
+                # ★ 2026-10-17 审查：场景已经在 PRECHECK 通过时就摆好了（见 do_precheck），
+                #   这里只是**幂等兜底**（`gz_ready` 为真时立刻返回，不碰任何服务）。
+                #   ⚠ 千万不要把真正的 create/set_pose 放回这里 —— 本段每 20 ms
+                #     都要发一条 offboard setpoint，阻塞 ≥0.5 s 就会触发 PX4 失联超时。
+                self.gz_setup()          # --gz-viz 才动作；已就绪时零开销
                 if self.cruise_on:
                     self.check_cruise_geometry()
                     self.state = "CRUISE"
@@ -1403,6 +1524,9 @@ class PhaseBGuidance(Node):
                           f"⇒ 放弃横向机动，立即转 LAND 软着陆（安全优先）")
                 self.landing_phase = True
                 self.alt_hold = False
+                # ★ 记下"进入 LAND 的位置"（真正的着陆漂移起点，见 landing_drift）
+                p_land0, _ = self.state_enu()
+                self.land_pos = p_land0
                 self.state = "LAND"
                 self.t_state = now
                 self.land_t0 = now
@@ -1449,6 +1573,9 @@ class PhaseBGuidance(Node):
                          f"{LAND_HANDOVER_ALT:.1f} m，再交给 AUTO_LAND）→ 落地后 DISARM 停桨。")
                 self.landing_phase = True
                 self.alt_hold = False
+                # ★ 记下"进入 LAND 的位置"（真正的着陆漂移起点，见 landing_drift）
+                p_land0, _ = self.state_enu()
+                self.land_pos = p_land0
                 self.state = "LAND"
                 self.t_state = now
                 self.land_t0 = now
@@ -1615,25 +1742,50 @@ class PhaseBGuidance(Node):
 
     # ---------------------------------------------------------------- 段
     # ------------------------------------------------- Gazebo 可视化（可选）
+    def gz_pad_z(self):
+        """弹丸"停在发射架顶面"时的球心高度 (m)。
+
+        ★ 2026-10-17 审查：这个值原来在 `gz_setup` 和 `gz_finish` 里**各算一遍**，
+          而 `gz_finish` 那遍**漏了 `--gz-proj-pad-h` 覆盖** ⇒ 用户一旦指定自定义高度，
+          跑完球会被"park"到一个和初始位置不同的 z（看起来像位置跳变）。
+          ⇒ 唯一出处就是这里，两处都用它。
+        """
+        if self.args.gz_proj_pad_h is not None:
+            return float(self.args.gz_proj_pad_h)
+        return (self.gz_launcher_size + self.args.gz_proj_radius + PROJ_PAD_GAP)
+
     def gz_setup(self):
-        """在 Gazebo 里摆好防御塔 + 敌方发射架 + 弹丸（弹丸先藏在视野外）。
+        """在 Gazebo 里摆好防御塔 + 敌方发射架 + 弹丸（弹丸停在发射架顶面）。
 
         ⚠ 只在 `--gz-viz` 且成功接上 Gazebo 时才有动作；任何失败都只警告不中断
           （可视化是"锦上添花"，绝不能因为它挂掉而影响制导回路）。
+
+        ★★ **调用时机**（2026-10-17 审查改动）：只能在"解锁之前 / 地面"调用
+          （见 `do_precheck` 里的详细理由）。函数内部全同步阻塞，最坏十几秒，
+          放在飞行段会触发 PX4 的 offboard 失联超时 ⇒ 自由落体。
+          本函数**幂等**：`self.gz_ready` 为真时直接返回。
         """
         if self.gz is None or not self.gz.available:
             if self.gz is not None:
                 self.warn("⚠ Gazebo 可视化不可用（见上面的原因）—— 继续纯控制台运行")
             return False
+        if self.gz_ready:
+            return True
         # ⚠ 全程 try/except：可视化是"锦上添花"，**任何**异常都不得中断制导回路
         try:
             self.gz.start()
+            # ★★ 2026-10-17 实跑根因：**进程内第一条服务请求要花时间做发现/握手**，
+            #   1 s 的默认超时不够 ⇒ 开场两次 set_pose 各超时 1 s（主回路空洞 2028 ms、
+            #   发射架和弹丸留在旧位置），而同一进程后面 30 Hz 的 set_pose 全部成功。
+            #   ⇒ 先做一次长超时的**无害往返**把连接养起来，再摆实体。
+            self.gz.warmup()
             # ★ 先读一次"世界真实状态"，让后面的 ensure_* 能判断"已存在否"。
             #   这样 `gz_setup` 在**起飞后**重跑时，已存在的塔/发射架/球只会被
             #   **复用或移动**，绝不会"先删后建"把它们删掉
             #   （2026-10-17 用户实测"起飞后球和发射塔又没有了"就是这个原因）。
             self.gz.refresh_snapshot(timeout=1.5)
-            ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
+            ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h,
+                                        center=self.gz_tower_xy)
             # ⚠ 原来这行**忽略了返回值** ⇒ 发射架建失败也没人知道
             #   （2026-10-17 实测世界里根本没有 enemy_launcher，日志却毫无提示）
             ok_l = self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0),
@@ -1657,10 +1809,7 @@ class PhaseBGuidance(Node):
             #     这是预期行为：它模拟"发射瞬间"，不是 bug。
             #   发射架是边长 `LAUNCHER_SIZE` 的方块，中心在 z=size/2 ⇒ **顶面在 z=size**；
             #   球底面贴顶面 ⇒ 球心 z = size + radius。
-            pad_z = (self.gz_launcher_size + self.args.gz_proj_radius
-                     + PROJ_PAD_GAP)
-            if self.args.gz_proj_pad_h is not None:
-                pad_z = float(self.args.gz_proj_pad_h)
+            pad_z = self.gz_pad_z()          # 唯一出处，与收尾 park 用同一个值
             at = ((self.target_p0[0], self.target_p0[1], pad_z)
                   if self.args.gz_proj_preset else None)
             ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius, at=at)
@@ -1701,6 +1850,21 @@ class PhaseBGuidance(Node):
                       f"（成功的是 {[nm for nm, o in _items if o] or '无'}）"
                       f" —— 制导不受影响，继续运行。"
                       f"自查：python3 gz_scene_sync.py --rebuild-scene")
+        # ★ 无论成败都置位：重跑一次既不会变好，又要再阻塞十几秒 ——
+        #   宁可只做一次，"失败就失败"（可视化不影响飞行）。
+        self.gz_ready = True
+        # ★ 视觉冲突自检：塔在原点、无人机也从原点起飞 ⇒ 起飞段无人机会**穿模**
+        #   （塔只是 visual、没有 collision，所以物理上没事，但画面上很难看，
+        #     也会让人误以为"无人机不见了/模型没了"）。这里只提示，不擅自挪位置。
+        p_now, _ = self.state_enu()
+        if p_now is not None:
+            h_sep = math.hypot(p_now[0] - self.gz_tower_xy[0],
+                               p_now[1] - self.gz_tower_xy[1])
+            if h_sep < self.gz_tower_r + 0.5:
+                self.warn(f"ℹ 防御塔在原点、半径 {self.gz_tower_r:.1f} m，"
+                          f"而起飞点离原点仅 {h_sep:.2f} m ⇒ 起飞段无人机会"
+                          f"**穿过塔身**（纯视觉，无碰撞）。想挪塔："
+                          f"`--gz-tower-xy=0,-6`")
         return bool(ok_t and ok_p)
 
     def gz_update(self, p_T_enu):
@@ -1714,6 +1878,9 @@ class PhaseBGuidance(Node):
         try:
             self.gz.set_projectile(p_T_enu)
             self.gz_proj_pos_req += 1
+            # ★ 每帧都记"最后一帧"（1 个 3 元组，开销可忽略）——
+            #   命中标记不能依赖 `--gz-trail`，否则只开 --gz-viz 时黄球也不见了。
+            self.gz_last_p_T = tuple(p_T_enu)
             if self.args.gz_trail:
                 self.gz_trail.append(tuple(p_T_enu))
         except Exception:                               # noqa: BLE001
@@ -1738,20 +1905,28 @@ class PhaseBGuidance(Node):
         """
         if self.gz is None or not self.gz.available:
             return
+        # ★ 2026-10-17 审查：命中标记原来**只能**从 `gz_trail` 里取最后一帧，
+        #   而 `gz_trail` 只有加 `--gz-trail` 才记录 ⇒ 用户只开 `--gz-viz` 时
+        #   "命中黄球"和"轨迹线"会**一起消失**，而且日志不提。
+        #   ⇒ 命中点单独用 `gz_last_p_T`（每帧都记，零成本），与轨迹开关解耦。
+        hit_pt = (self.gz_trail[-1] if self.gz_trail else
+                  (self.gz_last_p_T if self.gz_last_p_T is not None else None))
         job = {
             "world": self.args.gz_world,
             "trail": [[float(p[0]), float(p[1]), float(p[2])]
                       for p in (self.gz_trail or [])],
-            "mark": ([float(x) for x in self.gz_trail[-1]]
-                     if (hit and self.gz_trail) else None),
+            "mark": ([float(x) for x in hit_pt]
+                     if (hit and hit_pt is not None) else None),
             # ★ 跑完后**不要把弹丸藏起来**（2026-10-17 用户反馈"弹丸消失了"）
             #   原来这里 `"hide": True` ⇒ 每次跑完球被移到 z=-500（地下）⇒
             #   用户在 Gazebo 里看到的就是"球不见了"。
             #   ⇒ 改成 `"park"`：把球**放回发射架顶面**，场景保持完整、随时能看见。
             "hide": False,
-            "park": [self.target_p0[0], self.target_p0[1],
-                     self.gz_launcher_size + self.args.gz_proj_radius
-                     + PROJ_PAD_GAP] if self.args.gz_proj_preset else None,
+            # ★ park 高度与 gz_setup 用**同一个函数**算（含 --gz-proj-pad-h 覆盖）
+            "park": [self.target_p0[0], self.target_p0[1], self.gz_pad_z()]
+                    if self.args.gz_proj_preset else None,
+            # 子进程画完自己删掉任务文件（原来 %TEMP% 里每轮多一个 json）
+            "delete_job": True,
         }
         n_pts = len(job["trail"])
         if n_pts < 2:
@@ -1771,15 +1946,20 @@ class PhaseBGuidance(Node):
                 json.dump(job, f)
             script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                  "gz_scene_sync.py")
-            # start_new_session：彻底独立，父进程退出也不影响它把图画完
-            subprocess.Popen([sys.executable, script, "--draw-json", path,
-                              "--world", self.args.gz_world, "--quiet"],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            # ★★ 2026-10-17 审查：原来这里是 `stdout=DEVNULL, stderr=DEVNULL`
+            #   ⇒ 子进程崩了**一点痕迹都没有**（回放那条路已在同一天因此被坑过）。
+            #   ⇒ 统一改成写日志文件；父进程开完立刻关句柄（Popen 已 dup 给子进程）。
+            drawlog = path.replace(".json", ".log")
+            with open(drawlog, "w", encoding="utf-8") as logf:
+                subprocess.Popen([sys.executable, "-u", script, "--draw-json", path,
+                                  "--world", self.args.gz_world],
+                                 stdout=logf, stderr=subprocess.STDOUT,
+                                 start_new_session=True)
             self.log(f"  ── Gazebo 收尾绘制已交给**独立子进程**"
                      f"（轨迹 {n_pts} 点{' + 命中标记' if job.get('mark') else ''}）"
                      f"—— 不占用控制回路，也不会抢 GIL")
+            self.log(f"     子进程日志：{drawlog}"
+                     f"（若画面上没出现轨迹/命中点，把这里的尾部发我）")
         except Exception as e:             # noqa: BLE001
             self.warn(f"⚠ 子进程绘制启动失败（{e}）—— 降级为后台线程"
                       f"（⚠ 线程仍可能抢 GIL 卡住主回路，仅作兜底）")
@@ -2246,6 +2426,12 @@ class PhaseBGuidance(Node):
         self.log("→ 转入自动降落：LAND（AUTO_LAND 下降 + cmd_vel_ned）→ 落地后 DISARM 停桨。")
         self.landing_phase = True
         self.alt_hold = False
+        # ★ 2026-10-17 实跑发现：报告里的"着陆漂移"是从**收尾起点**（GUIDED 结束）
+        #   一路算到停桨点的，而 BRAKE 段现在**包含了"归位"**（有意飞回起点 7 m）
+        #   ⇒ 输出成了"着陆漂移 6.92 m / 归位 ✓"，两个数字互相打脸。
+        #   ⇒ 单独记"进入 LAND 时的位置"：真正的着陆漂移 = LAND 起点 → 停桨点。
+        p_land, _ = self.state_enu()
+        self.land_pos = p_land
         self.state = "LAND"
         self.t_state = now
 
@@ -2441,29 +2627,43 @@ class PhaseBGuidance(Node):
             p("[健康] 控制周期: 名义 %.1f ms；未采到相邻 tick 间隔（运行太短）"
               % nominal_ms)
         else:
-            tag = "✅ 正常" if self.loop_gap_max < LOOP_GAP_WARN else "⚠ 有空洞"
+            # ★ 判据只看**飞行段**（offboard 义务期）—— 地面段的阻塞无害，
+            #   不能拿它给整轮判"有问题"（2026-10-17 实测就被这个误报带偏过）。
+            tag = ("✅ 正常" if self.loop_gap_flight_max < LOOP_GAP_WARN
+                   else "⚠ 飞行段有空洞")
             p("[健康] 控制周期: 名义 %.1f ms；**实测最大间隔 %.1f ms**"
               " @ t_wall=%.3fs (state=%s)  %s"
               % (nominal_ms, gap_ms, self.loop_gap_max_at,
                  self.loop_gap_max_state, tag))
+            if self.loop_gap_flight_max > 0.0:
+                p("[健康] 飞行段(offboard 义务期)最大间隔 %.0f ms（累计 %.0f ms）"
+                  " ← **这个才影响飞行**"
+                  % (self.loop_gap_flight_max * 1000.0,
+                     self.loop_gap_flight_total * 1000.0))
             if self.loop_gaps:
-                tot = sum(g for _, g, _, _ in self.loop_gaps)
-                p("[健康] 空洞(≥%d ms) 共 %d 次、累计 %.0f ms —— 这些周期**没发出 setpoint**："
-                  % (int(LOOP_GAP_WARN * 1000), len(self.loop_gaps), tot * 1000))
+                n_f = sum(1 for it in self.loop_gaps if it[4])
+                n_g = len(self.loop_gaps) - n_f
+                tot = sum(g for it in self.loop_gaps for g in (it[1],))
+                p("[健康] 空洞(≥%d ms) 共 %d 次（飞行段 %d / 地面段 %d）、累计 %.0f ms："
+                  % (int(LOOP_GAP_WARN * 1000), len(self.loop_gaps), n_f, n_g,
+                     tot * 1000))
                 for item in self.loop_gaps[:8]:
-                    tw, gp, st, sdt = (list(item) + [None])[:4]
+                    tw, gp, st, sdt, duty = (list(item) + [None])[:5]
                     sdt_txt = ("" if sdt is None
                                else "  仿真推进 %.3fs (RTF %.2f)" % (sdt, sdt / gp))
-                    p("         t_wall=%.3f  %5.0f ms  state=%-16s%s"
-                      % (tw, gp * 1000, st, sdt_txt))
+                    p("         t_wall=%.3f  %5.0f ms  state=%-16s%s  %s"
+                      % (tw, gp * 1000, st, sdt_txt,
+                         "⚠ 飞行段" if duty else "地面段(无害)"))
                 if len(self.loop_gaps) > 8:
                     p("         …（另有 %d 次，见完整 CSV）" % (len(self.loop_gaps) - 8))
         # ★ 仿真实时率（RTF）：解释"位置跳变"的关键 —— 墙钟 0.1 s 里仿真可能推进 1.1 s
         if self.rtf_samples:
             rs = sorted(self.rtf_samples)
             n = len(rs)
-            p("[实时率] 仿真Δt/墙钟Δt：中位 %.2f  最小 %.2f  最大 %.2f  （%d 个采样）"
-              % (rs[n // 2], rs[0], rs[-1], n))
+            p("[实时率] 仿真Δt/墙钟Δt：中位 %.2f  最小 %.2f  最大 %.2f  （%d 个采样%s）"
+              % (rs[n // 2], rs[0], rs[-1], n,
+                 "" if not self.rtf_stale else
+                 "，已剔除 %d 个「话题陈旧」样本" % self.rtf_stale))
             if rs[-1] > 2.0:
                 p("[实时率] ⚠ 最大 %.2f ⇒ 某一拍墙钟只走了很短时间但**仿真推进很多**，"
                   "此时看到的位置跳变是**真的**（不是遥测坏了）" % rs[-1])
@@ -2489,10 +2689,16 @@ class PhaseBGuidance(Node):
             p("[落点] 收尾起点 ENU=(%+.2f,%+.2f) → 停桨点 ENU=(%+.2f,%+.2f)"
               % (self.ending_pos[0], self.ending_pos[1],
                  self.stop_pos[0], self.stop_pos[1]))
+            sp = self.return_span()
+            if sp is not None and sp > 0.05:
+                p("[落点] 刹车+归位段位移 = %.2f m"
+                  "（收尾起点 → 进入 LAND；含「飞回起点」的有意机动）" % sp)
             p("[落点] **实测**着陆漂移 = %.2f m（Δx=%+.2f Δy=%+.2f）"
-              "   全程最大水平位移 = %.1f m" % (d, ddx, ddy, self.max_h_disp))
+              "   ← 进入 LAND 之后才发生的漂移"
+              % (d, ddx, ddy))
+            p("[落点] 全程最大水平位移 = %.1f m" % self.max_h_disp)
         if self.min_alt is not None:
-            p("[落点] 全程最低离地 %.2f m @ t_wall=%.3fs (state=%s)%s"
+            p("[落点] 飞行段最低离地 %.2f m @ t_wall=%.3fs (state=%s)%s"
               % (self.min_alt, self.min_alt_at or 0.0, self.min_alt_state,
                  "   ⚠ 制导/刹车段曾贴地 ⇒ 疑失控"
                  if self.hard_ground_warned else ""))
@@ -2541,7 +2747,7 @@ class PhaseBGuidance(Node):
         else:
             p("归位 = 已关闭（--no-return）⇒ 落点在拦截点，下一轮需重启仿真")
         if self.min_alt is not None:
-            p("全程最低离地 = %.2f m @ state=%s" % (self.min_alt, self.min_alt_state))
+            p("飞行段最低离地 = %.2f m @ state=%s" % (self.min_alt, self.min_alt_state))
         p("控制回路最大间隔 = %.0f ms  (空洞 %d 次)%s"
           % (self.loop_gap_max * 1000.0, len(self.loop_gaps),
              "" if not self.rtf_samples else
@@ -2623,6 +2829,11 @@ def build_parser():
                     help="弹丸位置同步频率 (Hz)")
     ap.add_argument("--gz-trail", action="store_true",
                     help="命中/脱靶后在 Gazebo 里画出弹丸轨迹线")
+    ap.add_argument("--gz-tower-xy", default="0,0", metavar="X,Y",
+                    help="防御塔的水平位置（ENU，默认原点 = 被守护目标）。"
+                         "⚠ 无人机也从原点起飞 ⇒ 默认设置下起飞段无人机会**穿过塔身**"
+                         "（塔只有 visual、无碰撞，纯视觉问题）。"
+                         "想看得清楚可挪开，例如 --gz-tower-xy=0,-6")
     ap.add_argument("--gz-proj-radius", type=float, default=0.25,
                     help="★ Gazebo 里弹丸球的半径 (m)。默认 0.25（直径 0.5 m）——"
                          "**远大于**真实弹径 0.06 m：真弹只有 12 cm，"

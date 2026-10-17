@@ -216,112 +216,117 @@ def run(L, h, sc, csv_path=None):
                 "R_true,acx,acy,acz,a_norm,sat,mode,t_go,lam_dot,Vc,"
                 "d_tower\n")
 
-    while t <= t_max:
-        # ---- pilot：到 t_launch 发射弹丸，**立即**开始制导 ----
-        if mode == "pilot" and not launched and t + 1e-9 >= t_launch:
-            launched = True
-            t_target0 = t
-            phase = "GUIDED"
-            handover = (t, norm3(V), float("nan"), tuple(P))
-            event_log.append(
-                f"t={t:.2f} **弹丸发射 → 立即开始制导**"
-                f"（无人机巡航 |v|={norm3(V):.2f} m/s @ {v3txt(P)}）")
+    # ★ 2026-10-17 审查：整段**没有 try/finally** ⇒ 中途抛异常时 CSV 句柄不关，
+    #   Windows 上文件会一直被占（后续读/删都报错），内容也可能缺尾部。
+    #   这里把主循环包起来，任何退出路径都关文件。
+    try:
+        while t <= t_max:
+            # ---- pilot：到 t_launch 发射弹丸，**立即**开始制导 ----
+            if mode == "pilot" and not launched and t + 1e-9 >= t_launch:
+                launched = True
+                t_target0 = t
+                phase = "GUIDED"
+                handover = (t, norm3(V), float("nan"), tuple(P))
+                event_log.append(
+                    f"t={t:.2f} **弹丸发射 → 立即开始制导**"
+                    f"（无人机巡航 |v|={norm3(V):.2f} m/s @ {v3txt(P)}）")
 
-        t_rel = (t - t_target0) if launched else 0.0
-        if launched:
-            L.pgu_target_state(h, t_rel, tgt)
-            pT = (tgt[0], tgt[1], tgt[2])
-            vT = (tgt[3], tgt[4], tgt[5])
-            R_true = norm3(sub3(pT, P))
-        else:
-            pT = (float("nan"),) * 3
-            vT = (float("nan"),) * 3
-            R_true = float("inf")
-
-        # ---------------- 制导（dt_g 零阶保持） ----------------
-        if t + 1e-9 >= next_g:
-            if phase == "GUIDED":
-                L.pgu_step(h, t_rel, 1.0, arr(P), arr(V), q_id, cmd, dbg)
-                A_CMD = [cmd[1], cmd[2], cmd[3]]
-                modes[int(cmd[8])] = modes.get(int(cmd[8]), 0) + 1
-                if cmd[5] > 0.5:
-                    sat_steps += 1
-                if norm3(A_CMD) > peak_a_cmd:
-                    peak_a_cmd = norm3(A_CMD)
-            elif phase == "BOOST":
-                # hot：朝目标加速；cruise：朝固定方向预加速
-                d = unit3(sub3(pT, P)) if mode == "hot" else boost_dir
-                A_CMD = [sc["a_boost"] * d[k] for k in range(3)]
-                if norm3(V) >= sc["v_boost_min"]:
-                    phase = "GUIDED"
-                    if mode == "cruise":
-                        launched = True
-                        t_target0 = t
-                        t_rel = 0.0
-                        event_log.append(
-                            f"t={t:.2f} 预加速到 |v|={norm3(V):.2f} m/s → "
-                            f"**弹丸此刻发射**，交班 PPN（无人机已在 {v3txt(P)}）")
-                    else:
-                        event_log.append(
-                            f"t={t:.2f} 交班 GUIDED（|v|={norm3(V):.2f} m/s, "
-                            f"R={R_true:.2f} m）")
-                    handover = (t, norm3(V), R_true, tuple(P))
-            else:                            # CRUISE（pilot 的弹丸发射前）
-                A_CMD = [0.0, 0.0, 0.0]      # 保持巡航速度
-            next_g += dt_g
-
-        # ---------------- 命中 / 脱靶判定 ----------------
-        # ⚠ 关键：**击中判定成立 ≠ 立刻停**。必须跑到"真正最近点"之后再停，
-        #   否则统计到的"最近距离"只是"刚跌破 hit_radius 的那个采样点"，
-        #   真实脱靶量会被截断掩盖（曾因此误以为精度卡在 0.5 m 上不去）。
-        if launched:
-            if min_R is None or R_true < min_R:
-                min_R, t_min = R_true, t
-                p_M_at_min, pT_at_min = tuple(P), tuple(pT)
-            if R_true < sc["hit_radius"] and not hit:
-                hit = True
-                event_log.append(f"t={t:.3f} **进入命中球**（R={R_true:.3f} m < "
-                                 f"{sc['hit_radius']} m，|v_M|={norm3(V):.2f} m/s）")
-            # "已过最近点"：曾经接近到 5 m 内，且现在明显拉开
-            if min_R is not None and min_R < 5.0 and R_true > min_R + 0.15:
-                passed = True
-            R_prev = R_true
-
-        # ---------------- 记录 ----------------
-        d_tower = (math.nan if not launched or sc.get("tower") is None
-                   else sc["tower"].distance_to_body(pT))
-        if f:
-            f.write(f"{t:.4f},{t_rel:.4f},{phase},"
-                    f"{P[0]:.4f},{P[1]:.4f},{P[2]:.4f},"
-                    f"{V[0]:.4f},{V[1]:.4f},{V[2]:.4f},"
-                    f"{pT[0]:.4f},{pT[1]:.4f},{pT[2]:.4f},"
-                    f"{vT[0]:.4f},{vT[1]:.4f},{vT[2]:.4f},"
-                    f"{R_true:.4f},"
-                    f"{A_CMD[0]:.4f},{A_CMD[1]:.4f},{A_CMD[2]:.4f},"
-                    f"{norm3(A_CMD):.4f},{int(cmd[5])},{int(cmd[8])},"
-                    f"{cmd[7]:.4f},{cmd[9]:.4f},{cmd[10]:.4f},"
-                    f"{d_tower:.4f}\n")
-
-        if passed or (launched and t_rel >= flight_time + 0.2):
-            break
-
-        # ---------------- 无人机动力学（一阶加速度响应 + 积分）----------------
-        for k in range(3):
-            if tau > 1e-9:
-                A[k] += (A_CMD[k] - A[k]) * (dt_s / tau)
+            t_rel = (t - t_target0) if launched else 0.0
+            if launched:
+                L.pgu_target_state(h, t_rel, tgt)
+                pT = (tgt[0], tgt[1], tgt[2])
+                vT = (tgt[3], tgt[4], tgt[5])
+                R_true = norm3(sub3(pT, P))
             else:
-                A[k] = A_CMD[k]
-            V[k] += A[k] * dt_s
-            P[k] += V[k] * dt_s
-        path_len += norm3(V) * dt_s
-        if norm3(A) > peak_a_act:
-            peak_a_act = norm3(A)
+                pT = (float("nan"),) * 3
+                vT = (float("nan"),) * 3
+                R_true = float("inf")
 
-        t += dt_s
-        steps += 1
+            # ---------------- 制导（dt_g 零阶保持） ----------------
+            if t + 1e-9 >= next_g:
+                if phase == "GUIDED":
+                    L.pgu_step(h, t_rel, 1.0, arr(P), arr(V), q_id, cmd, dbg)
+                    A_CMD = [cmd[1], cmd[2], cmd[3]]
+                    modes[int(cmd[8])] = modes.get(int(cmd[8]), 0) + 1
+                    if cmd[5] > 0.5:
+                        sat_steps += 1
+                    if norm3(A_CMD) > peak_a_cmd:
+                        peak_a_cmd = norm3(A_CMD)
+                elif phase == "BOOST":
+                    # hot：朝目标加速；cruise：朝固定方向预加速
+                    d = unit3(sub3(pT, P)) if mode == "hot" else boost_dir
+                    A_CMD = [sc["a_boost"] * d[k] for k in range(3)]
+                    if norm3(V) >= sc["v_boost_min"]:
+                        phase = "GUIDED"
+                        if mode == "cruise":
+                            launched = True
+                            t_target0 = t
+                            t_rel = 0.0
+                            event_log.append(
+                                f"t={t:.2f} 预加速到 |v|={norm3(V):.2f} m/s → "
+                                f"**弹丸此刻发射**，交班 PPN（无人机已在 {v3txt(P)}）")
+                        else:
+                            event_log.append(
+                                f"t={t:.2f} 交班 GUIDED（|v|={norm3(V):.2f} m/s, "
+                                f"R={R_true:.2f} m）")
+                        handover = (t, norm3(V), R_true, tuple(P))
+                else:                            # CRUISE（pilot 的弹丸发射前）
+                    A_CMD = [0.0, 0.0, 0.0]      # 保持巡航速度
+                next_g += dt_g
 
-    if f:
-        f.close()
+            # ---------------- 命中 / 脱靶判定 ----------------
+            # ⚠ 关键：**击中判定成立 ≠ 立刻停**。必须跑到"真正最近点"之后再停，
+            #   否则统计到的"最近距离"只是"刚跌破 hit_radius 的那个采样点"，
+            #   真实脱靶量会被截断掩盖（曾因此误以为精度卡在 0.5 m 上不去）。
+            if launched:
+                if min_R is None or R_true < min_R:
+                    min_R, t_min = R_true, t
+                    p_M_at_min, pT_at_min = tuple(P), tuple(pT)
+                if R_true < sc["hit_radius"] and not hit:
+                    hit = True
+                    event_log.append(f"t={t:.3f} **进入命中球**（R={R_true:.3f} m < "
+                                     f"{sc['hit_radius']} m，|v_M|={norm3(V):.2f} m/s）")
+                # "已过最近点"：曾经接近到 5 m 内，且现在明显拉开
+                if min_R is not None and min_R < 5.0 and R_true > min_R + 0.15:
+                    passed = True
+                R_prev = R_true
+
+            # ---------------- 记录 ----------------
+            d_tower = (math.nan if not launched or sc.get("tower") is None
+                       else sc["tower"].distance_to_body(pT))
+            if f:
+                f.write(f"{t:.4f},{t_rel:.4f},{phase},"
+                        f"{P[0]:.4f},{P[1]:.4f},{P[2]:.4f},"
+                        f"{V[0]:.4f},{V[1]:.4f},{V[2]:.4f},"
+                        f"{pT[0]:.4f},{pT[1]:.4f},{pT[2]:.4f},"
+                        f"{vT[0]:.4f},{vT[1]:.4f},{vT[2]:.4f},"
+                        f"{R_true:.4f},"
+                        f"{A_CMD[0]:.4f},{A_CMD[1]:.4f},{A_CMD[2]:.4f},"
+                        f"{norm3(A_CMD):.4f},{int(cmd[5])},{int(cmd[8])},"
+                        f"{cmd[7]:.4f},{cmd[9]:.4f},{cmd[10]:.4f},"
+                        f"{d_tower:.4f}\n")
+
+            if passed or (launched and t_rel >= flight_time + 0.2):
+                break
+
+            # ---------------- 无人机动力学（一阶加速度响应 + 积分）----------------
+            for k in range(3):
+                if tau > 1e-9:
+                    A[k] += (A_CMD[k] - A[k]) * (dt_s / tau)
+                else:
+                    A[k] = A_CMD[k]
+                V[k] += A[k] * dt_s
+                P[k] += V[k] * dt_s
+            path_len += norm3(V) * dt_s
+            if norm3(A) > peak_a_act:
+                peak_a_act = norm3(A)
+
+            t += dt_s
+            steps += 1
+
+    finally:
+        if f:
+            f.close()
 
     return {
         "mode": mode, "hit": hit, "missed": (passed and not hit),
