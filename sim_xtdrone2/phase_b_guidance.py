@@ -1612,7 +1612,9 @@ class PhaseBGuidance(Node):
         try:
             self.gz.start()
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
-            self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
+            # ⚠ 原来这行**忽略了返回值** ⇒ 发射架建失败也没人知道
+            #   （2026-10-17 实测世界里根本没有 enemy_launcher，日志却毫无提示）
+            ok_l = self.gz.ensure_launcher((self.target_p0[0], self.target_p0[1], 0.0))
             # ★ 创建时**直接放在发射点**（preset 开时），而不是先建在 HIDDEN_Z 再 set_pose。
             #   理由：旧流程"建在地下 500 m → set_pose 移上来"是**两步都可能静默失败**；
             #   直接建在目标位置 ⇒ 即使 set_pose 有问题，球一开始就在能看见的地方。
@@ -1637,13 +1639,20 @@ class PhaseBGuidance(Node):
             self.warn(f"⚠ Gazebo 初始化抛异常（{e}）—— 跳过可视化，制导不受影响")
             self.gz = None
             return False
-        if ok_t and ok_p:
+        # ★ 逐个报告三样实体的创建结果（不再是"要么全好要么只报一句失败"）
+        _items = [("防御塔", ok_t), ("发射架", ok_l), ("弹丸", ok_p)]
+        _bad = [nm for nm, o in _items if not o]
+        if not _bad:
             self.log(f"  ── Gazebo 可视化已就绪：防御塔 r={self.gz_tower_r} m / "
                      f"h={self.gz_tower_h} m @ 原点；敌方发射架 @ "
-                     f"({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},0)；弹丸已就位")
+                     f"({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},0)；"
+                     f"弹丸 r={self.args.gz_proj_radius:.2f} m "
+                     f"{'@发射点' if self.args.gz_proj_preset else '@视野外'}")
         else:
-            self.warn("⚠ Gazebo 实体创建失败（仿真在跑吗？世界名对吗？）"
-                      "—— 制导不受影响，继续运行")
+            self.warn(f"⚠ Gazebo 实体创建失败：{_bad}"
+                      f"（成功的是 {[nm for nm, o in _items if o] or '无'}）"
+                      f" —— 制导不受影响，继续运行。"
+                      f"自查：python3 gz_scene_sync.py --rebuild-scene")
         return bool(ok_t and ok_p)
 
     def gz_update(self, p_T_enu):
