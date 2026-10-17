@@ -276,7 +276,9 @@ def mk_args(lib, **kw):
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
         cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
-        gz_proj_radius=0.25, gz_replay=True,
+        # ⚠ 与真实 argparse 默认一致：回放**默认关**（2026-10-17 用户决定）。
+        #   用例 8 测回放时会**显式**传 gz_replay=True，不依赖这里的默认值。
+        gz_proj_radius=0.25, gz_replay=False,
         replay_seconds=6.0, replay_hz=25.0, replay_hold=1.5, replay_lead_in=1.0,
         target_height=10.0, takeoff_tol=1.0, takeoff_timeout=60.0, rate=50.0,
         no_auto_land=False, no_disarm=False, no_force_disarm=False,

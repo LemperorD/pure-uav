@@ -31,10 +31,11 @@
 #      判据：日志里有 `✓ 已归位到起点` 就直接按 Enter 继续；
 #            看到 `⚠ 归位超时` / `⚠⚠ 收尾机动中离地仅` 才需要重启。
 #
-#   ★★ 慢速回放（看"碰撞"用）★★
-#      落地停桨后约 3 s，会自动在**独立子进程**里把这次交会慢速重放一遍：
-#      弹丸轨迹=橙红、无人机轨迹=绿、命中点=黄球，相遇帧停顿 1.5 s。
-#      想更慢/停更久：直接透传参数（见下面用法）。
+#   ★ 慢速回放：**默认已关闭**（2026-10-17 用户决定，暂不需要该功能）
+#      需要时可手动打开：--gz-replay（配合 --replay-seconds / --replay-hold）
+#      ⚠ 注意：轨迹线/命中点依赖 `/marker` 服务（需 Gazebo **GUI** 插件）；
+#        该服务不可用时会自动降级成"一串静态小球"（虚线）。
+#        先自检：python3 gz_scene_sync.py --check
 #
 #   用法：
 #     bash run_pilot_compare.sh              # 默认 PPN(0) + APN(2)，带画面，中间暂停
@@ -43,12 +44,9 @@
 #     bash run_pilot_compare.sh --no-pause 0 2   # 不暂停（几何会漂移，仅用于快速冒烟）
 #     bash run_pilot_compare.sh --no-gz-viz 0 2  # 关掉 Gazebo 可视化（纯控制台）
 #
-#     # ★ 调慢速回放（其余 -- 开头的参数都会**原样透传**给 phase_b_guidance.py）：
-#     bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4
-#     bash run_pilot_compare.sh --replay-hz=40          # 回放更流畅
-#     bash run_pilot_compare.sh --replay-lead-in=3      # 先停 3 s 看全局轨迹
-#     bash run_pilot_compare.sh --no-gz-replay          # 不要回放
-#     bash run_pilot_compare.sh --gz-proj-radius=0.4    # 弹丸球再放大
+#     # 其余 -- 开头的参数都会**原样透传**给 phase_b_guidance.py，例如：
+#     bash run_pilot_compare.sh --gz-proj-radius=0.4    # 弹丸球放大（默认 0.25 m）
+#     bash run_pilot_compare.sh --gz-replay             # 手动打开慢速回放
 #
 #   产物：phase_b_pilot_law<k>.csv（每个 law 一份）
 # ---------------------------------------------------------------------------
@@ -70,7 +68,7 @@ for a in "$@"; do
     case "$a" in
         --no-pause) PAUSE=0 ;;
         --no-gz-viz) GZVIZ=0 ;;
-        -h|--help) sed -n '2,54p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
         --*) EXTRA+=("$a") ;;
         *) LAWS+=("$a") ;;
     esac
@@ -155,8 +153,8 @@ for LAW in "${LAWS[@]}"; do
         echo "      2) ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py"
         echo "    等约 20 s（QGC 里能看到无人机重新出现在原点）"
         echo
-        echo "  ▶ 慢速回放约 8~10 s 后结束。**等它放完再按 Enter**，"
-        echo "    否则下一个 law 会重建弹丸/塔，把回放打断（不影响结果，只是看不到）。"
+        echo "  ▶ 现在没有回放（该功能默认已关闭，用户 2026-10-17 决定）。"
+        echo "    看到『✓ 已归位到起点』就可以直接按 Enter。"
         echo "--------------------------------------------------------------"
         if [ -t 0 ]; then
             read -r -p "  继续请按 Enter（Ctrl-C 中止）…" _ || true

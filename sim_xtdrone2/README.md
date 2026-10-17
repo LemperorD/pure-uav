@@ -1380,17 +1380,32 @@ SETTLE 容差 0.35 m + CRUISE 再抬 0.15 m ⇒ **Δz≈+0.50 是系统性的、
 **① 球放大**：`--gz-proj-radius`（默认 **0.25 m**，直径 50 cm，比真弹大 4 倍）
 —— 纯视觉，不改物理、不改弹道（弹丸位置仍由 TargetModel 逐帧写入）。
 
-**② 慢速回放（主要手段）** `--gz-replay`（**默认开**）：跑完、落地停桨之后，
+> ## ⚠ 慢速回放：**默认已关闭**（2026-10-17 用户决定）
+>
+> 用户评估后认为这个功能暂时不需要 ⇒ `--gz-replay` 默认改为 **False**，
+> 代码**保留**（想用加 `--gz-replay` 即可）。
+>
+> **关闭的直接原因**：用户环境的 **`/marker` 服务不可用**
+> （`gz_scene_sync.py --check` 实测 `marker ❌`）—— 它由 Gazebo **GUI** 的
+> MarkerManager 插件提供。而回放的主体视觉（两条轨迹线 + 命中点）全靠它，
+> 所以"提示说启动了、画面里什么都没有"。
+>
+> 已实现的兜底（代码保留，默认不启用）：marker 不通时自动降级为
+> **一串静态小球**（`bead_sdf`）摆出虚线轨迹，只依赖 `create` 服务。
+>
+> 下面 ② 起的内容仍保留，供将来需要时参考。
+
+**② 慢速回放** `--gz-replay`（**默认关**，需手动打开）：跑完、落地停桨之后，
 在**独立子进程**里把交会重放一遍：
 
 ```bash
-# 默认：6 s 放完 0.5 s 的交会，相遇帧停顿 1.5 s
-bash run_pilot_compare.sh
+# 默认不开。需要时手动打开：
+bash run_pilot_compare.sh --gz-replay
 
-# 想更慢 / 停更久
-python3 phase_b_guidance.py --replay-seconds 12 --replay-hold 3
+# 或直接调节点：6 s 放完 0.5 s 的交会，相遇帧停顿 1.5 s
+python3 phase_b_guidance.py --gz-replay --replay-seconds 12 --replay-hold 3
 
-# 关掉
+# 关掉（默认行为，保留此开关仅为兼容旧脚本）
 python3 phase_b_guidance.py --no-gz-replay
 ```
 

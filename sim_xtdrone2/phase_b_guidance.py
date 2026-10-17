@@ -2335,11 +2335,11 @@ class PhaseBGuidance(Node):
             p("[可见性] 弹丸球半径 = %.2f m（直径 %.2f m）；"
               "真实弹径只有 0.06 m ⇒ 默认已**放大**便于观察"
               % (self.args.gz_proj_radius, self.args.gz_proj_radius * 2))
-            p("[可见性] 轨迹线：%s   慢速回放：%s"
+            p("[可见性] 轨迹线：%s%s"
               % ("ON" if self.args.gz_trail else "OFF（加 --gz-trail 才记轨迹）",
-                 ("ON %.0fs / 相遇停顿 %.1fs" % (self.args.replay_seconds,
-                                                self.args.replay_hold))
-                 if self.args.gz_replay else "OFF"))
+                 "" if not self.args.gz_replay else
+                 "   慢速回放：ON %.0fs / 相遇停顿 %.1fs"
+                 % (self.args.replay_seconds, self.args.replay_hold)))
             if (self.gz_setpose_t0 is not None and self.gz_setpose_t1 is not None
                     and self.gz_flight_secs):
                 n_sent = max(self.gz_setpose_t1 - self.gz_setpose_t0, 0)
@@ -2351,7 +2351,7 @@ class PhaseBGuidance(Node):
                 if hz_eff < 10.0:
                     p("[可见性] ⚠ 有效帧率偏低 ⇒ 球看起来会「跳」而不是「飞」。"
                       "原因：每次 set_pose 是**阻塞**服务调用（可能几十~几百 ms），"
-                      "把帧率拖低了。想看清请用慢速回放（--gz-replay，默认已开）。")
+                      "把帧率拖低了。")
         nominal_ms = 1000.0 / self.rate
         gap_ms = self.loop_gap_max * 1000.0
         if self.loop_gap_max_at is None:
@@ -2544,11 +2544,15 @@ def build_parser():
                     help="★ Gazebo 里弹丸球的半径 (m)。默认 0.25（直径 0.5 m）——"
                          "**远大于**真实弹径 0.06 m：真弹只有 12 cm，"
                          "在十几米外 + 0.5 s 的交会里人眼根本看不见")
-    # ★ 慢速回放：弹丸交会只有 ~0.5 s，实时必然看不清
-    ap.add_argument("--gz-replay", action="store_true", default=True,
-                    help="★ 跑完自动**慢速回放**一次交会（把 0.5 s 拉长到几秒，"
-                         "并在相遇帧停顿）—— 默认开；用 --no-gz-replay 关掉")
-    ap.add_argument("--no-gz-replay", dest="gz_replay", action="store_false")
+    # ★ 慢速回放（2026-10-17 用户明确要求**默认关闭**）
+    #   代码保留（--gz-replay 可手动打开），但不再自动触发、也不再往控制台打印提示。
+    #   背景：用户环境的 `/marker` 服务不可用（Gazebo GUI 的 MarkerManager 插件缺失），
+    #   轨迹画不出来；改用"珠子"降级后体验仍不理想 ⇒ 用户决定先不要这个功能。
+    ap.add_argument("--gz-replay", action="store_true", default=False,
+                    help="★ 跑完在独立子进程里**慢速回放**一次交会（把 0.5 s 拉长到几秒）。"
+                         "**默认关闭**；需要时手动加此开关")
+    ap.add_argument("--no-gz-replay", dest="gz_replay", action="store_false",
+                    help="不慢速回放（默认行为，保留此开关仅为兼容旧脚本）")
     ap.add_argument("--replay-seconds", type=float, default=6.0,
                     help="回放总时长（墙钟秒）")
     ap.add_argument("--replay-hz", type=float, default=25.0, help="回放帧率 (Hz)")
