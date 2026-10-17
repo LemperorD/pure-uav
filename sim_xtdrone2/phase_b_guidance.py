@@ -1733,6 +1733,10 @@ class PhaseBGuidance(Node):
         弹丸交会只有 **~0.5 s**、球又只有十几厘米 ⇒ 实时里人眼看不见。
         回放把它拉长到 `--replay-seconds`（默认 6 s）、在相遇帧停顿，
         并画出**弹丸 + 无人机两条轨迹**，这样"怎么飞、什么时候撞上"一目了然。
+
+        ⚠ 用 `print()` 而不是 `self.log()`：这几行是给用户**看画面时对照**的，
+          ROS logger 会加 `[INFO][时间][节点]:` 前缀、还混在退出日志里，
+          很容易被忽略。裸打印能保证它出现在最显眼的位置。
         """
         if not self.gz_replay_job or self.gz is None or not self.gz.available:
             return
@@ -1745,12 +1749,30 @@ class PhaseBGuidance(Node):
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
                              start_new_session=True)
-            self.log("")
-            self.log(f"  ▶▶ **慢速回放已启动**（另一个进程）："
-                     f"{self.args.replay_seconds:.0f}s 放完 {len(self.gz_trail)} 帧交会，"
-                     f"相遇时停顿 {self.args.replay_hold:.1f}s")
-            self.log(f"     弹丸轨迹=橙红，无人机轨迹=绿，黄球=命中点；"
-                     f"蓝色球=无人机重放位置")
+            p = print
+            p("")
+            p("=" * 70)
+            p("  ▶▶ 慢速回放已启动（独立进程，Gazebo 里现在应该开始动了）")
+            p("=" * 70)
+            p("     %.1f s 放完 %.3f s 的交会（%d 帧），相遇帧停顿 %.1f s"
+              % (self.args.replay_seconds, self.gz_flight_secs or 0.0,
+                 len(self.gz_trail), self.args.replay_hold))
+            p("     先停 %.1f s 展示完整轨迹，然后开始移动" % self.args.replay_lead_in)
+            p("")
+            p("     颜色对照：")
+            p("       橙红 轨迹线  = 弹丸飞过的路径")
+            p("       绿   轨迹线  = 无人机飞过的路径")
+            p("       橙红 小球    = 弹丸（沿轨迹慢速移动）")
+            p("       绿   小球    = 无人机重放位置")
+            p("       黄   大球    = 命中点（保留 60 s，便于截图）")
+            p("")
+            p("     想再慢/停更久：")
+            p("       bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4")
+            p("     错过/想重看（用这次的任务文件手动重放）：")
+            p("       python3 gz_scene_sync.py --replay-json %s" % self.gz_replay_job)
+            p("=" * 70)
+            p("")
+            sys.stdout.flush()
         except Exception as e:             # noqa: BLE001
             self.warn(f"⚠ 回放启动失败（{e}）—— 忽略（不影响结果）")
 

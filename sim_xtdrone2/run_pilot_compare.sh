@@ -26,27 +26,52 @@
 #      节点在 SETTLE 阶段也会自动检测并把这件事**显式 warn**出来（不静默）。
 #      重启仿真 = 在跑 launch 的那个终端里 Ctrl-C，再重跑 launch，约 20 s。
 #
+#   ★★ 收尾会**归位**（--return-to-start，默认开）★★
+#      跑完先飞回起点再降落 ⇒ 落点误差 ~0.25 m ⇒ **下一轮不必重启仿真**。
+#      判据：日志里有 `✓ 已归位到起点` 就直接按 Enter 继续；
+#            看到 `⚠ 归位超时` / `⚠⚠ 收尾机动中离地仅` 才需要重启。
+#
+#   ★★ 慢速回放（看"碰撞"用）★★
+#      落地停桨后约 3 s，会自动在**独立子进程**里把这次交会慢速重放一遍：
+#      弹丸轨迹=橙红、无人机轨迹=绿、命中点=黄球，相遇帧停顿 1.5 s。
+#      想更慢/停更久：直接透传参数（见下面用法）。
+#
 #   用法：
-#     bash run_pilot_compare.sh              # 默认 PPN(0) + APN(2)，带画面，中间暂停等重启
+#     bash run_pilot_compare.sh              # 默认 PPN(0) + APN(2)，带画面，中间暂停
 #     bash run_pilot_compare.sh 0            # 只跑 PPN
 #     bash run_pilot_compare.sh 0 2 1        # 自定义序列（0=PPN 1=TPN 2=APN）
 #     bash run_pilot_compare.sh --no-pause 0 2   # 不暂停（几何会漂移，仅用于快速冒烟）
 #     bash run_pilot_compare.sh --no-gz-viz 0 2  # 关掉 Gazebo 可视化（纯控制台）
 #
+#     # ★ 调慢速回放（其余 -- 开头的参数都会**原样透传**给 phase_b_guidance.py）：
+#     bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4
+#     bash run_pilot_compare.sh --replay-hz=40          # 回放更流畅
+#     bash run_pilot_compare.sh --replay-lead-in=3      # 先停 3 s 看全局轨迹
+#     bash run_pilot_compare.sh --no-gz-replay          # 不要回放
+#     bash run_pilot_compare.sh --gz-proj-radius=0.4    # 弹丸球再放大
+#
 #   产物：phase_b_pilot_law<k>.csv（每个 law 一份）
 # ---------------------------------------------------------------------------
 set -e
 
-# ---- 解析参数：可选 --no-pause / --no-gz-viz，其余当作 law 列表 ----
+# ---- 解析参数 ----
+#   --no-pause / --no-gz-viz  本脚本自己的开关
+#   数字（0/1/2）               law 列表
+#   **其它以 -- 开头的**         原样透传给 phase_b_guidance.py
+#     ↑ 必须这样做：以前所有非开关参数都被当 law 编号，
+#       于是 `--replay-seconds=12` 会变成 law 名（CSV 变成
+#       phase_b_pilot_law--replay-seconds=12.csv），回放参数根本调不了。
 # （放在 source ROS 之前，这样 --help 在没有 ROS 的机器上也能用）
 PAUSE=1
 GZVIZ=1
 LAWS=()
+EXTRA=()
 for a in "$@"; do
     case "$a" in
         --no-pause) PAUSE=0 ;;
         --no-gz-viz) GZVIZ=0 ;;
-        -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,54p' "$0"; exit 0 ;;
+        --*) EXTRA+=("$a") ;;
         *) LAWS+=("$a") ;;
     esac
 done
@@ -129,6 +154,9 @@ for LAW in "${LAWS[@]}"; do
         echo "      1) 到跑 launch 的终端按 Ctrl-C 停掉仿真"
         echo "      2) ros2 launch xtd2_launch ros2_single_vehicle_demo_launch.py"
         echo "    等约 20 s（QGC 里能看到无人机重新出现在原点）"
+        echo
+        echo "  ▶ 慢速回放约 8~10 s 后结束。**等它放完再按 Enter**，"
+        echo "    否则下一个 law 会重建弹丸/塔，把回放打断（不影响结果，只是看不到）。"
         echo "--------------------------------------------------------------"
         if [ -t 0 ]; then
             read -r -p "  继续请按 Enter（Ctrl-C 中止）…" _ || true
@@ -145,7 +173,7 @@ for LAW in "${LAWS[@]}"; do
 
     # 不用 set -e 中断：未命中/超时也可能返回非零，但那正是要对比的结果之一
     set +e
-    python3 phase_b_guidance.py --law "$LAW" --csv "$CSV" "${PILOT_ARGS[@]}"
+    python3 phase_b_guidance.py --law "$LAW" --csv "$CSV" "${PILOT_ARGS[@]}" "${EXTRA[@]}"
     RC=$?
     set -e
     echo

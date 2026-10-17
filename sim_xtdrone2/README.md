@@ -1410,18 +1410,92 @@ python3 phase_b_guidance.py --no-gz-replay
 **③ 事后看轨迹线**：`--gz-trail` 画出的弹丸轨迹线会一直留在场景里，
 即使当时没看见球，事后也能看到它飞过的路径（含命中标记）。
 
-### 手动慢放（可选，有风险）
+### ★ 具体怎么看"碰撞"（操作步骤）
 
 ```bash
-python3 gz_scene_sync.py --set-rtf 0.3    # 3.3 倍慢放；1.0 = 实时
+bash run_pilot_compare.sh
 ```
 
-⚠⚠ **慎用**：RTF 会同时放慢**墙钟**上的一切，而我们的超时判据
-（`--cruise-timeout` / `--brake-timeout` / `--land-timeout` / OFFBOARD 确认超时）
-都是**墙钟秒** ⇒ RTF 调低后它们会**相对仿真时间变早**。
-例：RTF=0.3 时，8 s 的巡航超时只对应仿真 **2.4 s** ⇒ 会提前 abort。
-**建议只在"已经进入制导段、只想看画面"时临时用，且不要低于 0.3。**
-报告里的 `[实时率]` 一行会记录实际 RTF，便于事后判断结果是否受影响。
+**时序**：跑完 → 归位 → 降落 → 停桨 → 停桨后约 3 s **自动开始慢速回放**。
+全程约 40 s 后画面才会动，**不要以为没反应就提前关掉**。
+
+回放启动时终端会打印一块醒目提示（裸 `print()`，不带 ROS 前缀）：
+
+```
+======================================================================
+  ▶▶ 慢速回放已启动（独立进程，Gazebo 里现在应该开始动了）
+======================================================================
+     6.0 s 放完 0.504 s 的交会（25 帧），相遇帧停顿 1.5 s
+     先停 1.0 s 展示完整轨迹，然后开始移动
+
+     颜色对照：
+       橙红 轨迹线  = 弹丸飞过的路径
+       绿   轨迹线  = 无人机飞过的路径
+       橙红 小球    = 弹丸（沿轨迹慢速移动）
+       绿   小球    = 无人机重放位置
+       黄   大球    = 命中点（保留 60 s，便于截图）
+
+     想再慢/停更久：
+       bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4
+     错过/想重看（用这次的任务文件手动重放）：
+       python3 gz_scene_sync.py --replay-json /tmp/gz_replay_xxx.json
+======================================================================
+```
+
+回放节奏 = **先停 1 s 看全局轨迹 → 6 s 放完 0.5 s 的交会 → 在最近接近的那一帧停 1.5 s**。
+所以"撞上那一刻"会被**定格 1.5 秒**，足够看清。
+
+### 调慢速回放（参数直接透传给节点）
+
+```bash
+# 更慢、停更久（最常用）
+bash run_pilot_compare.sh --replay-seconds=15 --replay-hold=4
+
+# 回放更流畅
+bash run_pilot_compare.sh --replay-hz=40
+
+# 先停 3 s 看全局轨迹
+bash run_pilot_compare.sh --replay-lead-in=3
+
+# 球再放大（0.4 m 直径 80 cm）
+bash run_pilot_compare.sh --gz-proj-radius=0.4
+
+# 不要回放
+bash run_pilot_compare.sh --no-gz-replay
+```
+
+> ⚠ **`run_pilot_compare.sh` 里 `--` 开头的参数会原样透传**给 `phase_b_guidance.py`。
+> 以前所有非开关参数都被当 law 编号，于是 `--replay-seconds=12` 会变成 law 名
+> （CSV 变成 `phase_b_pilot_law--replay-seconds=12.csv`）—— 这个 bug 已修（2026-10-17）。
+
+### 错过了怎么办（两种补救）
+
+**① 手动重放同一次**（终端提示里有那条完整命令，任务文件在 `/tmp`）：
+
+```bash
+python3 gz_scene_sync.py --replay-json /tmp/gz_replay_xxx.json
+```
+
+**② 直接调 Gazebo 实时率慢放**（跑之前设，看实时过程）：
+
+```bash
+python3 gz_scene_sync.py --set-rtf 0.3    # 3.3 倍慢放
+# ⚠ 跑完记得恢复
+python3 gz_scene_sync.py --set-rtf 1.0
+```
+
+> ⚠ RTF ≠ 1 会让**墙钟超时判据偏早**（`--cruise-timeout` / `--brake-timeout` /
+> `--land-timeout` 都是墙钟秒）。RTF=0.3 时 8 s 巡航超时只对应仿真 2.4 s ⇒ 会提前 abort。
+> **建议只用在"已经进了制导段、只想看画面"的时候，别低于 0.3。**
+
+### 排查：回放没动
+
+| 现象 | 原因 / 处理 |
+| --- | --- |
+| 终端没有那块 `▶▶ 慢速回放已启动` | 没开 `--gz-viz`，或 gz 绑定不通（日志前面会有 `⚠ 无法 import gz`） |
+| 提示出现了但画面不动 | 回放是**独立子进程**，先等 1 s 的 `lead_in`；仍不动则 `python3 gz_scene_sync.py --demo` 验证链路 |
+| 回放放到一半被打断 | 下一个 law 启动了，它重建塔/弹丸会打断回放。**等回放放完再按 Enter** |
+| 完全看不到球 | 用 `--gz-proj-radius=0.4` 再放大；或确认 Gazebo 视角对着塔附近 |
 
 ### `[可见性]` 诊断段（报告新增）
 
