@@ -1,0 +1,406 @@
+"""★ 外参标定采集 —— PyCharm 右上角绿三角直接运行这个文件，不需要任何命令行参数。
+
+它做五件事：
+  1) 体检：相机在不在、飞控串口在不在、标定板配置和内参分辨率对不对
+  2) 先起 IMU 录制线程，再拉起相机采集子进程（两个都用宿主机 CLOCK_REALTIME → 天然同源）
+  3) 相机跑完 → 收 IMU → 写 imu.csv
+  4) capture_manifest.json → images.csv
+  5) 打印这次数据的体检报告 + 下一步该点哪个文件
+
+相机那半段用的是 vendor/capture_calibration.py（原样复制的、已经跑过好几轮内参的脚本），
+不重写、不魔改。所有可调参数都在 capture_config.py。
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
+
+import capture_config as cfg                       # noqa: E402
+import image_health                                # noqa: E402
+import imu_recorder                                # noqa: E402
+import make_images_csv                             # noqa: E402
+
+VENDOR = HERE / "vendor"
+CAMERA_SCRIPT = VENDOR / "capture_calibration.py"
+
+
+def hr(title=""):
+    print("=" * 76)
+    if title:
+        print(title)
+        print("=" * 76)
+
+
+# --------------------------------------------------------------------------
+# 体检
+# --------------------------------------------------------------------------
+
+def scan_cameras(expected="2bc5:0511"):
+    """扫描 /dev/video*，返回 USB 身份匹配且是采集节点（index=0）的设备。"""
+    vendor, product = expected.lower().split(":")
+    found, seen = [], []
+    for node in sorted(Path("/dev").glob("video*")):
+        info = Path("/sys/class/video4linux") / node.name
+        try:
+            name = (info / "name").read_text().strip()
+            index = (info / "index").read_text().strip()
+            sysdev = (info / "device").resolve()
+        except OSError:
+            continue
+        ids = None
+        for directory in (sysdev, *sysdev.parents):
+            if (directory / "idVendor").is_file():
+                ids = ((directory / "idVendor").read_text().strip().lower(),
+                       (directory / "idProduct").read_text().strip().lower())
+                break
+        seen.append(f"{node}  {name}  {ids}  index={index}")
+        if ids == (vendor, product) and index == "0":
+            found.append((node, name))
+    return found, seen
+
+
+def read_target(path):
+    from calib.data import read_yaml
+    entry = read_yaml(path)
+    kind = entry.get("target_type")
+    if kind in ("checkerboard", "chessboard"):
+        return (kind, int(entry.get("cols", 0)), int(entry.get("rows", 0)),
+                float(entry.get("square_size", 0)))
+    return (kind, int(entry.get("tagCols", 0)), int(entry.get("tagRows", 0)),
+            float(entry.get("tagSize", 0)))
+
+
+def preflight():
+    """体检。通过则返回 (相机设备, 串口, 标定板信息)；不通过抛异常。"""
+    print(f"会话           {cfg.SESSION_NAME}")
+    print(f"会话目录       {cfg.SESSION_DIR}")
+    print(f"结果目录       {cfg.RESULTS_DIR}")
+    print(f"图像           {cfg.RESOLUTION}（{cfg.WIDTH}x{cfg.HEIGHT} @ {cfg.FPS} fps）")
+    print(f"相机内参       {cfg.CAMERA_YAML}")
+    print(f"标定板         {cfg.TARGET_YAML}")
+    print(f"采集时长       {cfg.DURATION_S:g} s"
+          f"（IMU 前后各多录 {cfg.IMU_PRIME_S:g} / {cfg.IMU_TAIL_S:g} s）")
+    print()
+
+    print("[1/4] 找相机……")
+    if not CAMERA_SCRIPT.is_file():
+        raise RuntimeError(f"缺少相机采集脚本 {CAMERA_SCRIPT}")
+    cameras, seen = scan_cameras(cfg.CAMERA_USB_ID)
+    if not cameras:
+        print(f"  ❌ 没找到 USB 身份为 {cfg.CAMERA_USB_ID} 的相机；"
+              f"/dev/video* 上现在挂着的是：")
+        for line in (seen or ["     （一个都没有）"]):
+            print(f"     {line}")
+        raise RuntimeError("相机没插或没被识别：USB 数据线插好了吗？"
+                           "（笔记本内置摄像头是 04f2:b829，不是它）")
+    device, name = cameras[0]
+    print(f"  ✅ {device}  ({name})")
+
+    print("[2/4] 找飞控串口……")
+    port = cfg.IMU_PORT
+    if port == "auto":
+        port, report = imu_recorder.find_mavlink_port(baud=cfg.IMU_BAUD)
+        if port is None:
+            for k, v in report.items():
+                print(f"     {k}: {v}")
+            raise RuntimeError("没找到在讲 MAVLink 的串口：飞控通电了吗？USB 线是数据线吗？"
+                               "或在 capture_config.py 里把 IMU_PORT 写死成 /dev/ttyACM0 试试。")
+    else:
+        print(f"  使用配置里写死的 {port}")
+    print(f"  ✅ {port}")
+
+    print("[3/4] 检查内参与标定板……")
+    if not Path(cfg.CAMERA_YAML).is_file():
+        raise RuntimeError(f"内参文件不存在：{cfg.CAMERA_YAML}")
+    from calib.data import Camera
+    cam = Camera.load(cfg.CAMERA_YAML)
+    if tuple(cam.size) != (cfg.WIDTH, cfg.HEIGHT):
+        raise RuntimeError(
+            f"内参写的分辨率 {cam.size} 与本次采集的 {cfg.WIDTH}x{cfg.HEIGHT} 不一致。"
+            "改 capture_config.py 的 RESOLUTION，或换一份匹配的内参 —— 工具不会自动缩放。")
+    print(f"  ✅ 内参 {cam.size}，fx={cam.params[0]:.1f}")
+
+    if not Path(cfg.TARGET_YAML).is_file():
+        raise RuntimeError(f"标定板文件不存在：{cfg.TARGET_YAML}")
+    kind, cols, rows, size = read_target(cfg.TARGET_YAML)
+    print(f"  ✅ 标定板 {kind} {cols}x{rows}，尺寸 {size} m")
+    print("     ⚠️ 这个行列数必须和你实际摆的板子完全一致，否则检测出 0 帧。")
+    print("        临时用 iPad 屏幕上那张 8x6 的 PNG，就把 cols/rows 改成 8/6。")
+
+    print("[4/4] 检查目录……")
+    session_dir = Path(cfg.SESSION_DIR)
+    if session_dir.exists() and any(session_dir.iterdir()):
+        if not cfg.REUSE_EXISTING_SESSION:
+            raise RuntimeError(
+                f"{session_dir} 里已经有东西了。把 capture_config.py 的 SESSION_NAME 改成 "
+                "session02/03…，或把 REUSE_EXISTING_SESSION 设成 True 才允许复用。")
+        print("  ⚠️ 复用已有目录（REUSE_EXISTING_SESSION=True）")
+    session_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = Path(cfg.RESULTS_DIR)
+    if results_dir.exists() and any(results_dir.iterdir()):
+        print(f"  ⚠️ 结果目录 {results_dir} 非空 —— 标定程序会拒绝往里写，"
+              "换个 SESSION_NAME 或把旧结果移走。")
+    print(f"  ✅ {session_dir}")
+
+    return device, port, (kind, cols, rows, size)
+
+
+# --------------------------------------------------------------------------
+# 采集
+# --------------------------------------------------------------------------
+
+def camera_command(device, target_info):
+    _, cols, rows, _ = target_info
+    return [
+        sys.executable, str(CAMERA_SCRIPT),
+        "--device", str(device),
+        "--output", str(cfg.SESSION_DIR),
+        "--width", str(cfg.WIDTH), "--height", str(cfg.HEIGHT), "--fps", str(cfg.FPS),
+        "--exposure", str(cfg.EXPOSURE),
+        "--white-balance", str(cfg.WHITE_BALANCE),
+        "--gain", str(cfg.GAIN),
+        "--cols", str(cols), "--rows", str(rows),
+        # 每帧都存：给一个远小于帧间隔的自动间隔，避免浮点比较漏掉某些帧
+        "--auto-interval", f"{0.5 / cfg.FPS:.6f}",
+        "--max-images", "0",
+        "--duration", str(cfg.DURATION_S),
+    ] + ([] if cfg.SHOW_PREVIEW else ["--no-preview"])
+
+
+def record(device, port, target_info):
+    """录一段。返回 (imu_stats, 相机返回码, 是否被中断)。imu.csv 在这里写。"""
+    print()
+    hr("开始采集")
+    print(f"  相机 {device}   |   IMU {port}   |   {cfg.DURATION_S:g} 秒")
+    if cfg.SHOW_PREVIEW:
+        print("  预览窗口：空格手动存一张，Q 提前结束")
+    print("  接下来拿着整套设备，在标定板前做连续、平滑、多轴转动 —— 要转得够多轴，别只平移")
+    print()
+
+    recorder = imu_recorder.ImuRecorder(port, request_hz=cfg.IMU_REQUEST_HZ, baud=cfg.IMU_BAUD)
+    recorder.start()
+    print(f"  IMU 已在录，先跑 {cfg.IMU_PRIME_S:g} 秒保证两路有重叠……")
+    time.sleep(cfg.IMU_PRIME_S)
+
+    proc, interrupted = None, False
+    try:
+        proc = subprocess.Popen(camera_command(device, target_info))
+        proc.wait()
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n  收到中断，正在收尾……")
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    finally:
+        if not interrupted:
+            time.sleep(cfg.IMU_TAIL_S)
+        imu_stats = recorder.stop()
+        csv_path = recorder.write_csv(Path(cfg.SESSION_DIR) / "imu.csv")
+        imu_stats["csv"] = str(csv_path)
+
+    return imu_stats, (proc.returncode if proc is not None else None), interrupted
+
+
+# --------------------------------------------------------------------------
+# 报告
+# --------------------------------------------------------------------------
+
+def report(imu_stats, cam_rc, img_stats, interrupted):
+    hr("采集结果")
+    print("IMU")
+    print(imu_recorder.format_stats(imu_stats))
+    imu_level, imu_text = imu_recorder.verdict(imu_stats)
+    icon = {"pass": "✅", "warn": "⚠️", "fail": "❌"}[imu_level]
+    print(f"  {icon} {imu_text}")
+
+    print()
+    print("图像")
+    if img_stats is None:
+        print("  ❌ 没有生成 images.csv（相机那一步没成功）")
+    else:
+        print(f"  张数 {img_stats['images']}，跨度 {img_stats['span_s']:.2f} s，"
+              f"实测 {img_stats['observed_fps']:.1f} fps")
+        print(f"  最大帧间隔 {img_stats['max_gap_ms']:.1f} ms"
+              f"（>100ms: {img_stats['gaps_over_100ms']}, >350ms: {img_stats['gaps_over_350ms']}）")
+        print(f"  采集脚本自带的棋盘检出 {img_stats['board_detected']}/{img_stats['images']}"
+              "（仅供参考；标定程序用的是更鲁棒的检测器）")
+        print(f"  结束状态 {img_stats['manifest_termination']}")
+
+    slow = (img_stats is not None and img_stats["observed_fps"] < cfg.FPS * 0.6
+            and img_stats["span_s"] > 2.0)
+    if slow:
+        print()
+        print(f"  ⚠️ 实测 {img_stats['observed_fps']:.1f} fps，远低于请求的 {cfg.FPS} fps。")
+        print("     这不是相机的问题，是保存循环太慢。按可能性排：")
+        print("       1) SHOW_PREVIEW 是不是 True？那个 Tk/PIL 预览每帧要 ~300 ms")
+        print("       2) RESOLUTION 是不是 1080p？改成 720p 能省一半")
+        print("       3) 关掉 PyCharm 里别的吃 CPU 的东西")
+        print("     数据本身仍可用于标定（下限是 35 帧有效检出），但帧率越低越难转得平滑。")
+
+    # 亮度 + 检出：预览关掉之后，这里是唯一的"眼睛"。
+    # 2026-10-15 那次 155 张 0 检出的教训：跑完标定才知道板子根本没进画面，
+    # 白等几分钟。所以采完就当场判。
+    health = None
+    health_level = None
+    session_dir = Path(cfg.SESSION_DIR)
+    images = sorted((session_dir / "cam0").glob("*.png"))
+    if images:
+        kind, cols, rows, _ = read_target(cfg.TARGET_YAML)
+        print()
+        print("画面体检")
+        health = image_health.analyze(images, cols, rows, sample=20)
+        # 再加一步"标定程序实际会用多少帧"。这一步才能在采完当场发现运动模糊 ——
+        # 静态的检出率和亮度都看不出糊，只有 PnP 残差看得出（2026-10-15 的教训：
+        # 检出 82%，但 17 帧 PnP 3~4 px 被剔，留出 5 处空洞，整份数据作废）。
+        try:
+            health["quality"] = image_health.calib_quality_stats(
+                images, cfg.CAMERA_YAML, cfg.TARGET_YAML, window=24)
+        except Exception as exc:                               # noqa: BLE001
+            print(f"  （标定质量抽检跳过：{exc}）")
+        health_level, health_actions = image_health.report(health)
+        for action in health_actions:
+            print(f"     → {action}")
+        # ★ 逐帧复算：把标定程序真正会接受哪些帧、以及【空洞结构】算出来。
+        # 采样 12 张的"检出率"预测不了 max_camera_gap_s —— 86% 检出率照样
+        # 可能被 4 处 0.5~1.9 秒的盲区毁掉（2026-10-15 白跑了三次标定，每次 5 分钟）。
+        print()
+        print("逐帧复算（跑标定程序自己的检测+PnP，约 1~2 分钟）……")
+        try:
+            # 用【标定侧 Settings 里实际设的】PnP 门槛，不要写死 ——
+            # 2026-10-16 踩到：record_session 写死 2.0，而 extrinsics_config 用的是 3.5，
+            # 于是同一份数据两边算出不同的"有效帧"，提示的窗口可能不是标定真正会用的那个。
+            import extrinsics_config as ec
+            pnp_gate = float(getattr(ec.SETTINGS, "max_pnp_rms_px", 2.0))
+            print(f"（按 extrinsics_config 的 max_pnp_rms_px={pnp_gate:g} 复算）")
+            tl = image_health.full_timeline(
+                images, cfg.CAMERA_YAML, cfg.TARGET_YAML,
+                max_pnp_rms=pnp_gate, log=lambda *_a: None)
+            window_ok, window_note = image_health.report_timeline(tl)
+            health["timeline"] = tl
+            health["window_ok"] = window_ok
+            if window_ok and tl.get("best"):
+                a, span, n = tl["best"]
+                print()
+                print("  ★ 把 extrinsics_config.py 第 98 行直接换成下面这行，就能标定：")
+                print(f"      SETTINGS = Settings(start_s={a:.2f}, max_duration_s={span:.2f},"
+                      " camera_rate_hz=60, max_pnp_rms_px=3.5)")
+                print(f"    （用 {a:.2f}s 起、{span:.2f} 秒、{n} 帧那一段）")
+        except Exception as exc:                               # noqa: BLE001
+            print(f"  （逐帧复算跳过：{exc}）")
+
+    print()
+    hr("结论")
+    fatal = False
+    if interrupted:
+        print("⚠️  这次是被中断的，数据可能不完整")
+    if cam_rc not in (0, None):
+        print(f"❌ 相机采集返回码 {cam_rc} —— 看上面相机子进程打印的报错")
+        fatal = True
+    if imu_level == "fail":
+        print(f"❌ IMU：{imu_text}")
+        fatal = True
+    if img_stats is None:
+        fatal = True
+    elif img_stats["images"] < 35:
+        print(f"❌ 图像只有 {img_stats['images']} 张，低于标定下限（35 张有效检出）")
+        fatal = True
+
+    window_ok = bool(health and health.get("window_ok"))
+    if health is not None and not window_ok:
+        print("❌ 逐帧复算：没有一段【连续】≥5 秒 且 ≥35 帧的可用窗口 ——")
+        print("   带着这份数据去跑标定，只会得到「成功检测标定板帧之间存在大空洞」")
+        print("   别浪费时间，直接重录。转动时让棋盘全程保持在画面中央、慢一点。")
+        fatal = True
+    if health is not None and health_level == "fail":
+        d = health["detection"]
+        print(f"❌ 画面：{d['detected']}/{d['tried']} 检出（{100*d['rate']:.0f}%）"
+              " —— 带着这个去跑标定，只会得到「有效标定板帧只有 0」")
+        print("   先点 capture/framing_check.py 把取景和曝光调对，别浪费一轮采集")
+        fatal = True
+    if not fatal:
+        print("✅ 两份 CSV 就绪、画面过关、也有连续可用窗口 —— 可以往下标定了")
+    return fatal
+
+
+def pat_hint():
+    import extrinsics_config as ec
+    want = {"images": Path(cfg.SESSION_DIR) / "images.csv",
+            "imu": Path(cfg.SESSION_DIR) / "imu.csv",
+            "output": Path(cfg.RESULTS_DIR)}
+    hr("标定那一步的路径")
+    if all(Path(ec.PATHS[k]) == v for k, v in want.items()):
+        print("✅ extrinsics_config.py 的 PATHS 已指向本次会话 —— "
+              "直接点 calibrate_extrinsics.py 的绿三角即可。")
+    else:
+        print("⚠️  extrinsics_config.py 的 PATHS 还没指向本次会话。"
+              "把它最下面那几行改成：")
+        print()
+        print(f'    "images":  ROOT / "data/{cfg.SESSION_NAME}/images.csv",')
+        print(f'    "imu":     ROOT / "data/{cfg.SESSION_NAME}/imu.csv",')
+        print(f'    "output":  ROOT / "results/{cfg.SESSION_NAME}",')
+        print()
+        print(f"  （当前 images 指向 {ec.PATHS['images']}）")
+
+
+def next_steps():
+    hr("接下来点哪个")
+    print(f"  1) 打开 {ROOT / 'calibrate_extrinsics.py'}，点右上角绿三角")
+    print("     —— 它读的是 extrinsics_config.py 里的 PATHS 和 SETTINGS。")
+    print()
+    print("     冒烟测试建议先把 extrinsics_config.py 最下面这一行：")
+    print("         SETTINGS = Settings()")
+    print("     改成（一行搞定，就是 configs/probe.yaml 里那两项）：")
+    print("         SETTINGS = Settings(camera_rate_hz=30, max_imu_gap_s=0.15)")
+    print("     不用的时候改回来即可。")
+    print()
+    print(f"  2) 然后看 {Path(cfg.RESULTS_DIR) / 'extraction.json'}")
+    print("     里面逐帧有 detected 标记 —— 这就是冒烟测试的判据：")
+    print("     true 占比 >80% → 链路通了；<50% → 板子/距离/光照有问题；")
+    print("     0% → 标定板行列数或分辨率不对（iPad 那张 PNG 是 8x6，别用 8x11 去测）")
+
+
+# --------------------------------------------------------------------------
+
+def main():
+    hr("相机–IMU 外参标定 · 采集")
+    try:
+        device, port, target_info = preflight()
+    except Exception as exc:                                   # noqa: BLE001
+        print()
+        hr("❌ 体检没通过，没有开始采集")
+        print(f"{exc}")
+        return 2
+
+    imu_stats, cam_rc, interrupted = record(device, port, target_info)
+
+    session_dir = Path(cfg.SESSION_DIR)
+    img_stats = None
+    if (session_dir / "capture_manifest.json").is_file():
+        try:
+            img_stats = make_images_csv.build(session_dir)
+        except make_images_csv.ManifestError as exc:
+            print(f"❌ images.csv 生成失败：{exc}")
+    else:
+        print(f"⚠️  {session_dir}/capture_manifest.json 不存在 —— 相机一张都没存下。")
+
+    fatal = report(imu_stats, cam_rc, img_stats, interrupted)
+    pat_hint()
+    next_steps()
+    print()
+    print(f"数据在 {session_dir}")
+    return 1 if fatal else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

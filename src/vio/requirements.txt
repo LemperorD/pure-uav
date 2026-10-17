@@ -1,0 +1,14 @@
+# 标定三件套的依赖（Python 3.11）
+#   conda create -n vins python=3.11 -y && conda activate vins
+#   pip install -r requirements.txt
+
+numpy>=1.24,<3                  # 全部
+scipy>=1.10,<2                  # 外参 calib/solver.py（最小二乘）
+opencv-contrib-python>=4.7,<5   # 内外参；必须是 contrib 版，外参要用 cv2.aruco
+PyYAML>=6,<7                    # 配置与结果读写
+matplotlib>=3.7                 # imu_noise 画 Allan 曲线
+rosbags>=0.10,<0.12             # 外参读写 ROS1 bag（纯 Python，不依赖 ROS 运行时）
+Pillow>=9                       # 采集预览（这个 OpenCV 构建是 headless，没有 GUI）
+
+# tkinter 是标准库，但 conda 环境需要显式装：
+#   conda install -c conda-forge tk

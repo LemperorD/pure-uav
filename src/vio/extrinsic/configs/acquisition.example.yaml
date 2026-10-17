@@ -1,0 +1,12 @@
+# 复制后填写，使用 --acquisition 指定。不要把 unknown 随便改成已确认。
+# raw: 此处指固件额外因果滤波前的数据，不代表没有传感器硬件滤波/积分延迟。
+# 已知 filtered/different/mixed 将拒绝在当前理想模型下导出外参。
+imu_processing: unknown  # unknown / raw / filtered
+clock_domain: unknown    # unknown / shared / different
+imu_instance: unknown    # unknown / single / mixed
+firmware: "尚未确认：需填写 PX4/ArduPilot 等固件及版本"
+imu_topic: ""  # 已确认后填写实际话题；留空表示未声明
+# 以下填同一逻辑 IMU 实例索引；不是 PX4 的 gyro/accel_device_id（后者可能本就不同）。
+gyro_instance: ""
+accel_instance: ""
+evidence: "填写驱动时间转换、传感器实例及滤波前数据来源的可核查证据"

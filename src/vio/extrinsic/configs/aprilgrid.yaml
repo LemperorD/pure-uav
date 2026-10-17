@@ -1,0 +1,7 @@
+# Kalibr 标准 tag36h11 AprilGrid：ID 从左到右，从下到上；tag 保持官方方向。
+target_type: aprilgrid
+tagRows: 6
+tagCols: 6
+tagSize: 0.04  # 单个 tag 黑色外框边长，米，必须实测
+tagSpacing: 0.30  # tag 间白色间隙 / tagSize，无量纲
+first_id: 0
