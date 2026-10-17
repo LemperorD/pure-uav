@@ -156,6 +156,27 @@ ALT_KD = 2.0
 
 MIN_ALTITUDE = 3.0                 # 安全围栏
 MAX_H_DISP = 25.0
+
+# ★★ 起飞安全门限（2026-10-17 用户指出，实测复核后确认是真隐患）
+#   **物理原因**：多旋翼要靠"倾斜"产生水平加速度。离地太近时一倾斜，
+#   低侧桨叶就直接扫到地面（x500 桨叶半径约 0.25 m，机体再倾斜 17° 就有
+#   约 7 cm 的下沉量；叠加起落架高度与 PX4 高度估计误差，低空非常危险）。
+#   ⇒ 规矩：**先纯垂直爬升到 safe height，再允许任何水平加速度**。
+#
+#   ⚠ 为什么必须是**绝对高度**，不能用 `0.75 × target_height` 这种相对判据：
+#     原来 WAIT_HEIGHT 用 `alt > 0.75*target_height` 判"够高了"，于是
+#       · `--target-height 1.5` ⇒ 门限掉到 **1.125 m**
+#       · `--target-height 0.5` ⇒ 门限掉到 **0.375 m** ← 此高度给 3 m/s² 必打地
+#     另一个漏洞是 `near = |alt−target| ≤ --takeoff-tol`：
+#       · `--takeoff-tol 8`（target 8）⇒ **alt ≥ 0 就算到位**，1.5 s 后就进
+#         OFFBOARD/SETTLE 立刻给水平加速度。
+#   ⇒ 现在两条判据都**同时**要求 `alt ≥ TAKEOFF_MIN_AGL`，与 target/tol 无关。
+TAKEOFF_MIN_AGL = 2.5              # 允许水平机动的最小离地高度 (m)
+#   取值依据：3 m/s² 水平加速度 ⇒ 倾角 atan(3/9.8) ≈ 17°；
+#   桨叶半径 0.25 m ⇒ 桨尖下沉 ≈ 0.25·sin17° ≈ 0.073 m；
+#   再算起落架 ~0.2 m + EKF 低空高度误差（可达 0.2 m）⇒ 2.5 m 有 >8 倍余量。
+#   同时它低于 MIN_ALTITUDE(3.0)，不会和安全围栏互相打架。
+
 GUIDED_TIMEOUT = 8.0               # GUIDED 段超时（s，按目标相对时间）
 CRUISE_TIMEOUT = 8.0               # 巡航/预加速段超时（s，墙钟）
 ALT_ADJ_A_MAX = 3.0                # SETTLE 段垂直调整的最大加速度 (m/s²)
@@ -445,6 +466,9 @@ class PhaseBGuidance(Node):
         self.min_alt_state = None                 # 出现时的状态
         self.hard_ground_warned = False           # "制导/刹车段贴地"只警告一次
         self.brake_alt_tgt = None                 # 刹车期间锁定的高度目标
+        # 起飞安全门限相关的一次性告警标记（避免每拍刷屏）
+        self.low_takeoff_warned = False           # WAIT_HEIGHT：容差内但低于门限
+        self.low_xy_warned = False                # SETTLE/CRUISE：低空被撤掉水平指令
         # ---- ★ 落点 / 漂移（**实测**，不是估算）----
         self.ending_pos = None                    # 收尾开始时的 ENU 位置
         self.stop_pos = None                      # 停桨时的 ENU 位置
@@ -578,6 +602,8 @@ class PhaseBGuidance(Node):
             else f"收敛到 ENU({self.settle_xy[0]:g},{self.settle_xy[1]:g})"
         self.log(f"  稳定段: 高度→{self.target_height:.1f} m；水平 {xy_txt}"
                  f"；横向保持={'ON' if self.args.cruise_lat_hold else 'OFF'}")
+        self.log(f"  起飞门限: 离地 < {TAKEOFF_MIN_AGL:.1f} m 时**禁止任何水平加速度**"
+                 f"（先纯垂直爬升；防止机体倾斜导致桨叶打地）")
         self.log(f"  命中判定: R_true < {self.hit_radius} m")
         self.log(f"  Gazebo 可视化: {'ON（塔 + 弹丸 + ' + ('轨迹线' if self.args.gz_trail else '无轨迹线') + '）' if self.args.gz_viz else 'OFF'}"
                  + (f"  world={self.args.gz_world} @ {self.args.gz_hz:.0f} Hz" if self.args.gz_viz else ""))
@@ -923,8 +949,19 @@ class PhaseBGuidance(Node):
             #   这里统一转成 **上升率为正**（vz_up = −vz_ned），与 alt 同一约定。
             vz_ned = self.pos.vz
             vz_up = -vz_ned
-            near = abs(alt - self.target_height) <= self.args.takeoff_tol
-            airborne = (alt > 0.75 * self.target_height) and abs(vz_ned) < 0.4
+            # ★ 两条判据都必须**同时**满足"绝对最小离地高度"（见 TAKEOFF_MIN_AGL 注释）。
+            #   否则 --target-height 调小、或 --takeoff-tol 放宽，都会在贴地高度
+            #   就放行 ⇒ 进 SETTLE 立刻给水平加速度 ⇒ 倾斜打地。
+            h_gate = max(TAKEOFF_MIN_AGL, 0.75 * self.target_height)
+            near = (abs(alt - self.target_height) <= self.args.takeoff_tol
+                    and alt >= TAKEOFF_MIN_AGL)
+            airborne = (alt > h_gate) and abs(vz_ned) < 0.4
+            if (abs(alt - self.target_height) <= self.args.takeoff_tol
+                    and alt < TAKEOFF_MIN_AGL and not self.low_takeoff_warned):
+                self.low_takeoff_warned = True
+                self.warn(f"⚠ 高度 {alt:.2f} m 已在 --takeoff-tol 容差内，但**低于起飞"
+                          f"安全门限 {TAKEOFF_MIN_AGL:.1f} m** ⇒ 继续等爬升"
+                          f"（此时给水平加速度会让桨叶打地）")
             if near or airborne:
                 if self.stable_t is None:
                     self.stable_t = now
@@ -991,7 +1028,16 @@ class PhaseBGuidance(Node):
                 if self.alt_hold:
                     a[2] = self.alt_kp * (self.target_height - alt) - self.alt_kd * v_z_up
                     a[2] = max(-ALT_ADJ_A_MAX, min(ALT_ADJ_A_MAX, a[2]))
-                if self.settle_xy is not None:
+                # ★★ 起飞安全门限：**离地不足只准拉高度、绝不给水平加速度**。
+                #   即使前面 WAIT_HEIGHT 判据被放宽（--takeoff-tol / --target-height），
+                #   这里也有一道硬闸 —— 倾斜打地是不可逆的，必须有双保险。
+                xy_allowed = alt >= TAKEOFF_MIN_AGL
+                if not xy_allowed and not self.low_xy_warned:
+                    self.low_xy_warned = True
+                    self.warn(f"⚠ SETTLE 段离地仅 {alt:.2f} m（< 门限 "
+                              f"{TAKEOFF_MIN_AGL:.1f} m）⇒ **本段只做垂直爬升**，"
+                              f"暂不给水平收敛指令（防桨叶打地）")
+                if self.settle_xy is not None and xy_allowed:
                     sx, sy = self.settle_xy
                     a[0] = (self.settle_kp * (sx - p_enu[0]) - self.settle_kd * v_enu[0])
                     a[1] = (self.settle_kp * (sy - p_enu[1]) - self.settle_kd * v_enu[1])
@@ -1003,15 +1049,26 @@ class PhaseBGuidance(Node):
             self.publish_a()
 
             # --no-alt-hold 时退回旧行为：只等固定 0.5 s，不做任何调整
+            low_alt = (alt is not None and alt < TAKEOFF_MIN_AGL)
             settled = (not self.alt_hold) or (
                 alt is not None
                 and abs(alt - self.target_height) <= self.args.alt_settle_tol
                 and abs(v_z_up) <= self.args.alt_settle_vtol
+                # ★ 低空一律不算"稳定到位"（xy_err 为 None 时原逻辑会误判成"已到位"）
+                and not low_alt
                 and (xy_err is None
                      or (xy_err <= self.args.settle_xy_tol
                          and v_h <= self.args.settle_xy_vtol)))
-            if (settled and now - self.t_state >= 0.5) \
-                    or (now - self.t_state >= self.args.alt_settle_timeout):
+            timed = (now - self.t_state >= self.args.alt_settle_timeout)
+            # ★★ 超时也不能绕过高空门限：原来超时就直接进 CRUISE，
+            #   若此时还在贴地高度（起飞异常），就会在低空给水平加速度 ⇒ 打地。
+            #   ⇒ 低空 + 超时 = 直接中止（安全优先，宁可这一次不跑）。
+            if timed and low_alt:
+                self.abort(f"稳定段超时（{self.args.alt_settle_timeout:.0f}s）且离地仅 "
+                           f"{alt:.2f} m（< 起飞门限 {TAKEOFF_MIN_AGL:.1f} m）"
+                           f"—— 拒绝在贴地高度开始水平机动（会桨叶打地）")
+                return
+            if (settled and now - self.t_state >= 0.5) or timed:
                 if alt is not None:
                     xy_txt = "" if xy_err is None else f"，水平偏差 {xy_err:.2f} m"
                     if settled:
@@ -1473,6 +1530,17 @@ class PhaseBGuidance(Node):
                 p_y = v_enu[1] - v_along_h * uy
                 a[0] += -self.settle_kd * p_x
                 a[1] += -self.settle_kd * p_y
+        # ★★ 起飞安全门限（第三道闸）：巡航段的 a_boost 是 6 m/s²（倾角 ~31°），
+        #   贴地时给出去必打桨。理论上进 CRUISE 前 SETTLE 已保证够高，
+        #   但如果中途掉高（lost control / 遥测跳变），这里要能兜住。
+        if alt < TAKEOFF_MIN_AGL:
+            if not self.low_xy_warned:
+                self.low_xy_warned = True
+                self.warn(f"⚠ CRUISE 段离地仅 {alt:.2f} m（< 门限 "
+                          f"{TAKEOFF_MIN_AGL:.1f} m）⇒ **撤掉水平加速**，只拉高度")
+            a[0] = 0.0
+            a[1] = 0.0
+            a[2] = max(a[2], ALT_ADJ_A_MAX)     # 优先爬升
         self.cur_a_enu = tuple(a)
         self.publish_a()
 

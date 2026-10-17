@@ -1470,6 +1470,143 @@ def main():
         check(False, f"本用例需要先进入 BRAKE（实际 {entered}）")
     n.close()
 
+    # ---------------------------------------------------------------- 用例 15
+    print()
+    print("=" * 74)
+    print("用例 15：起飞安全门限 —— 离地不足时绝不给水平加速度（防桨叶打地）")
+    print("=" * 74)
+    # 用户指出：多旋翼靠倾斜产生水平加速度，贴地时一倾斜桨叶就打地。
+    # 规矩：先纯垂直爬到 TAKEOFF_MIN_AGL(2.5 m) 以上，才允许水平机动。
+    print(f"  门限 TAKEOFF_MIN_AGL = {M.TAKEOFF_MIN_AGL} m")
+    check(M.TAKEOFF_MIN_AGL >= 1.5,
+          f"门限取值有安全余量（{M.TAKEOFF_MIN_AGL} m ≥ 1.5 m）")
+    check(M.TAKEOFF_MIN_AGL < M.MIN_ALTITUDE,
+          f"门限低于安全围栏 MIN_ALTITUDE({M.MIN_ALTITUDE})，不会互相打架")
+
+    # ① --target-height 设得很小（0.5 m）⇒ 绝不能因为"相对判据"就放行
+    #   ⚠ 直接手动置 WAIT_HEIGHT + 固定高度：这里要测的是**判据本身**，
+    #     不是状态机推进（推进要靠 PX4 确认 ARM，会把用例搞复杂）。
+    def _hold_wait_height(target_h, tol, alt):
+        n = new_node(lib, target_height=target_h, takeoff_tol=tol)
+        n.log = lambda s: None
+        ws = []
+        n.warn = lambda s: ws.append(s)
+        fx = FakePX4(n, p_enu=(0.0, 0.0, alt))
+        fx.v = [0.0, 0.0, 0.0]
+        fx.sync()
+        n.nav_state = 17          # AUTO_TAKEOFF
+        n.arming_state = 2
+        n.state = "WAIT_HEIGHT"
+        n.t_state = VT[0]
+        n.stable_t = None
+        for _ in range(200):      # 虚拟 4 s，远超 STABLE_SEC(1.5)
+            step(n, fx, 1)
+            fx.p = [0.0, 0.0, alt]    # 高度锁死，模拟"卡在低空"
+            fx.v = [0.0, 0.0, 0.0]
+            fx.sync()
+        st = n.state
+        n.close()
+        return st, ws
+
+    st1, w1 = _hold_wait_height(0.5, 1.0, 0.5)
+    check(st1 == "WAIT_HEIGHT",
+          f"--target-height 0.5（相对门限仅 0.375 m）⇒ 仍卡在 WAIT_HEIGHT（当前 {st1}）")
+    check(any("起飞安全门限" in w for w in w1),
+          f"明确告警『低于起飞安全门限』（{len(w1)} 条）")
+
+    # ② --takeoff-tol 放宽到 8 m ⇒ 也不能在 1 m 高度放行
+    st2, w2 = _hold_wait_height(8.0, 8.0, 1.0)
+    check(st2 == "WAIT_HEIGHT",
+          f"--takeoff-tol 8（容差内但只有 1 m）⇒ **不放行**（当前 {st2}）")
+    check(any("起飞安全门限" in w for w in w2),
+          f"同样给出告警（{len(w2)} 条）")
+
+    # ③ 强行把无人机塞进 SETTLE 且贴地 ⇒ 水平指令必须为 0
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    warns3 = []
+    n.warn = lambda s: warns3.append(s)
+    fx10 = FakePX4(n, p_enu=(2.0, 1.0, 8.0))    # 水平偏 2.2 m，正常会收敛
+    drive_to_guided(n, fx10)
+    # 回到 SETTLE 起点重放：手动置状态
+    n.state = "SETTLE"
+    n.t_state = VT[0]
+    n.stable_t = None
+    fx10.p = [2.0, 1.0, 0.8]                    # ★ 贴地 0.8 m
+    fx10.v = [0.0, 0.0, 0.0]
+    fx10.sync()
+    step(n, fx10, 1)
+    a = n.cur_a_enu
+    check(abs(a[0]) < 1e-9 and abs(a[1]) < 1e-9,
+          f"贴地（0.8 m）时水平指令被撤成 0（a=({a[0]:.3f},{a[1]:.3f})）")
+    check(a[2] > 0,
+          f"垂直指令为正（优先爬升，a_z={a[2]:.2f}）")
+    check(any("只做垂直爬升" in w for w in warns3),
+          f"给出『只做垂直爬升』告警（{len(warns3)} 条）")
+    n.close()
+
+    # ④ 高度够了（8 m）⇒ 水平收敛正常工作（别把门限做成永久禁用）
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    n.warn = lambda s: None
+    fx11 = FakePX4(n, p_enu=(2.0, 1.0, 8.0))
+    drive_to_guided(n, fx11)
+    n.state = "SETTLE"
+    n.t_state = VT[0]
+    fx11.p = [2.0, 1.0, 8.0]
+    fx11.v = [0.0, 0.0, 0.0]
+    fx11.sync()
+    step(n, fx11, 1)
+    a = n.cur_a_enu
+    check(abs(a[0]) > 0.5 and abs(a[1]) > 0.2,
+          f"8 m 高度时水平收敛**照常生效**（a=({a[0]:.2f},{a[1]:.2f})）")
+    check(a[0] < 0 and a[1] < 0,
+          "水平指令朝原点方向（负向）—— 符号正确")
+    n.close()
+
+    # ⑤ CRUISE 段贴地 ⇒ 撤掉 a_boost(6 m/s²)，只拉高度
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    warns5 = []
+    n.warn = lambda s: warns5.append(s)
+    fx12 = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n, fx12)
+    n.state = "CRUISE"
+    n.cruise_t0 = VT[0]
+    n.alt_target = 8.0
+    fx12.p = [0.0, 0.0, 0.8]
+    fx12.v = [0.0, 0.0, 0.0]
+    fx12.sync()
+    step(n, fx12, 1)
+    a = n.cur_a_enu
+    check(abs(a[0]) < 1e-9 and abs(a[1]) < 1e-9,
+          f"CRUISE 贴地时水平加速被撤销（a=({a[0]:.3f},{a[1]:.3f})）")
+    # 说明：CRUISE 段在 do_cruise 里撤水平后，`check_safety` 还会因 alt<MIN_ALTITUDE
+    # 直接 abort（指令全清零）—— 那是更安全的兜底，两者都算通过。
+    check(a[2] > 0 or n.aborted,
+          f"改为优先爬升（a_z={a[2]:.2f}；若安全围栏已中止则指令清零，同样安全）")
+    check(any("撤掉水平加速" in w for w in warns5) or n.aborted,
+          f"给出『撤掉水平加速』/中止告警（{len(warns5)} 条）")
+    n.close()
+
+    # ⑥ 低空 + SETTLE 超时 ⇒ 必须 abort，绝不进入 CRUISE
+    n = new_node(lib, **PILOT_KW)
+    n.log = lambda s: None
+    warns6 = []
+    n.warn = lambda s: warns6.append(s)
+    fx13 = FakePX4(n, p_enu=(0.0, 0.0, 8.0))
+    drive_to_guided(n, fx13)
+    n.state = "SETTLE"
+    n.t_state = VT[0] - 100.0                   # 人为"已超时"
+    fx13.p = [0.0, 0.0, 0.8]                    # 仍在贴地
+    fx13.v = [0.0, 0.0, 0.0]
+    fx13.sync()
+    step(n, fx13, 1)
+    check(n.aborted, "低空超时 ⇒ 触发中止（不是硬进 CRUISE）")
+    check(n.state != "CRUISE",
+          f"没有进入 CRUISE（当前 {n.state}）—— 拒绝低空水平机动")
+    n.close()
+
     # ---------------------------------------------------------------- 汇总
     print()
     print("=" * 74)
