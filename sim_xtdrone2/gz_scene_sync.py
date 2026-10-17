@@ -321,7 +321,8 @@ class GzScene:
         self._running = False
         self._warned = False            # 只对"发不出去"告警一次，不刷屏
         self._created = set()           # 已创建的实体名
-        self.stats = {"set_pose": 0, "failed": 0, "actions": 0}
+        self.stats = {"set_pose": 0, "failed": 0, "actions": 0, "reused": 0}
+        self._snap = None               # 世界真实状态缓存（_ensure 判断"已存在否"）
 
         if _GZ_IMPORT_ERROR is not None:
             self._log(f"⚠ 无法 import gz 的 Python 绑定（{_GZ_IMPORT_ERROR}）"
@@ -686,32 +687,82 @@ class GzScene:
         ok, _ = self._req(SVC_MARKER, m, boolean_pb2.Boolean)
         return ok
 
+    # ------------------------------------------- 幂等"确保存在"（绝不先删）
+    def _ensure(self, name: str, sdf: str, pose, tol: float = 0.10) -> bool:
+        """★ **幂等**：已存在就复用，不存在才创建；**绝不"先删后建"**。
+
+        为什么必须这样（2026-10-17 用户实测"起飞后球和发射塔又没有了"）：
+          `gz_setup()` 是在**起飞完成**（`[5/6] 稳定到位`）时才调用的。
+          原来三个 `ensure_*` 都走 `_create`，而 `_create` 第一步是 `_remove(name)`
+          ⇒ 等于**起飞后把已有模型删掉再重建**。只要重建失败（超时/任何原因），
+            模型就当场消失 —— 而且恰好是"起飞后"才消失，非常难查。
+          ⇒ 现在：先读回世界状态，
+             · 已存在且位置对 ⇒ **什么都不做**（返回 True）
+             · 已存在但位置不对 ⇒ **只 set_pose**（移动，不重建）
+             · 不存在 ⇒ 才创建
+        """
+        snap = self._snap if self._snap is not None else {}
+        got = snap.get(name)
+        if got is not None:
+            drift = max(abs(got[k] - float(pose[k])) for k in range(3))
+            if drift <= tol:
+                self._created.add(name)
+                self.stats["reused"] = self.stats.get("reused", 0) + 1
+                self._log(f"   ✓ `{name}` 已存在（drift={drift:.2f} m）⇒ 复用，未重建")
+                return True
+            # 存在但位置不对 ⇒ 只移动，**不删**
+            ok = self._do_set_pose(name, pose)
+            self.stats["reused"] = self.stats.get("reused", 0) + 1
+            self._log(f"   ✓ `{name}` 已存在但偏了 {drift:.2f} m ⇒ **只移动**"
+                      f"（不重建）{'成功' if ok else '⚠ 移动失败'}")
+            return ok
+        # 不存在 ⇒ 创建（pre_remove=False：既然不存在，没必要再删一次）
+        return self._create(name, sdf, pose, pre_remove=False)
+
+    def refresh_snapshot(self, timeout: float = 1.5) -> dict:
+        """刷新"世界真实状态"缓存（供 `_ensure` 判断"已存在否"）。
+
+        ⚠ 读不到时返回 `{}` 并**记录一次告警**：此时 `_ensure` 会退化为"直接创建"，
+          但**仍然不先删**（`pre_remove=False`）⇒ 最坏情况是"重名创建失败"，
+          也不会把已有模型弄没。
+        """
+        snap = self.snapshot_positions(timeout=timeout)
+        self._snap = snap
+        if not snap:
+            self._log("   ⚠ 读不到 /pose/info ⇒ 无法判断实体是否已存在，"
+                      "将直接创建（不删旧的）")
+        return snap
+
     def ensure_tower(self, radius: float = 1.2, height: float = 3.0,
                      center=(0.0, 0.0)) -> bool:
-        """（重新）创建防御塔。塔底贴地 ⇒ 圆柱几何中心在 (cx, cy, height/2)。"""
+        """**确保**防御塔存在（幂等）。塔底贴地 ⇒ 圆柱几何中心在 (cx, cy, height/2)。"""
         pose = (center[0], center[1], height * 0.5)
-        return self._create(TOWER_NAME, tower_sdf(TOWER_NAME, radius, height), pose)
+        return self._ensure(TOWER_NAME, tower_sdf(TOWER_NAME, radius, height), pose)
 
     def ensure_launcher(self, p=(0.0, 0.0, 0.0), size: float = 0.6) -> bool:
-        """（重新）创建敌方发射架（纯视觉地标）。"""
-        return self._create(LAUNCHER_NAME, launcher_sdf(LAUNCHER_NAME, size),
+        """**确保**敌方发射架存在（幂等）。"""
+        return self._ensure(LAUNCHER_NAME, launcher_sdf(LAUNCHER_NAME, size),
                             (p[0], p[1], size * 0.5))
 
     def ensure_projectile(self, radius: float = 0.06, at=None) -> bool:
-        """（重新）创建弹丸。
+        """**确保**弹丸存在（幂等；已存在就只移动，不重建）。
 
-        `at` 给定时**直接创建在该位置**（推荐），否则藏在视野外（HIDDEN_Z）。
+        `at` 给定时放到该位置（推荐），否则藏在视野外（HIDDEN_Z）。
 
         ★ 为什么推荐传 `at`（2026-10-17）：
           旧流程是"创建在 HIDDEN_Z → 再 set_pose 移到发射点"，**两步都可能静默失败**。
           直接建在目标位置 ⇒ 少一层依赖：即使 `set_pose` 有问题，
           球一开始就在能看见的地方。
+        ★ 为什么改幂等（同一天）：
+          `gz_setup` 在**起飞后**才调用；原来"先删后建"等于起飞后把球删了再重建，
+          一失败球就消失。现在已存在就**只移动不重建**。
         """
         pose = (0.0, 0.0, HIDDEN_Z) if at is None else (float(at[0]),
                                                         float(at[1]),
                                                         float(at[2]))
-        return self._create(PROJECTILE_NAME,
-                            projectile_sdf(PROJECTILE_NAME, radius), pose)
+        return self._ensure(PROJECTILE_NAME,
+                            projectile_sdf(PROJECTILE_NAME, radius), pose,
+                            tol=0.30)     # 球常被 park/飞行移动过，容差放宽
 
     def hide_projectile(self) -> None:
         """把弹丸移出视野（等价于"消失"），命中/脱靶后调用。"""

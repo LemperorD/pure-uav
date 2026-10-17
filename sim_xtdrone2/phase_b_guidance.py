@@ -1628,6 +1628,11 @@ class PhaseBGuidance(Node):
         # ⚠ 全程 try/except：可视化是"锦上添花"，**任何**异常都不得中断制导回路
         try:
             self.gz.start()
+            # ★ 先读一次"世界真实状态"，让后面的 ensure_* 能判断"已存在否"。
+            #   这样 `gz_setup` 在**起飞后**重跑时，已存在的塔/发射架/球只会被
+            #   **复用或移动**，绝不会"先删后建"把它们删掉
+            #   （2026-10-17 用户实测"起飞后球和发射塔又没有了"就是这个原因）。
+            self.gz.refresh_snapshot(timeout=1.5)
             ok_t = self.gz.ensure_tower(self.gz_tower_r, self.gz_tower_h)
             # ⚠ 原来这行**忽略了返回值** ⇒ 发射架建失败也没人知道
             #   （2026-10-17 实测世界里根本没有 enemy_launcher，日志却毫无提示）

@@ -1937,9 +1937,14 @@ def main():
             self.presets = []
             self.created = []          # (radius, at) —— at 为创建时位置
             self.created_at = []
+            self.snap_calls = 0
 
         def start(self):
             return self
+
+        def refresh_snapshot(self, timeout=1.5):
+            self.snap_calls += 1
+            return {}
 
         def ensure_tower(self, *a, **k):
             return True
@@ -2116,6 +2121,142 @@ def main():
     check(any("已被删掉" in s for s in logs2),
           "失败时提示『旧实体已被删掉』（解释「为什么模型消失了」）")
     check(bad.stats["failed"] >= 1, f"失败计数 +1（{bad.stats['failed']}）")
+
+    # ---------------------------------------------------------------- 用例 20
+    print()
+    print("=" * 74)
+    print("用例 20：ensure_* 幂等 —— 已存在的实体**绝不被先删后建**"
+          "（\"起飞后球和发射塔又没了\"的根因）")
+    print("=" * 74)
+    # gz_setup 是在**起飞完成**（[5/6] 稳定到位）后才调用的。
+    # 原来 ensure_* 走 _create，而 _create 第一步是 _remove(name)
+    # ⇒ 等于"起飞后把已有模型删掉再重建"，一失败就当场消失。
+    # 修法：_ensure —— 已存在且位置对 ⇒ 什么都不做；偏了 ⇒ 只 set_pose；不存在 ⇒ 才创建。
+
+    def _mk_ensure_scene(snap, logs=None):
+        s = object.__new__(GZ.GzScene)
+        s.available = True
+        s.world = "walls"
+        s.timeout_ms = 500
+        s._created = set()
+        s.stats = {"set_pose": 0, "failed": 0, "reused": 0}
+        s.verbose = False
+        s._snap = snap
+        s._log = (lambda m: logs.append(m)) if logs is not None else (lambda m: None)
+        s._remove = lambda nm: (_ for _ in ()).throw(
+            AssertionError(f"不该调用 _remove({nm})！"))
+        return s
+
+    # ① 塔已存在且位置对 ⇒ 什么都不做（既不删也不建）
+    s1 = _mk_ensure_scene({GZ.TOWER_NAME: (0.0, 0.0, 1.5)})
+    s1._create = lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("已存在时不该调用 _create！"))
+    ok = s1.ensure_tower(1.2, 3.0)
+    check(ok, "塔已存在且位置对 ⇒ 返回 True")
+    check(s1.stats["reused"] == 1, f"记为『复用』（reused={s1.stats['reused']}）")
+
+    # ② 已存在但位置偏了 ⇒ **只移动，不重建**
+    marks = {"posed": None, "created": 0}
+
+    def _sp(name, p, yaw=0.0):
+        marks["posed"] = (name, tuple(p))
+        return True
+
+    s2 = _mk_ensure_scene({GZ.PROJECTILE_NAME: (-14.0, 0.0, -500.0)})
+    s2._do_set_pose = _sp
+
+    def _c2(*a, **k):
+        marks["created"] += 1
+        return True
+
+    s2._create = _c2
+    ok2 = s2.ensure_projectile(0.25, at=(-14.0, 0.0, 0.87))
+    check(ok2, "球已存在但在地下车 500 m ⇒ 返回 True")
+    check(marks["created"] == 0,
+          f"**没有重建**（_create 调用 {marks['created']} 次）")
+    check(marks["posed"] is not None and abs(marks["posed"][1][2] - 0.87) < 1e-9,
+          f"只做了 set_pose 移到 0.87（实际 {marks['posed']}）")
+
+    # ③ 不存在 ⇒ 才创建（且 pre_remove=False，不再先删）
+    calls = {}
+
+    def _c3(name, sdf, pose, pre_remove=True):
+        calls["pre_remove"] = pre_remove
+        return True
+
+    s3 = _mk_ensure_scene({})          # 空快照 = 什么都没有
+    s3._create = _c3
+    ok3 = s3.ensure_launcher((-14.0, 0.0, 0.0), 0.6)
+    check(ok3, "不存在 ⇒ 走创建")
+    check(calls.get("pre_remove") is False,
+          "创建时 **pre_remove=False**（不先删，因为本来就不存在）")
+
+    # ④ 读不到快照（snap={}）也不能崩，且仍不先删
+    s4 = _mk_ensure_scene({})
+    s4._create = lambda n, s, p, pre_remove=True: True
+    check(s4.ensure_tower(1.2, 3.0), "快照为空时也能正常创建（不崩、不先删）")
+
+    # ⑤ 集成：连续两次 gz_setup（模拟"跑完一轮 → 起飞后再摆一次"）不该删任何东西
+    print("  --- 集成：连续两次 gz_setup ---")
+    class _IdemGz:
+        available = True
+
+        def __init__(self):
+            self.created = []
+            self.removed = []
+            self.snapped = 0
+            self.existing = {}
+
+        def start(self):
+            return self
+
+        def refresh_snapshot(self, timeout=1.5):
+            self.snapped += 1
+            return dict(self.existing)
+
+        def ensure_tower(self, r, h):
+            if GZ.TOWER_NAME in self.existing:
+                return True
+            self.created.append(GZ.TOWER_NAME)
+            self.existing[GZ.TOWER_NAME] = (0.0, 0.0, h / 2)
+            return True
+
+        def ensure_launcher(self, p, size):
+            if GZ.LAUNCHER_NAME in self.existing:
+                return True
+            self.created.append(GZ.LAUNCHER_NAME)
+            self.existing[GZ.LAUNCHER_NAME] = (p[0], p[1], size / 2)
+            return True
+
+        def ensure_projectile(self, r=0.06, at=None):
+            if GZ.PROJECTILE_NAME in self.existing:
+                self.existing[GZ.PROJECTILE_NAME] = at
+                return True
+            self.created.append(GZ.PROJECTILE_NAME)
+            self.existing[GZ.PROJECTILE_NAME] = at
+            return True
+
+        def set_projectile(self, p, yaw=0.0):
+            pass
+
+        def close(self):
+            pass
+
+    ig = _IdemGz()
+    n_a = new_node(lib, **PILOT_KW)
+    n_a.log = lambda s: None
+    n_a.warn = lambda s: None
+    n_a.gz = ig
+    n_a.gz_setup()
+    first = list(ig.created)
+    n_a.gz_setup()          # 第二次（模拟起飞后再摆一次）
+    second = list(ig.created)
+    n_a.close()
+    check(len(first) == 3, f"第一次建了 3 样（{first}）")
+    check(len(second) == 3,
+          f"第二次**一样都没新建**（仍是 {len(second)} 次创建：{second}）"
+          f"—— 已存在就被复用")
+    check(ig.snapped == 2, f"每次 gz_setup 都先刷新快照（{ig.snapped} 次）")
 
     # ---------------------------------------------------------------- 汇总
     print()
