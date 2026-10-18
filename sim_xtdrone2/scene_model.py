@@ -34,6 +34,15 @@ from typing import List, Optional, Sequence, Tuple
 
 Vec3 = Tuple[float, float, float]
 
+# ★ 2026-10-18 新增：**固定装甲板**（撞板任务的目标）。
+#   放在独立模块 `armor_plate.py`（纯几何、可离线单测），这里只做"挂进场景"。
+#   用 try/except 是为了保持 `scene_model` 的"零依赖、任何地方都能 import"——
+#   万一单独拷走这一个文件，没有 armor_plate.py 也不会炸。
+try:
+    from armor_plate import ArmorPlate
+except Exception:                                        # noqa: BLE001
+    ArmorPlate = None                                    # type: ignore[assignment]
+
 
 # ==========================================================================
 #  一、防御塔（被保护目标）
@@ -289,6 +298,9 @@ class Scene:
     projectile: ProjectileSpec = field(default_factory=ProjectileSpec)
     drone: DroneSpec = field(default_factory=DroneSpec)
     field_: Field = field(default_factory=Field)
+    # ★ 固定装甲板（撞板任务的目标）。`None` = 不启用 ⇒ 老场景/老流程完全不变。
+    #   见 `armor_plate.py`：板形命中判据（穿越板面 / 贴板容差）与尺寸假设都在那里。
+    armor_plate: Optional["ArmorPlate"] = None
 
     # ---------------- 序列化 ----------------
     def to_dict(self) -> dict:
@@ -300,6 +312,12 @@ class Scene:
     def from_dict(cls, d: dict) -> "Scene":
         d = dict(d)
         f = d.pop("field", d.pop("field_", {}))
+        # ★ 装甲板：缺省 / null ⇒ None（向后兼容老场景 JSON）
+        _ap = d.get("armor_plate")
+        plate = None
+        if _ap:
+            plate = (ArmorPlate.from_dict(_ap) if ArmorPlate is not None
+                     else None)
         return cls(
             name=d.get("name", "scene"),
             tower=Tower(**d.get("tower", {})),
@@ -307,6 +325,7 @@ class Scene:
             projectile=ProjectileSpec(**d.get("projectile", {})),
             drone=DroneSpec(**d.get("drone", {})),
             field_=Field(**f),
+            armor_plate=plate,
         )
 
     def save(self, path: str) -> None:
@@ -343,6 +362,8 @@ class Scene:
                  "  " + self.projectile.describe(),
                  "  " + self.drone.describe(),
                  "  " + self.field_.describe()]
+        if self.armor_plate is not None:
+            lines.append("  " + self.armor_plate.describe())
         return "\n".join(lines)
 
 

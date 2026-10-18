@@ -276,6 +276,10 @@ def mk_args(lib, **kw):
         tower_xy="0,0", tower_radius=1.2, tower_height=3.0, tower_margin=1.0,
         gz_tower_xy=None,
         law=0, N=6.0, a_max=10.0, t_go_freeze=0.10, hit_radius=0.5,
+        # ★ 2026-10-18 固定装甲板（撞板任务）：默认**关** ⇒ 老用例行为不变
+        armor_plate=False, plate_center=(-14.0, 0.0, 3.0),
+        plate_size="0.60,0.60,0.05", plate_yaw=0.0,
+        plate_hit_tol=0.15, plate_body_radius=0.20,
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
         cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
@@ -2266,8 +2270,9 @@ def main():
     # ③ 不存在 ⇒ 才创建（且 pre_remove=False，不再先删）
     calls = {}
 
-    def _c3(name, sdf, pose, pre_remove=True):
+    def _c3(name, sdf, pose, pre_remove=True, yaw=0.0):
         calls["pre_remove"] = pre_remove
+        calls["yaw"] = yaw
         return True
 
     s3 = _mk_ensure_scene({})          # 空快照 = 什么都没有
@@ -2279,7 +2284,7 @@ def main():
 
     # ④ 读不到快照（snap={}）也不能崩，且仍不先删
     s4 = _mk_ensure_scene({})
-    s4._create = lambda n, s, p, pre_remove=True: True
+    s4._create = lambda n, s, p, pre_remove=True, yaw=0.0: True
     check(s4.ensure_tower(1.2, 3.0), "快照为空时也能正常创建（不崩、不先删）")
 
     # ⑤ 集成：连续两次 gz_setup（模拟"跑完一轮 → 起飞后再摆一次"）不该删任何东西
@@ -2885,6 +2890,100 @@ def main():
     check(isinstance(_row2[_i_tgo], float) and abs(_row2[_i_tgo] - 0.3856) < 1e-6,
           f"Vc>0 时 t_go 正常输出（{_row2[_i_tgo]}）")
     n_tg.close()
+
+    # ---------------------------------------------------------------- 用例 27
+    print()
+    print("=" * 74)
+    print("用例 27：固定装甲板（撞板任务）—— 节点接线 / 目标覆盖 / 判据 / 报告")
+    print("=" * 74)
+    # ① 默认关 ⇒ 完全旧行为（plate=None、目标还是弹丸）
+    n_off = new_node(lib, **PILOT_KW)
+    n_off.log = lambda s: None
+    n_off.warn = lambda s: None
+    check(n_off.plate is None, "不加 --armor-plate ⇒ plate=None（旧行为零变化）")
+    check(n_off.args.target_type == 2
+          and abs(n_off.args.target_speed
+                  - PILOT_KW.get("target_speed", 15.0)) < 1e-9,
+          f"旧模式下目标仍是 DART：type={n_off.args.target_type} "
+          f"speed={n_off.args.target_speed}")
+    n_off.close()
+
+    # ② 打开 ⇒ 目标被覆盖成"静止板心"，且跳过自动瞄准
+    _pk = dict(PILOT_KW)
+    _pk.update(armor_plate=True, plate_center=(-14.0, 0.0, 3.0),
+               plate_size="0.60,0.60,0.05", plate_yaw=0.0)
+    n_pl = new_node(lib, **_pk)
+    _logs = []
+    n_pl.log = _logs.append
+    n_pl.warn = _logs.append
+    check(n_pl.plate is not None, "打开后 plate 存在")
+    check(tuple(n_pl.plate.center) == (-14.0, 0.0, 3.0),
+          f"板中心 = {n_pl.plate.center}")
+    check(abs(n_pl.plate.width - 0.60) < 1e-9
+          and abs(n_pl.plate.thickness - 0.05) < 1e-9,
+          f"板尺寸解析正确：{n_pl.plate.width}×{n_pl.plate.height}×{n_pl.plate.thickness}")
+    check(tuple(n_pl.target_p0) == (-14.0, 0.0, 3.0),
+          f"目标发射点被覆盖为板心：{n_pl.target_p0}")
+    check(n_pl.args.target_type == 0 and n_pl.args.target_speed == 0.0,
+          f"目标退化为**静止点**：type={n_pl.args.target_type} "
+          f"speed={n_pl.args.target_speed}")
+    check(n_pl.aim_res.get("chosen_by") == "plate",
+          f"撞板模式**跳过自动瞄准**（chosen_by={n_pl.aim_res.get('chosen_by')}）")
+    check(n_pl.azim_deg == 0.0 and n_pl.elev_deg == 0.0, "方位/仰角置 0")
+    check(n_pl.t_flight > 0.0, f"静止目标的 t_flight 正常（{n_pl.t_flight:.2f}s）")
+
+    # ③ 判据：板形而非球 —— 距板心 0.5 m 但**在板面内** ⇒ 不算撞板；
+    #    而 R_true<0.5 这条老判据在撞板模式必须**不生效**（不会误报命中）
+    n_pl.hit_radius = 0.5
+    _vd = n_pl.plate.verdict(None, (-14.3, 0.0, 3.0),
+                             tol=n_pl.plate_hit_tol,
+                             body_radius=n_pl.plate_body_radius)
+    check(_vd["kind"] == "HIT",
+          f"板心前 0.3 m（板面内）⇒ HIT（{_vd['kind']}, dist={_vd['dist']:.3f}）")
+    _vd2 = n_pl.plate.verdict(None, (-14.4, 0.5, 3.0),
+                              tol=n_pl.plate_hit_tol,
+                              body_radius=n_pl.plate_body_radius)
+    check(_vd2["kind"] == "MISS",
+          f"横向偏 0.5 m（超出半宽+机身）⇒ MISS（{_vd2['kind']}）")
+    # 穿越：从板前飞到板后，正对板心
+    _vd3 = n_pl.plate.verdict((-13.0, 0.0, 3.0), (-15.0, 0.0, 3.0),
+                              tol=n_pl.plate_hit_tol,
+                              body_radius=n_pl.plate_body_radius)
+    check(_vd3["kind"] == "THROUGH",
+          f"穿过板面且落在矩形内 ⇒ THROUGH（{_vd3['kind']}）")
+
+    # ④ 撞板模式下弹丸球**不推位置**（否则球会嵌在板里，画面误导）
+    n_pl.gz_last_p_T = None
+    n_pl.gz_update((0.0, 0.0, 0.0))
+    check(n_pl.gz_last_p_T is None, "撞板模式 gz_update 早退（弹丸球保持隐藏）")
+
+    # ⑤ 横幅 / 汇总 / 回传报告都不能崩，且要有"撞板"字样
+    _logs.clear()
+    n_pl.report_banner()
+    check(any("撞板模式" in s for s in _logs), "横幅里有『撞板模式』说明")
+    check(any("命中判定" in s and "撞板" in s for s in _logs),
+          "横幅里命中判定改成撞板口径")
+    n_pl.min_R, n_pl.t_min_R = 0.4, 0.2
+    n_pl.plate_min_dist, n_pl.plate_min_t = 0.4, 0.2
+    n_pl.plate_verdict_rec = {"kind": "MISS", "dist": 0.4}
+    n_pl.peak_a_cmd = 5.0
+    _logs.clear()
+    n_pl.print_summary("撞板")
+    check(any("撞板判据" in s for s in _logs), "汇总里有『撞板判据』一行")
+    # 回传报告：裸 print ⇒ 用 StringIO 截获
+    import io as _io27
+    n_pl.report_on = True
+    _buf = _io27.StringIO()
+    _old = sys.stdout
+    try:
+        sys.stdout = _buf
+        n_pl.print_report()
+    finally:
+        sys.stdout = _old
+    _txt = _buf.getvalue()
+    check("[撞板]" in _txt, "回传报告里有 [撞板] 段")
+    check("待定" in _txt, "回传报告里如实标注『规则为待定』")
+    n_pl.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

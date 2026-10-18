@@ -121,6 +121,10 @@ DEFAULT_WORLD = "walls"            # XTDrone2 单机 demo 默认世界（见 REA
 TOWER_NAME = "defense_tower"       # 防御塔（我方，原点）
 PROJECTILE_NAME = "enemy_dart"     # 弹丸（敌方）
 LAUNCHER_NAME = "enemy_launcher"   # 发射架（纯视觉，可选）
+# ★ 2026-10-18 新增：**固定装甲板**（撞板任务的目标，纯视觉 + 几何参照）
+#   与 `armor_plate.py` 的 ArmorPlate 一一对应：中心/宽高厚/yaw 必须一致，
+#   否则"画面里的板"和"判定用的板"会错位（节点里会打印一行核对）。
+PLATE_NAME = "armor_plate"
 # 发射架方块边长 (m)：`ensure_launcher` 默认 size，方块中心在 z=size/2，
 # **顶面在 z=size**。弹丸"贴在发射架顶面"时要用到它（见节点里的 preset 逻辑）。
 LAUNCHER_SIZE = 0.6
@@ -230,6 +234,40 @@ def launcher_sdf(name: str, size: float = 0.5) -> str:
         <material>
           <ambient>0.85 0.35 0.10 1</ambient>
           <diffuse>0.95 0.45 0.12 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+"""
+
+
+def armor_plate_sdf(name: str, width: float = 0.60, height: float = 0.60,
+                    thickness: float = 0.05) -> str:
+    """★ **固定装甲板**：竖直薄板（撞板任务的目标 / 视觉参照）。
+
+    朝向约定：**局部 x = 厚度方向（法向）**、y = 板宽、z = 板高。
+      · `yaw=0`   ⇒ 板面法向 **+x**（正对从 +x 方向飞来的无人机）
+      · `yaw=90°` ⇒ 法向 +y
+    与 `armor_plate.py` 的 `ArmorPlate.axes()` 完全一致
+    （那里 n=(cos,sin,0)、u=(−sin,cos,0)、v=+z；这里 box 的 x 轴即 n）。
+
+    颜色用**琥珀黄**：与塔（蓝青）、弹丸/轨迹（橙红）、无人机（绿）都区分得开，
+    而且撞板是"要打的目标"⇒ 用显眼的高饱和色最合适。
+    """
+    return f"""<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="{name}">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry>
+          <box><size>{thickness} {width} {height}</size></box>
+        </geometry>
+        <material>
+          <ambient>0.90 0.75 0.10 1</ambient>
+          <diffuse>0.98 0.85 0.15 1</diffuse>
+          <specular>0.35 0.35 0.20 1</specular>
         </material>
       </visual>
     </link>
@@ -687,7 +725,7 @@ class GzScene:
         return res
 
     def _create(self, name: str, sdf: str, pose=(0.0, 0.0, 0.0),
-                pre_remove: bool = True) -> bool:
+                pre_remove: bool = True, yaw: float = 0.0) -> bool:
         """创建一个实体。**同名先删**（避免 allow_renaming 引发重复名）。
 
         ★★ 两次实测教训（2026-10-17）：
@@ -713,7 +751,13 @@ class GzScene:
             req.pose.position.x = float(pose[0])
             req.pose.position.y = float(pose[1])
             req.pose.position.z = float(pose[2])
-            req.pose.orientation.w = 1.0
+            # ★ yaw（绕 +z 的旋转；ENU 右手）—— 固定装甲板要用它摆朝向。
+            #   默认 0 ⇒ 四元数 (w=1,x=y=z=0)，与旧行为**完全一致**。
+            _half = float(yaw) * 0.5
+            req.pose.orientation.x = 0.0
+            req.pose.orientation.y = 0.0
+            req.pose.orientation.z = float(math.sin(_half))
+            req.pose.orientation.w = float(math.cos(_half))
             ok, rep = self._req(self._svc_create, req, boolean_pb2.Boolean,
                                 timeout_ms=CREATE_TIMEOUT_MS)
             return bool(ok and rep is not None and rep.data), rep
@@ -912,7 +956,7 @@ class GzScene:
 
     # ------------------------------------------- 幂等"确保存在"（绝不先删）
     def _ensure(self, name: str, sdf: str, pose, tol: float = 0.10,
-                recreate_if_stuck: bool = False) -> bool:
+                recreate_if_stuck: bool = False, yaw: float = 0.0) -> bool:
         """★ **幂等**：已存在就复用，不存在才创建；**绝不"先删后建"**。
 
         为什么必须这样（2026-10-17 用户实测"起飞后球和发射塔又没有了"）：
@@ -953,10 +997,10 @@ class GzScene:
             if recreate_if_stuck:
                 self._log(f"   ⇒ 移动失败且偏了 {drift:.2f} m ⇒ **重建**"
                           f"（此刻在地面，安全；重建失败的话模型会消失，日志会说明）")
-                return self._create(name, sdf, pose, pre_remove=True)
+                return self._create(name, sdf, pose, pre_remove=True, yaw=yaw)
             return False
         # 不存在 ⇒ 创建（pre_remove=False：既然不存在，没必要再删一次）
-        ok = self._create(name, sdf, pose, pre_remove=False)
+        ok = self._create(name, sdf, pose, pre_remove=False, yaw=yaw)
         if not ok:
             # ★ 2026-10-17 审查：`snapshot_positions` 读不到（仿真刚起 / 话题还没发）
             #   时 `_snap` 是空字典 ⇒ 这里会走"创建"，而实体其实**已经存在**
@@ -1017,6 +1061,23 @@ class GzScene:
                             projectile_sdf(PROJECTILE_NAME, radius), pose,
                             tol=0.30,      # 球常被 park/飞行移动过，容差放宽
                             recreate_if_stuck=True)
+
+    def ensure_armor_plate(self, center, width: float = 0.60,
+                           height: float = 0.60, thickness: float = 0.05,
+                           yaw_deg: float = 0.0) -> bool:
+        """**确保**固定装甲板存在（幂等）。`center` = 板**几何中心** ENU (m)。
+
+        ★ 与 `ensure_tower` 的差别：板有**朝向** ⇒ 走 `yaw` 参数（`_create` 里拼四元数）。
+        ⚠ 幂等复用时**只核位置、不核朝向**（`/pose/info` 的朝向这里没读）。
+          换朝向调试时请先删掉实体（`--rebuild-scene` 或 Gazebo 里手动删），
+          否则会看到"日志说 yaw=…、画面还是旧朝向"。
+        """
+        return self._ensure(
+            PLATE_NAME,
+            armor_plate_sdf(PLATE_NAME, width, height, thickness),
+            (float(center[0]), float(center[1]), float(center[2])),
+            tol=0.10, recreate_if_stuck=True,
+            yaw=math.radians(float(yaw_deg)))
 
     def hide_projectile(self) -> None:
         """把弹丸移出视野（等价于"消失"），命中/脱靶后调用。"""

@@ -717,6 +717,45 @@ class PhaseBGuidance(Node):
         self.args = args
         self.ns = args.namespace
 
+        # ---- ★ 固定装甲板（撞板任务，2026-10-18）----
+        #   打开 `--armor-plate` 后：
+        #     · **目标 = 板心（静止点）** ⇒ TargetModel 用 STRAIGHT + speed 0（原生支持：
+        #       v_T=0、a_T=0、hits_ground=false、t_flight=t_max）
+        #     · **命中判据 = 板形**（穿越板面 / 贴板容差 + 机身半径），不再用球形 R_true
+        #   ⚠ 默认关 ⇒ 下面这些字段都在、但 plate 为 None ⇒ 老流程零行为变化。
+        self.plate = None
+        self.plate_hit = False
+        self.plate_verdict_rec = None
+        self.plate_min_dist = None
+        self.plate_min_t = None
+        self._plate_prev = None
+        self.plate_hit_tol = float(getattr(args, "plate_hit_tol", 0.15))
+        self.plate_body_radius = float(getattr(args, "plate_body_radius", 0.20))
+        if getattr(args, "armor_plate", False):
+            from armor_plate import ArmorPlate as _ArmorPlate
+            _sz = [float(x) for x in
+                   str(args.plate_size).replace(" ", "").split(",") if x != ""]
+            if len(_sz) != 3:
+                raise SystemExit(f"--plate-size 需要 3 个分量（宽,高,厚）："
+                                 f"{args.plate_size!r}")
+            self.plate = _ArmorPlate(
+                name="enemy_armor_plate",
+                center=tuple(float(x) for x in args.plate_center),
+                width=_sz[0], height=_sz[1], thickness=_sz[2],
+                yaw_deg=float(args.plate_yaw))
+            # 目标改为静止点：STRAIGHT(0) + speed 0 ⇒ v_T=0、a_T=0、hits_ground=false
+            args.target_p0 = self.plate.center
+            args.target_type = 0
+            args.target_speed = 0.0
+            args.target_elev = 0.0
+            args.target_azim = 0.0
+            # ★ 安全围栏提醒：MIN_ALTITUDE 是硬 abort 线，板放太低必然被它打断
+            if float(self.plate.center[2]) < MIN_ALTITUDE + 0.5:
+                self.warn(f"⚠ 装甲板中心 z={self.plate.center[2]:.2f} m 低于安全围栏 "
+                          f"MIN_ALTITUDE({MIN_ALTITUDE:.1f})+0.5 m ⇒ 飞机会在接近板之前"
+                          f"被 check_safety **abort**（撞不到板）。"
+                          f"建议 --plate-center 的 z ≥ {MIN_ALTITUDE + 1.0:.1f}")
+
         # ---- 场景参数 ----
         self.target_p0 = args.target_p0
         self.hit_radius = args.hit_radius
@@ -760,7 +799,16 @@ class PhaseBGuidance(Node):
                               args.target_area, args.target_rho)
 
         # —— 方位角 ——
-        if args.target_azim == AIM_AUTO:
+        if self.plate is not None:
+            # ★ 撞板模式：目标静止 ⇒ **不需要**自动瞄准（那套是给"弹丸打塔"解弹道用的）
+            self.azim_deg = 0.0
+            self.elev_deg = 0.0
+            self.aim_azim_auto = False
+            self.aim_elev_auto = False
+            self.aim_speed_hint = None
+            self.aim_res = {"ok": True, "chosen_by": "plate",
+                            "dist": 0.0, "t_rel": 0.0, "inside": 0}
+        elif args.target_azim == AIM_AUTO:
             self.azim_deg = aim_azimuth_deg(self.target_p0, self.tower)
             self.aim_azim_auto = True
         else:
@@ -772,7 +820,9 @@ class PhaseBGuidance(Node):
         #     ① 先用**配平过的首选值**试：能穿塔就用 ⇒ 与旧对照实验完全可比；
         #     ② 打不到才真正**打靶求解**（并且只改角度，不改速度）。
         self.aim_speed_hint = None      # 打不到塔时给的建议速度
-        if args.target_elev == AIM_AUTO:
+        if self.plate is not None:
+            pass                        # 撞板模式：上面已设好 elev_deg=0，跳过打靶
+        elif args.target_elev == AIM_AUTO:
             self.aim_elev_auto = True
             self.aim_res = probe_elev(
                 self.lib, self.guide, _cfg_fn, self.target_p0,
@@ -1061,11 +1111,22 @@ class PhaseBGuidance(Node):
                  f"方位 {self.azim_deg:+.2f}°"
                  f"{'（auto 对准塔）' if self.aim_azim_auto else ''}")
         self.log(f"        目标飞行时间={self.t_flight:.2f}s  hits_ground={self.t_hits_ground}")
-        # ★ 自动瞄准报告（"这发到底会不会打到塔"一目了然）
-        for _ln in describe_aim(self.target_p0, self.tower,
-                                self.azim_deg, self.elev_deg, self.aim_res):
-            self.log("        " + _ln)
-        if not self.aim_res.get("ok", False):
+        if self.plate is not None:
+            self.log(f"  ★ 撞板模式：固定装甲板「{self.plate.name}」"
+                     f"中心 ENU=({self.plate.center[0]:.2f},{self.plate.center[1]:.2f},"
+                     f"{self.plate.center[2]:.2f})  "
+                     f"宽×高×厚={self.plate.width:.2f}×{self.plate.height:.2f}×"
+                     f"{self.plate.thickness:.3f} m  "
+                     f"法向 yaw={self.plate.yaw_deg:+.1f}°")
+            self.log(f"        ⚠ 板尺寸/容差是**我们的假设**（规则表 5-1 对『空中机器人"
+                     f"冲击』写的是『待定』）：tol={self.plate_hit_tol} m + 机身 "
+                     f"{self.plate_body_radius} m")
+        # ★ 自动瞄准报告（"这发到底会不会打到塔"一目了然）——撞板模式无意义，跳过
+        if self.plate is None:
+            for _ln in describe_aim(self.target_p0, self.tower,
+                                    self.azim_deg, self.elev_deg, self.aim_res):
+                self.log("        " + _ln)
+        if self.plate is None and not self.aim_res.get("ok", False):
             self.warn(f"⚠⚠ 当前几何下弹丸**打不到防御塔**（最近 {self.aim_res['dist']:.2f} m）"
                       f"—— 这一发拦截**没有意义**（塔不会被击中）。")
             if self.aim_speed_hint:
@@ -1086,7 +1147,11 @@ class PhaseBGuidance(Node):
                  f"；横向保持={'ON' if self.args.cruise_lat_hold else 'OFF'}")
         self.log(f"  起飞门限: 离地 < {TAKEOFF_MIN_AGL:.1f} m 时**禁止任何水平加速度**"
                  f"（先纯垂直爬升；防止机体倾斜导致桨叶打地）")
-        self.log(f"  命中判定: R_true < {self.hit_radius} m")
+        if self.plate is not None:
+            self.log(f"  命中判定: **撞板**（板形）—— 距板 ≤ {self.plate_hit_tol} m + 机身 "
+                     f"{self.plate_body_radius} m，或穿越板面矩形")
+        else:
+            self.log(f"  命中判定: R_true < {self.hit_radius} m")
         self.log(f"  Gazebo 可视化: {'ON（塔 + 弹丸 + ' + ('轨迹线' if self.args.gz_trail else '无轨迹线') + '）' if self.args.gz_viz else 'OFF'}"
                  + (f"  world={self.args.gz_world} @ {self.args.gz_hz:.0f} Hz" if self.args.gz_viz else ""))
         self.log("  符号约定: 日志里的 alt / 上升率 一律**上为正**；"
@@ -2166,9 +2231,20 @@ class PhaseBGuidance(Node):
             #     这是预期行为：它模拟"发射瞬间"，不是 bug。
             #   发射架是边长 `LAUNCHER_SIZE` 的方块，中心在 z=size/2 ⇒ **顶面在 z=size**；
             #   球底面贴顶面 ⇒ 球心 z = size + radius。
+            # ★ 固定装甲板（撞板任务）：幂等实体，起飞前摆好；失败只告警不中断
+            if self.plate is not None:
+                ok_pl = self.gz.ensure_armor_plate(
+                    self.plate.center, self.plate.width, self.plate.height,
+                    self.plate.thickness, self.plate.yaw_deg)
+                self.log(f"  ── Gazebo 固定装甲板：{'✓ 已就位' if ok_pl else '⚠ 创建失败'}"
+                         f"  中心=({self.plate.center[0]:.2f},{self.plate.center[1]:.2f},"
+                         f"{self.plate.center[2]:.2f})  宽×高×厚="
+                         f"{self.plate.width:.2f}×{self.plate.height:.2f}×"
+                         f"{self.plate.thickness:.3f} m  yaw={self.plate.yaw_deg:+.1f}°")
             pad_z = self.gz_pad_z()          # 唯一出处，与收尾 park 用同一个值
+            # ★ 撞板模式：目标不是弹丸 ⇒ 球**藏起来**（否则它会和板重叠，画面误导）
             at = ((self.target_p0[0], self.target_p0[1], pad_z)
-                  if self.args.gz_proj_preset else None)
+                  if (self.args.gz_proj_preset and self.plate is None) else None)
             ok_p = self.gz.ensure_projectile(self.args.gz_proj_radius, at=at)
             # ★★ 弹丸可见性：创建时就放在**发射架顶面** + 再 set_pose 一次做**双保险**
             #   旧流程：创建在 HIDDEN_Z(-500) → set_pose 移上来
@@ -2179,7 +2255,7 @@ class PhaseBGuidance(Node):
             #              不能给 target_p0，否则球又跑到 10 m 高去了。
             #   ⚠ **零风险**：不改变几何、不等待、不卡控制回路 ——
             #     弹丸位置在 GUIDED 段仍由 TargetModel 逐帧写入（见 gz_update）。
-            if ok_p and self.args.gz_proj_preset:
+            if ok_p and self.args.gz_proj_preset and self.plate is None:
                 self.gz.set_projectile((self.target_p0[0], self.target_p0[1], pad_z))
                 self.log(f"  ── 弹丸已**停在发射架顶面中心** "
                          f"({self.target_p0[0]:.2f},{self.target_p0[1]:.2f},"
@@ -2231,6 +2307,11 @@ class PhaseBGuidance(Node):
         ⚠ 包 try/except：绝不允许可视化把制导循环搞挂。
         """
         if self.gz is None or not self.gz.available:
+            return
+        # ★ 撞板模式：目标静止在板心。**不要**再把"弹丸球"推到板心上——
+        #   那会变成"球嵌在板里"，画面误导（板才是目标，弹丸球已经不存在了）。
+        #   ⇒ 撞板模式下弹丸球保持隐藏（gz_setup 里 `at=None`），这里也不推位置。
+        if self.plate is not None:
             return
         try:
             self.gz.set_projectile(p_T_enu)
@@ -2655,7 +2736,29 @@ class PhaseBGuidance(Node):
             self.t_min_R = self.t_rel
 
         # --- 命中 / 脱靶 ---
-        if R_true < self.hit_radius and not self.hit:
+        if self.plate is not None:
+            # ★ 撞板判据（板形，2026-10-18）：**穿越板面** > **贴板容差** > 未命中。
+            #   用上一拍位置做线段穿越检测 ⇒ 高速穿板也不会"两帧跨过去漏判"。
+            vd = self.plate.verdict(self._plate_prev, p_enu,
+                                    tol=self.plate_hit_tol,
+                                    body_radius=self.plate_body_radius)
+            self._plate_prev = tuple(p_enu) if p_enu is not None else None
+            if self.plate_min_dist is None or vd["dist"] < self.plate_min_dist:
+                self.plate_min_dist = float(vd["dist"])
+                self.plate_min_t = self.t_rel
+                self.plate_verdict_rec = vd
+            if vd["kind"] in ("THROUGH", "HIT") and not self.plate_hit:
+                self.plate_hit = True
+                self.plate_verdict_rec = vd
+                self.log("")
+                self.log("★" * 36)
+                self.log(f"★ 撞板成功！（{vd['kind']}）距板心 R_true={R_true:.3f} m  "
+                         f"板面残差 Δu={vd['du']:+.3f} Δv={vd['dv']:+.3f} m  "
+                         f"@ t_rel={self.t_rel:.3f}s")
+                self.log("★" * 36)
+                self.finish("撞板")
+                return
+        elif R_true < self.hit_radius and not self.hit:
             self.hit = True
             self.log("")
             self.log("★" * 36)
@@ -2704,7 +2807,7 @@ class PhaseBGuidance(Node):
         if self.gz is not None and self.gz.available:
             self.gz_setpose_t1 = int(getattr(self.gz, "stats", {}).get("set_pose", 0))
             self.gz_flight_secs = self.t_rel
-        self.gz_finish(self.hit)          # 命中画爆点 / 画轨迹（--gz-viz 才动作）
+        self.gz_finish(self.hit or self.plate_hit)   # 命中画爆点 / 画轨迹（--gz-viz 才动作）
         self.print_summary(reason)
         self.cur_a_enu = (0.0, 0.0, 0.0)
         self.request_landing(f"测试结束（{reason}）")
@@ -2804,7 +2907,16 @@ class PhaseBGuidance(Node):
         else:
             self.log(f"  最近距离     : {self.min_R:.3f} m  @ t_rel={self.t_min_R:.3f} s"
                      f"（命中阈值 {self.hit_radius} m）")
-            self.log(f"  命中         : {'是 ✓' if self.hit else '否 ✗'}")
+            self.log(f"  命中         : {'是 ✓' if (self.hit or self.plate_hit) else '否 ✗'}"
+                     + ("（撞板判据）" if self.plate is not None else ""))
+            if self.plate is not None:
+                _md = ("—" if self.plate_min_dist is None
+                       else "%.3f m @ t_rel=%.3fs" % (self.plate_min_dist,
+                                                       self.plate_min_t or 0.0))
+                self.log(f"  撞板判据     : "
+                         f"{(self.plate_verdict_rec or {}).get('kind', 'MISS')}"
+                         f"  距板最小 {_md}  容差 {self.plate_hit_tol} m + 机身 "
+                         f"{self.plate_body_radius} m")
             self.log(f"  峰值指令     : {self.peak_a_cmd:.2f} m/s²"
                      f"（a_max={self.args.a_max}）")
             self.log(f"  指令饱和步数 : {self.sat_steps} / {self.guided_steps}"
@@ -2947,20 +3059,36 @@ class PhaseBGuidance(Node):
              "(auto)" if self.aim_elev_auto else "",
              self.azim_deg, "(auto)" if self.aim_azim_auto else "",
              self.t_flight, self.t_hits_ground))
-        # ★ 自动瞄准的结果（把这发"打不打得到塔"写进回传报告，便于事后核对）
+        # ★ 自动瞄准的结果 / 撞板目标（写进回传报告，便于事后核对）
         _ar = self.aim_res or {}
-        p("[瞄准] 塔 @(%+.2f,%+.2f) r=%.2f h=%.2f 安全垫=%.2f  水平距离=%.2f m"
-          % (self.tower.center[0], self.tower.center[1], self.tower.radius,
-             self.tower.height, self.tower.safety_margin,
-             math.hypot(self.tower.center[0] - self.target_p0[0],
-                        self.tower.center[1] - self.target_p0[1])))
-        p("[瞄准] 弹道离塔最近 %.3f m @ t_rel=%.3fs（穿塔采样 %d 点）⇒ %s"
-          % (_ar.get("dist", float("nan")), _ar.get("t_rel", 0.0),
-             int(_ar.get("inside", 0)),
-             "✅ **会打中塔**" if _ar.get("ok") else
-             ("⚠ 擦边（安全垫内，算威胁）"
-              if _ar.get("dist", 9e9) < self.tower.safety_margin
-              else "❌ **打不到塔**（这发拦截没有意义）")))
+        if self.plate is not None:
+            p("[撞板] 目标=固定装甲板「%s」 中心 ENU=(%.2f,%.2f,%.2f)  "
+              "宽×高×厚=%.2f×%.2f×%.3f m  法向 yaw=%+.1f°"
+              % (self.plate.name, self.plate.center[0], self.plate.center[1],
+                 self.plate.center[2], self.plate.width, self.plate.height,
+                 self.plate.thickness, self.plate.yaw_deg))
+            p("[撞板] 判据=穿越板面矩形 / 距板 ≤ %.2f m + 机身 %.2f m"
+              "（★ 我们的假设：规则表 5-1 对『空中机器人冲击』写的是『待定』）"
+              % (self.plate_hit_tol, self.plate_body_radius))
+            p("[撞板] 结果=%s  距板最小=%s  判定=%s"
+              % ("命中 ✓" if self.plate_hit else "未命中 ✗",
+                 "—" if self.plate_min_dist is None
+                 else "%.3f m @ t_rel=%.3fs" % (self.plate_min_dist,
+                                                self.plate_min_t or 0.0),
+                 (self.plate_verdict_rec or {}).get("kind", "MISS")))
+        else:
+            p("[瞄准] 塔 @(%+.2f,%+.2f) r=%.2f h=%.2f 安全垫=%.2f  水平距离=%.2f m"
+              % (self.tower.center[0], self.tower.center[1], self.tower.radius,
+                 self.tower.height, self.tower.safety_margin,
+                 math.hypot(self.tower.center[0] - self.target_p0[0],
+                            self.tower.center[1] - self.target_p0[1])))
+            p("[瞄准] 弹道离塔最近 %.3f m @ t_rel=%.3fs（穿塔采样 %d 点）⇒ %s"
+              % (_ar.get("dist", float("nan")), _ar.get("t_rel", 0.0),
+                 int(_ar.get("inside", 0)),
+                 "✅ **会打中塔**" if _ar.get("ok") else
+                 ("⚠ 擦边（安全垫内，算威胁）"
+                  if _ar.get("dist", 9e9) < self.tower.safety_margin
+                  else "❌ **打不到塔**（这发拦截没有意义）")))
         p("[巡航] %s  boost_dir=%s  a_boost=%g  v_min=%g  cruise_x=%s  "
           "lat_hold=%s  timeout=%gs"
           % ("ON" if self.cruise_on else "OFF",
@@ -3199,6 +3327,24 @@ def build_parser():
     ap.add_argument("--a-max", type=float, default=10.0, help="过载上限 (m/s²)")
     ap.add_argument("--t-go-freeze", type=float, default=0.10)
     ap.add_argument("--hit-radius", type=float, default=0.5, help="命中判定半径 (m)")
+    # ★ 固定装甲板（撞板任务，2026-10-18）
+    #   默认**关** ⇒ 老的"拦弹丸"流程一行不改（零行为变化）。
+    ap.add_argument("--armor-plate", action="store_true",
+                    help="★ 目标改成**固定装甲板**（撞板）：目标=板心（静止点），"
+                         "命中判据=穿越板面 / 贴近板面，不再用球形 R_true。默认关")
+    ap.add_argument("--plate-center", type=parse_vec3, default=(-14.0, 0.0, 5.0),
+                    metavar="X,Y,Z",
+                    help="装甲板**几何中心** ENU (m)。⚠ 默认 z=5.0：安全围栏是 "
+                         f"MIN_ALTITUDE={3.0:.0f} m，板放太低会被围栏 abort")
+    ap.add_argument("--plate-size", default="0.60,0.60,0.05", metavar="W,H,T",
+                    help="装甲板 宽,高,厚 (m)。⚠ 默认值是**我们的假设**："
+                         "规则 V1.0.0 表 5-1 对『空中机器人冲击』的判据写的是『待定』")
+    ap.add_argument("--plate-yaw", type=float, default=0.0,
+                    help="板面**法向**方位角 (deg)：0=法向 +x（正对来向），90=法向 +y")
+    ap.add_argument("--plate-hit-tol", type=float, default=0.15,
+                    help="撞板距离容差 (m)：机心到板盒距离 ≤ tol+机身半径 判 HIT")
+    ap.add_argument("--plate-body-radius", type=float, default=0.20,
+                    help="机体等效半径 (m)：把板面矩形外扩，机身边缘擦到也算撞上")
     # 预加速
     ap.add_argument("--a-boost", type=float, default=6.0)
     ap.add_argument("--v-boost-min", type=float, default=5.0)
