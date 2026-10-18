@@ -1,0 +1,5 @@
+# 示例，必须按实物修改；cols/rows 是内角点数，不是黑白格数量！
+target_type: checkerboard
+cols: 8
+rows: 11
+square_size: 0.03  # 米，打印后用尺测量；不建议用屏幕上的格子作最终标定
