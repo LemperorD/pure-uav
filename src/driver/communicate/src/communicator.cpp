@@ -98,6 +98,7 @@ void Communicator::recvLoop() {
                             break;
                         }
                         case MAVLINK_MSG_ID_ATTITUDE: {      //姿态
+                            count_attitude_.fetch_add(1);
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
                             std::lock_guard<std::mutex> lk(data_mutex_);
@@ -108,6 +109,7 @@ void Communicator::recvLoop() {
                             break;
                         }
                         case MAVLINK_MSG_ID_BATTERY_STATUS: {      //电量
+                            count_battery_.fetch_add(1);
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
                             std::lock_guard<std::mutex> lk(data_mutex_);
@@ -130,6 +132,7 @@ void Communicator::recvLoop() {
                             break;
                         }
                         case MAVLINK_MSG_ID_LOCAL_POSITION_NED: {      //位置和速度
+                            count_local_position_.fetch_add(1);
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
                             std::lock_guard<std::mutex> lk(data_mutex_);
@@ -142,6 +145,7 @@ void Communicator::recvLoop() {
                             break;
                         }
                         case MAVLINK_MSG_ID_SYSTEM_TIME: {      //时间戳
+                            count_system_time_.fetch_add(1);
                             mavlink_system_time_t st;
                             mavlink_msg_system_time_decode(&msg, &st);
                             std::lock_guard<std::mutex> lk(data_mutex_);
@@ -150,6 +154,7 @@ void Communicator::recvLoop() {
                             break;
                         }
                         case MAVLINK_MSG_ID_HIGHRES_IMU: {    //IMU原数数据
+                            count_highres_imu_.fetch_add(1);
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
                             std::lock_guard<std::mutex> lk(data_mutex_);

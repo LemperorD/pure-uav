@@ -193,6 +193,12 @@ public:
     const char* getAutopilotNameCn() const;     // 飞控固件中文名
     uint8_t lastAckResult() const { return last_ack_result_.load(); } //最近一次 ACK 结果
     const char* getLastAck() const;  // 最近一次 ACK 结果中文名（未收到返回"未收到"）
+    // 各消息累计接收帧数（用于统计实际频率）
+    uint32_t getCountAttitude() const { return count_attitude_.load(); }
+    uint32_t getCountLocalPosition() const { return count_local_position_.load(); }
+    uint32_t getCountImu() const { return count_highres_imu_.load(); }
+    uint32_t getCountBattery() const { return count_battery_.load(); }
+    uint32_t getCountSystemTime() const { return count_system_time_.load(); }
 
 private:
     void recvLoop();  // 接收线程
@@ -213,6 +219,12 @@ private:
     uint8_t compid_ = 1;    // 上位机 component id
     std::atomic<uint8_t> fcu_sysid_{1};  // 飞控 system id（从心跳学习）
     std::atomic<uint8_t> autopilot_{0};  // 飞控固件类型（3=ArduPilot, 12=PX4, 0=未知）
+    // 各消息累计接收帧数
+    std::atomic<uint32_t> count_attitude_{0};
+    std::atomic<uint32_t> count_local_position_{0};
+    std::atomic<uint32_t> count_highres_imu_{0};
+    std::atomic<uint32_t> count_battery_{0};
+    std::atomic<uint32_t> count_system_time_{0};
 
     mutable std::mutex data_mutex_;
     Attitude attitude_;  //roll  pitch  yaw  rad   四元数
