@@ -389,6 +389,274 @@ def sensor_cfg():
             1200.0, 1200.0, 320.0, 240.0, 640.0, 480.0, 0.5, 1.0]
 
 
+# ===========================================================================
+#  ★ 自动瞄准：让弹丸的（解析）弹道**对准被守护的防御塔**
+# ===========================================================================
+#  【为什么需要它】（2026-10-18 实跑）
+#    用户把发射台挪到 (-18,-3,10)，却忘了同时改 `--target-azim`（还是 0）：
+#      · 弹丸沿 y=-3 往 +x 直飞，无人机沿 y≈0 迎击 ⇒ 两条线**平行错开 3.13 m**；
+#      · 实测脱靶 3.009 m ≈ 3.13 m（完全吻合）；
+#      · 离线复算"若不拦截"：弹丸离塔最近 **1.82 m**（安全垫 1.0 m 内）
+#        ⇒ 这一发**本来就打不到塔**，拦截没有意义。
+#    ⇒ 方位角、仰角与发射点是**耦合**的，靠人手维护必然漏。交给程序算。
+#
+#  【两件事】
+#    ① 方位角：解析解 —— 从发射点**水平指向塔轴心**；
+#       注意不能用"塔在原点 ⇒ atan2(-y,-x)"，塔可以不在原点。
+#    ② 仰角  ：**打靶法** —— 扫仰角，使弹道穿入塔体（到塔体最近距离 → 0）。
+#       弹丸是"重力 + 气动阻力"的开环解析弹道（C++ `TargetModel`），
+#       距离/速度一变，原来配平的 -6° 就不成立了（14 m/s 下射程只有 16.8 m）。
+#
+#  【边界】
+#    · 只**解算角度**，不改弹道模型、不改制导律 ⇒ 与"所见即 TargetModel 所算"一致。
+#    · 速度不动（那是用户的实验变量）；解不出照射角时给出**具体建议**（含建议速度）。
+# ===========================================================================
+
+AIM_AUTO = "auto"
+
+# 仰角搜索范围（deg）与步长。粗扫 2° + 细扫 0.05°：
+#   18 m 处 0.05° ≈ 1.6 cm，远小于塔半径 1.2 m ⇒ 精度足够。
+AIM_ELEV_MIN = -70.0
+AIM_ELEV_MAX = 35.0
+AIM_COARSE_STEP = 2.0
+AIM_FINE_STEP = 0.05
+AIM_SAMPLES = 240          # 每条弹道采样点数（含端点）
+AIM_HIT_TOL = 1e-3         # 到塔体距离小于它就认为"穿入塔体"(m)
+# ★ 首选仰角（deg）：本项目配平过的值（14 m/s 时射程 16.8 m、塔在原点）。
+#   `auto` 的语义是"**保证对得上塔**"，不是"求穿塔最正的角度"：
+#   实测 -14,0,10 时 -13.4° 穿塔更"正"（塔内停留 0.186 s vs 擦顶 0.049 s），
+#   但交会点更靠内、t_go 更短 ⇒ 制导**脱靶 0.653 m**（-6° 时命中 0.209 m）。
+#   ⇒ 先用这个值试探，能穿塔就用它（保持对照实验可比），打不到才真正打靶求解。
+AIM_ELEV_PREFER = -6.0
+# 解不出时用来给"建议速度"的候选档（m/s）
+AIM_SPEED_LADDER = (14.0, 16.0, 18.0, 20.0, 24.0, 28.0)
+
+
+def parse_angle_or_auto(text):
+    """argparse 用：接受一个角度（deg）或 `auto`。
+
+    ⚠ 保持对旧命令行的完全兼容：`--target-azim=0` 仍然是一个数字。
+    """
+    s = str(text).strip().lower()
+    if s in ("auto", "tower", "aim"):
+        return AIM_AUTO
+    try:
+        return float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"需要角度（deg）或 `auto`：{text!r}")
+
+
+def tower_from_args(args):
+    """从命令行参数构造"被守护目标"（防御塔）的几何对象。
+
+    复用 `scene_model.Tower`（**唯一**几何定义处）—— 它同时被
+    `viz_scene.py` / `sim_phase_b_offline.py` 用来做威胁评估，
+    两边必须在同一份实现上，否则"报告说构成威胁、仿真说没打中"。
+    """
+    import scene_model as _SM
+    xy = parse_vec2(getattr(args, "tower_xy", "0,0"), (0.0, 0.0))
+    return _SM.Tower(
+        center=(float(xy[0]), float(xy[1]), 0.0),
+        radius=float(getattr(args, "tower_radius", 1.2)),
+        height=float(getattr(args, "tower_height", 3.0)),
+        safety_margin=float(getattr(args, "tower_margin", 1.0)))
+
+
+def aim_azimuth_deg(p0, tower):
+    """弹丸应取的**方位角**（deg）：从发射点在水平面内指向塔轴心。
+
+    ENU 下 azim 的口径 = "速度方向与 +x 的夹角，向 +y 为正"（与 `--target-azim` 一致）。
+    """
+    dx = float(tower.center[0]) - float(p0[0])
+    dy = float(tower.center[1]) - float(p0[1])
+    if math.hypot(dx, dy) < 1e-9:
+        return 0.0                      # 正好在塔正上方，方位角无意义
+    return math.degrees(math.atan2(dy, dx))
+
+
+def aim_pitch_deg(p0, tower):
+    """"直线对准"的仰角（deg）：发射点 → 塔**中部**的连线的俯仰角。
+
+    只用来做**初始猜测/合理性对照**；真正的仰角由 `solve_elev_deg` 打靶求解
+    （弹丸受重力下坠，必须比直线更抬高一点）。
+    """
+    dx = float(tower.center[0]) - float(p0[0])
+    dy = float(tower.center[1]) - float(p0[1])
+    z_mid = float(tower.center[2]) + float(tower.height) * 0.5
+    dz = z_mid - float(p0[2])
+    h = math.hypot(dx, dy)
+    if h < 1e-9:
+        return -90.0
+    return math.degrees(math.atan2(dz, h))
+
+
+def min_tower_distance(lib, guide, tower, n=AIM_SAMPLES):
+    """采样**当前已配置**的弹丸弹道，返回到塔体的最近距离与时刻。
+
+    返回 `(最近距离 m, 该时刻 t_rel, 穿入塔体的采样点数, 穿塔时长 s)`。
+    最近距离 0 表示弹道**真的穿进了塔体**（不是"擦过附近"）。
+    """
+    t_flight = float(lib.pgu_target_flight_time(guide))
+    if not (t_flight > 0.0):
+        return float("inf"), 0.0, 0, 0.0
+    buf = darr([0.0] * 9)
+    best_d, best_t, n_inside = float("inf"), 0.0, 0
+    n = max(2, int(n))
+    for i in range(n + 1):
+        t = t_flight * i / float(n)
+        lib.pgu_target_state(guide, t, buf)
+        d = tower.distance_to_body((buf[0], buf[1], buf[2]))
+        if d <= 0.0:
+            n_inside += 1
+        if d < best_d:
+            best_d, best_t = d, t
+    return best_d, best_t, n_inside, t_flight
+
+
+def aim_boost_dir(p0, tower=None):
+    """巡航迎击方向：从起飞点（世界原点）指向**弹丸发射点**的水平单位矢量。
+
+    ★ 为什么要自动化（2026-10-18）：
+      弹丸发射点一离轴（y≠0），"沿 −x 迎击"就不再对准弹丸来向 ⇒
+      交班时横向偏差 ≈ |p0_y|，直接吃掉 `½·a_max·t_go²`（≈1.25 m）的修正预算。
+      实测 (-18,-3,10) + boost_dir=(-1,0,0)：离线脱靶 **0.844 m**；
+      改成指向发射点 (-0.986,-0.164,0)：命中 **0.064 m**。
+    ⚠ **零行为变化**：发射点在 x 轴上时（`p0_y == 0`）结果就是 `(-1,0,0)`，
+      与原默认值逐位相同 ⇒ 旧的对照实验完全可比。
+    """
+    dx = float(p0[0]) - 0.0            # 起飞点默认在世界原点
+    dy = float(p0[1]) - 0.0
+    h = math.hypot(dx, dy)
+    if h < 1e-9:
+        return (-1.0, 0.0, 0.0)
+    return (dx / h, dy / h, 0.0)
+
+
+def probe_elev(lib, guide, cfg_fn, p0, speed, azim_deg, tower, elev_deg,
+               n_samples=AIM_SAMPLES):
+    """体检：**给定仰角**下，这一发会不会打到塔？返回与 `solve_elev_deg` 同构的 dict。
+
+    用途有两个：
+      · `--target-elev=auto` 的第一步（先试配平值，见 `AIM_ELEV_PREFER`）；
+      · 用户**手填**仰角时也给一次结论（不要让人以为"对着"就是"打得到"）。
+    """
+    lib.pgu_config_target(guide, darr(cfg_fn(p0, speed, azim_deg, elev_deg)))
+    d, t, ins, tf = min_tower_distance(lib, guide, tower, n=n_samples)
+    step = (tf / float(max(2, int(n_samples)))) if tf > 0 else 0.0
+    return {"elev": float(elev_deg), "dist": d, "t_rel": t, "inside": ins,
+            "inside_time": ins * step, "t_flight": tf,
+            "ok": d <= AIM_HIT_TOL,
+            "straight": aim_pitch_deg(p0, tower),
+            "coarse_best": float(elev_deg), "coarse_dist": d}
+
+
+def _elev_key(res, straight_deg):
+    """候选仰角的排序键（越小越好）。
+
+    ★ 为什么要 tie-break（2026-10-18 实测）：
+      塔是**圆柱**，很多仰角都能"打进塔体"（dist 都是 0）：
+        -14,0,10 时 -6° 擦着塔顶(3.0 m)穿过、-13.4° 从塔身中部穿过。
+      如果只按 dist 排序，粗扫从最陡端开始 ⇒ 会选到最陡的那个，
+      与"原来配平的 -6°"完全不同 ⇒ 对照实验失去可比性。
+      判据优先级：
+        ① 到塔体最近距离（越小越好，0 = 穿入）；
+        ② **穿塔时长**（越长说明穿得越正、越深入，而不是擦边）；
+        ③ 与"直线瞄准角"的差（越接近直线越自然，射程损失最小）。
+      ⚠ 这个排序只在"首选值打不到"时才会用到（见 `AIM_ELEV_PREFER`）：
+        因为"穿塔最正"未必"最好拦"（实测 -13.4° 反而脱靶 0.653 m）。
+    """
+    return (round(res["dist"], 6), -round(res["inside_time"], 6),
+            abs(res["elev"] - straight_deg))
+
+
+def solve_elev_deg(lib, guide, cfg_fn, p0, speed, azim_deg, tower,
+                   elev_lo=AIM_ELEV_MIN, elev_hi=AIM_ELEV_MAX,
+                   coarse_step=AIM_COARSE_STEP, fine_step=AIM_FINE_STEP,
+                   n_samples=AIM_SAMPLES):
+    """**打靶法**求仰角：使弹道穿入塔体（到塔体最近距离最小）。
+
+    `cfg_fn(p0, speed, azim_deg, elev_deg)` 负责把参数写进 lib（测试可注入）。
+    返回 dict：
+      elev   最终仰角 (deg)
+      dist   该仰角下弹道到塔体的最近距离 (m)
+      t_rel  最近时刻 (s)
+      inside 穿入塔体的采样点数（0 ⇒ 没打中塔体）
+      inside_time 穿塔时长 (s) —— 越大越"正"（而不是擦边）
+      ok     是否真的穿入塔体
+    """
+    straight = aim_pitch_deg(p0, tower)
+
+    def _eval(elev):
+        lib.pgu_config_target(guide, darr(cfg_fn(p0, speed, azim_deg, elev)))
+        d, t, ins, tf = min_tower_distance(lib, guide, tower, n=n_samples)
+        step = (tf / float(max(2, int(n_samples)))) if tf > 0 else 0.0
+        return {"elev": float(elev), "dist": d, "t_rel": t, "inside": ins,
+                "inside_time": ins * step, "t_flight": tf}
+
+    # ---- ① 粗扫：找到大致最优区间 ----
+    n_coarse = max(1, int(round((elev_hi - elev_lo) / coarse_step)))
+    coarse = []
+    for i in range(n_coarse + 1):
+        coarse.append(_eval(elev_lo + coarse_step * i))
+    coarse.sort(key=lambda r: _elev_key(r, straight))
+    best = coarse[0]
+
+    # ---- ② 细扫：在最优附近 ±coarse_step 内加密 ----
+    lo = max(elev_lo, best["elev"] - coarse_step)
+    hi = min(elev_hi, best["elev"] + coarse_step)
+    n_fine = max(1, int(round((hi - lo) / fine_step)))
+    for i in range(n_fine + 1):
+        e = lo + fine_step * i
+        if abs(e - best["elev"]) < 1e-9:
+            continue                    # 粗扫已经算过
+        r = _eval(e)
+        if _elev_key(r, straight) < _elev_key(best, straight):
+            best = r
+
+    out = dict(best)
+    out["ok"] = best["dist"] <= AIM_HIT_TOL
+    out["straight"] = straight
+    out["coarse_best"] = coarse[0]["elev"]
+    out["coarse_dist"] = coarse[0]["dist"]
+    return out
+
+
+def suggest_speed_for_tower(lib, guide, cfg_fn, p0, azim_deg, tower,
+                            speed_now, ladder=AIM_SPEED_LADDER):
+    """当前速度打不到塔时，找一个**能打到**的速度档，用于给建议文案。
+
+    返回 `(建议速度, 该速度下最优仰角, 最近距离)`；都不行则返回 None。
+    ⚠ 只**建议**，不自动改 —— 速度是用户做对照实验的变量。
+    """
+    for v in ladder:
+        if v <= speed_now:
+            continue
+        res = solve_elev_deg(lib, guide, cfg_fn, p0, v, azim_deg, tower)
+        if res["ok"]:
+            return v, res["elev"], res["dist"]
+    return None
+
+
+def describe_aim(p0, tower, azim_deg, elev_deg, res=None):
+    """把瞄准解算结果整理成几行可读文本（启动日志 / 回传报告共用）。"""
+    dx = float(tower.center[0]) - float(p0[0])
+    dy = float(tower.center[1]) - float(p0[1])
+    h = math.hypot(dx, dy)
+    lines = [
+        f"防御塔 @({tower.center[0]:+.2f},{tower.center[1]:+.2f}) "
+        f"r={tower.radius:.2f} m h={tower.height:.2f} m，安全垫 {tower.safety_margin:.2f} m",
+        f"发射点 → 塔心：水平距离 {h:.2f} m，方位角 {azim_deg:+.2f}°，"
+        f"直线俯仰 {aim_pitch_deg(p0, tower):+.2f}°",
+    ]
+    if res is not None:
+        tag = "✅ 穿入塔体" if res["ok"] else "❌ **打不到塔**"
+        lines.append(
+            f"打靶求解仰角 = {res['elev']:+.2f}°（弹道离塔最近 {res['dist']:.3f} m"
+            f" @ t_rel={res['t_rel']:.3f}s，穿塔采样 {res['inside']} 点）⇒ {tag}")
+    return lines
+
+
 _SIG_OPTION_NAMES = ("NO", "NONE", "None", "none", "No", "NONE_OPTION")
 
 
@@ -415,6 +683,14 @@ def parse_vec3(s):
     if len(parts) != 3:
         raise argparse.ArgumentTypeError(f"需要 3 个分量（x,y,z）：{s!r}")
     return tuple(parts)
+
+
+def parse_vec3_or_auto(s):
+    """`--boost-dir` 用：接受 `auto`（= 指向弹丸发射点）或 "x,y,z"。"""
+    t = str(s).strip().lower()
+    if t in ("auto", "aim", ""):
+        return None                    # None ⇒ 节点里按发射点自动算
+    return parse_vec3(s)
 
 
 def parse_vec2(s, default=(0.0, 0.0)):
@@ -446,7 +722,8 @@ class PhaseBGuidance(Node):
         self.hit_radius = args.hit_radius
         self.a_boost = args.a_boost
         self.v_boost_min = args.v_boost_min
-        self.boost_dir = args.boost_dir
+        self.boost_dir = (aim_boost_dir(self.target_p0)
+                          if args.boost_dir is None else args.boost_dir)
         self.cruise_on = not args.no_cruise
         self.cruise_x = args.cruise_x          # None = 速度达标即发射（旧行为）
         self.v_kp = args.v_kp                  # 巡航段速度保持增益
@@ -468,14 +745,66 @@ class PhaseBGuidance(Node):
         # ---- 制导核 ----
         self.lib, lib_path = load_guidance_lib(args.lib)
         self.guide = self.lib.pgu_create()
-        self.lib.pgu_config_target(self.guide, darr(target_cfg(
-            self.target_p0, args.target_type, args.target_speed,
-            args.target_elev, args.target_azim,
-            args.target_mass, args.target_cd, args.target_area, args.target_rho)))
+        self.lib_path = lib_path
+
+        # ---- ★ 自动瞄准（2026-10-18）：把"弹丸对着防御塔"变成计算而不是手填 ----
+        #   ① 方位角解析解 ② 仰角打靶（弹道受重力+阻力，必须解）
+        #   ⚠ 顺序：必须先 `pgu_create`（打靶要反复 config + 采样），
+        #     但**可以**在 `pgu_config_guidance` 之前 —— 制导参数与弹道无关。
+        self.tower = tower_from_args(args)
+
+        def _cfg_fn(p0, speed, azim_deg, elev_deg):
+            """把目标参数整理成 29 元素配置（打靶时反复调用）。"""
+            return target_cfg(p0, args.target_type, speed, elev_deg, azim_deg,
+                              args.target_mass, args.target_cd,
+                              args.target_area, args.target_rho)
+
+        # —— 方位角 ——
+        if args.target_azim == AIM_AUTO:
+            self.azim_deg = aim_azimuth_deg(self.target_p0, self.tower)
+            self.aim_azim_auto = True
+        else:
+            self.azim_deg = float(args.target_azim)
+            self.aim_azim_auto = False
+
+        # —— 仰角 ——
+        #   `auto` 分两步（见 AIM_ELEV_PREFER 注释）：
+        #     ① 先用**配平过的首选值**试：能穿塔就用 ⇒ 与旧对照实验完全可比；
+        #     ② 打不到才真正**打靶求解**（并且只改角度，不改速度）。
+        self.aim_speed_hint = None      # 打不到塔时给的建议速度
+        if args.target_elev == AIM_AUTO:
+            self.aim_elev_auto = True
+            self.aim_res = probe_elev(
+                self.lib, self.guide, _cfg_fn, self.target_p0,
+                args.target_speed, self.azim_deg, self.tower, AIM_ELEV_PREFER)
+            if self.aim_res["ok"]:
+                self.elev_deg = AIM_ELEV_PREFER
+                self.aim_res["chosen_by"] = "prefer"
+            else:
+                self.aim_res = solve_elev_deg(
+                    self.lib, self.guide, _cfg_fn, self.target_p0,
+                    args.target_speed, self.azim_deg, self.tower)
+                self.aim_res["chosen_by"] = "solver"
+                self.elev_deg = self.aim_res["elev"]
+                if not self.aim_res["ok"]:
+                    # 打不到 ⇒ 帮用户算一个"能打到"的速度（只建议，不自动改）
+                    self.aim_speed_hint = suggest_speed_for_tower(
+                        self.lib, self.guide, _cfg_fn, self.target_p0,
+                        self.azim_deg, self.tower, args.target_speed)
+        else:
+            self.elev_deg = float(args.target_elev)
+            self.aim_elev_auto = False
+            # 手填角度时也做一次体检：这发到底打不打得到塔？
+            self.aim_res = probe_elev(
+                self.lib, self.guide, _cfg_fn, self.target_p0,
+                args.target_speed, self.azim_deg, self.tower, self.elev_deg)
+            self.aim_res["chosen_by"] = "manual"
+
+        self.lib.pgu_config_target(self.guide, darr(_cfg_fn(
+            self.target_p0, args.target_speed, self.azim_deg, self.elev_deg)))
         self.lib.pgu_config_guidance(self.guide, darr(guidance_cfg(
             args.law, args.N, args.a_max, args.t_go_freeze)))
         self.lib.pgu_config_sensor(self.guide, darr(sensor_cfg()))
-        self.lib_path = lib_path
         self.t_flight = self.lib.pgu_target_flight_time(self.guide)
         self.t_hits_ground = bool(self.lib.pgu_target_hits_ground(self.guide))
 
@@ -491,11 +820,22 @@ class PhaseBGuidance(Node):
         self.gz_setpose_t0 = None             # 制导开始时的 set_pose 计数（算有效帧率）
         self.gz_setpose_t1 = None             # 命中/结束时
         self.gz_flight_secs = None            # 交会段时长（s）
-        self.gz_tower_r = 1.2      # 与 scene_model.preset_pilot / 制导讲义一致
-        self.gz_tower_h = 3.0
-        # ★ 塔的水平位置（ENU）。默认原点 = 被守护的目标；
-        #   但无人机也从原点起飞 ⇒ 起飞段会穿过塔身（纯视觉）。可在命令行挪开。
-        self.gz_tower_xy = parse_vec2(getattr(args, "gz_tower_xy", "0,0"), (0.0, 0.0))
+        self.gz_tower_r = float(self.tower.radius)   # ★ 视觉塔 = 被守护目标
+        self.gz_tower_h = float(self.tower.height)
+        # ★ 2026-10-18：视觉塔的位置**默认跟随 `--tower-xy`**（= 被守护目标，
+        #   也是自动瞄准的靶心）。原来两套坐标各自独立，很容易"弹丸照着一个方向飞、
+        #   画面里的塔在另一个地方"。显式给 `--gz-tower-xy` 才覆盖，并会告警。
+        _gxy_raw = getattr(args, "gz_tower_xy", None)
+        _txy = (float(self.tower.center[0]), float(self.tower.center[1]))
+        if _gxy_raw is None or str(_gxy_raw).strip() == "":
+            self.gz_tower_xy = _txy
+        else:
+            self.gz_tower_xy = parse_vec2(_gxy_raw, _txy)
+            if math.hypot(self.gz_tower_xy[0] - _txy[0],
+                          self.gz_tower_xy[1] - _txy[1]) > 1e-6:
+                self.warn(f"⚠ `--gz-tower-xy`={self.gz_tower_xy} 与瞄准目标 "
+                          f"`--tower-xy`={_txy} **不一致** ⇒ 画面里的塔不是被瞄准的那个，"
+                          f"看到弹丸从塔旁边飞过是正常的（弹丸打的是 {_txy}）")
         self.gz_ready = False      # ★ 场景是否已摆好（gz_setup 幂等开关）
         # 发射架是边长此值的方块（与 gz_scene_sync.LAUNCHER_SIZE 一致）；
         # **顶面在 z=size**（中心在 size/2）⇒ 弹丸"贴顶面"时用得到
@@ -716,9 +1056,26 @@ class PhaseBGuidance(Node):
         self.log(f"  ns={self.ns}   制导核={os.path.basename(self.lib_path)} (ABI {self.lib.pgu_version()})")
         self.log(f"  目标: {'DART' if self.args.target_type == 2 else self.args.target_type} "
                  f"从 ({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) 发射，"
-                 f"{self.args.target_speed:.1f} m/s，仰角 {self.args.target_elev:.1f}°，"
-                 f"方位 {self.args.target_azim:.1f}°")
+                 f"{self.args.target_speed:.1f} m/s，仰角 {self.elev_deg:+.2f}°"
+                 f"{'（auto 打靶）' if self.aim_elev_auto else ''}，"
+                 f"方位 {self.azim_deg:+.2f}°"
+                 f"{'（auto 对准塔）' if self.aim_azim_auto else ''}")
         self.log(f"        目标飞行时间={self.t_flight:.2f}s  hits_ground={self.t_hits_ground}")
+        # ★ 自动瞄准报告（"这发到底会不会打到塔"一目了然）
+        for _ln in describe_aim(self.target_p0, self.tower,
+                                self.azim_deg, self.elev_deg, self.aim_res):
+            self.log("        " + _ln)
+        if not self.aim_res.get("ok", False):
+            self.warn(f"⚠⚠ 当前几何下弹丸**打不到防御塔**（最近 {self.aim_res['dist']:.2f} m）"
+                      f"—— 这一发拦截**没有意义**（塔不会被击中）。")
+            if self.aim_speed_hint:
+                _v, _e, _d = self.aim_speed_hint
+                self.warn(f"   ⇒ 建议把发射速度提到 ≥ {_v:.1f} m/s"
+                          f"（那时仰角 {_e:+.2f}° 可穿塔，最近 {_d:.3f} m）："
+                          f"`--target-speed={_v:.1f}`")
+            else:
+                self.warn(f"   ⇒ 建议把发射点挪近一些（水平距离 < 20 m），"
+                          f"或提高 `--target-speed`")
         self.log(f"  制导: law={law_name} N={self.args.N} a_max={self.args.a_max} "
                  f"t_go_freeze={self.args.t_go_freeze}   指令率 {self.rate:.0f} Hz")
         self.log(f"  预加速: {'ON' if self.cruise_on else 'OFF'}"
@@ -2217,7 +2574,8 @@ class PhaseBGuidance(Node):
             if 0 <= int(self.args.law) <= 2 else "?"
         self.log(f"[6/6] ── 目标发射！进入 GUIDED（{law_name} 闭环）")
         self.log(f"       发射时刻 PX4 t={self.t_launch_us} µs；"
-                 f"目标 {self.args.target_speed:.1f} m/s 仰角 {self.args.target_elev:.1f}° "
+                 f"目标 {self.args.target_speed:.1f} m/s 仰角 {self.elev_deg:+.2f}° "
+                 f"方位 {self.azim_deg:+.2f}° "
                  f"从 ({self.target_p0[0]:.1f},{self.target_p0[1]:.1f},{self.target_p0[2]:.1f}) 出发")
         # ★ 发射时刻的**几何报告**：判断"这次跑得可比吗"。
         #   设计动机：2026-10-16 两次实跑的横向起点不同
@@ -2481,8 +2839,16 @@ class PhaseBGuidance(Node):
         row = [round(time.monotonic() - self.t_start, 3), round(self.t_rel, 4), self.state]
         if self.state == "GUIDED" and self.last_cmd is not None:
             c = self.last_cmd
+            # ★ 2026-10-18：`t_go = R / max(Vc, 1e-6)`，一旦弹丸已飞过（Vc ≤ 0）
+            #   就会爆成 1e6 量级（实测 `t_go=3030320.77`）—— 那是**退化值**，
+            #   不是数据。它和"非制导段留空"是同一类噪声，按同样口径**留空**。
+            _tgo = c[7]
+            if c[10] <= 0.0 or not (0.0 <= _tgo < 1.0e4):
+                _tgo = ""
+            else:
+                _tgo = round(_tgo, 4)
             row += [round(c[1], 5), round(c[2], 5), round(c[3], 5),
-                    round(c[4], 5), int(c[5]), int(c[8]), round(c[7], 4),
+                    round(c[4], 5), int(c[5]), int(c[8]), _tgo,
                     round(c[9], 6), round(c[10], 4), round(c[11], 4)]
         else:
             a = self.cur_a_enu
@@ -2575,10 +2941,26 @@ class PhaseBGuidance(Node):
           % (law_name, int(self.args.law), self.args.N, self.args.a_max,
              self.args.t_go_freeze, self.rate, self.hit_radius))
         p("[目标] type=%s  发射点 ENU=(%.2f,%.2f,%.2f)  速度=%.2f m/s  "
-          "仰角=%.1f°  方位=%.1f°  t_flight=%.2fs  hits_ground=%s"
+          "仰角=%+.2f°%s  方位=%+.2f°%s  t_flight=%.2fs  hits_ground=%s"
           % (self.args.target_type, self.target_p0[0], self.target_p0[1],
-             self.target_p0[2], self.args.target_speed, self.args.target_elev,
-             self.args.target_azim, self.t_flight, self.t_hits_ground))
+             self.target_p0[2], self.args.target_speed, self.elev_deg,
+             "(auto)" if self.aim_elev_auto else "",
+             self.azim_deg, "(auto)" if self.aim_azim_auto else "",
+             self.t_flight, self.t_hits_ground))
+        # ★ 自动瞄准的结果（把这发"打不打得到塔"写进回传报告，便于事后核对）
+        _ar = self.aim_res or {}
+        p("[瞄准] 塔 @(%+.2f,%+.2f) r=%.2f h=%.2f 安全垫=%.2f  水平距离=%.2f m"
+          % (self.tower.center[0], self.tower.center[1], self.tower.radius,
+             self.tower.height, self.tower.safety_margin,
+             math.hypot(self.tower.center[0] - self.target_p0[0],
+                        self.tower.center[1] - self.target_p0[1])))
+        p("[瞄准] 弹道离塔最近 %.3f m @ t_rel=%.3fs（穿塔采样 %d 点）⇒ %s"
+          % (_ar.get("dist", float("nan")), _ar.get("t_rel", 0.0),
+             int(_ar.get("inside", 0)),
+             "✅ **会打中塔**" if _ar.get("ok") else
+             ("⚠ 擦边（安全垫内，算威胁）"
+              if _ar.get("dist", 9e9) < self.tower.safety_margin
+              else "❌ **打不到塔**（这发拦截没有意义）")))
         p("[巡航] %s  boost_dir=%s  a_boost=%g  v_min=%g  cruise_x=%s  "
           "lat_hold=%s  timeout=%gs"
           % ("ON" if self.cruise_on else "OFF",
@@ -2793,8 +3175,20 @@ def build_parser():
                     help="目标发射点（ENU）")
     ap.add_argument("--target-type", type=int, default=2, help="0=STRAIGHT 1=BALLISTIC 2=DART 3=CIRCLE 4=SNAKE")
     ap.add_argument("--target-speed", type=float, default=15.0)
-    ap.add_argument("--target-elev", type=float, default=5.0, help="仰角 (deg)")
-    ap.add_argument("--target-azim", type=float, default=0.0, help="方位角 (deg，从 +x 逆时针)")
+    ap.add_argument("--target-elev", type=parse_angle_or_auto, default=AIM_AUTO,
+                    help="仰角 (deg)；`auto`（默认）= 打靶法求解，使弹道**穿入塔体**。"
+                         "⚠ 弹道受重力+阻力，距离/速度一变，手填的固定角就不再配平")
+    ap.add_argument("--target-azim", type=parse_angle_or_auto, default=AIM_AUTO,
+                    help="方位角 (deg)；`auto`（默认）= 解析解，指向塔轴心。"
+                         "手填时务必配合 `--tower-xy`，否则弹丸会平行错开发射点")
+    # ★ 被守护目标（防御塔）—— 也是自动瞄准的靶心，与可视化共用一套坐标
+    ap.add_argument("--tower-xy", default="0,0", metavar="X,Y",
+                    help="被守护目标（防御塔）的水平位置 ENU。"
+                         "自动瞄准以它为靶心；Gazebo 里的塔也放这里")
+    ap.add_argument("--tower-radius", type=float, default=1.2, help="塔身半径 (m)")
+    ap.add_argument("--tower-height", type=float, default=3.0, help="塔高 (m)")
+    ap.add_argument("--tower-margin", type=float, default=1.0,
+                    help="安全垫 (m)：弹道离塔体小于它就判『构成威胁』")
     ap.add_argument("--target-mass", type=float, default=0.40)
     ap.add_argument("--target-cd", type=float, default=0.50)
     ap.add_argument("--target-area", type=float, default=2.83e-3)
@@ -2808,7 +3202,11 @@ def build_parser():
     # 预加速
     ap.add_argument("--a-boost", type=float, default=6.0)
     ap.add_argument("--v-boost-min", type=float, default=5.0)
-    ap.add_argument("--boost-dir", type=parse_vec3, default=(-1.0, 0.0, 0.0))
+    ap.add_argument("--boost-dir", type=parse_vec3_or_auto, default=None,
+                    help="巡航迎击方向（默认 `auto` = 从原点指向**弹丸发射点**）。"
+                         "发射点在 x 轴上时结果就是 (-1,0,0)，与旧默认完全一致；"
+                         "离轴发射（y≠0）时必须指向发射点，否则交班横向偏差"
+                         "会吃掉全部修正预算")
     ap.add_argument("--no-cruise", action="store_true", help="跳过预加速（悬停直接制导）")
     # 巡航到位（守备场景用；不指定时行为与旧版完全一致）
     ap.add_argument("--cruise-x", type=float, default=None,
@@ -2829,9 +3227,10 @@ def build_parser():
                     help="弹丸位置同步频率 (Hz)")
     ap.add_argument("--gz-trail", action="store_true",
                     help="命中/脱靶后在 Gazebo 里画出弹丸轨迹线")
-    ap.add_argument("--gz-tower-xy", default="0,0", metavar="X,Y",
-                    help="防御塔的水平位置（ENU，默认原点 = 被守护目标）。"
-                         "⚠ 无人机也从原点起飞 ⇒ 默认设置下起飞段无人机会**穿过塔身**"
+    ap.add_argument("--gz-tower-xy", default=None, metavar="X,Y",
+                    help="**覆盖**Gazebo 里防御塔的显示位置（默认跟随 `--tower-xy`）。"
+                         "⚠ 只是画面：弹丸瞄的是 `--tower-xy`，两者不一致会告警。"
+                         "⚠ 无人机从原点起飞 ⇒ 塔在原点时起飞段会**穿过塔身**"
                          "（塔只有 visual、无碰撞，纯视觉问题）。"
                          "想看得清楚可挪开，例如 --gz-tower-xy=0,-6")
     ap.add_argument("--gz-proj-radius", type=float, default=0.25,

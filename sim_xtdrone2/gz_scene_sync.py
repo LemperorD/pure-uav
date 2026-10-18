@@ -149,6 +149,15 @@ CREATE_TIMEOUT_MS = 3000
 #      后台 30 Hz 的逐帧同步不加，避免失败时累积背压）。
 SET_POSE_TIMEOUT_MS = 3000
 
+# ★ **逐帧**同步（后台线程每帧推送弹丸位置）必须用**短**超时（ms）。
+#   实测（2026-10-18 实跑）：GUIDED 段出现 **1004 ms 主回路空洞**，
+#   日志是 `set_pose 失败：服务回了 data=False` —— 逐帧调用沿用了 1000 ms 超时，
+#   而 `gz.transport` 阻塞期间**占着 GIL** ⇒ 后台线程一次失败就把控制回路卡 1 秒。
+#   飞行段卡 1 s ≥ COM_OF_LOSS_T(0.5~1.0 s) ⇒ PX4 停用 offboard ⇒ 自由落体风险。
+#   ⇒ 逐帧同步限到 150 ms（< LOOP_GAP_WARN 200 ms），失败就**丢这一帧**，
+#     下一帧（33 ms 后）自然重试 —— 位置同步是"尽力而为"，绝不能拖累飞行。
+FRAME_SETPOSE_TIMEOUT_MS = 150
+
 # 服务名模板（gz-sim 8 / Harmonic）
 SVC_CREATE = "/world/{world}/create"
 SVC_SET_POSE = "/world/{world}/set_pose"
@@ -1153,7 +1162,10 @@ class GzScene:
                 acts = self._actions[:4]
                 del self._actions[:len(acts)]
             if pend is not None:
-                self._do_set_pose(PROJECTILE_NAME, pend[:3], pend[3])
+                # ★ 逐帧同步用短超时（见 FRAME_SETPOSE_TIMEOUT_MS）：失败只丢一帧，
+                #   绝不为了这一帧把主回路卡 1 s。`retries=0` —— 下一帧会自然重试。
+                self._do_set_pose(PROJECTILE_NAME, pend[:3], pend[3],
+                                  timeout_ms=FRAME_SETPOSE_TIMEOUT_MS)
             for kind, payload in acts:
                 try:
                     self._run_action(kind, payload)

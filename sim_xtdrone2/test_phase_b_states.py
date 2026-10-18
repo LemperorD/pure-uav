@@ -272,6 +272,9 @@ def mk_args(lib, **kw):
         target_p0=(-12.0, 0.0, 11.0), target_type=2,
         target_speed=15.0, target_elev=5.0, target_azim=0.0,
         target_mass=0.40, target_cd=0.50, target_area=2.83e-3, target_rho=1.225,
+        # ★ 2026-10-18 自动瞄准：被守护目标（塔）与 auto 语义
+        tower_xy="0,0", tower_radius=1.2, tower_height=3.0, tower_margin=1.0,
+        gz_tower_xy=None,
         law=0, N=6.0, a_max=10.0, t_go_freeze=0.10, hit_radius=0.5,
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
         cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
@@ -2674,6 +2677,214 @@ def main():
     check(n_o3.refused and n_o3.state == "PRECHECK",
           f"离原点太远 ⇒ **立刻**拒绝（不等 odom；当前 {n_o3.state}）")
     n_o3.close()
+
+    # ---------------------------------------------------------------- 用例 25
+    print()
+    print("=" * 74)
+    print("用例 25：弹丸自动对准防御塔（auto 方位角 + 打靶仰角）")
+    print("=" * 74)
+    # 背景（2026-10-18 实跑）：用户把发射台挪到 (-18,-3,10)，但 --target-azim 还是 0
+    # ⇒ 弹丸沿 y=-3 平行飞过，离塔最近 1.82 m（"不构成威胁"），脱靶 3.009 m ≈ 3.13 m。
+    # 修法：方位角解析解 + 仰角打靶 + boost_dir 指向发射点（全部 auto）。
+
+    def _cfg25(p0, speed, azim, elev):
+        return M.target_cfg(p0, 2, speed, elev, azim, 0.40, 0.50, 2.83e-3, 1.225)
+
+    _args25 = types.SimpleNamespace(tower_xy="0,0", tower_radius=1.2,
+                                    tower_height=3.0, tower_margin=1.0)
+    tw = M.tower_from_args(_args25)
+    lib25, _ = M.load_guidance_lib(lib)      # 注意：测试里的 lib 是**路径**
+    g25 = lib25.pgu_create()
+
+    # ① 方位角：解析解必须指向塔轴心
+    for p0, want in [((-14.0, 0.0, 10.0), 0.0),
+                     ((-18.0, -3.0, 10.0), 9.4623),
+                     ((-18.0, 3.0, 10.0), -9.4623),
+                     ((-12.0, -5.0, 10.0), 22.6199)]:
+        got = M.aim_azimuth_deg(p0, tw)
+        check(abs(got - want) < 5e-3,
+              f"p0={p0[:2]} ⇒ 方位角 {got:+.3f}°（期望 {want:+.3f}°）")
+
+    # ② 塔**不在原点**时也要正确（不能写死 atan2(-y,-x)）
+    _a2 = types.SimpleNamespace(tower_xy="2,3", tower_radius=1.2,
+                                tower_height=3.0, tower_margin=1.0)
+    tw2 = M.tower_from_args(_a2)
+    got2 = M.aim_azimuth_deg((-14.0, 0.0, 10.0), tw2)
+    want2 = math.degrees(math.atan2(3.0 - 0.0, 2.0 - (-14.0)))
+    check(abs(got2 - want2) < 5e-3,
+          f"塔在 (2,3)：方位角 {got2:+.3f}° 指向塔心（期望 {want2:+.3f}°）")
+
+    # ③ 迎击方向：指向发射点；发射点在 x 轴上时与旧默认 (-1,0,0) 逐位相同
+    check(M.aim_boost_dir((-14.0, 0.0, 10.0)) == (-1.0, 0.0, 0.0),
+          "发射点 (-14,0) ⇒ boost_dir = (-1,0,0)（**与旧行为完全一致**）")
+    _b = M.aim_boost_dir((-18.0, -3.0, 10.0))
+    check(abs(_b[0] + 0.9864) < 1e-3 and abs(_b[1] + 0.1644) < 1e-3,
+          f"发射点 (-18,-3) ⇒ boost_dir=({_b[0]:+.4f},{_b[1]:+.4f},0) 指向发射点")
+
+    # ④ 首选仰角（-6°）在默认场景下**确实穿塔** ⇒ auto 应当保留它
+    r_pre = M.probe_elev(lib25, g25, _cfg25, (-14.0, 0.0, 10.0), 14.0, 0.0, tw,
+                         M.AIM_ELEV_PREFER)
+    check(r_pre["ok"], f"默认场景 + {M.AIM_ELEV_PREFER}° ⇒ 穿塔（dist={r_pre['dist']:.4f}）")
+    check(r_pre["inside"] > 0, f"确实有采样点落在塔体内（{r_pre['inside']} 点）")
+
+    # ⑤ 距离拉远到 -22 m 时 -6° 打不到（真实物理：14 m/s 射程只有 16.8 m）
+    r_far = M.probe_elev(lib25, g25, _cfg25, (-22.0, 0.0, 10.0), 14.0, 0.0, tw,
+                         M.AIM_ELEV_PREFER)
+    check(not r_far["ok"] and r_far["dist"] > 1.0,
+          f"-22 m + {M.AIM_ELEV_PREFER}° ⇒ **打不到**（最近 {r_far['dist']:.2f} m）")
+
+    # ⑥ 打靶求解：应当解出能穿塔的仰角（-22 m 需要抬高到 +12° 左右）
+    r_sol = M.solve_elev_deg(lib25, g25, _cfg25, (-22.0, 0.0, 10.0), 14.0, 0.0, tw)
+    check(r_sol["ok"], f"打靶解出仰角 {r_sol['elev']:+.2f}° ⇒ 穿塔（dist={r_sol['dist']:.4f}）")
+    check(r_sol["elev"] > M.AIM_ELEV_PREFER,
+          f"远距离必须**抬高**（{r_sol['elev']:+.2f}° > {M.AIM_ELEV_PREFER}°）")
+
+    # ⑦ 太远（-30 m）谁都打不到 ⇒ 必须给出**可执行的速度建议**
+    r_far2 = M.solve_elev_deg(lib25, g25, _cfg25, (-30.0, 0.0, 10.0), 14.0, 0.0, tw)
+    check(not r_far2["ok"], f"-30 m + 14 m/s ⇒ 打不到（最近 {r_far2['dist']:.2f} m）")
+    hint = M.suggest_speed_for_tower(lib25, g25, _cfg25, (-30.0, 0.0, 10.0),
+                                     0.0, tw, 14.0)
+    check(hint is not None and hint[0] > 14.0,
+          f"给出建议速度 {None if hint is None else round(hint[0], 1)} m/s")
+    if hint is not None:
+        check(hint[2] <= M.AIM_HIT_TOL,
+              f"建议速度下确实能穿塔（最近 {hint[2]:.4f} m）")
+
+    # ⑧ 离轴发射（用户这次的场景）：auto 之后弹道**真的穿塔**
+    _az = M.aim_azimuth_deg((-18.0, -3.0, 10.0), tw)
+    r_off = M.probe_elev(lib25, g25, _cfg25, (-18.0, -3.0, 10.0), 14.0, _az, tw,
+                         M.AIM_ELEV_PREFER)
+    check(r_off["ok"],
+          f"(-18,-3)+azim={_az:.2f}° ⇒ 穿塔（最近 {r_off['dist']:.4f} m）"
+          f"—— 修掉『平行错开 3.13 m』的根因")
+
+    # ⑨ **独立实现**交叉验证：圆柱距离与轨迹内点数（防"两家算法一起错"）
+    def _cyl_dist(center, radius, height, p):
+        dx, dy, dz = p[0] - center[0], p[1] - center[1], p[2] - center[2]
+        rxy = math.hypot(dx, dy)
+        if 0.0 <= dz <= height and rxy <= radius:
+            return 0.0
+        return math.hypot(rxy - min(rxy, radius), dz - min(max(dz, 0.0), height))
+
+    _pts = [(0.0, 0.0, 1.0), (1.2, 0.0, 1.5), (0.0, 0.0, 3.0), (2.0, 0.0, 1.5),
+            (-1.19, 0.0, 2.98), (1.5, 1.5, 0.5)]
+    for _p in _pts:
+        _a = tw.distance_to_body(_p)
+        _b = _cyl_dist((0.0, 0.0, 0.0), 1.2, 3.0, _p)
+        check(abs(_a - _b) < 1e-9,
+              f"塔体距离独立复算一致 @{_p}：{_a:.6f} vs {_b:.6f}")
+
+    # 轨迹"穿塔点数"用独立实现复算（验证的是**采样与判据**，不只是几何）
+    lib25.pgu_config_target(g25, M.darr(_cfg25((-18.0, -3.0, 10.0), 14.0, _az,
+                                             M.AIM_ELEV_PREFER)))
+    _d, _t, _ins, _tf = M.min_tower_distance(lib25, g25, tw)
+    _manual = 0
+    _buf = M.darr([0.0] * 9)
+    for i in range(M.AIM_SAMPLES + 1):
+        lib25.pgu_target_state(g25, _tf * i / float(M.AIM_SAMPLES), _buf)
+        if _cyl_dist((0.0, 0.0, 0.0), 1.2, 3.0, (_buf[0], _buf[1], _buf[2])) <= 0.0:
+            _manual += 1
+    check(_manual == _ins,
+          f"穿塔点数独立复算一致（{_ins} vs {_manual}）—— 轨迹与判定都没算错")
+    lib25.pgu_destroy(g25)
+
+    # ⑩ 节点级：auto 时打得到 ⇒ 用首选值（chosen_by=prefer），保证对照实验可比
+    n_aim = new_node(lib, target_p0=(-18.0, -3.0, 10.0), target_speed=14.0,
+                     target_elev=M.AIM_AUTO, target_azim=M.AIM_AUTO,
+                     target_height=8.0, target_type=2,
+                     boost_dir=None, cruise_x=-4.0)
+    n_aim.log = lambda s: None
+    n_aim.warn = lambda s: None
+    check(abs(n_aim.azim_deg - 9.4623) < 5e-3,
+          f"节点算了方位角 {n_aim.azim_deg:+.3f}°（期望 +9.462°）")
+    check(abs(n_aim.elev_deg - M.AIM_ELEV_PREFER) < 1e-9,
+          f"能打到 ⇒ 保留首选仰角 {n_aim.elev_deg:+.2f}°（不画蛇添足）")
+    check(n_aim.aim_res.get("chosen_by") == "prefer",
+          f"标记为 prefer（实际 {n_aim.aim_res.get('chosen_by')}）")
+    check(n_aim.aim_res["ok"], f"节点判定『会打中塔』（最近 {n_aim.aim_res['dist']:.4f} m）")
+    check(abs(n_aim.boost_dir[0] + 0.9864) < 1e-3,
+          f"节点迎击方向自动指向发射点（{tuple(round(v, 3) for v in n_aim.boost_dir)}）")
+    n_aim.close()
+
+    # ⑪ 节点级：打不到塔时**必须告警**（不能让人白跑一轮）
+    n_bad = new_node(lib, target_p0=(-30.0, 0.0, 10.0), target_speed=14.0,
+                     target_elev=M.AIM_AUTO, target_azim=M.AIM_AUTO,
+                     target_height=8.0, target_type=2)
+    ws_bad, lg_bad = [], []
+    n_bad.log = lambda s: lg_bad.append(s)
+    n_bad.warn = lambda s: ws_bad.append(s)
+    buf_bad = _io.StringIO()
+    with _ctx.redirect_stdout(buf_bad):
+        n_bad.report_banner()
+    n_bad.close()
+    check(not n_bad.aim_res["ok"], "判定为『打不到塔』")
+    check(any("打不到防御塔" in w for w in ws_bad),
+          f"**当场告警**『打不到防御塔』（warn {len(ws_bad)} 条）")
+    check(any("建议把发射速度" in w for w in ws_bad),
+          "告警里给出**可执行**的速度建议")
+    # ⚠ 启动横幅走 `self.log`（ROS logger），不是裸 print ⇒ 查 lg_bad
+    check(any("打不到塔" in m for m in lg_bad),
+          f"启动日志里明确写『打不到塔』（log {len(lg_bad)} 条）")
+    check(any("打靶求解仰角" in m for m in lg_bad),
+          "启动日志里给出打靶求解的结果（不只一句『打不到』）")
+
+    # ---------------------------------------------------------------- 用例 26
+    print()
+    print("=" * 74)
+    print("用例 26：v30 实跑暴露的两个 bug —— 逐帧 set_pose 超时 / t_go 爆值")
+    print("=" * 74)
+    # ① 实跑：GUIDED 段出现 **1004 ms** 主回路空洞，日志是
+    #    `set_pose 失败：服务回了 data=False`。逐帧同步沿用了 1000 ms 超时，
+    #    而 gz 阻塞期间占着 GIL ⇒ 后台线程一次失败就卡主回路 1 秒
+    #    （飞行段 ≥ COM_OF_LOSS_T 就有自由落体风险）。
+    import importlib.util as _ilu26
+    _gs26 = _ilu26.spec_from_file_location(
+        "gzmod26", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "gz_scene_sync.py"))
+    GZ26 = _ilu26.module_from_spec(_gs26)
+    _gs26.loader.exec_module(GZ26)
+    check(GZ26.FRAME_SETPOSE_TIMEOUT_MS <= M.LOOP_GAP_WARN * 1000.0,
+          f"逐帧 set_pose 超时 {GZ26.FRAME_SETPOSE_TIMEOUT_MS} ms ≤ "
+          f"空洞阈值 {M.LOOP_GAP_WARN * 1000:.0f} ms —— 失败也不会被判成空洞")
+    check(GZ26.FRAME_SETPOSE_TIMEOUT_MS < GZ26.SET_POSE_TIMEOUT_MS,
+          f"逐帧超时远小于『摆场景』用的 {GZ26.SET_POSE_TIMEOUT_MS} ms"
+          f"（一个是尽力而为、一个是必须成功）")
+    import inspect as _insp26
+    _src_worker = _insp26.getsource(GZ26.GzScene._worker)
+    check("FRAME_SETPOSE_TIMEOUT_MS" in _src_worker,
+          "_worker 里**真的**用了短超时（不是只定义了常量）")
+    check("retries" not in _src_worker.replace("retries=0", ""),
+          "逐帧同步不重试（下一帧 33 ms 后自然重试，绝不在这里等待）")
+
+    # ② 实跑：报告里出现 `t_go=3030320.7663`（Vc<0 时 t_go=R/Vc 爆炸）。
+    #    那是退化值，必须按"非制导段留空"的同一口径留空。
+    n_tg = new_node(lib, **PILOT_KW)
+    n_tg.log = lambda s: None
+    n_tg.warn = lambda s: None
+    n_tg.state = "GUIDED"
+    n_tg.t_rel = 0.72
+    _c = [0.0] * 19
+    _c[4] = 10.0          # a_norm
+    _c[5] = 1.0           # sat
+    _c[7] = 3030320.77    # t_go（爆值）
+    _c[8] = 1             # mode=APN
+    _c[9] = 0.0           # lam_dot
+    _c[10] = -2.17        # Vc < 0（弹丸已飞过）
+    _c[11] = 3.03         # R_est
+    n_tg.last_cmd = _c
+    _row = n_tg.build_row()
+    _i_tgo = M.CSV_COLUMNS.index("t_go")
+    _i_vc = M.CSV_COLUMNS.index("Vc")
+    check(_row[_i_tgo] == "",
+          f"Vc≤0 时 t_go **留空**（实际 {_row[_i_tgo]!r}）—— 不把退化值当数据")
+    check(_row[_i_vc] == round(-2.17, 4),
+          f"Vc 本身照常输出（{_row[_i_vc]}）—— 只屏蔽爆掉的 t_go")
+    # 正常情况（Vc>0）必须照常给值
+    _c[7], _c[10] = 0.3856, 20.16
+    _row2 = n_tg.build_row()
+    check(isinstance(_row2[_i_tgo], float) and abs(_row2[_i_tgo] - 0.3856) < 1e-6,
+          f"Vc>0 时 t_go 正常输出（{_row2[_i_tgo]}）")
+    n_tg.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

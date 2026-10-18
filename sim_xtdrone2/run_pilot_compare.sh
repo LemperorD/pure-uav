@@ -3,11 +3,20 @@
 # pilot 守备场景 · PPN / APN 实飞对比
 #
 #   场景（对齐 scene_model.preset_pilot，"无人机已在守备巡航"的初步仿真）：
-#     塔    : 原点，半径 1.2 m、高 3 m、安全垫 1.0 m
-#     无人机: 8 m 高，朝 −x（西，迎击方向）**匀速 5 m/s** 巡航，
+#     塔    : 原点，半径 1.2 m、高 3 m、安全垫 1.0 m（`--tower-xy` 可改）
+#     无人机: 8 m 高，朝**弹丸发射点**方向匀速 5 m/s 巡航（`--boost-dir=auto`），
 #             飞到 x = −4 m 时弹丸发射（--cruise-x，守备到位判据）
-#     弹丸  : 从 (−14, 0, 10) 以 14 m/s、**俯角 6°** 朝 +x 飞向塔
-#             （末段下坠、指向塔 —— 不拦就会打到塔）
+#     弹丸  : 从 (−14, 0, 10) 以 14 m/s 朝**塔**飞（方位/仰角 `auto`，见下）
+#
+#   ★★ 自动瞄准（2026-10-18）★★
+#     `--target-azim=auto` `--target-elev=auto` `--boost-dir=auto`：
+#       方位角 = 从发射点指向**塔轴心**（解析解）；
+#       仰角   = 先用配平的 −6° 试，打不到塔才**打靶求解**（弹道受重力+阻力）；
+#       迎击   = 从原点指向发射点。
+#     ⇒ **只改 `--target-p0` 一个参数就够了**，不会再出现"改了位置忘了改角度"
+#       （旧版写死 `--target-azim=0`，p0 一带 y 分量，弹丸就沿 y=常数 平行飞过，
+#        离塔 1.8 m、脱靶 3.0 m —— 实测过）。
+#     想恢复"手填角度"：`--target-azim=0 --target-elev=-6 --boost-dir=-1,0,0`。
 #
 #   前置条件：
 #     1) 仿真已在另一个终端跑起来（见 README.md §1）
@@ -68,7 +77,9 @@ for a in "$@"; do
     case "$a" in
         --no-pause) PAUSE=0 ;;
         --no-gz-viz) GZVIZ=0 ;;
-        -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
+        # ★ 用 `awk` 打到 `set -e` 之前，而不是写死行号：
+        #   原来 `sed -n '2,52p'` 在注释增删后就会截断错位（改一次注释要同步一次行号）。
+        -h|--help) awk 'NR>1 && /^set -e/{exit} NR>1' "$0"; exit 0 ;;
         --*) EXTRA+=("$a") ;;
         *) LAWS+=("$a") ;;
     esac
@@ -91,11 +102,16 @@ PILOT_ARGS=(
     --target-height=8
     --target-p0=-14,0,10
     --target-speed=14
-    --target-elev=-6
-    --target-azim=0
+    # ★ 2026-10-18：方位角/仰角默认 `auto` —— 自动对准被守护的塔（--tower-xy）。
+    #   改发射点后**不用再手填角度**：旧版写死 --target-azim=0，一旦 p0 带 y 分量，
+    #   弹丸就沿 y=p0y 平行飞过，离塔 1.8 m、脱靶 3.0 m（实测）。
+    --target-azim=auto
+    --target-elev=auto
     --v-boost-min=5
     --a-boost=6
-    --boost-dir=-1,0,0
+    # --boost-dir 也给 auto（从原点指向发射点）；发射点在 x 轴上时 = (-1,0,0)，
+    # 与旧行为逐位相同，不影响历史对照。
+    --boost-dir=auto
     --cruise-x=-4
 )
 

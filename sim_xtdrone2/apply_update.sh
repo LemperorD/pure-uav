@@ -79,6 +79,7 @@ for base in \
     pure_guidance_shim.cpp \
     preflight.sh \
     run_pilot_compare.sh \
+    run_phase_b.sh \
     gz_scene_sync.py \
     verify_gz_msgs.py \
     audit_landing.py \
@@ -118,7 +119,7 @@ for f in $(ls -1 *_v[0-9]*.* 2>/dev/null || true); do
     for base in phase_a_accel_path.py phase_b_guidance.py scene_model.py \
                 viz_scene.py test_phase_a_states.py test_phase_b_states.py \
                 sim_phase_b_offline.py pure_guidance_shim.cpp preflight.sh \
-                run_pilot_compare.sh gz_scene_sync.py verify_gz_msgs.py \
+                run_pilot_compare.sh run_phase_b.sh gz_scene_sync.py verify_gz_msgs.py \
                 audit_landing.py \
                 build_guidance_shim.sh apply_update.sh ; do
         [ "$_stem.$_ext" = "$base" ] && _listed=1 && break
