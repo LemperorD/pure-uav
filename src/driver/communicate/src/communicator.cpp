@@ -51,6 +51,13 @@ bool Communicator::start(const std::string& device, int baud) {   //打开串口
         return false;
     }
     port_.flush();   //清空缓冲
+
+    // 先"打招呼"：飞控（ArduPilot/PX4）要看到地面站发过数据才开始推流，
+    // 只读不写会双方互等，所以这里立刻发心跳并请求一次消息流。
+    sendGcsHeartbeat();
+    requestDefaultStreams();
+    streams_requested_.store(true);
+
     running_.store(true);
     recv_thread_ = std::thread(&Communicator::recvLoop, this);    //开启接收线程
     return true;
@@ -75,6 +82,7 @@ void Communicator::recvLoop() {
     mavlink_status_t status{}; 
     uint8_t buf[1024];
     auto last_heartbeat = steady_clock::now();
+    auto last_gcs_heartbeat = steady_clock::now();
 
     while (running_.load()) {
         ssize_t n = port_.read(buf, sizeof(buf));
@@ -174,6 +182,12 @@ void Communicator::recvLoop() {
             }
         }
 
+        // 每秒发一次 GCS 心跳，保持上位机"在线"状态（飞控看到 GCS 在线才持续推流）
+        if (steady_clock::now() - last_gcs_heartbeat >= seconds(1)) {
+            sendGcsHeartbeat();
+            last_gcs_heartbeat = steady_clock::now();
+        }
+
         // 心跳超时 → 判定断开
         if (connected_.load() &&
             steady_clock::now() - last_heartbeat > heartbeat_timeout) {
@@ -201,6 +215,20 @@ bool Communicator::sendMessage(const uint8_t* buf, uint16_t len) {
         }
     }
     return true;
+}
+
+// 发一条 GCS 心跳（MAV_TYPE_GCS），宣告"上位机在线"
+void Communicator::sendGcsHeartbeat() {
+    mavlink_message_t msg{};
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+    mavlink_msg_heartbeat_pack(sysid_, compid_, &msg,
+                               MAV_TYPE_GCS,           // 地面站
+                               MAV_AUTOPILOT_INVALID,  // 不是飞控
+                               0,                      // base_mode
+                               0,                      // custom_mode
+                               MAV_STATE_ACTIVE);      // 在线
+    uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+    sendMessage(buf, len);
 }
 
 // 飞行模式 / ACK 结果 中文名映射

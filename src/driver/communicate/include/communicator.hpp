@@ -202,6 +202,7 @@ public:
 
 private:
     void recvLoop();  // 接收线程
+    void sendGcsHeartbeat();  // 发一条 GCS 心跳（让飞控知道上位机在线，主动推流）
     bool sendMessage(const uint8_t* buf, uint16_t len);  // 串口写
     bool waitForAck(uint16_t command, int timeout_ms, uint8_t* result);  // 等某条命令的 ACK（超时返回 false）
     const char* px4ModeNameCn(uint32_t custom_mode) const;  // PX4 飞行模式 → 中文名
