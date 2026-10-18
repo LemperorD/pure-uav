@@ -117,13 +117,53 @@ def main():
     ok(pl90.verdict((1.0, 0.0, 3.0), (-1.0, 0.0, 3.0))["kind"] == "MISS",
        "沿 +x 走不会穿过 yaw=90 的板 ⇒ MISS")
 
+    sec("用例 7.5 · 俯仰板（pitch=30°，2026-10-19 新增）")
+    pl30 = ArmorPlate(center=(0.0, 0.0, 3.0), width=0.6, height=0.6,
+                      thickness=0.05, yaw_deg=0.0, pitch_deg=30.0)
+    n30, u30, v30 = pl30.axes()
+    ok(close(n30[0], math.cos(math.radians(30.0)))
+       and close(n30[2], math.sin(math.radians(30.0))),
+       f"pitch=30 ⇒ 法向抬高（n={tuple(round(x, 3) for x in n30)}）")
+    ok(close(u30[0], 0.0) and close(u30[1], 1.0),
+       f"板宽方向 u 仍是水平 +y（{tuple(round(x, 3) for x in u30)}）")
+    ok(close(v30[1], 0.0) and abs(v30[2] - math.cos(math.radians(30.0))) < 1e-12,
+       f"板高方向 v 随俯仰前倾（v={tuple(round(x, 3) for x in v30)}）")
+    # 沿法向 1 m 的点：距板面 = 1 − 半厚
+    p_n = tuple(pl30.center[k] + n30[k] for k in range(3))
+    ok(close(pl30.distance_to_plate(p_n), 1.0 - 0.025),
+       "沿法向 1 m ⇒ 距板面 0.975（俯仰后法向仍正确）")
+    # 沿板高方向 2 m 的点：距板面 = 2 − 半高（pitch 不改变高度尺寸）
+    p_v = tuple(pl30.center[k] + 2.0 * v30[k] for k in range(3))
+    ok(close(pl30.distance_to_plate(p_v), 2.0 - 0.3),
+       "沿板高方向 2 m ⇒ 1.7（俯仰不改板高尺寸）")
+    # 沿新法向穿越（两端各 1 m）⇒ THROUGH，且板面内偏移为 0
+    a30 = tuple(pl30.center[k] + n30[k] for k in range(3))
+    b30 = tuple(pl30.center[k] - n30[k] for k in range(3))
+    vd = pl30.verdict(a30, b30, tol=0.15, body_radius=0.20)
+    ok(vd["kind"] == "THROUGH",
+       f"沿俯仰后的法向穿越 ⇒ THROUGH（{vd['kind']}）")
+    ok(close(float(vd["du"]), 0.0, 1e-6) and close(float(vd["dv"]), 0.0, 1e-6),
+       f"穿点板面残差 ≈0（du={vd['du']:.2e}, dv={vd['dv']:.2e}）")
+    # pitch=0 必须与旧实现逐位一致（后向兼容）
+    pl_flat = ArmorPlate(center=(0.0, 0.0, 3.0), pitch_deg=0.0)
+    nf, uf, vf = pl_flat.axes()
+    ok(nf == (1.0, 0.0, 0.0) and uf == (-0.0, 1.0, 0.0) and vf == (0.0, 0.0, 1.0),
+       f"pitch=0 的基向量与旧实现一致（n={nf}, u={uf}, v={vf}）")
+    # 俯仰 90° ⇒ 板面水平（法向朝天），竖向点落在法向上
+    pl_up = ArmorPlate(center=(0.0, 0.0, 3.0), pitch_deg=90.0)
+    nu, _, vu = pl_up.axes()
+    ok(close(nu[2], 1.0) and close(abs(vu[2]), 0.0),
+       f"pitch=90 ⇒ 法向朝天、板面水平（n={tuple(round(x, 3) for x in nu)}）")
+
     sec("用例 8 · 序列化（to_dict / from_dict 往返）")
-    d = pl.to_dict()
+    d = pl30.to_dict()
     pl2 = ArmorPlate.from_dict(d)
-    ok(pl2.center == pl.center and close(pl2.width, pl.width)
-       and close(pl2.yaw_deg, pl.yaw_deg), "to_dict → from_dict 往返一致")
+    ok(pl2.center == pl30.center and close(pl2.width, pl30.width)
+       and close(pl2.yaw_deg, pl30.yaw_deg)
+       and close(pl2.pitch_deg, pl30.pitch_deg), "to_dict → from_dict 往返一致（含 pitch）")
     ok("armor_plate" in ArmorPlate.from_dict({}).name,
        "空 dict ⇒ 用默认名 armor_plate")
+    ok(close(ArmorPlate.from_dict({}).pitch_deg, 0.0), "空 dict ⇒ pitch 默认 0（后向兼容）")
 
     sec("用例 9 · scene_model 集成（Scene 带上装甲板，JSON 往返）")
     try:
@@ -143,6 +183,40 @@ def main():
         ok(sc3.armor_plate is None, "默认（不加板）⇒ armor_plate=None，旧行为不变")
     except Exception as e:                                   # noqa: BLE001
         ok(False, f"scene_model 集成失败：{e}")
+
+    sec("用例 10 · Gazebo 姿态四元数与几何同源（plate_orientation）")
+    try:
+        import gz_scene_sync as GZ
+        q0 = GZ.plate_orientation(0.0, 0.0)
+        ok(all(close(q0[i], v) for i, v in enumerate((0.0, 0.0, 0.0, 1.0))),
+           f"yaw=0,pitch=0 ⇒ 单位四元数（{tuple(round(x, 6) for x in q0)}）")
+        # pitch=90°：板面水平、法向朝天 ⇒ 绕 −y 转 90°：q=(0,−sin45,0,cos45)
+        q90 = GZ.plate_orientation(0.0, math.radians(90.0))
+        s45 = math.sin(math.radians(45.0))
+        ok(close(q90[0], 0.0) and close(q90[1], -s45, 1e-12)
+           and close(q90[2], 0.0) and close(q90[3], s45, 1e-12),
+           f"pitch=90 ⇒ (0,−0.7071,0,0.7071)（{tuple(round(x, 4) for x in q90)}）")
+        # 与 ArmorPlate.axes() 的局部轴一致性：用四元数把局部 x/y/z 转到世界，应等于 (n,u,v)
+        for yaw_d, pitch_d in ((0.0, 0.0), (60.0, 0.0), (0.0, 30.0), (37.0, -20.0)):
+            qx, qy, qz, qw = GZ.plate_orientation(math.radians(yaw_d),
+                                                  math.radians(pitch_d))
+            # 四元数 → 旋转矩阵
+            R = (
+                (1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)),
+                (2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)),
+                (2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)),
+            )
+            n_w = tuple(R[i][0] for i in range(3))
+            u_w = tuple(R[i][1] for i in range(3))
+            v_w = tuple(R[i][2] for i in range(3))
+            plx = ArmorPlate(yaw_deg=yaw_d, pitch_deg=pitch_d)
+            n_a, u_a, v_a = plx.axes()
+            ok(all(close(n_w[i], n_a[i], 1e-9) for i in range(3))
+               and all(close(u_w[i], u_a[i], 1e-9) for i in range(3))
+               and all(close(v_w[i], v_a[i], 1e-9) for i in range(3)),
+               f"yaw={yaw_d:g},pitch={pitch_d:g} ⇒ 四元数转出的 (n,u,v) 与 ArmorPlate.axes() 一致")
+    except Exception as e:                                   # noqa: BLE001
+        ok(False, f"gz_scene_sync 导入/校验失败：{e}")
 
     print(f"\n{'=' * 60}")
     print(f"结果：{PASS} PASS / {FAIL} FAIL")

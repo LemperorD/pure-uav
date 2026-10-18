@@ -242,15 +242,56 @@ def launcher_sdf(name: str, size: float = 0.5) -> str:
 """
 
 
+def plate_orientation(yaw_rad: float, pitch_rad: float):
+    """固定装甲板实体的四元数 (x, y, z, w)。
+
+    ★ 必须与 `armor_plate.ArmorPlate.axes()` **同源**：
+      板局部三轴依次为 (n=法向, u=板宽方向, v=板高方向)，
+      而 `armor_plate_sdf()` 里 box 的尺寸顺序是 (厚, 宽, 高) ⇒ 恰好对应 (x=n, y=u, z=v)。
+      ⇒ 旋转矩阵 R 的三列 = (n, u, v)，再用 Shepperd 法转四元数。
+    `yaw=0, pitch=0` ⇒ 返回 (0,0,0,1)，与只支持 yaw 的旧实现**逐位一致**。
+    """
+    y, p = float(yaw_rad), float(pitch_rad)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    n = (cp * cy, cp * sy, sp)
+    u = (-sy, cy, 0.0)
+    v = (n[1] * u[2] - n[2] * u[1],
+         n[2] * u[0] - n[0] * u[2],
+         n[0] * u[1] - n[1] * u[0])
+    m00, m01, m02 = n[0], u[0], v[0]
+    m10, m11, m12 = n[1], u[1], v[1]
+    m20, m21, m22 = n[2], u[2], v[2]
+    tr = m00 + m11 + m22
+    if tr > 0.0:
+        s = math.sqrt(tr + 1.0) * 2.0
+        qw, qx = 0.25 * s, (m21 - m12) / s
+        qy, qz = (m02 - m20) / s, (m10 - m01) / s
+    elif m00 > m11 and m00 > m22:
+        s = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
+        qw, qx = (m21 - m12) / s, 0.25 * s
+        qy, qz = (m01 + m10) / s, (m02 + m20) / s
+    elif m11 > m22:
+        s = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
+        qw, qx = (m02 - m20) / s, (m01 + m10) / s
+        qy, qz = 0.25 * s, (m12 + m21) / s
+    else:
+        s = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
+        qw, qx = (m10 - m01) / s, (m02 + m20) / s
+        qy, qz = (m12 + m21) / s, 0.25 * s
+    return (qx, qy, qz, qw)
+
+
 def armor_plate_sdf(name: str, width: float = 0.60, height: float = 0.60,
                     thickness: float = 0.05) -> str:
-    """★ **固定装甲板**：竖直薄板（撞板任务的目标 / 视觉参照）。
+    """★ **固定装甲板**：薄板（撞板任务的目标 / 视觉参照）。
 
-    朝向约定：**局部 x = 厚度方向（法向）**、y = 板宽、z = 板高。
-      · `yaw=0`   ⇒ 板面法向 **+x**（正对从 +x 方向飞来的无人机）
-      · `yaw=90°` ⇒ 法向 +y
-    与 `armor_plate.py` 的 `ArmorPlate.axes()` 完全一致
-    （那里 n=(cos,sin,0)、u=(−sin,cos,0)、v=+z；这里 box 的 x 轴即 n）。
+    朝向约定：**局部 x = 厚度方向（法向 n）**、y = 板宽（u）、z = 板高（v）；
+    实体朝向由 `plate_orientation(yaw, pitch)` 生成的四元数给出
+    （与 `armor_plate.ArmorPlate.axes()` 同源 ⇒ 画面里的板 = 判定用的板）。
+      · `yaw=0, pitch=0` ⇒ 法向 **+x**（正对从 +x 方向飞来的无人机）
+      · `yaw=90°`        ⇒ 法向 +y
+      · `pitch=+20°`     ⇒ 法向抬高 20°（板面朝上仰）
 
     颜色用**琥珀黄**：与塔（蓝青）、弹丸/轨迹（橙红）、无人机（绿）都区分得开，
     而且撞板是"要打的目标"⇒ 用显眼的高饱和色最合适。
@@ -725,7 +766,8 @@ class GzScene:
         return res
 
     def _create(self, name: str, sdf: str, pose=(0.0, 0.0, 0.0),
-                pre_remove: bool = True, yaw: float = 0.0) -> bool:
+                pre_remove: bool = True, yaw: float = 0.0,
+                pitch: float = 0.0) -> bool:
         """创建一个实体。**同名先删**（避免 allow_renaming 引发重复名）。
 
         ★★ 两次实测教训（2026-10-17）：
@@ -751,13 +793,14 @@ class GzScene:
             req.pose.position.x = float(pose[0])
             req.pose.position.y = float(pose[1])
             req.pose.position.z = float(pose[2])
-            # ★ yaw（绕 +z 的旋转；ENU 右手）—— 固定装甲板要用它摆朝向。
-            #   默认 0 ⇒ 四元数 (w=1,x=y=z=0)，与旧行为**完全一致**。
-            _half = float(yaw) * 0.5
-            req.pose.orientation.x = 0.0
-            req.pose.orientation.y = 0.0
-            req.pose.orientation.z = float(math.sin(_half))
-            req.pose.orientation.w = float(math.cos(_half))
+            # ★ 朝向（四元数）：yaw=方位角、pitch=俯仰角（弧度）。
+            #   默认 (0,0) ⇒ (x,y,z,w)=(0,0,0,1)，与旧行为**完全一致**。
+            #   固定装甲板靠这里摆出"法向 + 上仰/下俯"。
+            _qx, _qy, _qz, _qw = plate_orientation(float(yaw), float(pitch))
+            req.pose.orientation.x = _qx
+            req.pose.orientation.y = _qy
+            req.pose.orientation.z = _qz
+            req.pose.orientation.w = _qw
             ok, rep = self._req(self._svc_create, req, boolean_pb2.Boolean,
                                 timeout_ms=CREATE_TIMEOUT_MS)
             return bool(ok and rep is not None and rep.data), rep
@@ -956,7 +999,8 @@ class GzScene:
 
     # ------------------------------------------- 幂等"确保存在"（绝不先删）
     def _ensure(self, name: str, sdf: str, pose, tol: float = 0.10,
-                recreate_if_stuck: bool = False, yaw: float = 0.0) -> bool:
+                recreate_if_stuck: bool = False, yaw: float = 0.0,
+                pitch: float = 0.0) -> bool:
         """★ **幂等**：已存在就复用，不存在才创建；**绝不"先删后建"**。
 
         为什么必须这样（2026-10-17 用户实测"起飞后球和发射塔又没有了"）：
@@ -997,10 +1041,12 @@ class GzScene:
             if recreate_if_stuck:
                 self._log(f"   ⇒ 移动失败且偏了 {drift:.2f} m ⇒ **重建**"
                           f"（此刻在地面，安全；重建失败的话模型会消失，日志会说明）")
-                return self._create(name, sdf, pose, pre_remove=True, yaw=yaw)
+                return self._create(name, sdf, pose, pre_remove=True,
+                                    yaw=yaw, pitch=pitch)
             return False
         # 不存在 ⇒ 创建（pre_remove=False：既然不存在，没必要再删一次）
-        ok = self._create(name, sdf, pose, pre_remove=False, yaw=yaw)
+        ok = self._create(name, sdf, pose, pre_remove=False,
+                          yaw=yaw, pitch=pitch)
         if not ok:
             # ★ 2026-10-17 审查：`snapshot_positions` 读不到（仿真刚起 / 话题还没发）
             #   时 `_snap` 是空字典 ⇒ 这里会走"创建"，而实体其实**已经存在**
@@ -1064,20 +1110,24 @@ class GzScene:
 
     def ensure_armor_plate(self, center, width: float = 0.60,
                            height: float = 0.60, thickness: float = 0.05,
-                           yaw_deg: float = 0.0) -> bool:
+                           yaw_deg: float = 0.0,
+                           pitch_deg: float = 0.0) -> bool:
         """**确保**固定装甲板存在（幂等）。`center` = 板**几何中心** ENU (m)。
 
-        ★ 与 `ensure_tower` 的差别：板有**朝向** ⇒ 走 `yaw` 参数（`_create` 里拼四元数）。
+        `yaw_deg` = 法向方位角；`pitch_deg` = **俯仰角**（正 ⇒ 法向抬高 / 板面朝上仰）。
+        两者都通过 `plate_orientation()` 变成实体四元数，和 `armor_plate.ArmorPlate.axes()`
+        同源 ⇒ 画面里的板姿态 = 判定用的板姿态。
         ⚠ 幂等复用时**只核位置、不核朝向**（`/pose/info` 的朝向这里没读）。
-          换朝向调试时请先删掉实体（`--rebuild-scene` 或 Gazebo 里手动删），
-          否则会看到"日志说 yaw=…、画面还是旧朝向"。
+          换 yaw / pitch 调试时请先删掉实体（`--rebuild-scene` 或 Gazebo 里手动删），
+          否则会看到"日志说 pitch=…、画面还是旧姿态"。
         """
         return self._ensure(
             PLATE_NAME,
             armor_plate_sdf(PLATE_NAME, width, height, thickness),
             (float(center[0]), float(center[1]), float(center[2])),
             tol=0.10, recreate_if_stuck=True,
-            yaw=math.radians(float(yaw_deg)))
+            yaw=math.radians(float(yaw_deg)),
+            pitch=math.radians(float(pitch_deg)))
 
     def hide_projectile(self) -> None:
         """把弹丸移出视野（等价于"消失"），命中/脱靶后调用。"""

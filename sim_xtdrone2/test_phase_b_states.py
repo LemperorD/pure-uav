@@ -255,6 +255,15 @@ class FakePX4:
             self.a = [0.0, 0.0, 0.0]
             self.sync()
             return
+        # ★ 2026-10-19 自写起飞（CLIMB）：节点发的是**速度** setpoint
+        #   （cmd_vel_ned 的 z = −climb_rate），PX4 速度环会照着爬 ⇒ 这里按定速推进。
+        if getattr(self.n, "state", "") == "CLIMB":
+            rate = float(getattr(self.n, "climb_rate", 1.5))
+            self.v = [0.0, 0.0, rate]
+            self.p[2] += rate * self.dt
+            self.a = [0.0, 0.0, 0.0]
+            self.sync()
+            return
         a_cmd = self.n.cur_a_enu             # 节点本周期要发的加速度（ENU）
         for k in range(3):
             if self.tau > 1e-9:
@@ -278,8 +287,10 @@ def mk_args(lib, **kw):
         law=0, N=6.0, a_max=10.0, t_go_freeze=0.10, hit_radius=0.5,
         # ★ 2026-10-18 固定装甲板（撞板任务）：默认**关** ⇒ 老用例行为不变
         armor_plate=False, plate_center=(-14.0, 0.0, 3.0),
-        plate_size="0.60,0.60,0.05", plate_yaw=0.0,
+        plate_size="0.60,0.60,0.05", plate_yaw=0.0, plate_pitch=0.0,
         plate_hit_tol=0.15, plate_body_radius=0.20,
+        # ★ 2026-10-19 自写起飞：默认关 ⇒ 老用例仍走 XTDrone2 TAKEOFF 路径
+        self_takeoff=False, climb_rate=1.5, climb_tol=0.30,
         a_boost=6.0, v_boost_min=5.0, boost_dir=(-1.0, 0.0, 0.0), no_cruise=False,
         cruise_x=None, v_kp=1.5, cruise_timeout=8.0,
         gz_viz=False, gz_world="walls", gz_hz=30.0, gz_trail=False,
@@ -2270,9 +2281,10 @@ def main():
     # ③ 不存在 ⇒ 才创建（且 pre_remove=False，不再先删）
     calls = {}
 
-    def _c3(name, sdf, pose, pre_remove=True, yaw=0.0):
+    def _c3(name, sdf, pose, pre_remove=True, yaw=0.0, pitch=0.0):
         calls["pre_remove"] = pre_remove
         calls["yaw"] = yaw
+        calls["pitch"] = pitch
         return True
 
     s3 = _mk_ensure_scene({})          # 空快照 = 什么都没有
@@ -2284,7 +2296,7 @@ def main():
 
     # ④ 读不到快照（snap={}）也不能崩，且仍不先删
     s4 = _mk_ensure_scene({})
-    s4._create = lambda n, s, p, pre_remove=True, yaw=0.0: True
+    s4._create = lambda n, s, p, pre_remove=True, yaw=0.0, pitch=0.0: True
     check(s4.ensure_tower(1.2, 3.0), "快照为空时也能正常创建（不崩、不先删）")
 
     # ⑤ 集成：连续两次 gz_setup（模拟"跑完一轮 → 起飞后再摆一次"）不该删任何东西
@@ -2911,7 +2923,7 @@ def main():
     # ② 打开 ⇒ 目标被覆盖成"静止板心"，且跳过自动瞄准
     _pk = dict(PILOT_KW)
     _pk.update(armor_plate=True, plate_center=(-14.0, 0.0, 3.0),
-               plate_size="0.60,0.60,0.05", plate_yaw=0.0)
+               plate_size="0.60,0.60,0.05", plate_yaw=20.0, plate_pitch=15.0)
     n_pl = new_node(lib, **_pk)
     _logs = []
     n_pl.log = _logs.append
@@ -2922,6 +2934,13 @@ def main():
     check(abs(n_pl.plate.width - 0.60) < 1e-9
           and abs(n_pl.plate.thickness - 0.05) < 1e-9,
           f"板尺寸解析正确：{n_pl.plate.width}×{n_pl.plate.height}×{n_pl.plate.thickness}")
+    check(abs(n_pl.plate.yaw_deg - 20.0) < 1e-9
+          and abs(n_pl.plate.pitch_deg - 15.0) < 1e-9,
+          f"yaw/pitch 解析正确：yaw={n_pl.plate.yaw_deg} "
+          f"pitch={n_pl.plate.pitch_deg}（2026-10-19 新增 pitch）")
+    _n_pl, _, _ = n_pl.plate.axes()
+    check(abs(_n_pl[2] - math.sin(math.radians(15.0))) < 1e-9,
+          f"俯仰后法向有 +z 分量（n_z={_n_pl[2]:.4f}）")
     check(tuple(n_pl.target_p0) == (-14.0, 0.0, 3.0),
           f"目标发射点被覆盖为板心：{n_pl.target_p0}")
     check(n_pl.args.target_type == 0 and n_pl.args.target_speed == 0.0,
@@ -2970,8 +2989,18 @@ def main():
     _logs.clear()
     n_pl.print_summary("撞板")
     check(any("撞板判据" in s for s in _logs), "汇总里有『撞板判据』一行")
+    check(any("MISS" in s for s in _logs), "汇总里撞板判定= MISS")
+    # 判定措辞必须区分"真穿板"与"容差命中"（2026-10-19 修复）
+    n_pl.plate_verdict_rec = {"kind": "HIT", "dist": 0.3}
+    check("容差命中" in n_pl.plate_kind_text() and "未穿板" in n_pl.plate_kind_text(),
+          f"HIT 的措辞标明『容差命中、未穿板』（{n_pl.plate_kind_text()}）")
+    n_pl.plate_verdict_rec = {"kind": "THROUGH", "dist": 0.0}
+    check("真穿板" in n_pl.plate_kind_text(),
+          f"THROUGH 的措辞标明『真穿板』（{n_pl.plate_kind_text()}）")
     # 回传报告：裸 print ⇒ 用 StringIO 截获
     import io as _io27
+    n_pl.plate_hit = True
+    n_pl.plate_verdict_rec = {"kind": "HIT", "dist": 0.3}
     n_pl.report_on = True
     _buf = _io27.StringIO()
     _old = sys.stdout
@@ -2983,7 +3012,107 @@ def main():
     _txt = _buf.getvalue()
     check("[撞板]" in _txt, "回传报告里有 [撞板] 段")
     check("待定" in _txt, "回传报告里如实标注『规则为待定』")
+    # ★ 修复：底部 汇总 的"命中"必须算上 plate_hit（原来只读 self.hit ⇒ 自相矛盾）
+    check("命中 = 是（撞板判据）" in _txt,
+          "报告底部汇总的『命中』= 是（撞板判据）—— 不再与 [撞板] 结果矛盾")
+    check("HIT（容差命中，未穿板）" in _txt,
+          "报告里标明这是『容差命中、未穿板』")
+    # ★ 修复：撞板模式不统计弹丸帧率（原来会打"有效帧率 0.0 Hz ⚠"噪音）
+    import types as _types27
+    n_pl.gz = _types27.SimpleNamespace(available=True)
+    _buf2 = _io27.StringIO()
+    try:
+        sys.stdout = _buf2
+        n_pl.print_report()
+    finally:
+        sys.stdout = _old
+    _txt2 = _buf2.getvalue()
+    check("撞板模式" in _txt2 and "弹丸球**已隐藏**" in _txt2,
+          "撞板模式的 [可见性] 改为说明『弹丸球已隐藏』")
+    check("有效帧率" not in _txt2, "撞板模式不再打『有效帧率 0.0 Hz』噪音")
     n_pl.close()
+
+    # ---------------------------------------------------------------- 用例 28
+    print()
+    print("=" * 74)
+    print("用例 28：自写起飞（ARM→OFFBOARD→cmd_vel_ned 爬升，跳过 XTDrone2 写死 10 m）")
+    print("=" * 74)
+    # ① 默认关 ⇒ 仍走 XTDrone2 TAKEOFF 老路径（零行为变化）
+    n_old = new_node(lib, **PILOT_KW)
+    n_old.log = lambda s: None
+    n_old.warn = lambda s: None
+    fx_old = FakePX4(n_old, p_enu=(0.0, 0.0, 0.2))
+    n_old.state = "POST_ARM"
+    n_old.t_state = VT[0]
+    step(n_old, fx_old, 40)
+    check(n_old.state in ("TAKEOFF", "WAIT_HEIGHT"),
+          f"不加 --self-takeoff ⇒ 仍走 XTDrone2 TAKEOFF（state={n_old.state}）")
+    n_old.close()
+
+    # ② 打开 ⇒ POST_ARM 直接进 OFFBOARD → CLIMB；爬升用**速度**指令（NED z<0）
+    PUB_SINK.clear()
+    n = new_node(lib, **dict(PILOT_KW, self_takeoff=True,
+                             target_height=5.0, climb_rate=2.0))
+    logs = []
+    n.log = logs.append
+    n.warn = logs.append
+    fx = FakePX4(n, p_enu=(0.0, 0.0, 0.2))
+    n.state = "POST_ARM"
+    n.t_state = VT[0]
+    step(n, fx, 40)
+    check(n.state in ("CLIMB", "SETTLE"),
+          f"POST_ARM 后**直接进 CLIMB**（state={n.state}）")
+    check(n.climb_t0 is not None, "记录了自写爬升的起始时刻")
+    check(any(t.endswith("cmd_vel_ned") and m.linear.z < 0.0
+              for (t, m) in PUB_SINK),
+          "爬升期发的是 cmd_vel_ned 且 linear.z<0（NED 向上 ⇒ 爬升）")
+    check(not any(t.endswith("cmd_accel_ned") for (t, m) in PUB_SINK),
+          "自写起飞阶段**不发** cmd_accel_ned（避免 NaN 污染 trajectory_setpoint）")
+
+    # ③ 爬到 5 m（而不是写死的 10 m）后交 SETTLE，耗时与 (5−tol)/rate 相符
+    alt0 = fx.p[2]
+    for _ in range(400):
+        if n.state != "CLIMB":
+            break
+        step(n, fx, 1)
+    check(n.state == "SETTLE", f"到位后进入 SETTLE（state={n.state}）")
+    check(n.self_takeoff_secs is not None
+          and 1.5 <= float(n.self_takeoff_secs) <= 4.5,
+          f"爬升耗时 {n.self_takeoff_secs:.2f} s ≈ (5−0.3)/2 = 2.35 s")
+    check(fx.p[2] >= 5.0 - 0.40,
+          f"高度贴近目标 5 m（实测 {fx.p[2]:.2f} m，从 {alt0:.2f} m 起爬）")
+    check(abs(n.target_height - 5.0) < 1e-9,
+          "目标高度就是 5.0 m（不受 XTDrone2 写死的 10 m 影响）")
+    check(any("自写爬升" in s for s in logs), "日志里有『自写爬升』过程行")
+    check(any("写死" in s for s in logs),
+          "日志说明了跳过 XTDrone2 写死的 10 m")
+    # ④ SETTLE 能接着跑（不崩、不卡）
+    step(n, fx, 25)
+    check(n.state in ("SETTLE", "CRUISE", "WAIT_HEIGHT"),
+          f"交班后状态机能继续推进（state={n.state}）")
+    n.close()
+
+    # ⑤ ★ 2026-10-19 修复：PX4 自己停桨且高度到判据内 ⇒ 应记 landed=True
+    #    原来只置 disarmed ⇒ 报告出现 `landed:False disarmed:True` 自相矛盾。
+    n_land = new_node(lib, **PILOT_KW)
+    n_land.log = lambda s: None
+    n_land.warn = lambda s: None
+    fx_land = FakePX4(n_land, p_enu=(0.0, 0.0, 0.2))
+    n_land.state = "LAND"
+    n_land.landing_phase = True
+    n_land.t_state = VT[0]
+    n_land.land_t0 = VT[0]
+    n_land.last_land_cmd = 0.0
+    n_land.land_stable_t = None
+    n_land.landed = False
+    n_land.disarmed = False
+    n_land.arming_state = M.ARMING_STATE_DISARMED
+    n_land.nav_state = M.NAV_STATE_AUTO_LAND
+    n_land.tick()
+    check(n_land.landed is True,
+          "PX4 自动停桨 + alt≤判据 ⇒ landed=True（不再 landed:False / disarmed:True）")
+    check(n_land.disarmed is True, "同上：disarmed=True")
+    n_land.close()
 
     # ---------------------------------------------------------------- 汇总
     print()

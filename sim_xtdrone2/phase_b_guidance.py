@@ -742,7 +742,8 @@ class PhaseBGuidance(Node):
                 name="enemy_armor_plate",
                 center=tuple(float(x) for x in args.plate_center),
                 width=_sz[0], height=_sz[1], thickness=_sz[2],
-                yaw_deg=float(args.plate_yaw))
+                yaw_deg=float(getattr(args, "plate_yaw", 0.0)),
+                pitch_deg=float(getattr(args, "plate_pitch", 0.0)))
             # 目标改为静止点：STRAIGHT(0) + speed 0 ⇒ v_T=0、a_T=0、hits_ground=false
             args.target_p0 = self.plate.center
             args.target_type = 0
@@ -780,6 +781,24 @@ class PhaseBGuidance(Node):
         self.settle_kd = args.settle_kd
         self.target_height = args.target_height
         self.rate = args.rate
+
+        # ---- ★ 自写起飞（2026-10-19）：不调 XTDrone2 的 TAKEOFF ----
+        #   为什么要自写：XTDrone2 的 TAKEOFF 把高度写死 10 m
+        #   （multirotor_communication.py:320 `param7=10.0`），而 PX4 在 AUTO_TAKEOFF
+        #   期间**不执行我们的 setpoint** ⇒ 想"边爬边平动"或"只飞到 5 m"都做不到。
+        #   自写路径：ARM → OFFBOARD（速度 setpoint 养模式）→ cmd_vel_ned 定速爬升。
+        self.self_takeoff = bool(getattr(args, "self_takeoff", False))
+        self.climb_rate = float(getattr(args, "climb_rate", 1.5))
+        self.climb_tol = float(getattr(args, "climb_tol", 0.30))
+        self.climb_t0 = None                 # 进入 CLIMB 的时刻（算爬升耗时）
+        self.self_takeoff_secs = None        # 爬升实际耗时（报告用）
+        if self.self_takeoff:
+            if self.climb_rate <= 0.0:
+                raise SystemExit("--climb-rate 必须 > 0")
+            if self.target_height < TAKEOFF_MIN_AGL + 1.0:
+                self.warn(f"⚠ 自写起飞目标高度 {self.target_height:.2f} m 太低"
+                          f"（安全门限 TAKEOFF_MIN_AGL={TAKEOFF_MIN_AGL:.1f} m + 1 m）"
+                          f"⇒ 建议 --target-height ≥ {TAKEOFF_MIN_AGL + 2.0:.1f}")
 
         # ---- 制导核 ----
         self.lib, lib_path = load_guidance_lib(args.lib)
@@ -1117,7 +1136,7 @@ class PhaseBGuidance(Node):
                      f"{self.plate.center[2]:.2f})  "
                      f"宽×高×厚={self.plate.width:.2f}×{self.plate.height:.2f}×"
                      f"{self.plate.thickness:.3f} m  "
-                     f"法向 yaw={self.plate.yaw_deg:+.1f}°")
+                     f"法向 yaw={self.plate.yaw_deg:+.1f}°  pitch={self.plate.pitch_deg:+.1f}°")
             self.log(f"        ⚠ 板尺寸/容差是**我们的假设**（规则表 5-1 对『空中机器人"
                      f"冲击』写的是『待定』）：tol={self.plate_hit_tol} m + 机身 "
                      f"{self.plate_body_radius} m")
@@ -1147,6 +1166,13 @@ class PhaseBGuidance(Node):
                  f"；横向保持={'ON' if self.args.cruise_lat_hold else 'OFF'}")
         self.log(f"  起飞门限: 离地 < {TAKEOFF_MIN_AGL:.1f} m 时**禁止任何水平加速度**"
                  f"（先纯垂直爬升；防止机体倾斜导致桨叶打地）")
+        if self.self_takeoff:
+            self.log(f"  ★ 起飞方式: **自写**（ARM→OFFBOARD→cmd_vel_ned 爬升 "
+                     f"{self.climb_rate:.2f} m/s 到 {self.target_height:.1f} m；"
+                     f"跳过 XTDrone2 TAKEOFF 写死的 10 m）")
+        else:
+            self.log(f"  起飞方式: XTDrone2 TAKEOFF（高度写死 10 m，随后 SETTLE 段"
+                     f"再调到 {self.target_height:.1f} m）")
         if self.plate is not None:
             self.log(f"  命中判定: **撞板**（板形）—— 距板 ≤ {self.plate_hit_tol} m + 机身 "
                      f"{self.plate_body_radius} m，或穿越板面矩形")
@@ -1328,6 +1354,23 @@ class PhaseBGuidance(Node):
         m.linear.x = 0.0
         m.linear.y = 0.0
         m.linear.z = float(self.args.land_down_speed)   # NED +z = 向下
+        self.pub_vel.publish(m)
+
+    def publish_climb_vel(self, rate=None):
+        """★ 自写起飞：发 `cmd_vel_ned` 的**垂直速度**（NED z 向下为正 ⇒ 爬升填负值）。
+
+        为什么用速度而不是加速度（2026-10-19）：
+          · 加速度指令是**纯前馈、无阻尼**（坑 1）⇒ 从地面起步没法"稳住高度"；
+          · 速度 setpoint 由 PX4 的位置/速度控制器闭环 ⇒ 能定速爬升、也能随时刹住；
+          · 速度 setpoint 有限且非 NaN ⇒ 不会触发"accel 模式污染 trajectory_setpoint"
+            那个让落地检测永久失效的坑（阶段 A 坑 8）。
+        `rate=0` 用于"保持当前高度"（也给 OFFBOARD 养模式用，保证 setpoint 流不断）。
+        """
+        r = float(self.climb_rate if rate is None else rate)
+        m = Twist()
+        m.linear.x = 0.0
+        m.linear.y = 0.0
+        m.linear.z = float(-r)          # NED +z 向下 ⇒ 爬升为负
         self.pub_vel.publish(m)
 
     def _vcmd(self, command, param1=0.0, param2=0.0, param4=0.0,
@@ -1676,7 +1719,8 @@ class PhaseBGuidance(Node):
 
         elif self.state == "POST_ARM":
             if now - self.t_state >= POST_ARM_DELAY:
-                self.state = "TAKEOFF"
+                # ★ 自写起飞：跳 TAKEOFF/WAIT_HEIGHT，直接请求 OFFBOARD
+                self.state = "OFFBOARD" if self.self_takeoff else "TAKEOFF"
 
         elif self.state == "TAKEOFF":
             if self.issue("TAKEOFF"):
@@ -1737,12 +1781,25 @@ class PhaseBGuidance(Node):
                 self.log("  → 发出 OFFBOARD")
 
         elif self.state == "CONFIRM_OFFBOARD":
-            self.publish_a()          # 持续流 setpoint 把 offboard 信号养起来
+            if self.self_takeoff:
+                # ★ 自写起飞：**先发速度 setpoint**（=0），不用加速度流。
+                #   这样 trajectory_setpoint 的 velocity 从一开始就是有限的，
+                #   不会先被 accel 回调的 NaN 污染，再切回来时产生"落地检测失效"的隐患。
+                self.publish_climb_vel(0.0)
+            else:
+                self.publish_a()          # 持续流 setpoint 把 offboard 信号养起来
             if self.nav_state == NAV_STATE_OFFBOARD:
                 dt = now - self.t_state
                 self.offboard_confirmed = True
                 self.log(f"[4/6] ✓ PX4 已确认进入 OFFBOARD（nav_state=14，耗时 {dt:.2f}s）")
-                self.state = "SETTLE"
+                if self.self_takeoff:
+                    self.state = "CLIMB"
+                    self.climb_t0 = now
+                    self.log(f"[3/6] 开始**自写爬升**：目标 {self.target_height:.1f} m，"
+                             f"爬升率 {self.climb_rate:.2f} m/s（cmd_vel_ned，"
+                             f"跳过 XTDrone2 写死的 10 m）")
+                else:
+                    self.state = "SETTLE"
                 self.t_state = now
             else:
                 if now - self.last_resend >= OFFBOARD_RESEND_SEC:
@@ -1752,6 +1809,44 @@ class PhaseBGuidance(Node):
                     self.abort(f"OFFBOARD 确认超时（{OFFBOARD_CONFIRM_TIMEOUT:.0f}s）："
                                f"nav_state={self.nav_state}（期望 14）")
                     return
+
+        elif self.state == "CLIMB":
+            # ★ 自写起飞（2026-10-19）：`cmd_vel_ned` 定速爬升。
+            #   用**速度**而不是加速度的原因见 `publish_climb_vel()`：
+            #   加速度是纯前馈无阻尼，从地面起步稳不住；速度由 PX4 速度环闭环。
+            #   低空姿态监控（`update_takeoff_tilt`）与 AUTO_TAKEOFF 路径**共用同一套**，
+            #   25° 告警 / 45° 中止的保护不打折。
+            self.update_takeoff_tilt()
+            alt = -self.pos.z if self.pos is not None else None
+            if alt is None:
+                if not self.no_pos_warned:
+                    self.no_pos_warned = True
+                    self.warn("收不到 vehicle_local_position —— 仿真在跑吗？")
+                if now - self.t_state > 10.0:
+                    self.abort("收不到位置遥测")
+                return
+            if alt >= self.target_height - self.climb_tol:
+                # 到位：先发零垂直速度刹住，再交给 SETTLE 做最后收敛
+                self.publish_climb_vel(0.0)
+                self.self_takeoff_secs = (now - self.climb_t0
+                                          if self.climb_t0 is not None else None)
+                self.log(f"[3/6] 起飞到位（自写）：alt={alt:.2f} m，爬升耗时 "
+                         f"{(self.self_takeoff_secs or 0.0):.2f}s"
+                         f"（目标 {self.target_height:.1f} m）→ 进入 SETTLE 收敛")
+                self.alt_target = alt
+                self.state = "SETTLE"
+                self.t_state = now
+                return
+            self.publish_climb_vel()
+            if now - self.last_alt_log > 2.0:
+                self.last_alt_log = now
+                self.log(f"     自写爬升… alt={alt:.2f} m（目标 {self.target_height:.1f}）"
+                         f"  rate={self.climb_rate:.2f} m/s  nav_state={self.nav_state}")
+                if self.arming_state == ARMING_STATE_DISARMED:
+                    self.warn("     ⚠ 车辆处于 DISARMED —— 不可能起飞。")
+            if now - self.t_state > self.args.takeoff_timeout:
+                self.abort(f"自写起飞超时（当前 {alt:.2f} m，"
+                           f"目标 {self.target_height:.1f} m）")
 
         elif self.state == "SETTLE":
             # ★ 关键 1：把高度**主动调到** --target-height
@@ -2084,6 +2179,11 @@ class PhaseBGuidance(Node):
                 else:
                     self.log(f"✓ 已停桨（PX4 自动，alt={alt_s} m）")
                     self.soft_landing = True
+                    # ★ 2026-10-19：PX4 自己停桨且高度已到位 ⇒ 视为**已落地**。
+                    #   原来只置 disarmed、不置 landed ⇒ 报告出现
+                    #   `landed:False disarmed:True` 的自相矛盾（实测踩到）。
+                    #   ⚠ 高度高于判据时走的是上面那条 warn 分支，那里**不**置 landed。
+                    self.landed = True
                 self.disarmed = True
                 self.record_stop()
                 self.state = "DONE"
@@ -2235,12 +2335,14 @@ class PhaseBGuidance(Node):
             if self.plate is not None:
                 ok_pl = self.gz.ensure_armor_plate(
                     self.plate.center, self.plate.width, self.plate.height,
-                    self.plate.thickness, self.plate.yaw_deg)
+                    self.plate.thickness, self.plate.yaw_deg,
+                    self.plate.pitch_deg)
                 self.log(f"  ── Gazebo 固定装甲板：{'✓ 已就位' if ok_pl else '⚠ 创建失败'}"
                          f"  中心=({self.plate.center[0]:.2f},{self.plate.center[1]:.2f},"
                          f"{self.plate.center[2]:.2f})  宽×高×厚="
                          f"{self.plate.width:.2f}×{self.plate.height:.2f}×"
-                         f"{self.plate.thickness:.3f} m  yaw={self.plate.yaw_deg:+.1f}°")
+                         f"{self.plate.thickness:.3f} m  yaw={self.plate.yaw_deg:+.1f}°"
+                         f"  pitch={self.plate.pitch_deg:+.1f}°")
             pad_z = self.gz_pad_z()          # 唯一出处，与收尾 park 用同一个值
             # ★ 撞板模式：目标不是弹丸 ⇒ 球**藏起来**（否则它会和板重叠，画面误导）
             at = ((self.target_p0[0], self.target_p0[1], pad_z)
@@ -2896,6 +2998,18 @@ class PhaseBGuidance(Node):
         self.state = "LAND"
         self.t_state = now
 
+    def plate_kind_text(self):
+        """撞板判定的**可读文字**（★ 2026-10-19：区分"真穿板"与"容差命中"）。
+
+        为什么必须区分：`HIT` 是"机心到板盒 ≤ tol + 机身半径"，可能机身边缘还差十几厘米
+        （实测一例：距板 0.318 m、判 HIT，但边缘离板还有 0.118 m）——那是**近失**，
+        不是真撞上。`THROUGH` 才是"真的穿过板面矩形"。
+        """
+        kind = (self.plate_verdict_rec or {}).get("kind", "MISS")
+        return {"THROUGH": "THROUGH（**真穿板**）",
+                "HIT": "HIT（容差命中，未穿板）",
+                "MISS": "MISS"}.get(kind, kind)
+
     def print_summary(self, reason):
         bar = "=" * 76
         self.log("")
@@ -2913,8 +3027,7 @@ class PhaseBGuidance(Node):
                 _md = ("—" if self.plate_min_dist is None
                        else "%.3f m @ t_rel=%.3fs" % (self.plate_min_dist,
                                                        self.plate_min_t or 0.0))
-                self.log(f"  撞板判据     : "
-                         f"{(self.plate_verdict_rec or {}).get('kind', 'MISS')}"
+                self.log(f"  撞板判据     : {self.plate_kind_text()}"
                          f"  距板最小 {_md}  容差 {self.plate_hit_tol} m + 机身 "
                          f"{self.plate_body_radius} m")
             self.log(f"  峰值指令     : {self.peak_a_cmd:.2f} m/s²"
@@ -2927,6 +3040,10 @@ class PhaseBGuidance(Node):
             self.log(f"  OFFBOARD     : ✓ 已确认进入（nav_state=14）")
         else:
             self.log(f"  OFFBOARD     : ✗ 未确认")
+        if self.self_takeoff:
+            self.log(f"  起飞(自写)   : 爬升 {self.climb_rate:.2f} m/s，耗时 "
+                     + ("—" if self.self_takeoff_secs is None
+                        else f"{self.self_takeoff_secs:.2f} s"))
         if self.soft_landing is False:
             self.log(f"  着陆质量     : ⚠ 非软着陆（停桨时离地过高，见上面 warn）")
         elif self.soft_landing is True:
@@ -3063,10 +3180,11 @@ class PhaseBGuidance(Node):
         _ar = self.aim_res or {}
         if self.plate is not None:
             p("[撞板] 目标=固定装甲板「%s」 中心 ENU=(%.2f,%.2f,%.2f)  "
-              "宽×高×厚=%.2f×%.2f×%.3f m  法向 yaw=%+.1f°"
+              "宽×高×厚=%.2f×%.2f×%.3f m  yaw=%+.1f°  pitch=%+.1f°"
               % (self.plate.name, self.plate.center[0], self.plate.center[1],
                  self.plate.center[2], self.plate.width, self.plate.height,
-                 self.plate.thickness, self.plate.yaw_deg))
+                 self.plate.thickness, self.plate.yaw_deg,
+                 self.plate.pitch_deg))
             p("[撞板] 判据=穿越板面矩形 / 距板 ≤ %.2f m + 机身 %.2f m"
               "（★ 我们的假设：规则表 5-1 对『空中机器人冲击』写的是『待定』）"
               % (self.plate_hit_tol, self.plate_body_radius))
@@ -3075,7 +3193,7 @@ class PhaseBGuidance(Node):
                  "—" if self.plate_min_dist is None
                  else "%.3f m @ t_rel=%.3fs" % (self.plate_min_dist,
                                                 self.plate_min_t or 0.0),
-                 (self.plate_verdict_rec or {}).get("kind", "MISS")))
+                 self.plate_kind_text()))
         else:
             p("[瞄准] 塔 @(%+.2f,%+.2f) r=%.2f h=%.2f 安全垫=%.2f  水平距离=%.2f m"
               % (self.tower.center[0], self.tower.center[1], self.tower.radius,
@@ -3119,7 +3237,13 @@ class PhaseBGuidance(Node):
                  "" if not self.args.gz_replay else
                  "   慢速回放：ON %.0fs / 相遇停顿 %.1fs"
                  % (self.args.replay_seconds, self.args.replay_hold)))
-            if (self.gz_setpose_t0 is not None and self.gz_setpose_t1 is not None
+            if self.plate is not None:
+                # ★ 撞板模式：目标不是弹丸 ⇒ 我们**故意不推弹丸球**（球会嵌在板里）。
+                #   原来这里照样统计"弹丸位置发出次数"⇒ 输出"有效帧率 0.0 Hz ⚠"，
+                #   纯属误导（2026-10-19 修正）。
+                p("[可见性] 撞板模式：目标=静止装甲板，弹丸球**已隐藏**"
+                  "（不推位置、也不统计弹丸帧率）")
+            elif (self.gz_setpose_t0 is not None and self.gz_setpose_t1 is not None
                     and self.gz_flight_secs):
                 n_sent = max(self.gz_setpose_t1 - self.gz_setpose_t0, 0)
                 hz_eff = n_sent / self.gz_flight_secs
@@ -3235,9 +3359,10 @@ class PhaseBGuidance(Node):
         if self.min_R is None:
             p("最近距离 = (未采到制导段数据)")
         else:
-            p("最近距离 = %.3f m @ t_rel=%.3f s   (阈值 %.2f m)  命中 = %s"
+            p("最近距离 = %.3f m @ t_rel=%.3f s   (阈值 %.2f m)  命中 = %s%s"
               % (self.min_R, self.t_min_R, self.hit_radius,
-                 "是" if self.hit else "否"))
+                 "是" if (self.hit or self.plate_hit) else "否",
+                 ("（撞板判据）" if self.plate is not None else "")))
             p("峰值指令 = %.2f m/s²   饱和 = %d/%d 步 (%.1f%%)   mode: %s"
               % (self.peak_a_cmd, self.sat_steps, self.guided_steps,
                  100.0 * self.sat_steps / max(self.guided_steps, 1),
@@ -3341,6 +3466,9 @@ def build_parser():
                          "规则 V1.0.0 表 5-1 对『空中机器人冲击』的判据写的是『待定』")
     ap.add_argument("--plate-yaw", type=float, default=0.0,
                     help="板面**法向**方位角 (deg)：0=法向 +x（正对来向），90=法向 +y")
+    ap.add_argument("--plate-pitch", type=float, default=0.0,
+                    help="板面**俯仰角** (deg)：正=法向抬高（板面朝上仰），负=低头。"
+                         "⚠ 只倾斜板面，不改变宽度/高度尺寸；几何判定与 Gazebo 实体同步倾斜")
     ap.add_argument("--plate-hit-tol", type=float, default=0.15,
                     help="撞板距离容差 (m)：机心到板盒距离 ≤ tol+机身半径 判 HIT")
     ap.add_argument("--plate-body-radius", type=float, default=0.20,
@@ -3412,6 +3540,15 @@ def build_parser():
     # 飞行
     ap.add_argument("--target-height", type=float, default=10.0, help="起飞高度 (m)")
     ap.add_argument("--takeoff-tol", type=float, default=1.0)
+    # ★ 2026-10-19 **自写起飞**：不再调 XTDrone2 的 TAKEOFF（它把高度写死 10 m）。
+    #   流程改为 ARM → OFFBOARD → 用 `cmd_vel_ned` 以 --climb-rate 爬到 --target-height。
+    ap.add_argument("--self-takeoff", action="store_true",
+                    help="★ 自己起飞：ARM→OFFBOARD→cmd_vel_ned 爬升到 --target-height，"
+                         "跳过 XTDrone2 TAKEOFF（写死 10 m）。建议先 --target-height=5 验证")
+    ap.add_argument("--climb-rate", type=float, default=1.5,
+                    help="自写起飞的爬升速度 (m/s)；越大越快，低空姿态风险也越大")
+    ap.add_argument("--climb-tol", type=float, default=0.30,
+                    help="自写起飞的到位容差 (m)：到 target−tol 就交 SETTLE 收敛")
     ap.add_argument("--no-precheck", action="store_true",
                     help="★ 跳过起飞前自检（默认**会检查**：无人机是否在原点、"
                          "是否已解锁/已在 OFFBOARD、姿态是否水平）。"

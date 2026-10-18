@@ -52,9 +52,11 @@ class ArmorPlate:
     ----
     center    : 板**几何中心** ENU (m)
     width     : 板宽（水平，沿 u）(m)
-    height    : 板高（竖直，沿 z）(m)
+    height    : 板高（沿板面内竖直方向 v）(m)
     thickness : 板厚（沿法向 n）(m)
     yaw_deg   : 板面**法向**的方位角 (deg)，0 ⇒ 法向 +x
+    pitch_deg : 板面**俯仰角** (deg)，正 ⇒ 法向抬高（板面朝上仰），负 ⇒ 低头
+                ⚠ 只倾斜法向，不改板宽/板高尺寸；局部 u/v 随之转动
     name      : 名字（日志/Gazebo 实体名用）
     """
 
@@ -64,14 +66,29 @@ class ArmorPlate:
     height: float = 0.60
     thickness: float = 0.05
     yaw_deg: float = 0.0
+    pitch_deg: float = 0.0
 
     # ------------------------------------------------------------ 基向量
     def axes(self) -> Tuple[Vec3, Vec3, Vec3]:
-        """返回 (n, u, v)：法向 / 板面内水平 / 竖直。"""
-        a = math.radians(self.yaw_deg)
-        n = (math.cos(a), math.sin(a), 0.0)
-        u = (-math.sin(a), math.cos(a), 0.0)     # = n × z
-        v = (0.0, 0.0, 1.0)
+        """返回 (n, u, v)：法向 / 板面内水平（板宽）/ 板面内竖直（板高）。
+
+        ★ 俯仰（pitch，2026-10-19 新增）的取法：
+            n = (cos p·cos y, cos p·sin y, sin p)   ← 法向绕 yaw 再抬高 p
+            u = (−sin y, cos y, 0)                  ← 板宽方向（水平，与 pitch 无关）
+            v = n × u                               ← 板高方向（右手；pitch=0 时恰为 +z）
+        ⇒ **pitch=0 时与旧实现逐位相同**（老场景/老测试零变化）。
+        ⚠ pitch 只改"板面朝哪"，不改尺寸；板的上下边缘会随之前后移动
+          （z 变化量 = ±(height/2)·sin p，x/y 变化量 = ±(height/2)·sin p·cos/sin y）。
+        """
+        y = math.radians(self.yaw_deg)
+        p = math.radians(self.pitch_deg)
+        cp, sp = math.cos(p), math.sin(p)
+        cy, sy = math.cos(y), math.sin(y)
+        n = (cp * cy, cp * sy, sp)
+        u = (-sy, cy, 0.0)
+        v = (n[1] * u[2] - n[2] * u[1],
+             n[2] * u[0] - n[0] * u[2],
+             n[0] * u[1] - n[1] * u[0])
         return n, u, v
 
     def half_extents(self) -> Tuple[float, float, float]:
@@ -167,7 +184,8 @@ class ArmorPlate:
         return (f"固定装甲板「{self.name}」中心 ENU=({self.center[0]:.2f},"
                 f"{self.center[1]:.2f},{self.center[2]:.2f})  "
                 f"宽×高×厚 = {self.width:.2f}×{self.height:.2f}×{self.thickness:.3f} m  "
-                f"法向=({n_ax[0]:+.2f},{n_ax[1]:+.2f},0)  yaw={self.yaw_deg:+.1f}°")
+                f"法向=({n_ax[0]:+.2f},{n_ax[1]:+.2f},{n_ax[2]:+.2f})  "
+                f"yaw={self.yaw_deg:+.1f}°  pitch={self.pitch_deg:+.1f}°")
 
     def to_dict(self) -> dict:
         return {
@@ -177,17 +195,19 @@ class ArmorPlate:
             "height": self.height,
             "thickness": self.thickness,
             "yaw_deg": self.yaw_deg,
+            "pitch_deg": self.pitch_deg,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ArmorPlate":
         return cls(
             name=str(d.get("name", "armor_plate")),
-            center=tuple(float(x) for x in d.get("center", (-14.0, 0.0, 3.0))),
+            center=tuple(float(x) for x in d.get("center", (-14.0, 0.0, 5.0))),
             width=float(d.get("width", 0.60)),
             height=float(d.get("height", 0.60)),
             thickness=float(d.get("thickness", 0.05)),
             yaw_deg=float(d.get("yaw_deg", 0.0)),
+            pitch_deg=float(d.get("pitch_deg", 0.0)),
         )
 
 
