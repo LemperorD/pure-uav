@@ -1,0 +1,6 @@
+# Kalibr AprilGrid（Kalibr PDF 版 tag36h11）
+target_type: 'aprilgrid'
+tagRows: 6
+tagCols: 6
+tagSize: 0.088
+tagSpacing: 0.56

@@ -2,7 +2,7 @@
 
 它做五件事：
   1) 体检：相机在不在、飞控串口在不在、标定板配置和内参分辨率对不对
-  2) 先起 IMU 录制线程，再拉起相机采集子进程（两个都用宿主机 CLOCK_REALTIME → 天然同源）
+  2) 先起 IMU 录制线程，再拉起相机采集子进x`程（两个都用宿主机 CLOCK_REALTIME → 天然同源）
   3) 相机跑完 → 收 IMU → 写 imu.csv
   4) capture_manifest.json → images.csv
   5) 打印这次数据的体检报告 + 下一步该点哪个文件
@@ -67,14 +67,26 @@ def scan_cameras(expected="2bc5:0511"):
 
 
 def read_target(path):
+    """读标定板配置。两种板子的字段语义不同，所以返回 dict 而不是裸元组。"""
     from calib.data import read_yaml
     entry = read_yaml(path)
     kind = entry.get("target_type")
     if kind in ("checkerboard", "chessboard"):
-        return (kind, int(entry.get("cols", 0)), int(entry.get("rows", 0)),
-                float(entry.get("square_size", 0)))
-    return (kind, int(entry.get("tagCols", 0)), int(entry.get("tagRows", 0)),
-            float(entry.get("tagSize", 0)))
+        cols, rows = int(entry.get("cols", 0)), int(entry.get("rows", 0))
+        size = float(entry.get("square_size", 0))
+        span = ((cols - 1) * size, (rows - 1) * size)     # 最外圈内角点之间的跨度
+        label = (f"棋盘 {cols}x{rows} 内角点，格边 {size * 100:g} cm，"
+                 f"角点跨度 {span[0] * 100:.1f}x{span[1] * 100:.1f} cm")
+    else:
+        cols, rows = int(entry.get("tagCols", 0)), int(entry.get("tagRows", 0))
+        size = float(entry.get("tagSize", 0))
+        spacing = float(entry.get("tagSpacing", 0.0))
+        pitch = size * (1 + spacing)                      # 相邻 tag 的中心距
+        span = ((cols - 1) * pitch + size, (rows - 1) * pitch + size)   # 整板外沿
+        label = (f"AprilGrid {cols}x{rows} tag，tagSize {size * 100:g} cm，"
+                 f"整板 {span[0] * 100:.1f}x{span[1] * 100:.1f} cm")
+    return {"kind": kind, "cols": cols, "rows": rows, "size": size,
+            "board_m": span, "label": label, "path": str(path)}
 
 
 def preflight():
@@ -129,10 +141,16 @@ def preflight():
 
     if not Path(cfg.TARGET_YAML).is_file():
         raise RuntimeError(f"标定板文件不存在：{cfg.TARGET_YAML}")
-    kind, cols, rows, size = read_target(cfg.TARGET_YAML)
-    print(f"  ✅ 标定板 {kind} {cols}x{rows}，尺寸 {size} m")
-    print("     ⚠️ 这个行列数必须和你实际摆的板子完全一致，否则检测出 0 帧。")
-    print("        临时用 iPad 屏幕上那张 8x6 的 PNG，就把 cols/rows 改成 8/6。")
+    board = read_target(cfg.TARGET_YAML)
+    print(f"  ✅ 标定板 {board['label']}")
+    if board["kind"] in ("checkerboard", "chessboard"):
+        print("     ⚠️ 行列数必须和实物完全一致，否则检测出 0 帧。"
+              "数的是【内角点】，不是格子数。")
+    else:
+        print("     ⚠️ tagRows/tagCols 是【tag 个数】不是内角点；tagSize 是黑框外沿，卡尺实测。")
+        print(f"        按当前配置，整板 {board['board_m'][0] * 100:.1f}x"
+              f"{board['board_m'][1] * 100:.1f} cm —— 和实物对不上就是 0 帧，"
+              "而且平移会按比例错（tagSize 填错 10 倍 → 平移错 10 倍）。")
 
     print("[4/4] 检查目录……")
     session_dir = Path(cfg.SESSION_DIR)
@@ -149,7 +167,7 @@ def preflight():
               "换个 SESSION_NAME 或把旧结果移走。")
     print(f"  ✅ {session_dir}")
 
-    return device, port, (kind, cols, rows, size)
+    return device, port, board
 
 
 # --------------------------------------------------------------------------
@@ -157,7 +175,7 @@ def preflight():
 # --------------------------------------------------------------------------
 
 def camera_command(device, target_info):
-    _, cols, rows, _ = target_info
+    cols, rows = target_info["cols"], target_info["rows"]
     return [
         sys.executable, str(CAMERA_SCRIPT),
         "--device", str(device),
@@ -182,6 +200,9 @@ def record(device, port, target_info):
     if cfg.SHOW_PREVIEW:
         print("  预览窗口：空格手动存一张，Q 提前结束")
     print("  接下来拿着整套设备，在标定板前做连续、平滑、多轴转动 —— 要转得够多轴，别只平移")
+    if target_info.get("kind") not in ("checkerboard", "chessboard"):
+        print("  注意：下行每句末尾的 board=no 是采图脚本自带的【棋盘】检测器打的，"
+              "对 AprilGrid 恒为 no，可以忽略")
     print()
 
     recorder = imu_recorder.ImuRecorder(port, request_hz=cfg.IMU_REQUEST_HZ, baud=cfg.IMU_BAUD)
@@ -233,8 +254,12 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
               f"实测 {img_stats['observed_fps']:.1f} fps")
         print(f"  最大帧间隔 {img_stats['max_gap_ms']:.1f} ms"
               f"（>100ms: {img_stats['gaps_over_100ms']}, >350ms: {img_stats['gaps_over_350ms']}）")
-        print(f"  采集脚本自带的棋盘检出 {img_stats['board_detected']}/{img_stats['images']}"
-              "（仅供参考；标定程序用的是更鲁棒的检测器）")
+        from calib.data import read_yaml
+        if read_yaml(cfg.TARGET_YAML).get("target_type") in ("checkerboard", "chessboard"):
+            print(f"  采集脚本自带的棋盘检出 {img_stats['board_detected']}/{img_stats['images']}"
+                  "（仅供参考；标定程序用的是更鲁棒的检测器）")
+        else:
+            print("  采集脚本自带的棋盘检出  N/A（采图脚本只会找棋盘；AprilGrid 看下面的画面体检）")
         print(f"  结束状态 {img_stats['manifest_termination']}")
 
     slow = (img_stats is not None and img_stats["observed_fps"] < cfg.FPS * 0.6
@@ -255,17 +280,26 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
     health_level = None
     session_dir = Path(cfg.SESSION_DIR)
     images = sorted((session_dir / "cam0").glob("*.png"))
-    if images:
-        kind, cols, rows, _ = read_target(cfg.TARGET_YAML)
+    board = read_target(cfg.TARGET_YAML) if Path(cfg.TARGET_YAML).is_file() else None
+    # 标定侧真正用的门槛要从 extrinsics_config 读，别在采集侧写死 ——
+    # 2026-10-16 踩过：这边 2.0、标定侧 3.5，同一份数据算出不同的"有效帧"。
+    try:
+        import extrinsics_config as ec
+        pnp_gate = float(getattr(ec.SETTINGS, "max_pnp_rms_px", 2.0))
+        min_tags = int(getattr(ec.SETTINGS, "min_tags", 4))
+    except Exception:                                          # noqa: BLE001
+        pnp_gate, min_tags = 2.0, 4
+    if images and board is not None:
         print()
         print("画面体检")
-        health = image_health.analyze(images, cols, rows, sample=20)
+        health = image_health.analyze(images, cfg.TARGET_YAML, sample=20)
         # 再加一步"标定程序实际会用多少帧"。这一步才能在采完当场发现运动模糊 ——
         # 静态的检出率和亮度都看不出糊，只有 PnP 残差看得出（2026-10-15 的教训：
         # 检出 82%，但 17 帧 PnP 3~4 px 被剔，留出 5 处空洞，整份数据作废）。
         try:
             health["quality"] = image_health.calib_quality_stats(
-                images, cfg.CAMERA_YAML, cfg.TARGET_YAML, window=24)
+                images, cfg.CAMERA_YAML, cfg.TARGET_YAML, window=24,
+                min_tags=min_tags, max_pnp_rms=pnp_gate)
         except Exception as exc:                               # noqa: BLE001
             print(f"  （标定质量抽检跳过：{exc}）")
         health_level, health_actions = image_health.report(health)
@@ -277,22 +311,18 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
         print()
         print("逐帧复算（跑标定程序自己的检测+PnP，约 1~2 分钟）……")
         try:
-            # 用【标定侧 Settings 里实际设的】PnP 门槛，不要写死 ——
-            # 2026-10-16 踩到：record_session 写死 2.0，而 extrinsics_config 用的是 3.5，
-            # 于是同一份数据两边算出不同的"有效帧"，提示的窗口可能不是标定真正会用的那个。
-            import extrinsics_config as ec
-            pnp_gate = float(getattr(ec.SETTINGS, "max_pnp_rms_px", 2.0))
-            print(f"（按 extrinsics_config 的 max_pnp_rms_px={pnp_gate:g} 复算）")
+            print(f"（按 extrinsics_config 的 max_pnp_rms_px={pnp_gate:g}、"
+                  f"min_tags={min_tags} 复算）")
             tl = image_health.full_timeline(
                 images, cfg.CAMERA_YAML, cfg.TARGET_YAML,
-                max_pnp_rms=pnp_gate, log=lambda *_a: None)
+                max_pnp_rms=pnp_gate, min_tags=min_tags, log=lambda *_a: None)
             window_ok, window_note = image_health.report_timeline(tl)
             health["timeline"] = tl
             health["window_ok"] = window_ok
             if window_ok and tl.get("best"):
                 a, span, n = tl["best"]
                 print()
-                print("  ★ 把 extrinsics_config.py 第 98 行直接换成下面这行，就能标定：")
+                print("  ★ 把 extrinsics_config.py 最下面那行 SETTINGS 换成：")
                 print(f"      SETTINGS = Settings(start_s={a:.2f}, max_duration_s={span:.2f},"
                       " camera_rate_hz=60, max_pnp_rms_px=3.5)")
                 print(f"    （用 {a:.2f}s 起、{span:.2f} 秒、{n} 帧那一段）")

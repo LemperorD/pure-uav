@@ -67,9 +67,13 @@ class Problem:
     def check_visual(self):
         s = self.cfg
         if len(self.obs) < s.min_frames or self.tc[-1]-self.tc[0] < s.min_duration_s:
-            raise CalibrationError("有效帧数或序列长度不足。")
+            raise CalibrationError(f"有效帧数或序列长度不足：{len(self.obs)} 帧 / "
+                                   f"{self.tc[-1]-self.tc[0]:.2f}s，要求 ≥{s.min_frames} 帧、"
+                                   f"≥{s.min_duration_s:g}s。")
         if np.max(np.diff(self.tc)) > s.max_camera_gap_s:
-            raise CalibrationError("成功检测标定板帧之间存在大空洞；请截取连续可见的窗口。")
+            raise CalibrationError("成功检测标定板帧之间存在大空洞；请截取连续可见的窗口"
+                                   "（Settings.auto_window=1 时程序会自动挑最长连续段，"
+                                   "走到这里说明选窗之后仍不连续）。")
 
     def fit_initial_controls(self):
         spline = self.spline
@@ -127,8 +131,14 @@ class Problem:
         _, dt, r_ci, bg = best
         r, _, a, w, alpha = self.trajectory(self.ti-dt, ctrl)
         singular = np.linalg.svd(w-w.mean(0), compute_uv=False)/np.sqrt(len(w))
-        if singular[1] < self.cfg.min_rotation_std_rad_s:
-            raise CalibrationError(f"多轴旋转激励不足，角速度标准差奇异值={singular.tolist()}。")
+        # 必须检查最弱那一轴(singular[2])，不是第二轴。第三轴几乎没转时，外参在该轴不可观，
+        # 残差照样能拟合得很漂亮 —— 实测 session16 第三轴只有 0.0197 rad/s 仍判"通过"，
+        # 结果旋转偏 6°。三轴都转起来才算数。
+        if singular[2] < self.cfg.min_rotation_std_rad_s:
+            raise CalibrationError(
+                f"多轴旋转激励不足：最弱轴角速度标准差只有 {singular[2]:.4f} rad/s"
+                f"（门槛 {self.cfg.min_rotation_std_rad_s:g}）。三个轴都要转，"
+                f"三轴奇异值={singular.tolist()}。")
         # f_I - R_IC R_CW a_W = [R_IC L, -R_IC R_CW, I] [p_CI,g_W,ba_I]
         r_ic = r_ci.as_matrix().T
         l = skew(alpha)+skew(w) @ skew(w)

@@ -34,7 +34,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SESSION = None          # None = 自动挑最新的
-BAG_DIR = ROOT.parent / "rosbags"   # 默认放在仓库根的 rosbags/（可用 --output 覆盖）
+BAG_DIR = ROOT / "bags"          # 容器里看到的是 extrinsic/bags/
 CAM_TOPIC = "/cam0/image_raw"
 IMU_TOPIC = "/imu0"
 

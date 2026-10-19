@@ -604,7 +604,11 @@ def main(argv=None):
             last_frame_time = now
             recent_times.append(now)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if args.cols and (frames == 1 or now - last_detect_time >= 0.5):
+            # [2026-10-18 修改] 和下面"保存时检测"同一个毛病：连续录像（--no-preview）时
+            # 这个每 0.5 秒一次的棋盘检测在 1080p 上要 470~530 ms，把 29 fps 拖成 11 fps，
+            # 而且制造 330~400 ms 的驱动级空洞（直接触发标定侧 max_camera_gap_s=0.35）。
+            # 它只给预览窗绿点和 3x3 覆盖度用，录像时不需要。
+            if args.cols and not args.no_preview and (frames == 1 or now - last_detect_time >= 0.5):
                 corners = detect_board(gray, args.cols, args.rows)
                 last_detect_time = now
             measured_fps = ((len(recent_times)-1) / (recent_times[-1]-recent_times[0])

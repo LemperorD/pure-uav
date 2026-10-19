@@ -1,29 +1,27 @@
 #!/usr/bin/env python3
-"""一键标定 —— 自动挑出连续可用窗口，然后调 calibrate_extrinsics.py。
+"""一键标定 —— 先体检，再调 calibrate_extrinsics.py（后者现在自己会选窗）。
 
-为什么需要这个：
-    `calibrate_extrinsics.py` 默认取【整段】录像。只要中间有一段 >0.35 秒
-    什么都认不出（"大空洞"），它就整段拒绝，报：
-        「成功检测标定板帧之间存在大空洞；请截取连续可见的窗口。」
-    而它自己不会去挑窗口 —— 要你手动把 start_s / max_duration_s 填进
-    extrinsics_config.py。2026-10-16 一晚上在这上面来回折了五次。
+【2026-10-18 起】`calibrate_extrinsics.py` 默认 `auto_window: 1`：检出有空洞时
+它自己按 max_camera_gap_s 切段、挑最长且 ≥min_duration_s/≥min_frames 的一段来拟合，
+并把空洞位置/最长连续段/清晰度对比写进 report.json。所以"手动挑窗口"这件事
+已经不需要这个脚本了。
 
-    这个脚本把"挑窗口"自动化：先逐帧复算一遍，找出最长的一段连续可用区间，
-    写成临时 settings YAML，再带着 --settings 去调标定。你只需要点一下绿三角。
-
-它做什么：
+这个脚本保留给"想先看清楚为什么不能用"的场合：
     1. 找 session（默认取最新的）
-    2. 逐帧跑标定程序自己的检测+PnP，算出它真正会接受哪些帧（约 1~2 分钟）
-    3. 按 max_camera_gap_s 切段，挑出最长的一段 ≥ min_duration_s 且 ≥ min_frames
-    4. 无空洞 → 用整段；有空洞但有可用窗口 → 用那个窗口；都没有 → 叫你别浪费时间
-    5. 调 calibrate_extrinsics.py --settings <临时文件> --output results/<session>[_window]
-    6. 把三个残差和最终外参打印出来
+    2. 逐帧跑标定程序自己的检测+PnP，提前给出检出率/空洞/清晰度诊断（约 1~2 分钟）
+    3. 有可用窗口就写成临时 settings YAML（start_s / max_duration_s），再带着
+       --settings 去调标定；没有就叫你别浪费时间
+    4. 把三个残差和最终外参打印出来
+
+注意：第 2 步和第 5 步各检测一遍，比直接跑 calibrate_extrinsics.py 慢一倍。
+日常标定直接点 calibrate_extrinsics.py 就行。
 
 用法（PyCharm 里直接点运行）：
     python capture/run_calibration.py                     # 最新的 session
     python capture/run_calibration.py --session session06
     python capture/run_calibration.py --list
     python capture/run_calibration.py --gap 0.6           # 自定义空洞门槛
+    python capture/run_calibration.py --dry-run           # 只体检，不标定
 """
 from __future__ import annotations
 
@@ -101,9 +99,17 @@ def main() -> int:
 
     from calib.data import read_yaml
     target = read_yaml(target_yaml)
-    cols = int(target["cols"])
-    rows = int(target["rows"])
-    print(f"  板子      {cols} x {rows} 内角点，格边长 {target['square_size']} m")
+    kind = target.get("target_type")
+    if kind in ("checkerboard", "chessboard"):
+        print(f"  板子      {int(target['cols'])} x {int(target['rows'])} 内角点，"
+              f"格边长 {target['square_size']} m")
+    else:
+        cols, rows = int(target["tagCols"]), int(target["tagRows"])
+        size, spacing = float(target["tagSize"]), float(target["tagSpacing"])
+        pitch = size * (1 + spacing)
+        print(f"  板子      AprilGrid {cols} x {rows} tag，tagSize {size * 100:g} cm，"
+              f"整板 {(cols - 1) * pitch + size:.3f} x {(rows - 1) * pitch + size:.3f} m")
+    min_tags = int(getattr(ec.SETTINGS, "min_tags", 4))
     print()
 
     print("逐帧复算（跑标定程序自己的检测+PnP，约 1~2 分钟）……")
@@ -111,7 +117,7 @@ def main() -> int:
         images, camera_yaml, target_yaml,
         max_pnp_rms=MAX_PNP_RMS_PX, gap_s=args.gap,
         min_frames=args.min_frames, min_duration_s=args.min_duration,
-        log=lambda m: print(m))
+        min_tags=min_tags, log=lambda m: print(m))
     print(f"  {tl['frames']} 帧里：检出 {tl['detected']}，"
           f"标定程序会接受 {tl['accepted']}（PnP 中位 {tl.get('pnp_median', float('nan')):.2f} px）")
     if tl["accepted"] < args.min_frames:

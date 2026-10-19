@@ -7,8 +7,13 @@
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import cv2
 import numpy as np
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _pick(paths, n):
@@ -63,88 +68,147 @@ def brightness_verdict(b):
 # 检出
 # --------------------------------------------------------------------------
 
-def _detect(gray, cols, rows):
-    """和标定程序 calib/data.py 的 Target.detect 同一套策略：SB 优先，经典兜底。"""
-    try:
-        ok, pts, _ = cv2.findChessboardCornersSBWithMeta(
-            gray, (cols, rows), flags=cv2.CALIB_CB_NORMALIZE_IMAGE)
-    except Exception:                                        # noqa: BLE001
-        ok, pts = False, None
-    kind = "SB"
-    if not ok:
-        ok, pts = cv2.findChessboardCorners(gray, (cols, rows))
-        kind = "经典"
-    return (pts.reshape(-1, 2).astype(float) if ok else None), (kind if ok else None)
+def _load_target(target_yaml, min_tags=None):
+    """用标定程序自己的 Target —— 体检和标定走同一套检测，不会各说各话。
 
-
-def detect_stats(paths, cols, rows, sample=12, probe_subgrids=True):
-    """返回检出率；顺带探一下"小一号"的网格能不能检出。
-
-    这条探针很有用：整块板子出画时，小网格仍可能检出。
-    所以『(cols,rows) 全灭但 (cols-1,rows-1) 能检出』= 板子被画面切掉了，
-    而不是板子不对或太暗。
+    min_tags 不传时去 extrinsics_config 读，保证"体检说能过"和"标定真会用"
+    的下限是同一个数（AprilGrid 默认 8，别在这里写死 4）。
     """
-    picks = _pick(paths, sample)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    if min_tags is None:
+        try:
+            import extrinsics_config as ec
+            min_tags = int(getattr(ec.SETTINGS, "min_tags", 4))
+        except Exception:                                    # noqa: BLE001
+            min_tags = 4
+    from calib.data import Target, read_yaml
+    return Target(read_yaml(target_yaml), min_tags=min_tags)
+
+
+def _detect(gray, target):
+    """检测一帧。返回 (uv, 标签, meta)；uv 为 None 表示这帧不能用。
+
+    棋盘格和 AprilGrid 都走 calib/data.py 的 Target.detect：
+    棋盘是 SB/经典角点，AprilGrid 是 aruco 36h11。meta 额外带 tag 个数和 tag 边长。
+    """
+    meta = {"n_tags": None, "tag_px": None, "error": None}
+    try:
+        result = target.detect(gray)
+    except Exception as exc:                                 # noqa: BLE001
+        # 典型情况：画面里混进了别的 AprilTag → 重复 ID，标定程序也会直接抛异常
+        meta["error"] = str(exc)
+        return None, None, meta
+    if result is None:
+        return None, None, meta
+    uv = np.asarray(result[1], dtype=float).reshape(-1, 2)
+    if target.kind in ("checkerboard", "chessboard"):
+        return uv, "Target", meta
+    quads = uv.reshape(-1, 4, 2)                             # 每个 tag 固定 4 个角点
+    edges = np.linalg.norm(quads[:, 1] - quads[:, 0], axis=1)
+    meta["n_tags"] = int(len(quads))
+    meta["tag_px"] = float(np.median(edges))
+    return uv, "aprilgrid", meta
+
+
+def _probe_chess(gray, cols, rows):
+    """只给棋盘格的【切边探针】用：换一个小一号的内角点网格再试一次。"""
+    try:
+        ok = cv2.findChessboardCornersSBWithMeta(
+            gray, (cols, rows), flags=cv2.CALIB_CB_NORMALIZE_IMAGE)[0]
+    except Exception:                                        # noqa: BLE001
+        ok = False
+    if not ok:
+        ok = cv2.findChessboardCorners(gray, (cols, rows))[0]
+    return bool(ok)
+
+
+def detect_stats(paths, target_yaml, sample=12, probe_subgrids=True):
+    """返回检出率 + 板子在画面里"有多大"。
+
+    棋盘格和 AprilGrid 共用同一个 Target.detect，差别只在"大小"怎么算：
+      · 棋盘：每格边长（面积法，与板子转了 90° 无关），太小会让平面 PnP 退化
+      · AprilGrid：单个 tag 的边长，太小 aruco 解不出 36h11 的编码
+    AprilGrid 只看到一部分 tag 也能用，所以【不做】切边探针 ——
+    那条探针只对"整块板子必须全在画面里"的棋盘格有意义。
+    """
+    target = _load_target(target_yaml)
+    checker = target.kind in ("checkerboard", "chessboard")
+    frames = [(p, _gray(p)) for p in _pick(paths, sample)]
+    frames = [(p, g) for p, g in frames if g is not None]
+
     tried = hit = 0
     kinds, margins, spans, spans_v, board_white = set(), [], [], [], []
     shape = None
     sharp_hit, sharp_miss = [], []
-    for p in picks:
-        g = _gray(p)
-        if g is None:
-            continue
+    tag_px_all, n_tags_all, errors = [], [], []
+    misses = []
+    for p, g in frames:
         shape = g.shape
         tried += 1
-        pts, kind = _detect(g, cols, rows)
+        uv, label, meta = _detect(g, target)
+        if meta["error"]:
+            errors.append(meta["error"])
         sharp = float(cv2.Laplacian(g, cv2.CV_64F).var())
-        if pts is not None:
-            hit += 1
-            kinds.add(kind)
-            margins.append(_edge_margin(pts, g.shape))
-            sharp_hit.append(sharp)
-            spans.append(float(pts[:, 0].max() - pts[:, 0].min()))
-            spans_v.append(float(pts[:, 1].max() - pts[:, 1].min()))
-            # 板子区域内的"白格"亮度 —— 用来分清【屏幕太暗】和【房间太暗】
-            x0, x1 = int(pts[:, 0].min()), int(pts[:, 0].max())
-            y0, y1 = int(pts[:, 1].min()), int(pts[:, 1].max())
-            roi = g[max(0, y0):y1, max(0, x0):x1]
-            if roi.size > 500:
-                board_white.append(float(np.percentile(roi, 90)))
-        else:
+        if uv is None or len(uv) < 4:
             sharp_miss.append(sharp)
+            misses.append(g)
+            continue
+        hit += 1
+        kinds.add(label)
+        margins.append(_edge_margin(uv, g.shape))
+        sharp_hit.append(sharp)
+        spans.append(float(uv[:, 0].max() - uv[:, 0].min()))
+        spans_v.append(float(uv[:, 1].max() - uv[:, 1].min()))
+        if meta["tag_px"]:
+            tag_px_all.append(meta["tag_px"])
+            n_tags_all.append(meta["n_tags"])
+        # 板子区域内的"白底"亮度 —— 用来分清【板子太暗】和【房间太暗】
+        x0, x1 = int(uv[:, 0].min()), int(uv[:, 0].max())
+        y0, y1 = int(uv[:, 1].min()), int(uv[:, 1].max())
+        roi = g[max(0, y0):y1, max(0, x0):x1]
+        if roi.size > 500:
+            board_white.append(float(np.percentile(roi, 90)))
+
     rate = hit / tried if tried else 0.0
     med = lambda a: float(np.median(a)) if a else None            # noqa: E731
     out = {"tried": tried, "detected": hit, "rate": rate,
+           "kind": target.kind, "checker": checker,
+           "cols": int(target.cols), "rows": int(target.rows),
+           "min_tags": None if checker else int(target.min_tags),
            "kinds": sorted(kinds),
            "min_edge_margin_px": min(margins) if margins else None,
            "board_width_px": med(spans), "board_height_px": med(spans_v),
-           # 面积法，与板子在画面里转了 90° 无关：(cols+1)x(rows+1) 个格子铺满 bbox
-           "square_px": (float(np.sqrt(med(spans) * med(spans_v) / ((cols + 1) * (rows + 1))))
-                         if (med(spans) and med(spans_v)) else None),
+           "n_tags": med(n_tags_all), "tag_px": med(tag_px_all),
            "board_white": med(board_white),
            "shape": shape, "subgrid": {}, "cut_off_frames": 0,
            "sharp_median": med(sharp_hit + sharp_miss),
-           "sharp_hit": med(sharp_hit), "sharp_miss": med(sharp_miss)}
+           "sharp_hit": med(sharp_hit), "sharp_miss": med(sharp_miss),
+           "errors": errors[:3]}
 
-    # 【切边探针】对【没检出】的那些帧试小一号的网格。
+    # "最小可辨识单元"在画面里有多大 —— 判定该不该靠近就看这个
+    if checker:
+        # 面积法：(cols+1)x(rows+1) 个格子铺满 bbox，与板子在画面里转了 90° 无关
+        out["cell_px"] = (float(np.sqrt(med(spans) * med(spans_v)
+                                       / ((target.cols + 1) * (target.rows + 1))))
+                          if (med(spans) and med(spans_v)) else None)
+        out["cell_name"] = "每个格子"
+        out["cell_target_px"] = 90
+    else:
+        out["cell_px"] = med(tag_px_all)
+        out["cell_name"] = "每个 tag 边长"
+        out["cell_target_px"] = 45
+
+    # 【切边探针】只对棋盘格有意义：整块必须全在画面里，缺一个角点就整帧丢。
     # 小网格能检出、完整网格不能 ⟹ 只有一部分板子在画面里 —— 板子被画面切掉了。
     # 这是 2026-10-15 那次失败的真凶：转动时棋盘漂到画面边缘，
     # 连丢 15 帧 = 0.69 s 盲区，直接触发 max_camera_gap_s=0.35。
-    # 注意它和延迟/转速都无关，把 PnP 门槛完全放开也照样盲。
-    if probe_subgrids and tried and hit < tried:
-        misses = [p for p in picks if _detect(_gray(p), cols, rows)[0] is None
-                  and _gray(p) is not None]
+    if checker and probe_subgrids and misses:
         for dc, dr in ((1, 1), (2, 2)):
-            c2, r2 = cols - dc, rows - dr
+            c2, r2 = target.cols - dc, target.rows - dr
             if min(c2, r2) < 4:
                 continue
-            sub = 0
-            for p in misses[:8]:
-                g = _gray(p)
-                if g is None:
-                    continue
-                if _detect(g, c2, r2)[0] is not None:
-                    sub += 1
+            sub = sum(1 for g in misses[:8] if _probe_chess(g, c2, r2))
             out["subgrid"][f"{c2}x{r2}"] = sub
         if any(v > 0 for v in out["subgrid"].values()):
             out["cut_off_frames"] = max(out["subgrid"].values())
@@ -163,7 +227,7 @@ def _edge_margin(pts, shape):
 # --------------------------------------------------------------------------
 
 def full_timeline(paths, camera_yaml, target_yaml, max_pnp_rms=2.0, stride=1,
-                  gap_s=0.35, min_frames=35, min_duration_s=5.0, log=None):
+                  gap_s=0.35, min_frames=35, min_duration_s=5.0, min_tags=4, log=None):
     """对【每一帧】跑标定程序自己的检测 + PnP + 那道 PnP 门槛，
     算出它真正会接受哪些帧、以及由此产生的**空洞结构**。
 
@@ -171,15 +235,12 @@ def full_timeline(paths, camera_yaml, target_yaml, max_pnp_rms=2.0, stride=1,
     采样 12 张的"检出率"看不出来：86% 检出率完全可能被 4 处 0.5~1.9 秒的
     盲区毁掉（2026-10-15 就是这样白跑了三次标定，每次 5 分钟）。
     """
-    import sys
-    from pathlib import Path
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     from calib.data import Camera, Target, make_observation, read_yaml
 
     cam = Camera.load(camera_yaml)
-    tgt = Target(read_yaml(target_yaml))
+    tgt = Target(read_yaml(target_yaml), min_tags=min_tags)
     checker = tgt.kind in ("checkerboard", "chessboard")
     paths = list(paths)[::max(1, stride)]
 
@@ -251,15 +312,17 @@ def report_timeline(tl, log=print):
     return False, "没有连续可用窗口"
 
 
-def analyze(paths, cols, rows, sample=12):
+def analyze(paths, target_yaml, sample=12):
     paths = list(paths)
     b = brightness_stats(paths, min(8, sample))
-    d = detect_stats(paths, cols, rows, sample=sample)
+    d = detect_stats(paths, target_yaml, sample=sample)
+    unit = "内角点" if d["checker"] else "tag"
     return {"images": len(paths), "brightness": b, "detection": d,
-            "board": f"{cols}x{rows}", "quality": None}
+            "board": f"{d['cols']}x{d['rows']} {unit}", "quality": None}
 
 
-def calib_quality_stats(paths, camera_yaml, target_yaml, window=24):
+def calib_quality_stats(paths, camera_yaml, target_yaml, window=24,
+                        min_tags=4, max_pnp_rms=2.0):
     """用标定程序【自己的】Camera / Target / make_observation 跑一段连续帧，
     报出它真正会接受多少帧。
 
@@ -276,7 +339,7 @@ def calib_quality_stats(paths, camera_yaml, target_yaml, window=24):
     from calib.data import Camera, Target, make_observation, read_yaml
 
     cam = Camera.load(camera_yaml)
-    tgt = Target(read_yaml(target_yaml))
+    tgt = Target(read_yaml(target_yaml), min_tags=min_tags)
     checker = tgt.kind in ("checkerboard", "chessboard")
 
     paths = list(paths)
@@ -298,7 +361,7 @@ def calib_quality_stats(paths, camera_yaml, target_yaml, window=24):
         obs = make_observation(0, res[0], res[1], cam, prev,
                                checker=checker, max_points=100)
         sharp = float(cv2.Laplacian(g, cv2.CV_64F).var())
-        if obs is None or obs.pnp_rms > 2.0:
+        if obs is None or obs.pnp_rms > max_pnp_rms:
             n_bad += 1
             if obs is not None:
                 rms_bad.append(obs.pnp_rms)
@@ -310,7 +373,7 @@ def calib_quality_stats(paths, camera_yaml, target_yaml, window=24):
     med = lambda a: float(np.median(a)) if a else None            # noqa: E731
     return {"window": len(paths), "detected": n_det, "accepted": n_ok, "rejected": n_bad,
             "effective_rate": n_ok / len(paths) if paths else 0.0,
-            "pnp_bad_median": med(rms_bad),
+            "pnp_bad_median": med(rms_bad), "pnp_gate": float(max_pnp_rms),
             "sharp_ok": med(sharp_ok), "sharp_bad": med(sharp_bad)}
 
 
@@ -318,6 +381,7 @@ def report(res, log=print):
     """把分析结果打印成人话 + 可执行的动作。返回 (level, [动作])。"""
     b, d = res["brightness"], res["detection"]
     b_level, b_text = brightness_verdict(b)
+    checker = d.get("checker", True)
     actions = []
 
     log(f"  图片张数        {res['images']}")
@@ -327,15 +391,20 @@ def report(res, log=print):
         log(f"                  {b_text}")
     log(f"  检出 ({res['board']})     {d['detected']}/{d['tried']}"
         f"  ({100*d['rate']:.0f}%)" + (f"  [{','.join(d['kinds'])}]" if d["kinds"] else ""))
+    if d.get("errors"):
+        log(f"  检测报错        {d['errors'][0]}")
     if d["min_edge_margin_px"] is not None:
         log(f"  板子离画面边缘   {d['min_edge_margin_px']:.0f} px")
     if d.get("board_white") is not None:
-        log(f"  标定板白格亮度   {d['board_white']:.0f}/255"
+        log(f"  标定板白底亮度   {d['board_white']:.0f}/255"
             + ("   ← 板子本身太暗" if d["board_white"] < 100 else ""))
-    if d.get("square_px"):
+    if d.get("n_tags") is not None:
+        log(f"  每帧看到 tag     {d['n_tags']:.0f} 个（标定下限 {d['min_tags']} 个）")
+    if d.get("cell_px"):
+        tip = ("太小会让姿态解退化，目标 ~90 px" if checker
+               else "目标 ≥45 px（36h11 的码元才解得出来）")
         log(f"  板子在画面里     {d['board_width_px']:.0f} × {d['board_height_px']:.0f} px，"
-            f"每个格子约 {d['square_px']:.0f} px"
-            "  ← 太小会让姿态解退化（目标 ~90 px）")
+            f"{d['cell_name']} {d['cell_px']:.0f} px  ← {tip}")
     if d["sharp_median"] is not None:
         extra = ""
         if d["sharp_hit"] and d["sharp_miss"]:
@@ -363,16 +432,23 @@ def report(res, log=print):
     # 结果：画面运动明明和陀螺一致（5.2 vs 5.0 px/帧），PnP 姿态却每帧跳 1.3° ——
     # 平面 PnP 的经典退化（绕面内轴转一点 + 沿光轴平移一点，投影几乎不变）。
     # 表观 38°/s vs 陀螺 6.5°/s，工具无从调和，直接崩。
-    if d.get("square_px") and d["square_px"] < 55:
-        actions.append(f"★ 板子在画面里太小了（每格只有 {d['square_px']:.0f} px）。"
-                       "这会让 PnP 姿态解退化：画面几乎没动，姿态却能跳 1° 以上，"
-                       "于是'相机轨迹推出来的角速度'和陀螺差好几倍，标定必然失败。"
-                       f"【靠近】到每格约 90 px（参考：内参成功那次板宽 742 px / 每格 93 px）")
+    # AprilGrid 换成看 tag 边长：36h11 的 tag 有 6x6 个码元，tag 30 px 时每码元才 4 px。
+    small_limit = 55 if checker else 40
+    if d.get("cell_px") and d["cell_px"] < small_limit:
+        if checker:
+            actions.append(f"★ 板子在画面里太小了（每格只有 {d['cell_px']:.0f} px）。"
+                           "这会让 PnP 姿态解退化：画面几乎没动，姿态却能跳 1° 以上，"
+                           "于是'相机轨迹推出来的角速度'和陀螺差好几倍，标定必然失败。"
+                           "【靠近】到每格约 90 px（参考：内参成功那次板宽 742 px / 每格 93 px）")
+        else:
+            actions.append(f"★ 每个 tag 在画面里只有 {d['cell_px']:.0f} px。36h11 要解出 ID，"
+                           "tag 边长至少 ~30 px、舒服要 45 px 以上；太小就等于这帧白给。"
+                           "【靠近】板子，或者换 tagSize 更大的板（tagSize 减半，距离就得减半）")
 
     q = res.get("quality")
     if q is not None:
         log(f"  标定程序实际会用   {q['accepted']}/{q['window']} 帧"
-            f"（检出 {q['detected']}，检出但 PnP>{2.0}px 被剔 {q['rejected']}）")
+            f"（检出 {q['detected']}，检出但 PnP>{q.get('pnp_gate', 2.0):g}px 被剔 {q['rejected']}）")
         if q["rejected"] and q["pnp_bad_median"]:
             log(f"  被剔帧的 PnP 残差  中位 {q['pnp_bad_median']:.2f} px")
         if q["sharp_ok"] and q["sharp_bad"]:
@@ -412,7 +488,7 @@ def report(res, log=print):
                        "（150 → 200 → 250），GAIN 也可以从 0 加到 20~50")
 
     cut = bool(d.get("cut_off_frames"))
-    small = bool(d.get("square_px") and d["square_px"] < 55)
+    small = bool(d.get("cell_px") and d["cell_px"] < small_limit)
     if d["rate"] >= 0.6 and not blur and not cut and not small:
         # 检出率才是主判据。亮度只是"为什么检出率低"的一种解释 ——
         # 检出率够高就说明亮度没挡路，不要因为它把人拦下来。
@@ -434,19 +510,38 @@ def report(res, log=print):
             return "warn", actions
 
     if d["detected"] == 0:
-        sub_hit = any(v > 0 for v in d["subgrid"].values())
-        if sub_hit:
-            actions.append("★ 板子被画面切掉了（小网格能检出、完整网格不能）。"
-                           "把相机往后退 / 抬高，让整块板子连同四周留白都进画面 —— "
-                           "板子占画面 1/3 ~ 1/2 就够，占到 2/3 以上必然切边")
+        if d.get("errors"):
+            actions.append("★ 检测器直接报错 —— 多半是画面里混进了别的 AprilTag（重复 ID），"
+                           "标定程序遇到这个会直接崩。把桌面上其他 AprilTag / 二维码收走再跑。")
+        elif checker:
+            sub_hit = any(v > 0 for v in d["subgrid"].values())
+            if sub_hit:
+                actions.append("★ 板子被画面切掉了（小网格能检出、完整网格不能）。"
+                               "把相机往后退 / 抬高，让整块板子连同四周留白都进画面 —— "
+                               "板子占画面 1/3 ~ 1/2 就够，占到 2/3 以上必然切边")
+            else:
+                actions.append("完整网格和小网格都检不出。按可能性排：")
+                actions.append("   a) 板子根本没对着镜头（先确认画面里能看到棋盘）")
+                actions.append("   b) 标定板行列数不对 —— 数一下实际图案是几个格子，"
+                               "内角点 = 格子数 − 1")
+                actions.append("   c) 太暗 / 运动模糊 / 角度太斜")
         else:
-            actions.append("完整网格和小网格都检不出。按可能性排：")
-            actions.append("   a) 板子根本没对着镜头（先确认画面里能看到棋盘）")
-            actions.append("   b) 标定板行列数不对 —— 数一下实际图案是几个格子，"
-                           "内角点 = 格子数 − 1")
-            actions.append("   c) 太暗 / 运动模糊 / 角度太斜")
+            actions.append(f"一个 tag 都没解出来（下限 {d['min_tags']} 个）。按可能性排：")
+            actions.append("   a) 板子不在画面里 —— 先确认相机确实对着 AprilGrid")
+            actions.append("   b) tag 太小 —— 靠近板子，或换 tagSize 更大的板。"
+                           "36h11 一个 tag 是 8x8 个码元，tag 只有 30 px 时每码元才 3.8 px，解不出")
+            actions.append("   c) 糊了 / 太暗 —— 打印板比屏幕暗 5~8 倍，先开灯、再提 EXPOSURE")
+            actions.append("   d) 板上 tag 的黑框外沿被裁掉了 —— AprilGrid 判角用的是黑框外沿，"
+                           "打印/裁剪时别把外沿切掉")
+            actions.append("   e) tag 族不是 36h11，或者某张 tag 贴反/转了 90°")
+            actions.append("   f) configs/aprilgrid.yaml 的 tagRows/tagCols 是【tag 个数】，"
+                           "不是内角点；填错一样 0 检出")
         return "fail", actions
 
-    actions.append(f"检出率只有 {100*d['rate']:.0f}%，要 >60% 才能跑标定。"
-                   "多半是板子贴边、光不均、或者转动太快糊了")
+    if checker:
+        actions.append(f"检出率只有 {100*d['rate']:.0f}%，要 >60% 才能跑标定。"
+                       "多半是板子贴边、光不均、或者转动太快糊了")
+    else:
+        actions.append(f"检出率只有 {100*d['rate']:.0f}%，要 >60% 才能跑标定。"
+                       "多半是 tag 太小/太远、光不均、或者转动太快糊了")
     return "fail", actions

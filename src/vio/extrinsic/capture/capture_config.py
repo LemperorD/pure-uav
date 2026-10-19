@@ -14,7 +14,7 @@ PyCharm 用法：只改这个文件 → 右键 `record_session.py` → Run（右
 """
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent      # camera_imu_calibration/
+ROOT = Path(__file__).resolve().parent.parent      # extrinsic/
 
 # ==========================================================================
 # 1. 这次录到哪儿
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent      # camera_imu_calibration/
 # 每换一轮就往上加一：session02、session03……
 # 改完这里，还要把 extrinsics_config.py 最下面 PATHS 的 images / imu / output
 # 一起改掉 —— record_session.py 跑完会把该复制的三行直接打印出来。
-SESSION_NAME = "session08"
+SESSION_NAME = "session01"
 
 SESSION_DIR = ROOT / "data" / SESSION_NAME
 RESULTS_DIR = ROOT / "results" / SESSION_NAME
@@ -50,9 +50,7 @@ RESOLUTION = "1080p"
 
 _RESOLUTION_TABLE = {
     "1080p": (1920, 1080, ROOT / "configs" / "gemini_pro_rgb.yaml"),
-    # 720p 内参来自 `intrinsic/` 模块的标定结果（仓库根下的 intrinsic/results/）
-    "720p": (1280, 720,
-             ROOT.parent / "intrinsic" / "results" / "camchain_intrinsics_1280x720.yaml"),
+    "720p": (1280, 720, ROOT / "configs" / "gemini_pro_rgb_720p.yaml"),
 }
 
 if RESOLUTION not in _RESOLUTION_TABLE:
@@ -62,7 +60,10 @@ if RESOLUTION not in _RESOLUTION_TABLE:
 WIDTH, HEIGHT, CAMERA_YAML = _RESOLUTION_TABLE[RESOLUTION]
 
 FPS = 30                # 请求帧率。真机 30 fps 时，标定侧的 camera_rate_hz 要设成 30
-EXPOSURE = 150          # 单位 100 微秒；100 = 10 ms。对着 iPad 屏幕如果发白就往下调（如 40）
+EXPOSURE = 100          # 单位 100 微秒；100 = 10 ms。对着 iPad 屏幕如果发白就往下调（如 40）
+# 【2026-10-18】方向别搞反：房间暗的时候往下调只会更黑（实测 175 + 关灯 → 白格 p90=31，
+# 前 20 帧检出 0）。暗就先开灯/加补光，实在不能加光才往上调 250~300 + GAIN 30；
+# 往下调只用于"过曝/白格糊成一片"或"光够但转动太糊、确认要缩短曝光"。
 WHITE_BALANCE = 4600    # 固定白平衡（K）
 GAIN = 10                # 增益，大了噪声大
 # 【必须 False，2026-10-15 实测】
@@ -79,9 +80,12 @@ SHOW_PREVIEW = False
 # ==========================================================================
 # 3. 标定板 —— 必须和标定那一步用同一份，行列数要和你实际摆的板子完全一致
 # ==========================================================================
-# 注意：项目里的 chessboard.yaml 现在是 8x11 内角点（对应你手上打印的那块板）。
-# 如果你临时用 iPad 屏幕上那张 8x6 的 PNG，把 cols/rows 改成 8/6 再跑，跑完改回来。
-TARGET_YAML = ROOT / "configs" / "checkerboard.yaml"
+# 注意：aprilgrid.yaml 是 Kalibr 版式（tag 个数不是内角点！）
+#   tagCols/tagRows = tag 个数；tagSize = 黑框外沿边长，米；tagSpacing = 白隙 / tagSize
+# 换回打印棋盘格就把下面改成 checkerboard.yaml。
+# 【打印板比 iPad 屏幕暗 5~8 倍】换打印板后 EXPOSURE 一般要从 150 提到 250~300，
+# 再加一盏正对板子的灯；aruco 解 ID 对对比度很敏感，欠曝会直接 0 检出。
+TARGET_YAML = ROOT / "configs" / "aprilgrid.yaml"
 
 # ==========================================================================
 # 4. 飞控 IMU
@@ -102,16 +106,4 @@ IMU_CHECK_SECONDS = 10.0   # 单独点 imu_recorder.py 做体检时录多久
 # ==========================================================================
 # 标定侧硬门槛：至少 35 帧有效检出、且时间跨度 >= 5 秒，所以别低于 8 秒。
 # 第一次冒烟测试建议 8~10 秒；正式采集 15~30 秒，并且另录 2~3 个独立窗口做复核。
-DURATION_S = 20.0
-
-# ==========================================================================
-# 6. 录完要不要顺手把标定也跑了
-# ==========================================================================
-# True  = 采集 → 标定 一次点击全跑完（适合冒烟测试）
-# False = 只采集，标定你自己另外点（适合正式采集，方便分开排错）
-RUN_CALIBRATION_AFTER = False
-
-# 传给标定程序的额外参数（只有 RUN_CALIBRATION_AFTER=True 时才用得上）。
-# probe.yaml 是给"30 fps 相机 + 50 Hz 飞控 IMU"准备的宽松预设，详见该文件里的说明。
-CALIBRATION_SETTINGS_YAML = ROOT / "configs" / "probe.yaml"
-CALIBRATION_EXTRA_ARGS = ["--duration", "15"]
+DURATION_S = 10.0
