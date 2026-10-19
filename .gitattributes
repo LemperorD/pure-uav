@@ -1,0 +1,15 @@
+# 统一换行：仓库与工作区一律 LF
+# 团队在 Ubuntu / WSL 上开发，CRLF 会让 .sh 在 WSL 里报 "$'\r': command not found"
+* text=auto eol=lf
+
+# 二进制文件：禁止任何换行 / 编码转换
+*.so      binary
+*.so.*    binary
+*.dll     binary
+*.exe     binary
+*.a       binary
+*.jpg     binary
+*.jpeg    binary
+*.png     binary
+*.gif     binary
+*.csv     binary

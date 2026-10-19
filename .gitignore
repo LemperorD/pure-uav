@@ -18,3 +18,18 @@ core.*
 *.log
 
 Log/
+
+# --- 构建目录（此前漏掉）---
+build_verify/
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- XTDrone2 仿真接入的运行产物 ---
+sim_xtdrone2/*.dll
+sim_xtdrone2/*.so
+sim_xtdrone2/viz_out/
+
+# --- 根目录运行产物（sensor_*.csv 等，可由程序复现）---
+/*.csv
