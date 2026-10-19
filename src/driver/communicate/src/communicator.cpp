@@ -109,7 +109,7 @@ void Communicator::recvLoop() {
                             count_attitude_.fetch_add(1);
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(attitude_mutex_);
                             attitude_.roll = att.roll;
                             attitude_.pitch = att.pitch;
                             attitude_.yaw = att.yaw;
@@ -120,7 +120,7 @@ void Communicator::recvLoop() {
                             count_battery_.fetch_add(1);
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(battery_mutex_);
                             // 累加所有有效 cell 电压得到总电压（UINT16_MAX = 该 cell 无效）
                             float total_mv = 0.0f;
                             for (int i = 0; i < 10; ++i) {
@@ -143,7 +143,7 @@ void Communicator::recvLoop() {
                             count_local_position_.fetch_add(1);
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(local_position_mutex_);
                             local_pos_.x = lp.x;
                             local_pos_.y = lp.y;
                             local_pos_.z = lp.z;
@@ -156,7 +156,7 @@ void Communicator::recvLoop() {
                             count_system_time_.fetch_add(1);
                             mavlink_system_time_t st;
                             mavlink_msg_system_time_decode(&msg, &st);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(system_time_mutex_);
                             system_time_.time_unix_usec = st.time_unix_usec;
                             system_time_.time_boot_ms = st.time_boot_ms;
                             break;
@@ -165,7 +165,7 @@ void Communicator::recvLoop() {
                             count_highres_imu_.fetch_add(1);
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(imu_mutex_);
                             imu_.timestamp_us = imu.time_usec; 
                             imu_.gx = imu.xgyro;
                             imu_.gy = imu.ygyro;
@@ -471,31 +471,31 @@ void Communicator::requestDefaultStreams() {
 
 //各模块拿数据
 bool Communicator::getAttitude(Attitude& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(attitude_mutex_);
     out = attitude_;
     return true;
 }
 
 bool Communicator::getBattery(Battery& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(battery_mutex_);
     out = battery_;
     return true;
 }
 
 bool Communicator::getLocalPosition(LocalPosition& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(local_position_mutex_);
     out = local_pos_;
     return true;
 }
 
 bool Communicator::getImu(ImuData& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(imu_mutex_);
     out = imu_;
     return true;
 }
 
 bool Communicator::getSystemTime(SystemTime& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(system_time_mutex_);
     out = system_time_;
     return true;
 }
