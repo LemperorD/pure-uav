@@ -9,7 +9,7 @@ Gemini Max 使用 Orbbec Gemini 系列硬件，本项目采用 **Orbbec SDK v1.1
 ```text
 src/driver/orbbec/
 ├── include/          # Orbbec SDK v1.10.37 头文件
-├── lib/              # Orbbec SDK v1.10.37 Linux x64 动态库
+├── lib/              # Orbbec SDK v1.10.37 动态库
 ├── test_camera.cpp   # Gemini Max 测试程序
 └── README.md
 ```
@@ -42,10 +42,11 @@ lsusb
 在仓库根目录执行：
 
 ```bash
+# 库目录按目标架构区分：x86_64 或 aarch64（ARM 板卡）
 g++ -std=c++17 \
   src/driver/orbbec/test_camera.cpp \
   -Isrc/driver/orbbec/include \
-  -Lsrc/driver/orbbec/lib \
+  -Lsrc/driver/orbbec/lib/x86_64 \
   -lOrbbecSDK \
   -o bin/orbbec_test
 ```
@@ -54,10 +55,10 @@ g++ -std=c++17 \
 
 ## 运行
 
-运行格式：
+运行格式（ARM 板卡请把 x86_64 换成 aarch64）：
 
 ```bash
-LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib:$LD_LIBRARY_PATH" \
+LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib/x86_64:$LD_LIBRARY_PATH" \
 ./bin/orbbec_test <COLOR_FPS> <DEPTH_FPS>
 ```
 
@@ -66,21 +67,21 @@ LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib:$LD_LIBRARY_PATH" \
 ### Color 60 FPS + Depth 60 FPS
 
 ```bash
-LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib:$LD_LIBRARY_PATH" \
+LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib/x86_64:$LD_LIBRARY_PATH" \
 ./bin/orbbec_test 60 60
 ```
 
 ### Color 60 FPS + Depth 30 FPS
 
 ```bash
-LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib:$LD_LIBRARY_PATH" \
+LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib/x86_64:$LD_LIBRARY_PATH" \
 ./bin/orbbec_test 60 30
 ```
 
 ### Color 30 FPS + Depth 30 FPS
 
 ```bash
-LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib:$LD_LIBRARY_PATH" \
+LD_LIBRARY_PATH="$PWD/src/driver/orbbec/lib/x86_64:$LD_LIBRARY_PATH" \
 ./bin/orbbec_test 30 30
 ```
 
