@@ -630,7 +630,8 @@ static void test_quat_cross_check() {
         // 共轭
         double qc[4];
         quat_conjugate(q, qc);
-        near_q(qc, (const double[4]){q[0], -q[1], -q[2], -q[3]}, 0.0, "共轭定义");
+        const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+        near_q(qc, q_conj, 0.0, "共轭定义");
     }
 }
 
