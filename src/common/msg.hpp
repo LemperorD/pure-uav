@@ -8,7 +8,7 @@ namespace pure_uav {
 // 机体姿态（rad）
 struct Attitude {
     uint32_t time_boot_ms = 0;  // 飞控开机时间（毫秒）
-    float roll = 0.0f;  // 机体FRD相对惯性NED的姿态
+    float roll = 0.0f;  // 机体FRD相对初始FRD的姿态
     float pitch = 0.0f;
     float yaw = 0.0f;
     float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z
@@ -20,7 +20,7 @@ struct Battery {
     int8_t remaining = -1;   // 剩余百分比（-1 表示未知）
 };
 
-// 飞控局部位置 + 速度（惯性NED）
+// 飞控局部位置 + 速度（初始FRD）
 struct LocalPosition {
     uint32_t time_boot_ms = 0;                    // 飞控开机时间（毫秒）
     float x = 0.0f, y = 0.0f, z = 0.0f;       // 位置（m）
@@ -45,7 +45,7 @@ struct SystemTime {
 enum class VisionFrame : uint8_t {
     LOCAL_NED = 1,         // 世界系 NED（X北 Y东 Z下）
     BODY_FRD = 12,         // 机体 FRD（X前 Y右 Z下）
-    LOCAL_FRD = 20,        // 世界系 FRD
+    LOCAL_FRD = 20,        // 初始化 FRD
 };
 
 // VIO 位姿
