@@ -21,8 +21,8 @@ int main() {
 
         pure_uav::Attitude a;
         if (comm.getAttitude(a))
-            printf("  姿态: roll=%.3f pitch=%.3f yaw=%.3f | 四元数wxyz=(%.3f %.3f %.3f %.3f)\n",
-                   a.roll, a.pitch, a.yaw, a.q[0], a.q[1], a.q[2], a.q[3]);
+            printf("  姿态: roll=%.3f pitch=%.3f yaw=%.3f | 四元数wxyz=(%.3f %.3f %.3f %.3f) ts=%u ms\n",
+                   a.roll, a.pitch, a.yaw, a.q[0], a.q[1], a.q[2], a.q[3], a.time_boot_ms);
 
         pure_uav::Battery b;
         if (comm.getBattery(b))
@@ -30,8 +30,8 @@ int main() {
 
         pure_uav::LocalPosition lp;
         if (comm.getLocalPosition(lp))
-            printf("  位置: x=%.2f y=%.2f z=%.2f | 速度: vx=%.2f vy=%.2f vz=%.2f\n",
-                   lp.x, lp.y, lp.z, lp.vx, lp.vy, lp.vz);
+            printf("  位置: x=%.2f y=%.2f z=%.2f | 速度: vx=%.2f vy=%.2f vz=%.2f ts=%u ms\n",
+                   lp.x, lp.y, lp.z, lp.vx, lp.vy, lp.vz, lp.time_boot_ms);
 
         pure_uav::ImuData imu;
         if (comm.getImu(imu))

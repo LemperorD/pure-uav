@@ -7,6 +7,7 @@ namespace pure_uav {
 // ---------- 飞控回传数据 ----------
 // 机体姿态（rad）
 struct Attitude {
+    uint32_t time_boot_ms = 0;  // 飞控开机时间（毫秒）
     float roll = 0.0f;  // 机体FRD相对惯性NED的姿态
     float pitch = 0.0f;
     float yaw = 0.0f;
@@ -21,6 +22,7 @@ struct Battery {
 
 // 飞控局部位置 + 速度（惯性NED）
 struct LocalPosition {
+    uint32_t time_boot_ms = 0;                    // 飞控开机时间（毫秒）
     float x = 0.0f, y = 0.0f, z = 0.0f;       // 位置（m）
     float vx = 0.0f, vy = 0.0f, vz = 0.0f;    // 速度（m/s）
 };

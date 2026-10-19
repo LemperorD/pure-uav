@@ -110,6 +110,7 @@ void Communicator::recvLoop() {
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
                             std::lock_guard<std::mutex> lk(attitude_mutex_);
+                            attitude_.time_boot_ms = att.time_boot_ms;
                             attitude_.roll = att.roll;
                             attitude_.pitch = att.pitch;
                             attitude_.yaw = att.yaw;
@@ -144,6 +145,7 @@ void Communicator::recvLoop() {
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
                             std::lock_guard<std::mutex> lk(local_position_mutex_);
+                            local_pos_.time_boot_ms = lp.time_boot_ms;
                             local_pos_.x = lp.x;
                             local_pos_.y = lp.y;
                             local_pos_.z = lp.z;

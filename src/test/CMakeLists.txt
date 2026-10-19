@@ -109,6 +109,16 @@ target_link_libraries(test_frequency
     communicate
 )
 
+add_executable(test_multithread
+    test_driver/test_multithread.cpp
+)
+target_include_directories(test_multithread PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../driver/communicate/include
+)
+target_link_libraries(test_multithread
+    communicate
+)
+
 set_target_properties(
     shm_write
     shm_read
@@ -120,6 +130,7 @@ set_target_properties(
     test_command
     test_communicate
     test_frequency
+    test_multithread
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR}
 )
