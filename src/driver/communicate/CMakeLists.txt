@@ -1,4 +1,6 @@
 # communicate 模块：飞控 PX4 的 MAVLink 通信库
+find_package(yaml-cpp REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(communicate SHARED
     src/serial_port.cpp
@@ -14,5 +16,7 @@ target_include_directories(communicate SYSTEM PUBLIC
 
 target_compile_features(communicate PUBLIC cxx_std_17)
 
-find_package(Threads REQUIRED)
-target_link_libraries(communicate PUBLIC Threads::Threads)
+target_link_libraries(communicate PUBLIC 
+    Threads::Threads
+    yaml-cpp
+)

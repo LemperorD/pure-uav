@@ -52,6 +52,16 @@ target_link_libraries(test_communicate
     communicate
 )
 
+add_executable(test_frequency
+    test_driver/test_frequency.cpp
+)
+target_include_directories(test_frequency PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../driver/communicate/include
+)
+target_link_libraries(test_frequency
+    communicate
+)
+
 set_target_properties(
     shm_write
     shm_read
@@ -59,6 +69,7 @@ set_target_properties(
     test_math
     test_command
     test_communicate
+    test_frequency
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR}
 )
