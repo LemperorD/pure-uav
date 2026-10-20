@@ -45,6 +45,8 @@
 //    链接 `guidance_flight`（= guidance_core + state_adapter + mavlink_units）。
 // =============================================================================
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 
 #include "command_sink.hpp"
@@ -176,6 +178,12 @@ public:
     bool initialized() const { return inited_; }
 
 private:
+    // 本拍指令的出口（统一走这里：发送 + 统计 + 延迟 + 回填 out）
+    LoopStatus emit(const GuidanceOutput &o, GuidanceOutput *out);
+
+    // 进程内单调秒（只用于"多久没新帧"/降级计时，绝不用于数据时间戳）
+    double local_now_s() const;
+
     // ---- 外部依赖（引用，不拥有）----
     const GuidanceParams params_;
     LoopConfig           cfg_;
@@ -185,19 +193,32 @@ private:
 
     // ---- 内核状态 ----
     GuidanceMemory memory_{};                 // 制导核的跨周期记忆（纯函数要求调用方持有）
-    adapter::StateTimeTracker tracker_{};     // 时钟：**只喂飞控帧**（见 §3.1 时基冲突）
+    // 时钟：**只喂目标帧**。原因：`FROM_LOS_DIFFERENCE` 用 `state.t - memory.t_prev`
+    // 当 dt，而 û 只在目标帧更新 ⇒ dt 必须对应 **û 的更新间隔**（视觉帧率），
+    // 不能是飞控帧的间隔，否则 ω 会被系统性缩放（50 Hz 喂 30 Hz 的 û ⇒ 少算 40%）。
+    adapter::StateTimeTracker tracker_{};
 
     // ---- 最近一帧采样（"零阶保持"：没有新帧就复用）----
     InsSample    ins_now_{};
     TargetSample tgt_now_{};
     bool have_ins_ = false;
     bool have_tgt_ = false;
-    GuidanceOutput last_out_{};               // 上一拍输出（kHoldLastCommand 策略要用）
+    bool computed_ = false;                   // 是否至少完整算过一次（决定能不能重发）
+    GuidanceOutput last_out_{};               // 上一拍输出（重发 / kHoldLastCommand 用）
     double last_health_s_ = 0.0;              // 上次完整体检的时刻（降频用）
 
+    // ---- 计时（本地单调时钟，秒）----
+    std::chrono::steady_clock::time_point t_start_{};
+    double last_ins_s_ = -1.0;                // 最近一次收到飞控帧的时刻（本地）
+    double last_tgt_s_ = -1.0;                // 最近一次收到目标帧的时刻（本地）
+    // 最近一次**成功算出指令**的时刻（本地单调秒，-1 = 还没算过）。
+    // kHoldLastCommand 的保持窗口从这一刻起算 —— 语义是"一条旧指令最多再飞 hold_last_max_s"，
+    // 而不是"发现脏数据后再飞多久"（后者会让脏数据刚出现那一拍永远落在窗口内）。
+    double last_good_s_ = -1.0;
+
     // ---- 生命周期 ----
-    bool inited_         = false;
-    bool stop_requested_ = false;             // 实现里应为 std::atomic<bool>
+    bool inited_ = false;
+    std::atomic<bool> stop_requested_{false};
 
     LoopStats stats_{};
 };

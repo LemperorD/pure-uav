@@ -13,11 +13,17 @@
 //   13. 目标模型（M2）：发射参数 / 解析式 / DART(Cd=0)≡BALLISTIC 交叉验证 /
 //       气动阻力 / CIRCLE / SNAKE / 查表连续性
 //   14. 末端冻结判据：t_go 基准 ≡ R 基准（同 Vc）/ R 兜底防 Vc→0
+//   15. 不变量（内部口径冻结）
+//   16. ★ 机载主循环外壳 GuidanceLoop：像素→世界换算、PN 方向、SEARCH、
+//       降级策略（保持上一条 0.2 s → 零速度悬停）、数据过期、无新帧重发、统计
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <thread>
 
 #include "vec3.hpp"
 #include "guidance_types.hpp"
@@ -25,6 +31,7 @@
 #include "guidance.hpp"
 #include "sensor.hpp"
 #include "target.hpp"
+#include "guidance_loop.hpp"   // 机载主循环外壳（§16）
 
 using namespace pure_uav;
 
@@ -856,6 +863,296 @@ static void test_invariants() {
 }
 
 // ============================================================
+//  16. ★ 机载主循环外壳 GuidanceLoop
+// ============================================================
+//
+// 它把"纯函数内核"包成有状态、可替换数据源的外壳。本组验证五件事：
+//   ① 像素 → 相机系 → 机体 → 世界 的换算正确（用已知几何反推像素）
+//   ② 正常制导：PN 指令方向指向目标所在侧、量级合理
+//   ③ 目标丢失 / 脏数据 / 数据过期 的三种降级行为
+//   ④ "没有新目标帧"时仍然重发（PX4 offboard 要求 setpoint 持续到达）
+//   ⑤ 统计计数
+namespace {
+
+struct LoopStubIns : app::IInsSource {
+    app::InsSample next;
+    bool pending = false;
+    bool poll(app::InsSample &o) override {
+        if (!pending) return false;
+        o = next;
+        pending = false;
+        return true;
+    }
+    bool alive() const override { return true; }
+};
+
+struct LoopStubTgt : app::ITargetSource {
+    app::TargetSample next;
+    bool pending = false;
+    bool poll(app::TargetSample &o) override {
+        if (!pending) return false;
+        o = next;
+        pending = false;
+        return true;
+    }
+    bool alive() const override { return true; }
+};
+
+struct LoopStubSink : app::ICommandSink {
+    app::GuidanceOutput last;
+    int sends = 0;
+    bool send(const app::GuidanceOutput &o) override {
+        last = o;
+        ++sends;
+        return true;
+    }
+    bool alive() const override { return true; }
+};
+
+// 相机：针孔 f=500、主点 (320,240)；外参 = 相机(x右,y下,z前) → 机体 FRD(x前,y右,z下)
+app::CameraModel loop_cam() {
+    app::CameraModel c;
+    c.fx = 500.0; c.fy = 500.0; c.cx = 320.0; c.cy = 240.0;
+    const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};   // 行主序
+    for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
+    return c;
+}
+
+app::InsSample loop_ins(std::uint64_t us) {
+    app::InsSample s;
+    s.boot_us = us;
+    s.p = Vec3(0.0, 0.0, -5.0);      // NED：z=-5 ⇒ 高度 5 m
+    s.v = Vec3(10.0, 0.0, 0.0);      // 朝 +x（北）10 m/s
+    s.q[0] = 1.0;                    // 单位四元数：机体与局部系对齐
+    s.has_position = true;
+    s.has_attitude = true;
+    return s;
+}
+
+// 目标：世界视线朝 +x 偏 +y（右），tanθ 给定；像素由内参反算 ⇒ 顺带验证反投影
+app::TargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
+    app::TargetSample t;
+    t.boot_us   = us;
+    t.u_px      = 320.0 + 500.0 * tan_theta;
+    t.v_px      = 240.0;
+    t.present   = present;
+    t.has_range = true;
+    t.range_m   = 50.0;
+    t.has_v_T   = true;              // 仿真真值：目标静止 ⇒ 可用真值法算 ω
+    t.v_T       = Vec3(0.0, 0.0, 0.0);
+    return t;
+}
+
+GuidanceParams loop_params() {
+    GuidanceParams p;
+    p.law = GuidanceLaw::PPN;
+    p.N = 4.0;
+    p.a_max = 30.0;
+    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;   // 仿真真值法
+    return p;
+}
+
+}  // namespace
+
+static void test_guidance_loop() {
+    section("16. 机载主循环（GuidanceLoop）");
+
+    // --- 16.1 init 校验：相机模型必须有（目标数据是像素）---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg;                       // cam 未填
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        ok(!loop.init(), "无相机模型 ⇒ init 失败");
+
+        app::LoopConfig cfg2;
+        cfg2.cam = loop_cam();
+        cfg2.loop_hz = 50;
+        app::GuidanceLoop loop2(loop_params(), cfg2, ins, tgt, sink);
+        ok(loop2.init(), "相机模型有效 + 50 Hz ⇒ init 成功");
+    }
+
+    // --- 16.2 正常制导：像素反投影 + PPN 方向 ---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;   // 右偏 11.3°
+
+        app::GuidanceOutput out;
+        const app::LoopStatus s = loop.run_once(&out);
+        ok(s == app::LoopStatus::kOk, "run_once 返回 kOk");
+        ok(out.health == app::InputHealth::kOk, "体检通过");
+        ok(out.mode == PureGuidanceMode::PN, "mode = PN");
+        ok(out.valid, "valid = true");
+        ok(out.ctrl == app::ControlMode::kAcceleration, "ctrl = 加速度");
+        ok(out.a_cmd_ned.y > 0.5, "加速度指向 +y（目标所在侧）");
+        near(out.a_cmd_ned.x, 0.0, 1e-9, "x 分量≈0（PPN 只出横向）");
+        near(out.a_cmd_ned.z, 0.0, 1e-9, "z 分量≈0（共面）");
+        ok(out.R > 40.0 && out.R < 60.0, "R 在 50 m 附近（像素反投影出的距离）");
+        std::printf("        a_ned=(%.4f, %.4f, %.4f)  R=%.2f  Vc=%.2f\n",
+                    out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.R, out.Vc);
+        ok(sink.sends == 1, "发出 1 条指令");
+    }
+
+    // --- 16.3 共线目标：ω=0 ⇒ 零指令（与 §3 的零速/共线退化一致）---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.0); tgt.pending = true;
+        app::GuidanceOutput out;
+        loop.run_once(&out);
+        ok(out.a_cmd_norm < 1e-9, "正前方共线 ⇒ 指令为零");
+    }
+
+    // --- 16.4 目标丢失：SEARCH + 零指令 ---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2, /*present=*/false); tgt.pending = true;
+        app::GuidanceOutput out;
+        loop.run_once(&out);
+        ok(out.mode == PureGuidanceMode::SEARCH, "present=false ⇒ mode = SEARCH");
+        ok(!out.valid, "  valid = false");
+        ok(out.a_cmd_norm == 0.0, "  SEARCH 输出零指令");
+    }
+
+    // --- 16.5 脏数据（NaN 像素）→ 限时保持上一拍 ---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        cfg.hold_last_max_s = 0.2;
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
+        app::GuidanceOutput good, bad;
+        loop.run_once(&good);
+
+        ins.next = loop_ins(1020000ull); ins.pending = true;
+        tgt.next = loop_tgt(1020000ull, 0.2);
+        tgt.next.u_px = std::nan("");
+        tgt.pending = true;
+        loop.run_once(&bad);
+
+        ok(bad.health != app::InputHealth::kOk, "脏数据被体检抓到");
+        ok(bad.ctrl == app::ControlMode::kAcceleration, "限时内仍走加速度通道（保持）");
+        near(bad.a_cmd_ned.y, good.a_cmd_ned.y, 1e-12, "保持的是上一拍指令");
+        ok(loop.stats().unhealthy == 1, "unhealthy 计数 +1");
+    }
+
+    // --- 16.6 脏数据持续超时 → 零速度悬停（★ 保持窗口从"最后一条好指令"起算）---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        cfg.hold_last_max_s = 0.05;
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
+        app::GuidanceOutput o;
+        loop.run_once(&o);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));   // 超过 0.05 s
+
+        ins.next = loop_ins(1080000ull); ins.pending = true;
+        tgt.next = loop_tgt(1080000ull, 0.2);
+        tgt.next.u_px = std::nan("");
+        tgt.pending = true;
+        loop.run_once(&o);
+
+        ok(o.ctrl == app::ControlMode::kVelocity, "超时后转速度通道");
+        ok(o.v_cmd_ned.x == 0.0 && o.v_cmd_ned.y == 0.0 && o.v_cmd_ned.z == 0.0,
+           "  速度指令为零（真悬停，不是零加速度）");
+        near(o.a_cmd_norm, 0.0, 1e-12, "  加速度归零");
+        ok(o.hold_yaw, "  不干预航向");
+        ok(loop.stats().safe_hover == 1, "  safe_hover 计数 +1");
+    }
+
+    // --- 16.7 策略直接 kSafeHover：脏数据立刻悬停 ---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kSafeHover;
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2);
+        tgt.next.u_px = std::nan("");
+        tgt.pending = true;
+        app::GuidanceOutput o;
+        loop.run_once(&o);
+        ok(o.ctrl == app::ControlMode::kVelocity, "ctrl = 速度");
+        ok(o.v_cmd_ned.x == 0.0, "零速度");
+    }
+
+    // --- 16.8 数据过期（目标帧落后 1 s > 0.1 s）---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.max_sample_age_s = 0.10;
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(3000000ull); ins.pending = true;          // ins 3.0 s
+        tgt.next = loop_tgt(2000000ull, 0.2); tgt.pending = true;     // tgt 2.0 s
+        app::GuidanceOutput o;
+        loop.run_once(&o);
+        ok(o.health == app::InputHealth::kStale, "health = kStale");
+        ok(o.ctrl == app::ControlMode::kVelocity, "过期 ⇒ 降级（首拍无历史 ⇒ 零速度悬停）");
+    }
+
+    // --- 16.9 没有新目标帧：仍然重发（PX4 offboard 需要持续到达）---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ull); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
+        app::GuidanceOutput first, resent;
+        loop.run_once(&first);
+        const int sends_before = sink.sends;
+
+        ins.next = loop_ins(1020000ull); ins.pending = true;          // 只有飞控帧
+        loop.run_once(&resent);
+        ok(sink.sends == sends_before + 1, "没有新的目标帧也照样发");
+        near(resent.a_cmd_ned.y, first.a_cmd_ned.y, 1e-12, "  重发的是上一拍指令");
+        ok(loop.stats().ticks == 2, "  ticks 计数正确");
+    }
+
+    // --- 16.10 统计计数 ---
+    {
+        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+        app::LoopConfig cfg; cfg.cam = loop_cam();
+        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        for (int k = 0; k < 5; ++k) {
+            ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
+            tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
+            app::GuidanceOutput o;
+            loop.run_once(&o);
+        }
+        const app::LoopStats &st = loop.stats();
+        ok(st.ticks == 5, "ticks = 5");
+        ok(st.ins_frames == 5, "ins_frames = 5");
+        ok(st.tgt_frames == 5, "tgt_frames = 5");
+        ok(st.sent == 5, "sent = 5");
+        ok(st.sink_errors == 0, "无发送错误");
+    }
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -874,6 +1171,7 @@ int main() {
     test_target_model();
     test_freeze_criterion();
     test_invariants();
+    test_guidance_loop();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
