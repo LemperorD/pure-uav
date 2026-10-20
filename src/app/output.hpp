@@ -73,8 +73,8 @@ struct GuidanceOutput {
     Vec3 v_cmd_ned;
 
     // ★ 航向策略：true = "我不干预航向"（默认）。
-    //   已与通信侧确认：`VELOCITY` 模式后续会忽略 `yaw` ⇒ sink 不必填 `c.yaw`。
-    //   保留这个字段是为了把"意图"写进接口（将来若要控航向，扩成三态即可）。
+    //   communication 分支 `6ad420b` 已把所有模式的 yaw 忽略，且 `GuidanceCmd` 删掉了
+    //   `yaw` 字段 ⇒ sink 不需要（也不能）填航向。该字段保留为"意图标记"。
     bool hold_yaw = true;
 
     double a_cmd_norm = 0.0;          // |a_cmd_ned|（限幅后）；kVelocity 时为 0
