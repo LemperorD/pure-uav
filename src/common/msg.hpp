@@ -70,7 +70,7 @@ enum class GuidanceMode : uint8_t {
     ACCELERATION = 3,  // 加速度（发 afx/afy/afz）
 };
 
-// 制导指令：期望状态（NED）
+// 制导指令：期望状态（NED）。制导律（比例导引）只输出加速度，不输出航向。
 struct GuidanceCmd {
     GuidanceMode mode = GuidanceMode::VELOCITY;  // 控制模式
     float x = 0.0f;    // 期望位置（mode=POSITION 时有效）
@@ -82,7 +82,6 @@ struct GuidanceCmd {
     float afx = 0.0f;  // 期望加速度（mode=ACCELERATION 时有效）
     float afy = 0.0f;
     float afz = 0.0f;
-    float yaw = 0.0f;  // 期望航向（rad）
 };
 
 // ---------- 飞行模式常量 ----------

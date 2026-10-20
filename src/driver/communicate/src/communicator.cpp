@@ -321,11 +321,13 @@ bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
 bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    //   POSITION：忽略速度 + 加速度 + yaw_rate，只发位置 + yaw
-    //   VELOCITY：忽略位置 + 加速度 + yaw_rate，只发速度 + yaw
-    //   POS_WITH_VEL_FEEDFORWARD：忽略加速度 + yaw_rate，位置 + 速度 + yaw
-    //   ACCELERATION：忽略位置 + 速度 + yaw + yaw_rate，只发加速度
-    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE;
+    //   制导律不输出航向，所有模式都完全忽略 yaw + yaw_rate
+    //   POSITION：忽略速度 + 加速度，只发位置
+    //   VELOCITY：忽略位置 + 加速度，只发速度
+    //   POS_WITH_VEL_FEEDFORWARD：忽略加速度，位置 + 速度
+    //   ACCELERATION：忽略位置 + 速度，只发加速度
+    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE |
+                         POSITION_TARGET_TYPEMASK_YAW_IGNORE;
     if (c.mode == GuidanceMode::POSITION) {
         // 纯位置闭环：忽略速度 + 加速度
         type_mask |= POSITION_TARGET_TYPEMASK_VX_IGNORE |
@@ -348,20 +350,19 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
                      POSITION_TARGET_TYPEMASK_AY_IGNORE |
                      POSITION_TARGET_TYPEMASK_AZ_IGNORE;
     } else if (c.mode == GuidanceMode::ACCELERATION) {
-        // 加速度 setpoint：忽略位置 + 速度 + yaw，只保留加速度
+        // 加速度 setpoint：忽略位置 + 速度，只保留加速度
         type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE |
                      POSITION_TARGET_TYPEMASK_Y_IGNORE |
                      POSITION_TARGET_TYPEMASK_Z_IGNORE |
                      POSITION_TARGET_TYPEMASK_VX_IGNORE |
                      POSITION_TARGET_TYPEMASK_VY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VZ_IGNORE |
-                     POSITION_TARGET_TYPEMASK_YAW_IGNORE;
+                     POSITION_TARGET_TYPEMASK_VZ_IGNORE;
     } else {
         return false;  // 未知 mode，拒绝发送
     }
     mavlink_msg_set_position_target_local_ned_pack(
         sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), kFcuCompId, MAV_FRAME_LOCAL_NED,
-        type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, c.yaw, 0.0f);
+        type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     return sendMessage(buf, len);
 }
