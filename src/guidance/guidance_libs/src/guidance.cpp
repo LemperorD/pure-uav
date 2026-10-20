@@ -107,7 +107,9 @@ GuidanceCmd guidance_step(const GuidanceState &state,
         cmd.a_cmd = cmd.a_cmd * (params.a_max / a_norm);   // 方向不变，只缩模长
         cmd.sat = true;
     }
-    cmd.a_cmd_norm = norm(cmd.a_cmd);
+    // 限幅后的模长只可能是 a_max 或原值 ⇒ 直接复用已算出的 a_norm，省一次 sqrt。
+    // （原写法 norm(cmd.a_cmd) 会重复开方；两者差值在 1 ulp 量级，远小于 kCmdTol=1e-9）
+    cmd.a_cmd_norm = cmd.sat ? params.a_max : a_norm;
 
     // 保存本周期指令，供下一周期末端冻结使用
     memory.a_cmd_prev = cmd.a_cmd;

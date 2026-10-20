@@ -14,6 +14,8 @@
 //    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
 //    8. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
 //       GuidanceState —— 这是本模块存在意义的直接证明
+//    9. ★ 廉价体检 quick_check（飞行回路专用）：逐条用例 + 与完整体检的
+//       **error 级判定完全等价**（两套判据最怕漂移，故钉在一起）
 //
 // 运行：./bin/test/test_state_adapter   （退出码 0=全过，1=有失败）
 
@@ -1059,6 +1061,101 @@ static void test_checks() {
 }
 
 // ============================================================
+//  9. ★ 廉价体检 quick_check（飞行回路专用）
+// ============================================================
+// 它和 check_guidance_state 是**两套判据**，最怕两边慢慢漂移 ⇒ 除了逐条用例外，
+// 最后再用"同一批脏数据两边判定必须完全一致"把它们钉死。
+static void test_quick_check() {
+    section("9. 廉价体检 quick_check");
+
+    GuidanceState good;
+    good.t = 0.5;
+    good.los_hat = Vec3(1, 0, 0);
+    good.lam_dot = 0.01;
+    good.range = 12.3;
+    good.valid = true;
+    good.p_M = Vec3(0, 0, 10);
+    good.v_M = Vec3(20, 0, 0);
+    good.q[0] = 1.0;
+
+    // ---- 9.1 正常帧通过，且不写 first_bad ----
+    {
+        CheckCode code = CheckCode::kRangeNegative;   // 故意先填一个错的值
+        ok(quick_check(good, &code), "正常帧通过");
+        ok(code == CheckCode::kRangeNegative, "  通过时不动 first_bad");
+        ok(quick_check(good), "不传 first_bad 也能用");
+    }
+
+    // ---- 9.2 各类脏数据：必须 false 且 code 正确 ----
+    {
+        GuidanceState st = good;
+        st.los_hat = Vec3(3, 0, 0);                   // 上游没单位化
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "|los_hat|=3 不通过");
+        ok(c == CheckCode::kLosNotUnit, "  code = kLosNotUnit");
+    }
+    {
+        GuidanceState st = good;
+        st.q[0] = 2.0;                                // |q| = 2
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "|q|=2 不通过");
+        ok(c == CheckCode::kQuatNotUnit, "  code = kQuatNotUnit");
+    }
+    {
+        GuidanceState st = good;
+        st.range = -1.0;
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "range<0 不通过");
+        ok(c == CheckCode::kRangeNegative, "  code = kRangeNegative");
+    }
+    {
+        GuidanceState st = good;
+        st.los_hat = Vec3{};                          // 零矢量：没有方向可言
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "零矢量视线不通过");
+        ok(c == CheckCode::kLosZero, "  code = kLosZero");
+    }
+    {
+        GuidanceState st = good;
+        st.v_M = Vec3(std::numeric_limits<double>::quiet_NaN(), 0, 0);
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "v_M 含 NaN 不通过");
+        ok(c == CheckCode::kNotFinite, "  code = kNotFinite");
+    }
+    {
+        GuidanceState st = good;
+        st.range = 0.0;                               // range≈0 只是 warning
+        ok(quick_check(st), "range=0 仍通过（warning 不算硬条件）");
+    }
+
+    // ---- 9.3 ★ 与完整体检的一致性：error 级判定必须**完全等价** ----
+    {
+        GuidanceState f[7];
+        for (int i = 0; i < 7; ++i) f[i] = good;
+        f[1].los_hat = Vec3(3, 0, 0);                 // 未单位化
+        f[2].q[0] = 2.0;                              // |q| 错
+        f[3].range = -1.0;                            // 负距离
+        f[4].los_hat = Vec3{};                        // 零视线
+        f[5].v_M = Vec3(0, std::numeric_limits<double>::infinity(), 0);
+        f[6].t = -1.0;                                // 负时间 —— 只是 warning！
+
+        bool same = true;
+        for (int i = 0; i < 7; ++i) {
+            const bool quick = quick_check(f[i]);
+            const bool full = check_guidance_state(f[i]).n_error == 0;
+            if (quick != full) {
+                same = false;
+                std::printf("  第 %d 帧不一致：quick=%d full=%d\n", i, (int)quick,
+                            (int)full);
+            }
+        }
+        ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
+        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
+           "  负时间（warning 级）两边都放行");
+    }
+}
+
+// ============================================================
 //  main
 // ============================================================
 int main() {
@@ -1072,6 +1169,7 @@ int main() {
     test_fill_state();
     test_upstream_simulator();
     test_checks();
+    test_quick_check();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
