@@ -10,11 +10,11 @@
 //       "光轴系三轴在世界系下的指向"做**独立参考实现**逐例比对
 //    4. ★ 与 guidance_libs 的 quat_rotate_vec 交叉验证（两份实现必须一致）
 //    5. 组装 GuidanceState（fill_ins / fill_target / to_guidance_state）
-//    6. 输出换算 accel_enu → cmd_accel_ned
-//    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
-//    8. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
+//       + 输出换算 accel_enu → cmd_accel_ned
+//    6. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
 //       GuidanceState —— 这是本模块存在意义的直接证明
-//    9. ★ 廉价体检 quick_check（飞行回路专用）：逐条用例 + 与完整体检的
+//    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
+//    8. ★ 廉价体检 quick_check（飞行回路专用）：逐条用例 + 与完整体检的
 //       **error 级判定完全等价**（两套判据最怕漂移，故钉在一起）
 //
 // 运行：./bin/test/test_state_adapter   （退出码 0=全过，1=有失败）
@@ -534,7 +534,11 @@ static void test_attitude() {
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
         near_q(q_wrap, q_direct, 1e-15, "attitude_from_ned_frd = convert_attitude(NED, FRD)");
         // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
-        near_q(q_wrap, (const double[4]){-0.5, 0.5, -0.5, 0.5}, 1e-15,
+        // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
+        //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
+        //    "taking address of temporary array"。（2026-10-20 WSL 实测）
+        const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
+        near_q(q_wrap, q_expect, 1e-15,
                "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
     }
 }
@@ -632,7 +636,9 @@ static void test_quat_cross_check() {
         // 共轭
         double qc[4];
         quat_conjugate(q, qc);
-        near_q(qc, (const double[4]){q[0], -q[1], -q[2], -q[3]}, 0.0, "共轭定义");
+        // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+        const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+        near_q(qc, q_conj, 0.0, "共轭定义");
     }
 }
 
@@ -1066,7 +1072,7 @@ static void test_checks() {
 // 它和 check_guidance_state 是**两套判据**，最怕两边慢慢漂移 ⇒ 除了逐条用例外，
 // 最后再用"同一批脏数据两边判定必须完全一致"把它们钉死。
 static void test_quick_check() {
-    section("9. 廉价体检 quick_check");
+    section("8. 廉价体检 quick_check");
 
     GuidanceState good;
     good.t = 0.5;
