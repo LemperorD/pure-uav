@@ -124,7 +124,7 @@ def run_scenario(L, h, s, csv_path=None):
     P = list(s["p_M0"])
     V = list(s["v_M0"])
     q_id = arr([0.0, 0.0, 0.0, 1.0])
-    cmd = arr([0.0] * 19)      # 初始为零指令（与 C++ 默认 GuidanceCmd 一致）
+    cmd = arr([0.0] * 19)      # 初始为零指令（与 C++ 默认 PureGuidanceCmd 一致）
     dbg = arr([0.0] * 17)
     tgt = arr([0.0] * 9)
 

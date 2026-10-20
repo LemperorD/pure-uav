@@ -2303,7 +2303,7 @@ loop.run();                        // read → adapt → step → check → send
 ### 6.6 待补（封装完成后逐条填空）
 
 - [ ] `src/app/main.cpp` 的真实实现（当前 99 字节空壳）
-- [ ] §6.2 / §6.3 的字段与真实头文件（`RawFrame` / `GuidanceCmd` / `GuidanceOutput`）逐条对齐
+- [ ] §6.2 / §6.3 的字段与真实头文件（`RawFrame` / `PureGuidanceCmd` / `GuidanceOutput`）逐条对齐
 - [ ] `GuidanceLoop` 的真实签名（`init` / `update` / `reset`）与错误码表
 - [ ] 机载构建口径：核心改 **STATIC + LTO**（实测 `guidance_step` 跨 TU 30 ns → LTO 6.7 ns）
 - [ ] 端到端打点：`t0` 收到数据 → `t3` 指令发出，四段耗时 P50/P95/max

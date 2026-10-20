@@ -154,15 +154,15 @@ inline constexpr double kCmdTol        = 1e-9;   // 指令量的比较容差(m/s
 Report check_guidance_state(const GuidanceState &st,
                             bool expected_los_units = true);
 
-// 体检一个 GuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
-Report check_guidance_cmd(const GuidanceCmd &cmd,
+// 体检一个 PureGuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
+Report check_guidance_cmd(const PureGuidanceCmd &cmd,
                           double a_max_mps2 = 0.0,
                           bool has_a_max = false,
                           double expect_t = 0.0,
                           bool has_expect_t = false);
 
 // 一次性体检 state + cmd（联调现场最常用）。
-Report check_frame(const GuidanceState &st, const GuidanceCmd &cmd,
+Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
                    double a_max_mps2 = 0.0, bool has_a_max = false);
 
 // ============================================================================
@@ -193,7 +193,7 @@ bool quick_check(const GuidanceState &st, CheckCode *first_bad = nullptr) noexce
 //   · |q| = 1                · |los_hat| = 1            · range ≥ 0
 //   · 所有量有限             · cmd 限幅自洽（给了 a_max 时）
 // 与 check_frame 的区别：本函数**忽略 warning**，只看硬不变量。
-bool invariants_hold(const GuidanceState &st, const GuidanceCmd &cmd,
+bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
                      double a_max_mps2 = 0.0, bool has_a_max = false);
 
 }  // namespace adapter

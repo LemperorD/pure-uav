@@ -756,7 +756,7 @@ static void test_fill_state() {
 
     // ---- 5.5 输出换算 ----
     {
-        GuidanceCmd cmd;
+        PureGuidanceCmd cmd;
         cmd.a_cmd = Vec3(1.0, 2.0, -3.0);        // ENU
         double xyz[3];
         cmd_accel_to_ned(cmd, xyz);
@@ -817,7 +817,7 @@ static void test_upstream_simulator() {
         near_vec(st.los_hat, ref.los_hat, 1e-12, "口径A(NED+FRD)：视线");
         near(st.range, ref.range, 1e-12, "口径A(NED+FRD)：距离");
         near_q(st.q, ref.q, 1e-12, "口径A(NED+FRD)：姿态");
-        ok(invariants_hold(st, GuidanceCmd{}), "口径A：不变量全部成立");
+        ok(invariants_hold(st, PureGuidanceCmd{}), "口径A：不变量全部成立");
     }
 
     // 口径 B：ENU + 光轴系（对方已经按我们的口径给 —— 理想情况）
@@ -837,7 +837,7 @@ static void test_upstream_simulator() {
         near_vec(st.v_M, ref.v_M, 1e-12, "口径B(ENU+光轴)：速度");
         near_vec(st.los_hat, ref.los_hat, 1e-12, "口径B(ENU+光轴)：视线");
         near_q(st.q, ref.q, 1e-15, "口径B(ENU+光轴)：姿态（原样透传）");
-        ok(invariants_hold(st, GuidanceCmd{}), "口径B：不变量全部成立");
+        ok(invariants_hold(st, PureGuidanceCmd{}), "口径B：不变量全部成立");
     }
 
     // 口径 C：NED + FLU（ROS 惯例）
@@ -977,15 +977,15 @@ static void test_checks() {
 
     // ---- 7.7 cmd 检查：限幅自洽 ----
     {
-        GuidanceCmd cmd;
+        PureGuidanceCmd cmd;
         cmd.a_cmd = Vec3(10.0, 0.0, 0.0);
         cmd.a_cmd_norm = 10.0;
         cmd.a_cmd_unsat = Vec3(10.0, 0.0, 0.0);
-        cmd.mode = GuidanceMode::PN;
+        cmd.mode = PureGuidanceMode::PN;
         cmd.valid = true;
         ok(check_guidance_cmd(cmd, 10.0, true).ok(), "恰好饱和的 cmd 自洽");
 
-        GuidanceCmd over = cmd;
+        PureGuidanceCmd over = cmd;
         over.a_cmd = Vec3(20.0, 0.0, 0.0);
         over.a_cmd_norm = 20.0;
         over.a_cmd_unsat = Vec3(20.0, 0.0, 0.0);
@@ -994,22 +994,22 @@ static void test_checks() {
         ok(!rep.ok(), "限幅后仍超限被判不通过");
         ok(rep.has(CheckCode::kCmdOverLimit), "  code = kCmdOverLimit");
 
-        GuidanceCmd mismatch = cmd;
+        PureGuidanceCmd mismatch = cmd;
         mismatch.a_cmd_norm = 99.0;
         ok(check_guidance_cmd(mismatch).has(CheckCode::kCmdNormMismatch),
            "|a_cmd| 与 a_cmd_norm 不一致被抓");
 
-        GuidanceCmd fake_sat = cmd;
+        PureGuidanceCmd fake_sat = cmd;
         fake_sat.sat = true;                    // 声称饱和，实际没超限
         ok(!check_guidance_cmd(fake_sat, 10.0, true).ok(),
            "sat=true 但限幅前未超限被抓");
 
-        GuidanceCmd search;
-        search.mode = GuidanceMode::SEARCH;
+        PureGuidanceCmd search;
+        search.mode = PureGuidanceMode::SEARCH;
         search.valid = false;
         ok(check_guidance_cmd(search).ok(), "SEARCH + 零指令 + valid=false 自洽");
-        GuidanceCmd bad_search;
-        bad_search.mode = GuidanceMode::SEARCH;
+        PureGuidanceCmd bad_search;
+        bad_search.mode = PureGuidanceMode::SEARCH;
         bad_search.a_cmd = Vec3(1, 0, 0);
         bad_search.a_cmd_norm = 1.0;
         ok(!check_guidance_cmd(bad_search).ok(), "SEARCH 却输出非零指令被抓");
@@ -1031,9 +1031,9 @@ static void test_checks() {
         pp.N = 4.0;
         pp.a_max = 30.0;
         GuidanceMemory mem;
-        const GuidanceCmd cmd = guidance_step(st, pp, mem);
+        const PureGuidanceCmd cmd = guidance_step(st, pp, mem);
 
-        ok(cmd.mode == GuidanceMode::PN, "PPN 闭环：mode = PN");
+        ok(cmd.mode == PureGuidanceMode::PN, "PPN 闭环：mode = PN");
         ok(norm(cmd.a_cmd) > 0.0, "PPN 闭环：有非零指令");
         const Report rep = check_frame(st, cmd, pp.a_max, true);
         if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
@@ -1045,7 +1045,7 @@ static void test_checks() {
         GuidanceParams pp2 = pp;
         pp2.a_max = 0.5;                        // 强行把上限压到很小 ⇒ 必然饱和
         GuidanceMemory mem2;
-        const GuidanceCmd cmd2 = guidance_step(st2, pp2, mem2);
+        const PureGuidanceCmd cmd2 = guidance_step(st2, pp2, mem2);
         ok(cmd2.sat, "  小 a_max 触发饱和");
         ok(invariants_hold(st2, cmd2, pp2.a_max, true), "  饱和后不变量仍成立（矢量等比缩放）");
 
@@ -1053,8 +1053,8 @@ static void test_checks() {
         GuidanceState st3 = st;
         st3.valid = false;
         GuidanceMemory mem3;
-        const GuidanceCmd cmd3 = guidance_step(st3, pp, mem3);
-        ok(cmd3.mode == GuidanceMode::SEARCH, "valid=false ⇒ SEARCH");
+        const PureGuidanceCmd cmd3 = guidance_step(st3, pp, mem3);
+        ok(cmd3.mode == PureGuidanceMode::SEARCH, "valid=false ⇒ SEARCH");
         ok(norm(cmd3.a_cmd) == 0.0, "  SEARCH 输出零指令");
         ok(invariants_hold(st3, cmd3, pp.a_max, true), "  SEARCH 帧不变量成立");
     }

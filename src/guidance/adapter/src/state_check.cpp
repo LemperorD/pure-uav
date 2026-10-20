@@ -86,12 +86,12 @@ inline bool finite4(const double q[4]) noexcept {
            std::isfinite(q[2]) && std::isfinite(q[3]);
 }
 
-inline bool mode_valid(GuidanceMode m) noexcept {
+inline bool mode_valid(PureGuidanceMode m) noexcept {
     switch (m) {
-        case GuidanceMode::PN:
-        case GuidanceMode::APN:
-        case GuidanceMode::HOLD:
-        case GuidanceMode::SEARCH:
+        case PureGuidanceMode::PN:
+        case PureGuidanceMode::APN:
+        case PureGuidanceMode::HOLD:
+        case PureGuidanceMode::SEARCH:
             return true;
     }
     return false;
@@ -207,10 +207,10 @@ bool quick_check(const GuidanceState &st, CheckCode *first_bad) noexcept {
 }
 
 // ============================================================================
-//  §2  GuidanceCmd
+//  §2  PureGuidanceCmd
 // ============================================================================
 
-Report check_guidance_cmd(const GuidanceCmd &cmd, double a_max_mps2,
+Report check_guidance_cmd(const PureGuidanceCmd &cmd, double a_max_mps2,
                           bool has_a_max, double expect_t, bool has_expect_t) {
     Report rep;
 
@@ -246,7 +246,7 @@ Report check_guidance_cmd(const GuidanceCmd &cmd, double a_max_mps2,
 
         if (cmd.sat) {
             // sat=true ⇒ 限幅前必须真的超限（HOLD 模式会覆盖 a_cmd，故排除）
-            if (cmd.mode != GuidanceMode::HOLD) {
+            if (cmd.mode != PureGuidanceMode::HOLD) {
                 add_check_lazy(rep, un > a_max_mps2, Severity::kError,
                                CheckCode::kCmdUnsatBelowMax, "a_cmd_unsat",
                                [un] { return fmt("sat=true 但限幅前未超过 a_max", un); });
@@ -254,7 +254,7 @@ Report check_guidance_cmd(const GuidanceCmd &cmd, double a_max_mps2,
                                Severity::kWarn, CheckCode::kCmdSatInconsistent, "a_cmd",
                                [an] { return fmt("sat=true 时限幅后应恰好等于 a_max", an); });
             }
-        } else if (cmd.mode != GuidanceMode::HOLD) {
+        } else if (cmd.mode != PureGuidanceMode::HOLD) {
             // sat=false ⇒ 限幅前也不该超限
             add_check_lazy(rep, un <= a_max_mps2 + kCmdTol, Severity::kWarn,
                            CheckCode::kCmdSatInconsistent, "a_cmd_unsat",
@@ -265,7 +265,7 @@ Report check_guidance_cmd(const GuidanceCmd &cmd, double a_max_mps2,
     // ---- mode 合法性 / SEARCH 契约 ----
     add_check_lazy(rep, mode_valid(cmd.mode), Severity::kError, CheckCode::kCmdModeInvalid,
                    "mode", [] { return std::string("mode 不是 PN / APN / HOLD / SEARCH 之一"); });
-    if (cmd.mode == GuidanceMode::SEARCH) {
+    if (cmd.mode == PureGuidanceMode::SEARCH) {
         add_check_lazy(rep, norm(cmd.a_cmd) <= kCmdTol, Severity::kError,
                        CheckCode::kCmdNormMismatch, "a_cmd",
                        [] { return std::string("SEARCH 模式必须输出零指令"); });
@@ -287,7 +287,7 @@ Report check_guidance_cmd(const GuidanceCmd &cmd, double a_max_mps2,
 //  §3  合体入口
 // ============================================================================
 
-Report check_frame(const GuidanceState &st, const GuidanceCmd &cmd,
+Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
                    double a_max_mps2, bool has_a_max) {
     Report rep = check_guidance_state(st);
     Report rc = check_guidance_cmd(cmd, a_max_mps2, has_a_max,
@@ -303,7 +303,7 @@ Report check_frame(const GuidanceState &st, const GuidanceCmd &cmd,
     return rep;
 }
 
-bool invariants_hold(const GuidanceState &st, const GuidanceCmd &cmd,
+bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
                      double a_max_mps2, bool has_a_max) {
     return check_frame(st, cmd, a_max_mps2, has_a_max).ok();
 }

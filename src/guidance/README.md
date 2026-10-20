@@ -76,7 +76,7 @@ header-only 的 INTERFACE 目标 `pure_vec3` 提供 include 目录。因此 `src
   仿真阶段用真值喂它，接真机时用视觉喂它，本文件一行不改。
 - **默认导引律 PPN**：`GuidanceParams::law` 默认 `PPN`（`a = N·(ω × v_M)`）。
   它不含距离项，对测距误差免疫，是无人机常用形式。
-- **数据结构对齐接口文档**：`GuidanceState` / `GuidanceCmd` 字段严格对应
+- **数据结构对齐接口文档**：`GuidanceState` / `PureGuidanceCmd` 字段严格对应
   《输入数据字典.md》《输出数据字典.md》。
 - **矢量运算用叉积**：3D 制导的视线角速率 `ω = (r × v_rel) / R²`，分母是 **R²**。
   真机也可用 `ω = û × (dû/dt)`（只用视线方向时序差分，不需要 v_T / R）。
@@ -221,7 +221,7 @@ v = 18 m/s 时  a_drag ≈ 0.70 m/s² ≈ 7% g
 
 ```text
 目标检测  →  û / R        ┐
-定位惯导  →  q / v_M      ├──►  GuidanceState  ──►  guidance_step()  ──►  GuidanceCmd
+定位惯导  →  q / v_M      ├──►  GuidanceState  ──►  guidance_step()  ──►  PureGuidanceCmd
 视觉      →  λ̇            ┘
 ```
 

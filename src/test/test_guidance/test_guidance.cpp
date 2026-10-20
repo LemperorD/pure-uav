@@ -179,12 +179,12 @@ static void test_guidance_step_laws() {
     {
         GuidanceMemory m;
         p.law = GuidanceLaw::TPN;
-        const GuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
+        const PureGuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
         near(c.a_cmd_norm, 3.20, 0.02, "TPN |a| ≈ 3.20");
         near(c.t_go, 7.1, 0.02, "TPN t_go ≈ 7.1");
         near(c.lam_dot, 0.0188, 1e-4, "TPN lam_dot ≈ 0.0188");
         near(c.Vc, 42.6, 0.05, "TPN Vc ≈ 42.6");
-        ok(c.mode == GuidanceMode::PN, "TPN mode = PN");
+        ok(c.mode == PureGuidanceMode::PN, "TPN mode = PN");
         ok(!c.sat, "TPN 未饱和");
     }
 
@@ -192,9 +192,9 @@ static void test_guidance_step_laws() {
     {
         GuidanceMemory m;
         p.law = GuidanceLaw::PPN;
-        const GuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
+        const PureGuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
         near(c.a_cmd_norm, 1.35, 0.02, "PPN |a| ≈ 1.35");
-        ok(c.mode == GuidanceMode::PN, "PPN mode = PN");
+        ok(c.mode == PureGuidanceMode::PN, "PPN mode = PN");
     }
 
     // --- APN：a_T⊥ = 0 时退化为 TPN ---
@@ -203,9 +203,9 @@ static void test_guidance_step_laws() {
         p.law = GuidanceLaw::APN;
         GuidanceState st = make_state(0.0, R, u, V_M, V_T);
         st.a_T_perp = Vec3(0, 0, 0);
-        const GuidanceCmd c = guidance_step(st, p, m);
+        const PureGuidanceCmd c = guidance_step(st, p, m);
         near(c.a_cmd_norm, 3.20, 0.02, "APN(a_T⊥=0) |a| ≈ TPN");
-        ok(c.mode == GuidanceMode::APN, "APN mode = APN");
+        ok(c.mode == PureGuidanceMode::APN, "APN mode = APN");
     }
 
     // --- APN 补偿项恒等式：APN = TPN + (N/2)·a_T⊥ ---
@@ -215,7 +215,7 @@ static void test_guidance_step_laws() {
         const Vec3 a_T(0, 5, 0);            // 故意给非垂直分量，验证内部投影
         GuidanceState st = make_state(0.0, R, u, V_M, V_T);
         st.a_T_perp = a_T;
-        const GuidanceCmd c = guidance_step(st, p, m);
+        const PureGuidanceCmd c = guidance_step(st, p, m);
 
         const Vec3   v_rel  = V_T - V_M;
         const double Vc     = closing_velocity(r, v_rel, R);
@@ -246,7 +246,7 @@ static void test_iron_rules() {
     {
         GuidanceMemory m;
         p.a_max = 1.0;
-        const GuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
+        const PureGuidanceCmd c = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
         ok(c.sat, "触发 sat");
         near(c.a_cmd_norm, 1.0, 1e-9, "|a_cmd| = a_max（精确）");
         near(norm(cross(c.a_cmd, c.a_cmd_unsat)), 0.0, 1e-9, "方向不变（叉积 = 0）");
@@ -262,12 +262,12 @@ static void test_iron_rules() {
     {
         GuidanceMemory m;
         p.a_max = 1000.0;
-        const GuidanceCmd c1 = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
-        ok(c1.mode == GuidanceMode::PN, "远距 → PN");
+        const PureGuidanceCmd c1 = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
+        ok(c1.mode == PureGuidanceMode::PN, "远距 → PN");
 
         // 距离缩到 1 m → t_go ≈ 0.023 s < 0.3 → HOLD，且沿用上一帧指令
-        const GuidanceCmd c2 = guidance_step(make_state(0.002, 1.0, u, V_M, V_T), p, m);
-        ok(c2.mode == GuidanceMode::HOLD, "近距 → HOLD");
+        const PureGuidanceCmd c2 = guidance_step(make_state(0.002, 1.0, u, V_M, V_T), p, m);
+        ok(c2.mode == PureGuidanceMode::HOLD, "近距 → HOLD");
         ok(c2.t_go < p.t_go_freeze, "t_go < 冻结阈值");
         near_vec(c2.a_cmd, c1.a_cmd, 1e-12, "HOLD 沿用上一帧指令（挡住 1/R 放大）");
     }
@@ -282,8 +282,8 @@ static void test_iron_rules() {
 
         GuidanceState bad = make_state(0.002, R, u, V_M, V_T);
         bad.valid = false;
-        const GuidanceCmd c2 = guidance_step(bad, p, m);
-        ok(c2.mode == GuidanceMode::SEARCH, "SEARCH 模式");
+        const PureGuidanceCmd c2 = guidance_step(bad, p, m);
+        ok(c2.mode == PureGuidanceMode::SEARCH, "SEARCH 模式");
         near_vec(c2.a_cmd, Vec3(0, 0, 0), 1e-12, "零指令");
         near(c2.a_cmd_norm, 0.0, 1e-12, "|a_cmd| = 0");
         ok(!m.has_prev, "已清记忆（重新捕获从零开始）");
@@ -311,12 +311,12 @@ static void test_los_rate_source_switch() {
     const double   dt = 1e-3;
 
     // 第一帧：无历史 → ω 保持为零
-    const GuidanceCmd c1 = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
+    const PureGuidanceCmd c1 = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
     near(c1.lam_dot, 0.0, 1e-12, "首帧无历史 → lam_dot = 0");
 
     // 第二帧：视线转过一小步 → 差分法应还原出 ω
     const Vec3        u2 = normalized(u + cross(w_true, u) * dt);
-    const GuidanceCmd c2 = guidance_step(make_state(dt, R, u2, V_M, V_T), p, m);
+    const PureGuidanceCmd c2 = guidance_step(make_state(dt, R, u2, V_M, V_T), p, m);
     near(c2.lam_dot, norm(w_true), 1e-4, "次帧差分法 lam_dot ≈ 真值");
 }
 
@@ -669,10 +669,10 @@ static void test_freeze_criterion() {
         pr.R_freeze         = 5.0;
 
         GuidanceMemory m;
-        const GuidanceCmd c1 = guidance_step(make_state(0.0, 100.0, u, V_M, V_T), pr, m);
-        ok(c1.mode == GuidanceMode::PN, "R=100 > 5 → 不冻结");
-        const GuidanceCmd c2 = guidance_step(make_state(0.002, 1.0, u, V_M, V_T), pr, m);
-        ok(c2.mode == GuidanceMode::HOLD, "R=1 < 5 → HOLD");
+        const PureGuidanceCmd c1 = guidance_step(make_state(0.0, 100.0, u, V_M, V_T), pr, m);
+        ok(c1.mode == PureGuidanceMode::PN, "R=100 > 5 → 不冻结");
+        const PureGuidanceCmd c2 = guidance_step(make_state(0.002, 1.0, u, V_M, V_T), pr, m);
+        ok(c2.mode == PureGuidanceMode::HOLD, "R=1 < 5 → HOLD");
         near_vec(c2.a_cmd, c1.a_cmd, 1e-12, "R 基准 HOLD 同样沿用上一帧指令");
     }
 
@@ -690,9 +690,9 @@ static void test_freeze_criterion() {
         for (int i = 0; i <= 40; ++i) {
             const double R = 20.0 - 19.0 * i / 40.0;   // 20 → 1 m
             GuidanceMemory ma, mb;
-            const GuidanceCmd ca = guidance_step(make_state(0.0, R, u, V_M, V_T), a, ma);
-            const GuidanceCmd cb = guidance_step(make_state(0.0, R, u, V_M, V_T), b, mb);
-            if ((ca.mode == GuidanceMode::HOLD) != (cb.mode == GuidanceMode::HOLD)) {
+            const PureGuidanceCmd ca = guidance_step(make_state(0.0, R, u, V_M, V_T), a, ma);
+            const PureGuidanceCmd cb = guidance_step(make_state(0.0, R, u, V_M, V_T), b, mb);
+            if ((ca.mode == PureGuidanceMode::HOLD) != (cb.mode == PureGuidanceMode::HOLD)) {
                 agree = false;
             }
         }
@@ -711,15 +711,15 @@ static void test_freeze_criterion() {
         pt.freeze_criterion = FreezeCriterion::BY_TGO;
         pt.t_go_freeze      = 0.15;
         GuidanceMemory mt;
-        const GuidanceCmd ct = guidance_step(st, pt, mt);
-        ok(ct.mode != GuidanceMode::HOLD, "Vc=0：仅 t_go 基准 → 不冻结（t_go 发散）");
+        const PureGuidanceCmd ct = guidance_step(st, pt, mt);
+        ok(ct.mode != PureGuidanceMode::HOLD, "Vc=0：仅 t_go 基准 → 不冻结（t_go 发散）");
 
         GuidanceParams ph = pt;
         ph.freeze_criterion = FreezeCriterion::BY_TGO_OR_RANGE;
         ph.R_freeze         = 5.0;
         GuidanceMemory mh;
-        const GuidanceCmd ch = guidance_step(st, ph, mh);
-        ok(ch.mode == GuidanceMode::HOLD, "Vc=0：R 兜底 → 冻结（R=3 < 5）");
+        const PureGuidanceCmd ch = guidance_step(st, ph, mh);
+        ok(ch.mode == PureGuidanceMode::HOLD, "Vc=0：R 兜底 → 冻结（R=3 < 5）");
     }
 }
 
@@ -748,7 +748,7 @@ static void test_invariants() {
     {
         GuidanceState st = make_state(0.5, 120.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(-10, 4, 0));
         GuidanceMemory m;
-        const GuidanceCmd c = guidance_step(st, p, m);
+        const PureGuidanceCmd c = guidance_step(st, p, m);
 
         // |q| = 1（默认单位四元数）
         const double qn = std::sqrt(st.q[0] * st.q[0] + st.q[1] * st.q[1] +
@@ -785,7 +785,7 @@ static void test_invariants() {
         GuidanceParams pm = p;
         pm.a_max = 5.0;
         GuidanceMemory m;
-        const GuidanceCmd c = guidance_step(st, pm, m);
+        const PureGuidanceCmd c = guidance_step(st, pm, m);
         ok(c.sat, "极端几何：触发限幅");
         ok(norm(c.a_cmd) <= pm.a_max + 1e-9, "  限幅后 |a_cmd| ≤ a_max（矢量等比缩放）");
         near(norm(c.a_cmd), c.a_cmd_norm, 1e-12, "  |a_cmd| 与 a_cmd_norm 一致");
@@ -798,7 +798,7 @@ static void test_invariants() {
         // (b) 末端冻结：R → 0 时 |a_cmd| 仍有限且 ≤ a_max
         GuidanceState st2 = make_state(1.0, 0.05, Vec3(1, 0, 0), Vec3(15, 0, 0), Vec3(-15, 1, 0));
         GuidanceMemory m2;
-        const GuidanceCmd c2 = guidance_step(st2, p, m2);
+        const PureGuidanceCmd c2 = guidance_step(st2, p, m2);
         ok(std::isfinite(norm(c2.a_cmd)), "末端 R→0：a_cmd 仍有限（未发散）");
         ok(norm(c2.a_cmd) <= p.a_max + 1e-9, "  末端 |a_cmd| ≤ a_max");
         ok(c2.t_go >= 0.0, "  t_go ≥ 0");
@@ -807,8 +807,8 @@ static void test_invariants() {
         GuidanceState st3 = make_state(1.0, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
         st3.valid = false;
         GuidanceMemory m3;
-        const GuidanceCmd c3 = guidance_step(st3, p, m3);
-        ok(c3.mode == GuidanceMode::SEARCH, "目标丢失：mode = SEARCH");
+        const PureGuidanceCmd c3 = guidance_step(st3, p, m3);
+        ok(c3.mode == PureGuidanceMode::SEARCH, "目标丢失：mode = SEARCH");
         near(norm(c3.a_cmd), 0.0, 0.0, "  零指令");
         ok(std::isfinite(c3.a_cmd_norm), "  a_cmd_norm 有限（不是 NaN）");
     }
@@ -817,7 +817,7 @@ static void test_invariants() {
     {
         GuidanceState st = make_state(1.234, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
         GuidanceMemory m;
-        const GuidanceCmd c = guidance_step(st, p, m);
+        const PureGuidanceCmd c = guidance_step(st, p, m);
         near(c.t, 1.234, 0.0, "时间戳透传：cmd.t = state.t");
         ok(m.t_prev == st.t, "记忆里保存的时间戳 = 本帧时间戳");
         ok(m.has_prev, "  has_prev = true");
@@ -830,7 +830,7 @@ static void test_invariants() {
         guidance_step(s1, pd, md);
         // 第二帧时间戳倒退（上游乱序）⇒ 制导核自身不做保护（防除零只挡 dt≈0）
         GuidanceState s2 = make_state(0.5, 100.0, Vec3(1, 0.01, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
-        const GuidanceCmd cd = guidance_step(s2, pd, md);
+        const PureGuidanceCmd cd = guidance_step(s2, pd, md);
         std::printf("  （提示：时间戳倒退时 dt = %.3f s，制导不自行纠正 —— "
                     "单调性由上游保证，见 state_adapter::StateTimeTracker）\n",
                     s2.t - s1.t);
@@ -843,7 +843,7 @@ static void test_invariants() {
         //   PPN 的 a = N(ω × v_M) 与 v_M、ω 同系；量纲 = (rad/s)·(m/s) = m/s²
         GuidanceState st = make_state(2.0, 100.0, Vec3(1, 0, 0), Vec3(20, 0, 0), Vec3(-5, 5, 0));
         GuidanceMemory m;
-        const GuidanceCmd c = guidance_step(st, p, m);
+        const PureGuidanceCmd c = guidance_step(st, p, m);
         // 手算复核量纲：ω = (r × v_rel)/R², r = (100,0,0), v_rel = (-25,5,0)
         const Vec3 r = st.los_hat * st.range;
         const Vec3 v_rel = st.v_T - st.v_M;
