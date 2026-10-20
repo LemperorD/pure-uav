@@ -733,7 +733,7 @@ static void test_freeze_criterion() {
 // 只要转换为内部口径后违反其中任何一条，制导就必然出错。
 // 本组测试把它们钉死，防止后续改动悄悄破坏。
 //
-// 配套：接口侧还有一套更完整的自检实现（`src/interface/state_adapter/state_check.hpp`，
+// 配套：适配层侧还有一套更完整的自检实现（`src/guidance/adapter/include/state_check.hpp`，
 //       收到一帧就能体检并指出是哪个字段的问题），本组只做制导核的契约级验证。
 static void test_invariants() {
     section("15. 不变量（内部口径冻结）");
