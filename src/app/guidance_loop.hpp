@@ -40,9 +40,11 @@
 //    · 时钟用**单调时钟**；数据时间戳按 `boot_us` 约定（见 sample.hpp / §3.1）；
 //    · 不用异常：构造/初始化用 `bool init()` + `LoopStatus` 表达失败。
 //
-//  【本文件目前只有声明】
-//    实现放在 `guidance_loop.cpp`；落地后再把 `src/app/CMakeLists.txt` 改成
-//    链接 `guidance_flight`（= guidance_core + state_adapter + mavlink_units）。
+//  【实现位置】
+//    实现放在 `guidance_loop.cpp`（2026-10-20 落地）；同目录还有：
+//      · `synthetic_world.{hpp,cpp}` —— 零依赖闭环场景（演示 + 端到端回归共用）
+//      · `csv_io.{hpp,cpp}`          —— 录制 / 回放 / 指令落盘（黑匣子）
+//      · `main.cpp`                  —— 薄壳：只做命令行解析与打印
 // =============================================================================
 
 #include <atomic>

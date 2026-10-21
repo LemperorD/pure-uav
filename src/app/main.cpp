@@ -1,166 +1,41 @@
 // =============================================================================
 //  pure-uav 机载主程序（制导）
 //
-//  现阶段的目标：**把整条链接起来跑通**，而不是接真机。
-//  所以这里用了一个"合成世界"（SyntheticWorld）代替真实数据源与执行器：
+//  【定位】**薄壳**：只做命令行解析 + 打印。真正的活儿都在库里：
+//      合成世界/闭环驱动  → synthetic_world.{hpp,cpp}（闭环演示 + 回归测试共用）
+//      CSV 录制/回放        → csv_io.{hpp,cpp}（黑匣子 / 离线复盘）
+//      一拍做什么          → guidance_loop.cpp（取数→反投影→制导核→发指令）
 //
-//      真值点质量积分（p, v）            ← 用上一拍指令积分（理想控制，无姿态环）
-//            │
-//            ├─► 相机投影：世界目标 → 像素 (u,v)   ← 真值 → 相机系 → 像素
-//            │
-//            └─► GuidanceLoop：像素 → 反投影 → 制导核 → NED 加速度
-//                                   ↑                    │
-//                                   └────────────────────┘
+//  【三种跑法】
+//    ① 合成世界闭环（默认，零依赖）：
+//         ./bin/main --law=0 --n=4 --a-max=10 --ticks=300
+//    ② 边跑边录（黑匣子；录出来的 CSV 可以用 ③ 复盘）：
+//         ./bin/main --record=flight.csv --out=cmd.csv
+//    ③ 回放录制（不跑合成世界，只用录下来的输入重算一遍）：
+//         ./bin/main --replay=flight.csv --out=replay_cmd.csv
 //
-//  这条链里**除了"真值→像素"这一步是模拟的**，其余全是真实代码路径：
-//    · 像素 → 世界视线：GuidanceLoop 内（与真机同一份）
-//    · 制导核：guidance_step（纯函数，1439 条断言）
-//    · 出口换算：cmd_accel_to_ned
-//    · 降级策略 / 重发 / 统计：GuidanceLoop
-//  ⇒ 等通信侧合并后，只需把 SyntheticWorld 换成
-//    MavlinkInsSource + VisionTargetSource + MavlinkAccelSink 三个实现，
-//    主程序这一段几乎不用改。
-//
-//  运行：./bin/main  [--hz=50] [--law=0|1|2] [--n=4] [--a-max=30] [--ticks=300]
+//  【为什么现在就用合成世界而不是真机】
+//    真机闭环缺三样外部东西（检测接口 / VIO 运行时 / 通信合并），都不在本模块内。
+//    合成世界把"数据通路"先钉死：除"真值→像素"这一步是模拟的，其余全是真实代码。
+//    ⇒ 等三个依赖就位后，把 SyntheticWorld 换成
+//      MavlinkInsSource + VisionTargetSource + MavlinkAccelSink，
+//      主程序这段几乎不用改（这也是为什么接口先定、实现后补）。
 // =============================================================================
 
 #include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
 
+#include "csv_io.hpp"
 #include "guidance_loop.hpp"
-#include "quat.hpp"
+#include "synthetic_world.hpp"
 
 using namespace pure_uav;
 using namespace pure_uav::app;
 
 namespace {
-
-// ---------------------------------------------------------------- 合成世界
-//
-// 一个类同时扮演三个角色（只为主程序演示方便）：
-//   · IInsSource    : 给出真值 p / v / q
-//   · ITargetSource : 把真值目标"拍"成像素 (u,v) + 距离
-//   · ICommandSink  : 接收制导指令，供下一拍积分用
-//
-// ⚠ 积分是"理想点质量"：直接把指令当实际加速度，没有姿态环、没有阻力、
-//   没有重力（所以 a_z=0 时高度不漂）。目的是验证**制导逻辑**，不是飞行动力学。
-class SyntheticWorld final : public IInsSource, public ITargetSource, public ICommandSink {
-public:
-    SyntheticWorld(const CameraModel &cam, const Vec3 &p0, const Vec3 &v0,
-                   const Vec3 &plate, double dt)
-        : cam_(cam), p_(p0), v_(v0), plate_(plate), dt_(dt) {
-        q_[0] = 1.0;                       // 机体与局部系对齐（q = 单位）
-        t_us_ = 1000000ull;                // 从 1 s 起算（避免 0 被当成"未初始化"）
-    }
-
-    // ---- 每拍推进真值（main 在 run_once 之前调用）----
-    void step() {
-        // 用上一拍指令积分（理想控制）：v += a·dt, p += v·dt
-        v_ = v_ + a_cmd_ * dt_;
-        p_ = p_ + v_ * dt_;
-        t_us_ += static_cast<std::uint64_t>(dt_ * 1e6);
-        // 指令只在本拍有效（下一拍若没新指令就视为 0，模拟"指令断流"的极端情况）
-        a_cmd_ = Vec3{};
-    }
-
-    // ---- IInsSource ----
-    bool poll(InsSample &out) override {
-        out.boot_us      = t_us_;
-        out.p            = p_;
-        out.v            = v_;
-        for (int i = 0; i < 4; ++i) out.q[i] = q_[i];
-        out.has_position = true;
-        out.has_attitude = true;
-        return true;                        // 合成世界每拍都有新帧
-    }
-
-    // ---- ITargetSource：真值目标 → 像素 ----
-    bool poll(TargetSample &out) override {
-        const Vec3 d_world = plate_ - p_;                 // 世界系视线（未归一化）
-        const double R = norm(d_world);
-        if (!(R > 1e-6)) return false;
-        const Vec3 los_world = d_world / R;
-
-        // 世界 → 机体（用 q 的逆）→ 相机系（用外参的逆）
-        const Vec3 d_body = quat_rotate_vec_inv(q_, los_world);   // 机体 FRD
-        const Vec3 d_cam = mat3_mul_transpose(cam_.R_body_cam, d_body);
-        if (!(d_cam.z > 1e-6)) return false;               // 目标在相机后方
-        // 针孔投影
-        out.boot_us   = t_us_;
-        out.u_px      = cam_.cx + cam_.fx * (d_cam.x / d_cam.z);
-        out.v_px      = cam_.cy + cam_.fy * (d_cam.y / d_cam.z);
-        out.has_box   = false;                             // 演示里不造框尺寸
-        out.conf      = 1.0;
-        out.class_id  = 0;                                 // 假定就是装甲板
-        out.present   = true;
-        out.has_range = true;                              // 真值测距（相当于激光/PnP）
-        out.range_m   = R;
-        out.has_v_T   = true;                              // 靶静止 ⇒ 可用真值法算 ω
-        out.v_T       = Vec3(0.0, 0.0, 0.0);
-        return true;
-    }
-
-    // ---- ICommandSink：接住制导指令（下一拍积分用）----
-    bool send(const GuidanceOutput &o) override {
-        ++sends_;
-        last_ = o;
-        if (o.ctrl == ControlMode::kAcceleration) a_cmd_ = o.a_cmd_ned;
-        else                                      a_cmd_ = Vec3{};   // kVelocity：演示里当"零加速度"处理
-        if (o.sat) ++sat_;
-        if (o.mode == PureGuidanceMode::HOLD) ++hold_;
-        if (o.mode == PureGuidanceMode::SEARCH) ++search_;
-        return true;
-    }
-
-    bool alive() const override { return true; }
-
-    // ---- 给 main 看的量 ----
-    Vec3   pos() const { return p_; }
-    Vec3   vel() const { return v_; }
-    double true_range() const { return norm(plate_ - p_); }
-    const GuidanceOutput &last() const { return last_; }
-    int    sends() const { return sends_; }
-    int    sat() const { return sat_; }
-    int    hold() const { return hold_; }
-    int    search() const { return search_; }
-
-private:
-    // R^T × v（外参是 相机→机体，投影时要用 机体→相机）
-    static Vec3 mat3_mul_transpose(const double R[9], const Vec3 &v) {
-        return Vec3(R[0] * v.x + R[3] * v.y + R[6] * v.z,
-                    R[1] * v.x + R[4] * v.y + R[7] * v.z,
-                    R[2] * v.x + R[5] * v.y + R[8] * v.z);
-    }
-
-    CameraModel cam_;
-    Vec3   p_, v_, plate_;
-    double q_[4] = {1, 0, 0, 0};
-    double dt_;
-    std::uint64_t t_us_;
-    Vec3   a_cmd_{};          // 上一拍指令（用于积分）
-    GuidanceOutput last_{};
-    int sends_ = 0, sat_ = 0, hold_ = 0, search_ = 0;
-};
-
-// ---------------------------------------------------------------- 相机模型
-//
-// 相机约定：x 右 / y 下 / z 前（光轴）。外参给出"相机三轴在机体 FRD 下的坐标"：
-//   camX(右)   → bodyY(右)   = (0,1,0)
-//   camY(下)   → bodyZ(下)   = (0,0,1)
-//   camZ(前/光轴) → bodyX(前) = (1,0,0)
-// ⇒ 行主序 R_body_cam = [0 0 1; 1 0 0; 0 1 0]
-// （真机上的真实值来自 VIO 标定：src/vio/extrinsic/results/final/）
-CameraModel make_camera() {
-    CameraModel c;
-    c.fx = 600.0; c.fy = 600.0; c.cx = 320.0; c.cy = 240.0;
-    const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};
-    for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
-    return c;
-}
 
 // ---------------------------------------------------------------- 极简参数解析
 struct Args {
@@ -170,10 +45,13 @@ struct Args {
     double a_max = 10.0;     // 过载上限（x500 量级）
     int    ticks = 300;      // 总拍数（50 Hz × 6 s）
     bool   verbose = true;
-    bool   realtime = false; // 是否按真实时间节拍（默认全速跑，便于快速迭代）
+    bool   realtime = false; // 按真实时间节拍（默认全速跑，便于快速迭代）
+    const char *record = nullptr;   // 输入录制 CSV
+    const char *out    = nullptr;   // 指令落盘 CSV
+    const char *replay = nullptr;   // 输入回放 CSV
 };
 
-bool parse_uint(const char *s, int &out) {
+bool parse_int(const char *s, int &out) {
     char *end = nullptr;
     const long v = std::strtol(s, &end, 10);
     if (!end || *end != '\0' || v < 0) return false;
@@ -202,6 +80,16 @@ const char *status_name(LoopStatus s) {
     return "?";
 }
 
+const char *mode_name(PureGuidanceMode m) {
+    switch (m) {
+        case PureGuidanceMode::PN:     return "PN  ";
+        case PureGuidanceMode::APN:    return "APN ";
+        case PureGuidanceMode::HOLD:   return "HOLD";
+        case PureGuidanceMode::SEARCH: return "SECH";
+    }
+    return "?   ";
+}
+
 void usage(const char *prog) {
     std::printf(
         "用法: %s [选项]\n"
@@ -210,121 +98,126 @@ void usage(const char *prog) {
         "  --n=X         导航比（默认 4）\n"
         "  --a-max=X     过载上限 m/s²（默认 10）\n"
         "  --ticks=N     总拍数（默认 300）\n"
-        "  --quiet       只打汇总\n",
+        "  --realtime    按真实节拍跑（默认全速）\n"
+        "  --quiet       只打汇总\n"
+        "  --record=F    把每拍输入录成 CSV（合成世界里也能录，便于试格式）\n"
+        "  --out=F       把每拍指令落盘成 CSV\n"
+        "  --replay=F    回放录制好的 CSV（不跑合成世界）\n"
+        "  --help        本帮助\n",
         prog);
 }
 
-}  // namespace
+GuidanceParams make_params(const Args &a) {
+    GuidanceParams p;
+    p.N     = a.N;
+    p.a_max = a.a_max;
+    p.law   = (a.law == 1) ? GuidanceLaw::TPN
+            : (a.law == 2) ? GuidanceLaw::APN
+                           : GuidanceLaw::PPN;
+    // 合成世界给的是真值 ⇒ 可以直接用"真值法"算 ω。
+    // ⚠ 真机必须改成 FROM_LOS_DIFFERENCE（拿不到 v_T）；这一行是"跑 demo"专用的。
+    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+    return p;
+}
 
-// ============================================================================
-int main(int argc, char **argv) {
-    Args args;
-    for (int i = 1; i < argc; ++i) {
-        const char *a = argv[i];
-        auto eq = [a](const char *key) { return std::strncmp(a, key, std::strlen(key)) == 0; };
-        if (eq("--hz="))          { parse_uint(a + 5, args.hz); }
-        else if (eq("--law="))    { parse_uint(a + 6, args.law); }
-        else if (eq("--n="))      { parse_double(a + 4, args.N); }
-        else if (eq("--a-max="))  { parse_double(a + 8, args.a_max); }
-        else if (eq("--ticks="))  { parse_uint(a + 8, args.ticks); }
-        else if (std::strcmp(a, "--realtime") == 0) { args.realtime = true; }
-        else if (std::strcmp(a, "--quiet") == 0) { args.verbose = false; }
-        else if (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0) { usage(argv[0]); return 0; }
-        else { std::printf("未知参数：%s（--help 看用法）\n", a); return 2; }
-    }
-    if (args.hz <= 0 || args.ticks <= 0) {
-        std::printf("参数非法：hz 与 ticks 必须 > 0\n");
-        return 2;
-    }
-
-    // ---- 制导参数 ----
-    GuidanceParams params;
-    params.N     = args.N;
-    params.a_max = args.a_max;
-    params.law   = (args.law == 1) ? GuidanceLaw::TPN
-                 : (args.law == 2) ? GuidanceLaw::APN
-                                   : GuidanceLaw::PPN;
-    // 合成世界给的是真值，可以直接用"真值法"算 ω（真机上必须改成 FROM_LOS_DIFFERENCE）
-    params.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
-
-    // ---- 循环配置 ----
+LoopConfig make_config(const Args &a) {
     LoopConfig cfg;
-    cfg.cam     = make_camera();
-    cfg.loop_hz = args.hz;
+    cfg.cam     = demo_camera();
+    cfg.loop_hz = a.hz;
     // 合成世界每拍都更新，把"过期"阈值放宽一点点，避免浮点边界误判
     cfg.max_sample_age_s = 0.2;
+    return cfg;
+}
 
-    // ---- 场景：无人机在 5 m 高度朝 +x 飞 8 m/s，靶在 40 m 前方偏右 3 m ----
-    const double dt = 1.0 / static_cast<double>(args.hz);
-    SyntheticWorld world(cfg.cam,
-                         Vec3(0.0, 0.0, -5.0),      // 起点：NED，z=-5 ⇒ 高 5 m
-                         Vec3(8.0, 0.0, 0.0),       // 初速：朝北(+x) 8 m/s
-                         Vec3(40.0, 3.0, -5.0),     // 装甲板（同高度，偏右 3 m）
-                         dt);
+// ---------------------------------------------------------------- 打印
+struct PrintCtx {
+    int    every = 5;      // 每几拍打一行
+    double dt    = 0.02;
+};
 
-    GuidanceLoop loop(params, cfg, world, world, world);
-    if (!loop.init()) {
-        std::printf("GuidanceLoop 初始化失败（检查相机模型 / 参数）\n");
-        return 1;
-    }
+void on_tick_print(void *user, int k, const SyntheticWorld &world, const GuidanceOutput &out) {
+    const PrintCtx *ctx = static_cast<const PrintCtx *>(user);
+    if (!ctx || ctx->every <= 0 || (k % ctx->every) != 0) return;
+    std::printf("  %4d  %5.2f  %5.2f  %6.2f   %s  %6.3f   (%6.2f,%6.2f,%6.2f)  %s\n",
+                k, k * ctx->dt, world.true_range(), out.Vc, mode_name(out.mode), out.t_go,
+                out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.sat ? "Y" : ".");
+}
 
-    const char *law_name = (args.law == 1) ? "TPN" : (args.law == 2) ? "APN" : "PPN";
+void print_banner(const Args &a, const char *law_name) {
     std::printf("=== pure-uav 制导主程序（合成世界，闭环）===\n");
-    std::printf("  律=%s  N=%.1f  a_max=%.1f m/s²  loop=%d Hz  拍数=%d\n",
-                law_name, args.N, args.a_max, args.hz, args.ticks);
+    std::printf("  律=%s  N=%.1f  a_max=%.1f m/s²  loop=%d Hz  拍数=%d\n", law_name, a.N,
+                a.a_max, a.hz, a.ticks);
     std::printf("  起点 (0,0,-5) NED，初速 (8,0,0)，靶 (40,3,-5)\n");
     std::printf("  ⚠ 理想点质量积分（无姿态环/重力），目的在验证制导链路\n");
-    if (!args.realtime) {
+    if (!a.realtime) {
         std::printf("  ⚠ 全速模式：降级计时按**墙钟**计（hold_last_max_s / sensor_timeout），\n");
         std::printf("     全速下不会走完 ⇒ 只能看链路是否跑通；要看降级行为请加 --realtime\n");
     }
     std::printf("\n");
     std::printf("   拍   t(s)   R(m)   Vc(m/s)  mode  t_go(s)  a_ned=(x, y, z)      sat\n");
+}
 
-    double min_R = 1e9;
-    int    min_R_tick = -1;
-    int    rc = 0;
+// ============================================================================
+//  ① 合成世界闭环（可顺带录制）
+// ============================================================================
+int run_synthetic(const Args &a) {
+    const double dt = 1.0 / static_cast<double>(a.hz);
 
-    for (int k = 0; k < args.ticks; ++k) {
-        world.step();                                  // 推进真值（用上一拍指令）
-        GuidanceOutput out;
-        const LoopStatus st = loop.run_once(&out);
-        if (st != LoopStatus::kOk) {
-            // kSensorTimeout 在演示里是**正常现象**：无人机飞越目标后目标离开视野，
-            // 目标帧不再更新 ⇒ 超过 sensor_timeout_s。其余状态码才算异常。
-            if (st == LoopStatus::kSensorTimeout) {
-                std::printf("  -- 目标已离开视野（传感器超时），演示结束 --\n");
-                rc = 0;
-            } else {
-                std::printf("  !! run_once 返回 %s，提前结束\n", status_name(st));
-                rc = 1;
-            }
-            break;
-        }
+    SceneConfig sc;
+    sc.dt = dt;
 
-        const double R = world.true_range();
-        if (R < min_R) { min_R = R; min_R_tick = k; }
+    SyntheticWorld world(demo_camera(), sc);
 
-        if (args.verbose && (k % 5 == 0)) {
-            const char *mn = (out.mode == PureGuidanceMode::PN)     ? "PN  "
-                           : (out.mode == PureGuidanceMode::APN)    ? "APN "
-                           : (out.mode == PureGuidanceMode::HOLD)   ? "HOLD"
-                                                                   : "SECH";
-            std::printf("  %4d  %5.2f  %5.2f  %6.2f   %s  %6.3f   (%6.2f,%6.2f,%6.2f)  %s\n",
-                        k, k * dt, R, out.Vc, mn, out.t_go,
-                        out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z,
-                        out.sat ? "Y" : ".");
-        }
+    // ---- 录制（可选）：装饰器包在数据源外面，主循环代码一行不改 ----
+    InputRecorder rec;
+    const bool want_rec = (a.record != nullptr);
+    if (want_rec && !rec.open(a.record)) {
+        std::printf("!! 打不开录制文件：%s\n", a.record);
+        return 1;
+    }
+    RecordingInsSource    rins(world, rec);
+    RecordingTargetSource rtgt(world, rec);
+    IInsSource    &ins = want_rec ? static_cast<IInsSource &>(rins)
+                                  : static_cast<IInsSource &>(world);
+    ITargetSource &tgt = want_rec ? static_cast<ITargetSource &>(rtgt)
+                                  : static_cast<ITargetSource &>(world);
 
-        // 默认**全速**跑；加 --realtime 才按真实时间节拍（便于肉眼观察）
-        if (args.realtime) {
-            std::this_thread::sleep_for(std::chrono::nanoseconds(
-                static_cast<long long>(dt * 1e9)));
-        }
+    // ---- 指令落盘（可选）：一声两处（执行器 + 文件）----
+    CsvAccelSink csv_sink(a.out);
+    if (a.out && !csv_sink.ok()) {
+        std::printf("!! 打不开输出文件：%s\n", a.out);
+        return 1;
+    }
+    TeeSink tee(world, csv_sink);
+    ICommandSink &sink = a.out ? static_cast<ICommandSink &>(tee)
+                               : static_cast<ICommandSink &>(world);
+
+    GuidanceLoop loop(make_params(a), make_config(a), ins, tgt, sink);
+    if (!loop.init()) {
+        std::printf("GuidanceLoop 初始化失败（检查相机模型 / 参数）\n");
+        return 1;
     }
 
+    const char *law_name = (a.law == 1) ? "TPN" : (a.law == 2) ? "APN" : "PPN";
+    print_banner(a, law_name);
+    if (want_rec) std::printf("  录制 → %s\n", a.record);
+    if (a.out)    std::printf("  落盘 → %s\n", a.out);
+    if (want_rec || a.out) std::printf("\n");
+
+    PrintCtx ctx;
+    ctx.every = a.verbose ? 5 : 0;
+    ctx.dt    = dt;
+
+    const ClosedLoopReport rep = run_synthetic_closed_loop(
+        world, loop, a.ticks, a.verbose ? on_tick_print : nullptr, &ctx);
+
+    // ---- 汇总 ----
     const LoopStats &s = loop.stats();
     std::printf("\n=== 汇总 ===\n");
+    if (rep.stop != LoopStatus::kOk) {
+        std::printf("  终止：%s%s\n", status_name(rep.stop),
+                    rep.target_lost ? "（目标离开视野，演示里属正常）" : "");
+    }
     std::printf("  拍数 ticks=%llu  ins=%llu  tgt=%llu  sent=%llu  sink_err=%llu\n",
                 (unsigned long long)s.ticks, (unsigned long long)s.ins_frames,
                 (unsigned long long)s.tgt_frames, (unsigned long long)s.sent,
@@ -333,13 +226,123 @@ int main(int argc, char **argv) {
                 world.sat(), world.hold(), world.search(),
                 (unsigned long long)s.unhealthy, (unsigned long long)s.safe_hover);
     std::printf("  最近距离 min R = %.3f m（第 %d 拍）  末位置 (%.2f, %.2f, %.2f)\n",
-                min_R, min_R_tick, world.pos().x, world.pos().y, world.pos().z);
-    std::printf("  末速度 (%.2f, %.2f, %.2f)  max_latency=%llu us\n",
-                world.vel().x, world.vel().y, world.vel().z,
-                (unsigned long long)s.max_latency_us);
+                rep.min_r, rep.min_r_tick, world.pos().x, world.pos().y, world.pos().z);
+    std::printf("  末速度 (%.2f, %.2f, %.2f)  max_latency=%llu us\n", world.vel().x,
+                world.vel().y, world.vel().z, (unsigned long long)s.max_latency_us);
+    if (want_rec) std::printf("  录制行数 %llu（%s）\n",
+                              (unsigned long long)rec.rows(), rec.ok() ? "ok" : "写失败");
+    if (a.out) std::printf("  落盘行数 %llu（%s）\n",
+                           (unsigned long long)csv_sink.rows(),
+                           csv_sink.ok() ? "ok" : "写失败");
 
-    if (min_R < 1.0) std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 ✅\n");
-    else             std::printf("  ⇒ 最近距离仍 > 1 m：检查初速方向 / a_max / N\n");
+    if (rep.min_r < 1.0)
+        std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 ✅\n");
+    else
+        std::printf("  ⇒ 最近距离仍 > 1 m：检查初速方向 / a_max / N\n");
 
-    return rc;
+    // kSensorTimeout 在演示里是正常现象 ⇒ 退出码 0；其余异常码如实返回
+    return rep.target_lost ? 0 : (rep.stop == LoopStatus::kOk ? 0 : 1);
+}
+
+// ============================================================================
+//  ③ 回放
+// ============================================================================
+int run_replay(const Args &a) {
+    CsvReader reader;
+    if (!reader.open(a.replay)) {
+        std::printf("!! 打不开回放文件：%s\n", a.replay);
+        return 1;
+    }
+
+    CsvReplaySource src(reader);
+    CsvAccelSink csv_sink(a.out);
+    if (a.out && !csv_sink.ok()) {
+        std::printf("!! 打不开输出文件：%s\n", a.out);
+        return 1;
+    }
+    NullSink null_sink;
+    ICommandSink &sink = a.out ? static_cast<ICommandSink &>(csv_sink)
+                               : static_cast<ICommandSink &>(null_sink);
+
+    GuidanceLoop loop(make_params(a), make_config(a), src, src, sink);
+    if (!loop.init()) {
+        std::printf("GuidanceLoop 初始化失败\n");
+        return 1;
+    }
+
+    std::printf("=== 回放 %s ===\n", a.replay);
+    std::printf("  ⚠ 回放全速跑：超时/保持窗口用的是本机时钟，几乎不前进 ⇒\n");
+    std::printf("     这里只验「算得对不对」，降级时机要用 --realtime 或单测 §16\n");
+    std::printf("\n");
+
+    const int ticks = (a.ticks > 0) ? a.ticks : 1000000;
+    int k = 0;
+    LoopStatus stop = LoopStatus::kOk;
+    for (; k < ticks; ++k) {
+        const LoopStatus st = loop.run_once(nullptr);
+        if (st != LoopStatus::kOk) {
+            stop = st;
+            break;
+        }
+        if (src.done()) break;
+        if (a.realtime) {
+            std::this_thread::sleep_for(std::chrono::nanoseconds(
+                static_cast<long long>(1e9 / static_cast<double>(a.hz))));
+        }
+    }
+
+    const LoopStats &s = loop.stats();
+    std::printf("\n=== 汇总 ===\n");
+    if (src.error()) std::printf("  !! CSV 解析问题：%s\n", src.error());
+    std::printf("  回放行数 %llu  循环拍数 %llu  ins=%llu  tgt=%llu  sent=%llu\n",
+                (unsigned long long)src.rows(), (unsigned long long)s.ticks,
+                (unsigned long long)s.ins_frames, (unsigned long long)s.tgt_frames,
+                (unsigned long long)s.sent);
+    std::printf("  饱和 %llu  冻结 %llu  丢失 %llu  降级 %llu  末状态 %s\n",
+                (unsigned long long)s.saturated, (unsigned long long)s.hold,
+                (unsigned long long)s.search, (unsigned long long)s.unhealthy,
+                status_name(stop));
+    if (a.out) std::printf("  落盘行数 %llu（%s）\n",
+                           (unsigned long long)csv_sink.rows(),
+                           csv_sink.ok() ? "ok" : "写失败");
+
+    return (stop == LoopStatus::kOk || src.error() == nullptr) ? 0 : 1;
+}
+
+}  // namespace
+
+// ============================================================================
+int main(int argc, char **argv) {
+    Args a;
+    for (int i = 1; i < argc; ++i) {
+        const char *s = argv[i];
+        auto eq = [s](const char *key) { return std::strncmp(s, key, std::strlen(key)) == 0; };
+        if (eq("--hz="))         { parse_int(s + 5, a.hz); }
+        else if (eq("--law="))   { parse_int(s + 6, a.law); }
+        else if (eq("--n="))     { parse_double(s + 4, a.N); }
+        else if (eq("--a-max=")) { parse_double(s + 8, a.a_max); }
+        else if (eq("--ticks=")) { parse_int(s + 8, a.ticks); }
+        else if (eq("--record=")) { a.record = s + 9; }
+        else if (eq("--out="))   { a.out = s + 6; }
+        else if (eq("--replay=")){ a.replay = s + 9; }
+        else if (std::strcmp(s, "--realtime") == 0) { a.realtime = true; }
+        else if (std::strcmp(s, "--quiet") == 0) { a.verbose = false; }
+        else if (std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0) {
+            usage(argv[0]);
+            return 0;
+        } else {
+            std::printf("未知参数：%s（--help 看用法）\n", s);
+            return 2;
+        }
+    }
+    if (a.hz <= 0 || a.ticks <= 0) {
+        std::printf("参数非法：hz 与 ticks 必须 > 0\n");
+        return 2;
+    }
+    if (a.law < 0 || a.law > 2) {
+        std::printf("参数非法：--law 只能是 0/1/2\n");
+        return 2;
+    }
+
+    return a.replay ? run_replay(a) : run_synthetic(a);
 }

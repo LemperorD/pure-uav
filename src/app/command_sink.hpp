@@ -90,13 +90,9 @@ public:
 };
 
 // 离线：只落盘（回放、回归测试、单元测试用；不连任何硬件）
-class CsvAccelSink final : public ICommandSink {
-public:
-    explicit CsvAccelSink(const char *path);
-    ~CsvAccelSink() override = default;
-    bool send(const GuidanceOutput &out) override;
-    bool alive() const override;
-};
+//   ⚠ 2026-10-21：本类搬到 `csv_io.hpp` 了 —— 实现需要持有一个 `std::FILE*`
+//     和一个行计数，属于"具体实现"，不该写进契约头文件。这里的空实现仍然有效：
+//     `NullSink`（或直接用 `csv_io.hpp` 的 `CsvAccelSink`）。
 
 // 空实现：调试"只想看制导算得对不对、不发指令"时用
 class NullSink final : public ICommandSink {

@@ -32,11 +32,13 @@ target_link_libraries(test_math
     pure_math_tools
 )
 
-# 制导模块单元测试（讲义 §10 手算例 + 三条铁律 + 三律端到端 + §15 不变量 + §16 主循环外壳）
+# 制导模块单元测试（讲义 §10 手算例 + 三条铁律 + 三律端到端 + §15 不变量
+#                  + §16 主循环外壳 + §17 端到端闭环回归 + §18 CSV 录制/回放）
 #   ⚠ 本测试**确实需要仿真**：它用 TruthState / SensorConfig / Sensor 三级逼真度
 #     以及 TargetModel 做端到端，所以链接 guidance_sim（= core + sim）。
 #   ★ 另链接 app_guidance（机载主循环外壳），用于 §16 的 GuidanceLoop 行为验证
-#     （像素反投影 / 降级策略 / 重发）。app_guidance 由 src/app 提供，
+#     （像素反投影 / 降级策略 / 重发）、§17 的闭环回归（复用 synthetic_world）
+#     和 §18 的 CSV 录制→回放（复用 csv_io）。app_guidance 由 src/app 提供，
 #     src/CMakeLists.txt 里 app 必须排在 guidance 之后。
 add_executable(test_guidance
     test_guidance/test_guidance.cpp

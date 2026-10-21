@@ -16,6 +16,8 @@
 //   15. 不变量（内部口径冻结）
 //   16. ★ 机载主循环外壳 GuidanceLoop：像素→世界换算、PN 方向、SEARCH、
 //       降级策略（保持上一条 0.2 s → 零速度悬停）、数据过期、无新帧重发、统计
+//   17. ★ 端到端闭环回归：合成世界里真跑一整段交会（min R / 饱和 / HOLD / 每拍发送）
+//   18. ★ CSV 录制 → 回放：同一份输入喂回同一个 loop，输出必须逐位一致（黑匣子）
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
@@ -24,6 +26,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
 #include "vec3.hpp"
 #include "guidance_types.hpp"
@@ -31,7 +34,9 @@
 #include "guidance.hpp"
 #include "sensor.hpp"
 #include "target.hpp"
-#include "guidance_loop.hpp"   // 机载主循环外壳（§16）
+#include "guidance_loop.hpp"     // 机载主循环外壳（§16）
+#include "synthetic_world.hpp"   // 合成世界 + 闭环驱动（§17）
+#include "csv_io.hpp"            // 录制 / 回放（§18）
 
 using namespace pure_uav;
 
@@ -1153,6 +1158,224 @@ static void test_guidance_loop() {
 }
 
 // ============================================================
+//  17. ★ 端到端闭环回归（合成世界）
+// ============================================================
+//
+// 为什么需要这一组：§1~§16 都是**分段**验证（每个函数各自拿桩数据测）。
+// 分段全绿 ≠ 整条链没坏 —— 2026-10-20 就踩过：HOLD 保持窗口的起算点写错，
+// 分段测试全过，是行为测试才抓到的。
+//
+// 本组把"像素 → 反投影 → 制导核 → 出口换算 → 点质量积分 → 再拍成像素"整条链
+// 跑一整段交会，并断言**闭环结果**（最近距离 / 饱和 / HOLD / 每拍发送）。
+// 任何一环被悄悄改坏（矩阵乘法、单位化、饱和、重发、时间戳），这里都会红。
+namespace {
+
+struct FirstOutCtx {
+    app::GuidanceOutput first{};
+    int n = 0;
+};
+
+void first_out_hook(void *user, int, const app::SyntheticWorld &,
+                    const app::GuidanceOutput &o) {
+    auto *ctx = static_cast<FirstOutCtx *>(user);
+    if (ctx->n++ == 0) ctx->first = o;
+}
+
+struct CollectSink : app::ICommandSink {
+    std::vector<app::GuidanceOutput> outs;
+    bool send(const app::GuidanceOutput &o) override {
+        outs.push_back(o);
+        return true;
+    }
+    bool alive() const override { return true; }
+};
+
+}  // namespace
+
+static void test_closed_loop_regression() {
+    section("17. 端到端闭环回归（合成世界）");
+
+    app::SceneConfig sc;   // 默认场景：5 m 高、朝 +x 8 m/s、靶 40 m 前右偏 3 m
+    sc.dt = 0.02;          // 50 Hz
+
+    app::SyntheticWorld world(app::demo_camera(), sc);
+
+    GuidanceParams p;
+    p.law   = GuidanceLaw::PPN;
+    p.N     = 4.0;
+    p.a_max = 10.0;
+    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+
+    app::LoopConfig cfg;
+    cfg.cam              = app::demo_camera();
+    cfg.loop_hz          = 50;
+    cfg.max_sample_age_s = 0.2;   // 合成世界每拍都更新
+
+    app::GuidanceLoop loop(p, cfg, world, world, world);
+    ok(loop.init(), "§17 init 成功");
+
+    FirstOutCtx ctx;
+    const app::ClosedLoopReport rep =
+        app::run_synthetic_closed_loop(world, loop, 400, first_out_hook, &ctx);
+
+    // ---- 闭环结果 ----
+    ok(rep.ticks > 200, "跑够拍数（> 200 拍）");
+    ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；2026-10-20 实测 0.033）");
+    ok(rep.min_r > 0.0, "最近距离 > 0（不是退化成一出发就在靶点）");
+    ok(rep.min_r_tick > 100, "最近距离出现在交会后段（> 100 拍）");
+    ok(rep.stop == app::LoopStatus::kOk, "跑满拍数、没被异常状态打断");
+    ok(loop.stats().tgt_frames < loop.stats().ticks,
+       "后段目标飞越出画：目标帧数 < 拍数（否则说明像素一直有效，几何写错了）");
+
+    // ---- 指令链路（算法一改就红）----
+    ok(ctx.n > 200, "每拍都产出了指令（hook 被回调）");
+    ok(ctx.first.mode == PureGuidanceMode::PN, "首拍 mode = PN");
+    ok(ctx.first.a_cmd_ned.y > 0.3, "首拍加速度指向靶侧（+y）");
+    // ★ PPN 的加速度**垂直于速度**（不是垂直于视线）：速度沿 NED +x ⇒ 沿 x 的分量必须为 0。
+    //   2026-10-21 实测 a_ned=(0.000000, 0.481135, 0.000000)：
+    //   4 × |v_M|(8) × |ω|(0.015035) = 0.4811 ⇒ 与被测实现逐位吻合。
+    near(ctx.first.a_cmd_ned.x, 0.0, 1e-12, "首拍沿速度方向的分量为 0（PPN 垂直于速度）");
+    near(ctx.first.a_cmd_ned.z, 0.0, 1e-12, "首拍 z = 0（共面，不出纵向加速度）");
+
+    // ---- PX4 的硬要求：指令必须每拍都发（不是"只在有新数据时才发"）----
+    const app::LoopStats &s = loop.stats();
+    ok(s.sent == s.ticks, "每拍都发出指令（sent == ticks）");
+    ok(s.sink_errors == 0, "无发送失败");
+    ok(s.saturated == 0, "全程不饱和（a_max=10 够用）");
+    ok(world.hold() > 0, "末端进入 HOLD（t_go 变小后冻结）");
+}
+
+// ============================================================
+//  18. ★ CSV 录制 → 回放（黑匣子）
+// ============================================================
+//
+// 验证三件事：
+//   ① 录制：装饰器包在数据源外面，主循环一行不用改就能落盘（行数 == 拍数）；
+//   ② 格式：`%.17g` 存盘 ⇒ 读回来**逐位一致**（不丢精度）；
+//   ③ 回放：同一份输入喂回**同一个 loop**，输出必须与录制时逐位相同。
+//      ⇒ 以后改坏了任何一步（反投影、饱和、重发），拿历史数据一放就知道。
+namespace {
+
+// CSV 路径放在当前工作目录（测试从 bin/test 运行），结束会删掉
+const char *kRoundTripCsv = "test_guidance_roundtrip.csv";
+
+GuidanceParams csv_params() {
+    GuidanceParams p;
+    p.law   = GuidanceLaw::PPN;
+    p.N     = 4.0;
+    p.a_max = 10.0;
+    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+    return p;
+}
+
+app::LoopConfig csv_config() {
+    app::LoopConfig cfg;
+    cfg.cam              = app::demo_camera();
+    cfg.loop_hz          = 50;
+    cfg.max_sample_age_s = 0.2;
+    return cfg;
+}
+
+}  // namespace
+
+static void test_csv_roundtrip() {
+    section("18. CSV 录制 → 回放（黑匣子）");
+
+    const int n = 20;
+    CollectSink rec_outs;
+
+    // ---- ① 录制：跑 n 拍，输入落盘，同时收集输出 ----
+    {
+        app::SceneConfig sc;
+        sc.dt = 0.02;
+        app::SyntheticWorld world(app::demo_camera(), sc);
+
+        app::InputRecorder rec;
+        ok(rec.open(kRoundTripCsv), "§18 打开录制文件");
+        if (!rec.ok()) return;   // 打不开就没法继续（不给假绿）
+
+        app::RecordingInsSource    rins(world, rec);
+        app::RecordingTargetSource rtgt(world, rec);
+        app::TeeSink               tee(world, rec_outs);   // 执行器 + 收集
+
+        app::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
+        ok(loop.init(), "§18 录制 loop init");
+
+        for (int k = 0; k < n; ++k) {
+            world.step();
+            loop.run_once(nullptr);
+        }
+        ok(rec.rows() == static_cast<std::uint64_t>(n), "录制行数 = 拍数");
+        ok(rec_outs.outs.size() == static_cast<std::size_t>(n), "收集到 n 条指令");
+        rec.close();   // ★ 必须 close 才会 flush，回读才看得到内容
+        ok(rec.ok(), "录制无写错误");
+    }
+
+    // ---- ② 回读：格式与字段 ----
+    {
+        app::CsvReader rd;
+        ok(rd.open(kRoundTripCsv), "§18 打开回读文件");
+        app::CsvRow row;
+        ok(rd.next(row), "读到第一行");
+        ok(row.tick == 0, "首行 tick = 0");
+        ok(row.ins_new, "首行 ins_new = 1（合成世界每拍都有新帧）");
+        ok(row.tgt_new, "首行 tgt_new = 1");
+        ok(row.ins.boot_us == 1020000ull, "首行时间戳 = t0 + dt = 1.02 s（飞控 boot µs）");
+        near(row.ins.p.x, 0.16, 1e-12, "首行 p_n = 8 m/s × 0.02 s = 0.16 m");
+        near(row.ins.p.z, -5.0, 1e-12, "首行高度不变（z=-5）");
+        near(row.ins.q[0], 1.0, 1e-15, "首行 qw = 1（机体与局部系对齐）");
+        ok(row.tgt.present, "首行 present = 1");
+        ok(row.tgt.has_range, "首行 has_range = 1");
+        ok(row.tgt.range_m > 39.0 && row.tgt.range_m < 41.0, "首行距离 ≈ 40 m");
+        ok(rd.next(row), "读到第二行");
+        ok(row.tick == 1, "第二行 tick = 1");
+        ok(rd.rows() == 2, "已解析 2 行");
+        while (rd.next(row)) {}
+        ok(rd.rows() == static_cast<std::uint64_t>(n), "总行数 = 拍数");
+        ok(rd.error() == nullptr, "无解析错误");
+    }
+
+    // ---- ③ 回放：同一份输入 → 同一个 loop ⇒ 输出必须逐位一致 ----
+    {
+        app::CsvReader rd;
+        ok(rd.open(kRoundTripCsv), "§18 重新打开回放文件");
+        app::CsvReplaySource src(rd);
+
+        CollectSink replay_outs;
+        app::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
+        ok(loop.init(), "§18 回放 loop init");
+
+        for (int k = 0; k < n && !src.done(); ++k) loop.run_once(nullptr);
+
+        ok(src.rows() == static_cast<std::uint64_t>(n), "回放读完 n 行");
+        ok(replay_outs.outs.size() == rec_outs.outs.size(), "指令条数一致");
+
+        bool same = (replay_outs.outs.size() == rec_outs.outs.size());
+        int  first_bad = -1;
+        if (same) {
+            for (std::size_t i = 0; i < replay_outs.outs.size(); ++i) {
+                const app::GuidanceOutput &a = rec_outs.outs[i];
+                const app::GuidanceOutput &b = replay_outs.outs[i];
+                if (a.boot_us != b.boot_us || a.ctrl != b.ctrl || a.mode != b.mode ||
+                    a.valid != b.valid || a.sat != b.sat || a.health != b.health ||
+                    a.a_cmd_ned.x != b.a_cmd_ned.x || a.a_cmd_ned.y != b.a_cmd_ned.y ||
+                    a.a_cmd_ned.z != b.a_cmd_ned.z || a.a_cmd_norm != b.a_cmd_norm ||
+                    a.t_go != b.t_go || a.Vc != b.Vc || a.R != b.R ||
+                    a.lam_dot != b.lam_dot) {
+                    same = false;
+                    first_bad = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (first_bad >= 0) std::printf("    首个不一致的指令序号：%d\n", first_bad);
+        ok(same, "录制与回放的指令逐位一致（%.17g 存盘不丢精度）");
+    }
+
+    std::remove(kRoundTripCsv);
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -1172,6 +1395,8 @@ int main() {
     test_freeze_criterion();
     test_invariants();
     test_guidance_loop();
+    test_closed_loop_regression();
+    test_csv_roundtrip();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);

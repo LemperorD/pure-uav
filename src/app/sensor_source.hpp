@@ -94,13 +94,9 @@ public:
 };
 
 // 离线：从录制 CSV 回放（回归测试/复盘用，不连任何硬件）
-class CsvTargetSource final : public ITargetSource {
-public:
-    explicit CsvTargetSource(const char *path);
-    ~CsvTargetSource() override = default;
-    bool poll(TargetSample &out) override;
-    bool alive() const override;
-};
+//   ⚠ 2026-10-21：搬到 `csv_io.hpp` 了。原因：回放需要**同时**给出飞控帧和目标帧
+//     （CSV 一行就是"一拍的两半"），拆成两个类反而要共享文件指针。
+//     ⇒ `csv_io.hpp` 里的 `CsvReplaySource` 同时实现 IInsSource 与 ITargetSource。
 
 }  // namespace app
 }  // namespace pure_uav
