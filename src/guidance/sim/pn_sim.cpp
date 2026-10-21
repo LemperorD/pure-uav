@@ -96,7 +96,7 @@ static SimResult run_sim(const Scenario &s, const char *csv_path) {
 
     Vec3 p_M = s.p_M0, v_M = s.v_M0;
     GuidanceMemory mem;
-    GuidanceCmd cmd;
+    PureGuidanceCmd cmd;
     GuidanceState st;             // 传感器最近一次输出（两次更新间保持）
     Sensor sensor(s.sensor);      // 每个场景独立的传感器（自带 RNG / 延迟缓冲）
     TargetModel tmodel(s.target); // 目标真值模型（预生成轨迹，只依赖 t）

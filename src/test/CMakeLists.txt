@@ -25,16 +25,21 @@ message(${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(test_math
     test_common/test_math.cpp
 )
-target_include_directories(test_math PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/common_libs/include
-)
+# 2026-10-20：删掉了指向 ${CMAKE_CURRENT_SOURCE_DIR}/common_libs/include 的**死路径**
+# （src/test/ 下并没有 common_libs 目录）；include 目录由 pure_math_tools 的 PUBLIC
+# include 目录传递，无需在此重复写。
 target_link_libraries(test_math
     pure_math_tools
 )
 
-# 制导模块单元测试（讲义 §10 手算例 + 三条铁律 + 三律端到端 + §15 不变量）
+# 制导模块单元测试（讲义 §10 手算例 + 三条铁律 + 三律端到端 + §15 不变量
+#                  + §16 主循环外壳 + §17 端到端闭环回归 + §18 CSV 录制/回放）
 #   ⚠ 本测试**确实需要仿真**：它用 TruthState / SensorConfig / Sensor 三级逼真度
 #     以及 TargetModel 做端到端，所以链接 guidance_sim（= core + sim）。
+#   ★ 另链接 app_guidance（机载主循环外壳），用于 §16 的 GuidanceLoop 行为验证
+#     （像素反投影 / 降级策略 / 重发）、§17 的闭环回归（复用 synthetic_world）
+#     和 §18 的 CSV 录制→回放（复用 csv_io）。app_guidance 由 src/app 提供，
+#     src/CMakeLists.txt 里 app 必须排在 guidance 之后。
 add_executable(test_guidance
     test_guidance/test_guidance.cpp
 )
@@ -44,15 +49,14 @@ target_include_directories(test_guidance PUBLIC
 target_link_libraries(test_guidance
     guidance_core
     guidance_sim
+    app_guidance
 )
 
-# MAVLink 单位换算单元测试（解析侧接口适配层）
+# MAVLink 单位换算单元测试（公共件；2026-10-20 随库迁至 src/common/common_libs）
 add_executable(test_mavlink_units
-    test_interface/test_mavlink_units.cpp
+    test_adapter/test_mavlink_units.cpp
 )
-target_include_directories(test_mavlink_units PUBLIC
-    ${CMAKE_SOURCE_DIR}/src/interface/mavlink_units/include
-)
+# include 目录由 mavlink_units 的 PUBLIC include 目录传递。
 target_link_libraries(test_mavlink_units
     mavlink_units
 )
@@ -60,22 +64,25 @@ target_link_libraries(test_mavlink_units
 # 数据对齐适配层单元测试（外部口径 → 内部口径）
 #   覆盖：NED↔ENU / 时间对齐与回绕 / 姿态（外部机体系→光轴系）/ 四元数交叉验证
 #         / 组装 GuidanceState / 上游模拟器（多口径同一场景）/ 不变量自检
-#   ★ 链接要求：state_adapter + mavlink_units + **guidance_core**
+#   ★ 链接要求：state_adapter + mavlink_units + pure_vec3 + **guidance_core**
 #     —— 本测试属于**真机路径**，只该依赖核心。它需要 guidance_step() 校验不变量、
 #        以及 quat_rotate_vec 做交叉验证；这两样都在 guidance_core 里。
+#         2026-10-20 起 state_adapter 已从 src/interface 迁到 src/guidance/adapter，
+#         Vec3 迁到 src/common（pure_vec3），故 include 路径同步更新。
 #     ⚠ 不要链接 guidance_sim / guidance_libs —— 那会把仿真拖进真机路径的依赖，
 #        正是 2026-10-16 把四元数工具从 sensor.* 移出核心所要修掉的问题。
 add_executable(test_state_adapter
-    test_interface/test_state_adapter.cpp
+    test_adapter/test_state_adapter.cpp
 )
 target_include_directories(test_state_adapter PUBLIC
-    ${CMAKE_SOURCE_DIR}/src/interface/state_adapter/include
-    ${CMAKE_SOURCE_DIR}/src/interface/mavlink_units/include
+    ${CMAKE_SOURCE_DIR}/src/guidance/adapter/include
+    ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
     ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
 )
 target_link_libraries(test_state_adapter
     state_adapter
     mavlink_units
+    pure_vec3
     guidance_core
 )
 

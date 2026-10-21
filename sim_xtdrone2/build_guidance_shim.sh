@@ -18,20 +18,26 @@ set -e
 cd "$(dirname "$0")"
 
 REPO_LIBS="/mnt/c/Users/wangyipeng/Desktop/RM工作/RM无人机制导律/pure-uav-main/src/guidance/guidance_libs"
+# ★ 2026-10-20：`vec3.hpp` 已迁到 src/common/common_libs/include/（不再在 guidance_libs/include）
+#   语义没变，但只从 guidance_libs 拷头文件就会漏掉它 ⇒ 这里显式多拷一处。
+REPO_COMMON="/mnt/c/Users/wangyipeng/Desktop/RM工作/RM无人机制导律/pure-uav-main/src/common/common_libs"
 
 # 1) 刷新源码副本（/mnt/c 不可读时退回本地已有副本）
 if [ -d "$REPO_LIBS" ]; then
     mkdir -p guidance_libs/include guidance_libs/src
     cp -f "$REPO_LIBS/include/"*.hpp guidance_libs/include/ 2>/dev/null || true
     cp -f "$REPO_LIBS/src/"*.cpp     guidance_libs/src/     2>/dev/null || true
-    echo "已从 /mnt/c 仓库刷新 guidance_libs 源码"
+    if [ -d "$REPO_COMMON/include" ]; then
+        cp -f "$REPO_COMMON/include/vec3.hpp" guidance_libs/include/ 2>/dev/null || true
+    fi
+    echo "已从 /mnt/c 仓库刷新 guidance_libs 源码（含 common 的 vec3.hpp）"
 else
     echo "（/mnt/c 仓库不可读，使用本地 guidance_libs 副本）"
 fi
 
 if [ ! -f guidance_libs/src/target.cpp ] || [ ! -f pure_guidance_shim.cpp ] \
-   || [ ! -f guidance_libs/src/quat.cpp ]; then
-    echo "!! 缺源码（guidance_libs/ 或 pure_guidance_shim.cpp），请让助手同步" >&2
+   || [ ! -f guidance_libs/src/quat.cpp ] || [ ! -f guidance_libs/include/vec3.hpp ]; then
+    echo "!! 缺源码（guidance_libs/ 或 pure_guidance_shim.cpp 或 vec3.hpp），请让助手同步" >&2
     exit 1
 fi
 
