@@ -18,6 +18,7 @@
 //       降级策略（保持上一条 0.2 s → 零速度悬停）、数据过期、无新帧重发、统计
 //   17. ★ 端到端闭环回归：合成世界里真跑一整段交会（min R / 饱和 / HOLD / 每拍发送）
 //   18. ★ CSV 录制 → 回放：同一份输入喂回同一个 loop，输出必须逐位一致（黑匣子）
+//       + 句柄生命周期体检（重复 open / 幂等 close / 关闭后不碰野句柄 / 刷盘）
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
@@ -27,6 +28,26 @@
 #include <cstdio>
 #include <thread>
 #include <vector>
+
+// 句柄泄漏检测（§18 ⑤）：Windows 用 GetProcessHandleCount，Linux 数 /proc/self/fd
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+// windows.h（windef.h）把 near/far 定义成了宏，会和本文件的断言函数 near() 冲突
+#  ifdef near
+#    undef near
+#  endif
+#  ifdef far
+#    undef far
+#  endif
+#else
+#  include <dirent.h>
+#endif
 
 #include "vec3.hpp"
 #include "guidance_types.hpp"
@@ -1258,6 +1279,24 @@ namespace {
 
 // CSV 路径放在当前工作目录（测试从 bin/test 运行），结束会删掉
 const char *kRoundTripCsv = "test_guidance_roundtrip.csv";
+const char *kCmdCsv       = "test_guidance_cmd.csv";
+
+// 当前进程打开着的句柄数（-1 = 该平台取不到）。
+// Windows：内核句柄数（FILE* / 串口 fd 都算）；Linux：/proc/self/fd 条目数。
+long count_open_handles() {
+#ifdef _WIN32
+    DWORD n = 0;
+    if (!::GetProcessHandleCount(::GetCurrentProcess(), &n)) return -1;
+    return static_cast<long>(n);
+#else
+    DIR *d = ::opendir("/proc/self/fd");
+    if (!d) return -1;
+    long n = 0;
+    while (::readdir(d) != nullptr) ++n;
+    ::closedir(d);
+    return n;
+#endif
+}
 
 GuidanceParams csv_params() {
     GuidanceParams p;
@@ -1372,7 +1411,140 @@ static void test_csv_roundtrip() {
         ok(same, "录制与回放的指令逐位一致（%.17g 存盘不丢精度）");
     }
 
+    // ---- ④ 句柄生命周期（内存/资源泄漏体检）----
+    // 本模块唯一"手工持有"的资源就是 std::FILE*（没有 new/delete）。
+    // 这组专门钉住三件容易写错、且**长期运行会累积**的事：
+    //   ① 重复 open() 必须先关旧句柄（否则每调一次漏一个 FILE*）；
+    //   ② close() 幂等（析构里再关一次不能 double-free）；
+    //   ③ close() 之后 next()/send() 不能去碰野句柄。
+    {
+        app::CsvReader rd;
+        ok(rd.open(kRoundTripCsv), "④ 首次 open");
+        ok(rd.is_open(), "④ is_open = true");
+        ok(rd.open(kRoundTripCsv), "④ 重复 open 成功（内部先关旧句柄，不泄漏）");
+        app::CsvRow row;
+        ok(rd.next(row), "④ 重复 open 后仍能读");
+        ok(row.tick == 0, "④ 读到的仍是文件开头（rows_ 已复位）");
+        rd.close();
+        ok(!rd.is_open(), "④ close 后 is_open = false");
+        ok(!rd.next(row), "④ close 后 next() 返回 false（不碰已关闭的句柄）");
+        rd.close();                                   // 幂等：二次 close 必须安全
+        ok(rd.open(kRoundTripCsv), "④ close 后可以重新 open");
+        ok(rd.next(row), "④ 重开后能正常读");
+        ok(rd.error() == nullptr, "④ 全程无错误信息");
+    }
+    {
+        app::InputRecorder rec;
+        ok(rec.open(kRoundTripCsv), "④ 录制器首次 open");
+        ok(rec.is_open(), "④ 录制器 is_open = true");
+        ok(rec.open(kRoundTripCsv), "④ 录制器重复 open 成功（不泄漏）");
+        rec.close();
+        rec.close();                                  // 幂等
+        ok(!rec.is_open(), "④ 录制器 close 后 is_open = false");
+        ok(rec.ok(), "④ 五次 open/close 后仍无 I/O 错误（状态没被弄脏）");
+    }
+    {
+        // close() 必须把数据真的刷到磁盘 —— 否则"进程内立刻回读"会读到半截文件
+        app::CsvAccelSink sink(kCmdCsv);
+        ok(sink.alive(), "④ 落盘器打开成功");
+        app::GuidanceOutput o;
+        o.boot_us = 1234;
+        o.a_cmd_ned = Vec3(1.0, 2.0, 3.0);
+        ok(sink.send(o), "④ 写入一条指令");
+        ok(sink.send(o), "④ 再写一条");
+        sink.close();
+        ok(!sink.alive(), "④ close 后 alive = false");
+        ok(sink.ok(), "④ close 后 ok() 仍为 true（成功与否与是否打开无关）");
+        ok(sink.rows() == 2, "④ 行数计数 = 2");
+    }
+    {
+        // 刷盘后可读回：两条数据行 + 两行 '#' 表头
+        std::FILE *f = std::fopen(kCmdCsv, "rb");
+        ok(f != nullptr, "④ 刷盘后文件可打开（说明 close 真的落盘了）");
+        if (f) {
+            char line[512];
+            int lines = 0, data_lines = 0;
+            while (std::fgets(line, sizeof(line), f)) {
+                ++lines;
+                if (line[0] != '#' && line[0] != '\n') ++data_lines;
+            }
+            std::fclose(f);
+            ok(lines == 4, "④ 共 4 行（2 行表头 + 2 行数据）");
+            ok(data_lines == 2, "④ 其中 2 行数据");
+        }
+    }
+    {
+        // 失败路径必须如实报告：ok() 说谎会让上层误以为"黑匣子在录"，
+        // 真出事时才发现没有数据。
+        app::CsvAccelSink bad("no_such_dir_xyz/out.csv");
+        ok(!bad.ok(), "④ 打不开落盘路径 → ok() = false");
+        ok(!bad.alive(), "④ 打不开落盘路径 → alive() = false");
+        app::GuidanceOutput o;
+        ok(!bad.send(o), "④ 打不开落盘路径 → send() 返回 false（上层据此计 sink_err）");
+
+        app::CsvReader rd;
+        app::CsvRow row;
+        ok(!rd.open("no_such_dir_xyz/in.csv"), "④ 读不存在的文件 → open 返回 false");
+        ok(rd.error() != nullptr, "④ 并给出错误原因（error() 非空）");
+        ok(!rd.next(row), "④ 未打开时 next() 直接返回 false（不碰空句柄）");
+    }
+
+    // ---- ⑤ 句柄计数（真·泄漏检测：跑 N 轮看句柄数是否增长）----
+    //
+    // 上面 ④ 只能证明"行为对"，证明不了"没泄漏"。这里直接量：
+    // 反复 open/write/read/close 200 轮，进程句柄数必须回到原地。
+    // 2026-10-23 实测：修 CsvReader::open（原来重复 open 会漏句柄）之后，
+    // 200 轮前后句柄数**完全相同**；修复前每轮 +1。
+    {
+        // 预热 5 轮，把 CRT/运行时的惰性句柄（stdio 缓冲等）先建立起来
+        for (int i = 0; i < 5; ++i) {
+            app::InputRecorder rec;
+            rec.open(kCmdCsv);
+            app::InsSample ins;
+            app::TargetSample tgt;
+            rec.on_ins(ins, true);
+            rec.on_target(tgt, true);
+            rec.close();
+            app::CsvReader rd;
+            rd.open(kCmdCsv);
+            app::CsvRow row;
+            while (rd.next(row)) {}
+            rd.close();
+        }
+
+        const long before = count_open_handles();
+        int failures = 0;
+        const int kRounds = 200;
+        for (int i = 0; i < kRounds; ++i) {
+            app::InputRecorder rec;                    // 析构自动 close
+            if (!rec.open(kCmdCsv)) { ++failures; continue; }
+            // ★ 重复 open：正是"重启/换文件"时最容易漏句柄的地方
+            //   （修复前 CsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
+            if (!rec.open(kCmdCsv)) { ++failures; continue; }
+            app::InsSample ins;
+            app::TargetSample tgt;
+            rec.on_ins(ins, true);
+            rec.on_target(tgt, true);
+
+            app::CsvReader rd;                          // 析构自动 close
+            if (!rd.open(kCmdCsv)) { ++failures; continue; }
+            if (!rd.open(kCmdCsv)) { ++failures; continue; }   // ★ 重复 open
+            app::CsvRow row;
+            while (rd.next(row)) {}
+        }
+        const long after = count_open_handles();
+
+        if (before < 0 || after < 0) {
+            std::printf("    （本平台取不到句柄数，跳过）\n");
+        } else {
+            std::printf("    [handle] 200 轮前 %ld / 后 %ld\n", before, after);
+            ok(after <= before, "⑤ 200 轮 open/close 后句柄数没有增长（无句柄泄漏）");
+        }
+        ok(failures == 0, "⑤ 200 轮全部成功（没有中途打开失败）");
+    }
+
     std::remove(kRoundTripCsv);
+    std::remove(kCmdCsv);
 }
 
 // ============================================================

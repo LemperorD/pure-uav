@@ -124,6 +124,10 @@ private:
 };
 
 // ---------------------------------------------------------------- 读取
+//
+// 资源管理：持有 `FILE*`；析构自动关闭；`open()` 可重复调用（内部**先关旧句柄**，
+// 不会泄漏）；`close()` 幂等（重复调用安全）。拷贝/移动全部禁用
+// ⇒ 不可能出现"两个对象共用一个句柄"的双重关闭。
 class CsvReader {
 public:
     CsvReader() = default;
@@ -131,13 +135,18 @@ public:
     CsvReader(const CsvReader &) = delete;
     CsvReader &operator=(const CsvReader &) = delete;
 
+    // 打开（会先关闭上一个文件）。失败返回 false，`error()` 给出原因。
     bool open(const char *path);
+
+    // 显式关闭（可重复调用）。之后 `next()` 一律返回 false。
+    void close();
 
     // 读下一行（跳过注释/空行）。false = 到末尾或解析出错。
     bool next(CsvRow &row);
 
     std::uint64_t rows() const { return rows_; }
     bool ok() const { return ok_; }
+    bool is_open() const { return f_ != nullptr; }
     const char *error() const { return err_[0] ? err_ : nullptr; }
 
 private:
@@ -196,7 +205,13 @@ public:
     bool send(const GuidanceOutput &out) override;
     bool alive() const override { return f_ != nullptr && ok_; }
 
-    bool ok() const { return f_ != nullptr && ok_; }
+    // 显式关闭（= flush + fclose，可重复调用）。想在进程内立刻读回这份 CSV
+    // （测试 / 复盘工具）时先调它，否则数据还在 stdio 缓冲里。
+    void close();
+
+    // 全程无 I/O 错误（与"现在是否打开"无关：close 之后仍可查这次落盘是否成功）
+    bool ok() const { return ok_; }
+    bool is_open() const { return f_ != nullptr; }
     std::uint64_t rows() const { return rows_; }
 
 private:

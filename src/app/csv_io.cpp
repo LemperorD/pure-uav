@@ -167,18 +167,30 @@ bool RecordingTargetSource::poll(TargetSample &out) {
 //  CsvReader
 // ============================================================================
 
-CsvReader::~CsvReader() {
-    if (f_) std::fclose(f_);
+CsvReader::~CsvReader() { close(); }
+
+void CsvReader::close() {
+    if (f_) {
+        std::fclose(f_);
+        f_ = nullptr;
+    }
 }
 
 bool CsvReader::open(const char *path) {
+    close();               // ★ 先释放上一个句柄：重复 open 不会泄漏 FILE*
     ok_ = true;
     rows_ = 0;
     err_[0] = '\0';
-    if (!path || *path == '\0') return false;
+
+    if (!path || *path == '\0') {
+        std::snprintf(err_, sizeof(err_), "路径为空");
+        ok_ = false;
+        return false;
+    }
     f_ = std::fopen(path, "rb");
     if (!f_) {
         std::snprintf(err_, sizeof(err_), "打不开文件：%s", path);
+        ok_ = false;
         return false;
     }
     return true;
@@ -320,17 +332,25 @@ bool CsvReplaySource::poll(TargetSample &out) {
 // ============================================================================
 
 CsvAccelSink::CsvAccelSink(const char *path) {
+    ok_ = false;                        // 先悲观：打不开就不算 ok（否则 ok() 会说谎）
     if (!path || *path == '\0') return;
     f_ = std::fopen(path, "wb");
     if (!f_) return;
     if (std::fputs(kOutputHeader, f_) < 0) {
         std::fclose(f_);
         f_ = nullptr;
+        return;
     }
+    ok_ = true;
 }
 
-CsvAccelSink::~CsvAccelSink() {
-    if (f_) std::fclose(f_);
+CsvAccelSink::~CsvAccelSink() { close(); }
+
+void CsvAccelSink::close() {
+    if (f_) {
+        if (std::fclose(f_) != 0) ok_ = false;
+        f_ = nullptr;
+    }
 }
 
 bool CsvAccelSink::send(const GuidanceOutput &o) {
