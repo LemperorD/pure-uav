@@ -3,7 +3,7 @@
 #  编译 pure_guidance_shim → libpure_guidance.so（WSL / Linux 侧）
 #
 #  流程：
-#    1) 若 /mnt/c 仓库可读 → 从中刷新本地 guidance_libs 源码副本
+#    1) 若 /mnt/d 仓库可读 → 从中刷新本地 guidance_libs 源码副本
 #       （单一真源始终在仓库里；本地副本只是编译工作区）；
 #    2) g++ 编成 .so；
 #    3) 跑离线自检 test_guidance_shim.py（不需要 ROS / 仿真）。
@@ -17,12 +17,15 @@
 set -e
 cd "$(dirname "$0")"
 
-REPO_LIBS="/mnt/c/Users/wangyipeng/Desktop/RM工作/RM无人机制导律/pure-uav-main/src/guidance/guidance_libs"
+# 仓库根：默认 D 盘路径；搬家/换机器时可用环境变量覆盖：
+#   PURE_UAV_REPO=/path/to/pure-uav-main bash build_guidance_shim.sh
+REPO_ROOT="${PURE_UAV_REPO:-/mnt/d/Users/Desktop/RM工作/RM无人机制导律/pure-uav-main}"
+REPO_LIBS="$REPO_ROOT/src/guidance/guidance_libs"
 # ★ 2026-10-20：`vec3.hpp` 已迁到 src/common/common_libs/include/（不再在 guidance_libs/include）
 #   语义没变，但只从 guidance_libs 拷头文件就会漏掉它 ⇒ 这里显式多拷一处。
-REPO_COMMON="/mnt/c/Users/wangyipeng/Desktop/RM工作/RM无人机制导律/pure-uav-main/src/common/common_libs"
+REPO_COMMON="$REPO_ROOT/src/common/common_libs"
 
-# 1) 刷新源码副本（/mnt/c 不可读时退回本地已有副本）
+# 1) 刷新源码副本（仓库不可读时退回本地已有副本，但会**明确告警**）
 if [ -d "$REPO_LIBS" ]; then
     mkdir -p guidance_libs/include guidance_libs/src
     cp -f "$REPO_LIBS/include/"*.hpp guidance_libs/include/ 2>/dev/null || true
@@ -30,9 +33,14 @@ if [ -d "$REPO_LIBS" ]; then
     if [ -d "$REPO_COMMON/include" ]; then
         cp -f "$REPO_COMMON/include/vec3.hpp" guidance_libs/include/ 2>/dev/null || true
     fi
-    echo "已从 /mnt/c 仓库刷新 guidance_libs 源码（含 common 的 vec3.hpp）"
+    echo "已从仓库刷新 guidance_libs 源码（含 common 的 vec3.hpp）：$REPO_LIBS"
 else
-    echo "（/mnt/c 仓库不可读，使用本地 guidance_libs 副本）"
+    echo "!! 警告：找不到仓库路径：$REPO_LIBS" >&2
+    echo "!! 若继续，会使用本地已有 guidance_libs 副本（可能过期，测试结果不可信）。" >&2
+    echo "!! 确认要这样跑：ALLOW_LOCAL_COPY=1 bash build_guidance_shim.sh" >&2
+    if [ "${ALLOW_LOCAL_COPY:-0}" != "1" ]; then
+        exit 1
+    fi
 fi
 
 if [ ! -f guidance_libs/src/target.cpp ] || [ ! -f pure_guidance_shim.cpp ] \
