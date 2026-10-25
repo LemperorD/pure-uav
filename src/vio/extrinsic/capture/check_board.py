@@ -14,8 +14,8 @@
 
 用法：
     python capture/check_board.py                      # 用最近一次取景体检拍的图
-    python capture/check_board.py --dir ../data/calib/session09/cam0
-    python capture/check_board.py --dir ../data/calib/session09/cam0 --target configs/checkerboard.yaml
+    python capture/check_board.py --dir data/session09/cam0
+    python capture/check_board.py --dir data/session09/cam0 --target configs/checkerboard.yaml
 """
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ import cv2
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
 
-from capture import image_health                          # noqa: E402
+import image_health                                        # noqa: E402
 
-DEFAULT_DIR = ROOT.parent / "data" / "_framing_check" / "cam0"
+DEFAULT_DIR = ROOT / "data" / "_framing_check" / "cam0"
 
 
 def images_of(path: Path):

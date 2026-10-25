@@ -11,6 +11,7 @@ from collections import deque
 import ctypes
 import fcntl
 import json
+import math
 import mmap
 import os
 from pathlib import Path
@@ -32,12 +33,23 @@ class V4L2Control(ctypes.Structure):
     _fields_ = [("id", ctypes.c_uint32), ("value", ctypes.c_int32)]
 
 
+class V4L2QueryCtrl(ctypes.Structure):
+    """struct v4l2_queryctrl —— 用来问驱动"这个控件真实的范围是多少"。"""
+    _fields_ = [("id", ctypes.c_uint32), ("type", ctypes.c_uint32),
+                ("name", ctypes.c_char * 32),
+                ("minimum", ctypes.c_int32), ("maximum", ctypes.c_int32),
+                ("step", ctypes.c_int32), ("default_value", ctypes.c_int32),
+                ("flags", ctypes.c_uint32), ("reserved", ctypes.c_uint32 * 2)]
+
+
 def _iowr(number, size):
     return 0xC0000000 | (size << 16) | (ord("V") << 8) | number
 
 
 VIDIOC_G_CTRL = _iowr(27, ctypes.sizeof(V4L2Control))
 VIDIOC_S_CTRL = _iowr(28, ctypes.sizeof(V4L2Control))
+VIDIOC_QUERYCTRL = _iowr(36, ctypes.sizeof(V4L2QueryCtrl))
+V4L2_CTRL_FLAG_DISABLED = 0x0001
 
 
 class Timeval(ctypes.Structure):
@@ -234,7 +246,17 @@ CONTROLS = {
     "contrast": 0x00980901,
     "sharpness": 0x0098091B,
     "power_line_frequency": 0x00980918,  # 50 Hz = 1
+    "backlight_compensation": 0x0098091C,
+    "gamma": 0x00980910,
 }
+
+# 少一个就拒绝采集：没有它们，"这次的亮度"就没有任何保证。
+REQUIRED_SETTINGS = ("exposure_auto", "exposure", "auto_white_balance",
+                     "white_balance_temperature", "gain")
+
+# 相机输出是 gamma 编码的（实测 γ≈2.4：2 倍曝光在原始灰度域只有 1.330 ≈ 2**(1/2.4)）。
+# 任何"亮度/光强"的比较都必须先换到线性域，否则结论全是错的。
+GAMMA = 2.4
 
 
 def get_ctrl(fd, cid):
@@ -302,26 +324,68 @@ def open_camera(device, width, height, fps):
 
 
 def lock_controls(fd, args):
-    settings = [
-        ("exposure_auto", 1),
-        ("exposure", args.exposure),
-        ("auto_white_balance", 0),
-        ("white_balance_temperature", args.white_balance),
-        ("gain", args.gain),
-        ("brightness", args.brightness),
-        ("contrast", args.contrast),
-        ("sharpness", args.sharpness),
-        ("power_line_frequency", args.power_line_frequency),
-    ]
-    previous = {name: get_ctrl(fd, CONTROLS[name]) for name, _ in settings}
+    """把影响亮度和成像的控件全部钉死。
+
+    【2026-10-20 改】以前只锁 5 项，brightness/contrast/sharpness/逆光补偿/gamma
+    全是裸默认值。逆光补偿默认是 1，AE 一旦漏网它会再改一次测光；gamma 则决定
+    "同样的辐照度显示成多亮"，两个进程取值不同就会一个亮一个暗。现在：
+      - 必选项（曝光/增益/白平衡）锁不上 → 抛异常，拒绝继续采集；
+      - 可选项支持就写死，不支持/只读只记录（不同固件差别很大，别一刀切拦死）；
+      - gamma 不猜数值：读出当前值再显式写回同一个值，把它钉住。
+    """
+    all_names = list(REQUIRED_SETTINGS) + [
+        "brightness", "contrast", "sharpness", "backlight_compensation",
+        "power_line_frequency", "gamma"]
+    previous, unsupported = {}, []
+    for name in all_names:
+        try:
+            previous[name] = get_ctrl(fd, CONTROLS[name])
+        except OSError:
+            unsupported.append(name)
+
+    missing = [name for name in REQUIRED_SETTINGS if name not in previous]
+    if missing:
+        raise RuntimeError(f"相机不支持这些必需控件 {missing}，曝光无法保证可复现；拒绝采集")
+
+    # 顺序很重要：先关自动、再写手动量（restore_controls 正好反过来）。
+    wanted = [("exposure_auto", 1), ("exposure", args.exposure),
+              ("auto_white_balance", 0),
+              ("white_balance_temperature", args.white_balance),
+              ("gain", args.gain),
+              ("brightness", args.brightness),
+              ("contrast", args.contrast),
+              ("sharpness", args.sharpness),
+              ("backlight_compensation", args.backlight_compensation)]
+    wanted = [(name, value) for name, value in wanted if name in previous]
+    if "power_line_frequency" in previous:
+        wanted.append(("power_line_frequency", args.power_line_frequency))
+    if "gamma" in previous:
+        wanted.append(("gamma", previous["gamma"]))   # 钉住当前值，不猜
+
+    # 有些 UVC 控件是只读的：G_CTRL 能读、S_CTRL 返回 EINVAL。
+    # 可选项遇到这种情况只记录，不能让整台相机起不来；必选项失败才拒绝采集。
+    write_failed = []
+    pinned_to_current = ["gamma"] if "gamma" in previous else []
     try:
         print("锁定控件 (曝光单位: 100 微秒):")
-        for name, value in settings:
-            set_ctrl_checked(fd, CONTROLS[name], value, name)
+        for name, value in wanted:
+            if name in REQUIRED_SETTINGS:
+                set_ctrl_checked(fd, CONTROLS[name], value, name)
+                continue
+            try:
+                set_ctrl_checked(fd, CONTROLS[name], value, name)
+            except (OSError, RuntimeError) as exc:
+                write_failed.append({"control": name, "requested": value, "error": str(exc)})
+                print(f"  ⚠️ {name} 写不进去（只读或越界），跳过：{exc}", file=sys.stderr)
+        if unsupported:
+            print(f"  本固件不支持、已跳过: {', '.join(unsupported)}（只记录，不影响采集）")
     except BaseException:
         restore_controls(fd, previous)
         raise
-    return previous, {name: get_ctrl(fd, CONTROLS[name]) for name, _ in settings}
+    locked = {name: get_ctrl(fd, CONTROLS[name]) for name in previous}
+    notes = {"unsupported": unsupported, "write_failed": write_failed,
+             "pinned_to_current_value": pinned_to_current}
+    return previous, locked, notes
 
 
 def restore_controls(fd, previous):
@@ -329,10 +393,12 @@ def restore_controls(fd, previous):
         return {"status": "not_needed", "failed": []}
     # Restore dependent manual values before reenabling the automatic controls.
     order = ["exposure", "white_balance_temperature", "gain", "brightness",
-             "contrast", "sharpness", "power_line_frequency",
-             "exposure_auto", "auto_white_balance"]
+             "contrast", "sharpness", "backlight_compensation", "gamma",
+             "power_line_frequency", "exposure_auto", "auto_white_balance"]
     failed = []
     for name in order:
+        if name not in previous:
+            continue
         try:
             c = V4L2Control(id=CONTROLS[name], value=previous[name])
             fcntl.ioctl(fd, VIDIOC_S_CTRL, c)
@@ -342,6 +408,281 @@ def restore_controls(fd, previous):
             failed.append({"control": name, "error": str(exc)})
             print(f"警告: 未能恢复控件 {name}: {exc}", file=sys.stderr)
     return {"status": "partial_failure" if failed else "restored", "failed": failed}
+
+
+def _frame_light(frame):
+    """一帧的 (线性光平均, 饱和像素比例)。"""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    linear = (gray.astype(np.float32) / 255.0) ** GAMMA
+    return float(linear.mean()), float(np.mean(gray >= 250))
+
+
+def _discard(cap, count):
+    for _ in range(count):
+        cap.read()
+
+
+def _measure_light(cap, count):
+    light = saturation = 0.0
+    for _ in range(count):
+        frame, _ = cap.read()
+        one, two = _frame_light(frame)
+        light += one
+        saturation += two
+    return light / count, saturation / count
+
+
+def _write_exposure(fd, value):
+    """写曝光并返回**实际生效**的值（固件可能把值夹到自己的范围里）。"""
+    fcntl.ioctl(fd, VIDIOC_S_CTRL, V4L2Control(id=CONTROLS["exposure"], value=int(value)))
+    return get_ctrl(fd, CONTROLS["exposure"])
+
+
+def query_ctrl(fd, cid):
+    """问驱动这个控件的真实范围（min/max/step/default）。
+
+    【2026-10-20 加】以前所有曝光/增益都是"猜一个数字写死"。
+    没有这个范围，就没法知道"还能不能再加增益"—— 也就没法判断
+    "拍不亮"到底是现场太暗，还是我们把相机限制死了。
+    """
+    q = V4L2QueryCtrl(id=cid)
+    fcntl.ioctl(fd, VIDIOC_QUERYCTRL, q)
+    if int(q.flags) & V4L2_CTRL_FLAG_DISABLED:
+        raise OSError("驱动标记该控件为不可用")
+    return {"name": q.name.decode("utf-8", "replace").strip() or hex(cid),
+            "min": int(q.minimum), "max": int(q.maximum),
+            "step": max(1, int(q.step)), "default": int(q.default_value),
+            "flags": int(q.flags)}
+
+
+def _set_raw(fd, name, value):
+    """写控件并返回实际生效值；不抛异常（固件越界会自己夹）。"""
+    fcntl.ioctl(fd, VIDIOC_S_CTRL, V4L2Control(id=CONTROLS[name], value=int(value)))
+    return get_ctrl(fd, CONTROLS[name])
+
+
+def _gray_mean(cap, settle=4, frames=5):
+    """丢几帧过渡、再取几帧的平均灰度。"""
+    for _ in range(settle):
+        cap.read()
+    total = 0.0
+    for _ in range(frames):
+        frame, _ = cap.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+        total += float(gray.mean())
+    return total / frames
+
+
+def auto_expose(cap, fd, args, log=print):
+    """进场先测光，找到这段采集该用的曝光/增益，然后锁死。
+
+    【2026-10-20 加】以前 EXPOSURE=100 / GAIN=30 是写死的，这组数字只是照
+    某一次**有日光**的 session 定的。换到只有室内灯、或者晚上，同样的数字
+    直接不够 —— 手机能拍是因为它先测光，不是因为它更灵敏。
+    相机不需要"永远同一个曝光"，只需要**一段采集内**固定（这决定了
+    cam-IMU 时移是否可复现）。所以先搜到合适的值，再锁。
+
+    搜索策略（优先用不增噪的杠杆）：
+      1) 曝光先顶到「模糊预算」和「帧周期」两者较小值 —— 曝光不增噪，只增模糊；
+      2) 还不够深，就在增益范围里爬梯子 —— 增益不增模糊，只增噪；
+      3) 两个都到顶还低于下限 → 报告能到的最好值并拒绝采集。
+
+    返回 (是否可用, 证据字典)。
+    """
+    evidence = {"status": "disabled", "ladder": []}
+    try:
+        exp_range = query_ctrl(fd, CONTROLS["exposure"])
+        gain_range = query_ctrl(fd, CONTROLS["gain"])
+    except OSError as exc:
+        log(f"⚠️ 问不到控件范围（{exc}），沿用命令行的 曝光={args.exposure} 增益={args.gain}")
+        evidence.update(status="unknown_ranges", exposure=args.exposure, gain=args.gain)
+        return True, evidence
+
+    # 曝光上限：帧周期 0.9 倍 与 用户给的模糊预算，取小。单位都是 100µs。
+    frame_cap = int(0.9 * 1e6 / (args.fps * 100))
+    # 【2026-10-21】曝光上限 = min(模糊预算反推, 硬上限)。
+    # 以前 blur_cap 直接等于 auto_expose_max_exposure_ms（18 ms），等于没有约束。
+    _omega = args.auto_expose_expected_rate_dps * math.pi / 180.0
+    _focal = args.focal_px
+    _budget_px = args.auto_expose_blur_budget_px
+    if _omega > 1e-6 and _focal > 1.0:
+        _blur_ms = 1000.0 * _budget_px / (_focal * _omega)
+    else:
+        _blur_ms = args.auto_expose_max_exposure_ms
+    _eff_ms = min(_blur_ms, args.auto_expose_max_exposure_ms)
+    blur_cap = int(round(_eff_ms * 10))
+    exp_max = max(exp_range["min"] + exp_range["step"],
+                  min(exp_range["max"], frame_cap, blur_cap))
+    target = float(args.auto_expose_target)
+    gain_max = min(gain_range["max"], args.auto_expose_max_gain)
+    log(f"自动测光：目标灰度 {target:.0f}｜曝光上限 {exp_max * 0.1:.2f} ms"
+        f"（{_budget_px:g} px 模糊预算 @ {args.auto_expose_expected_rate_dps:g}°/s → {_blur_ms:.2f} ms；"
+        f"帧周期限 {frame_cap * 0.1:.1f} ms；硬上限 {args.auto_expose_max_exposure_ms:.1f} ms）"
+        f"｜增益上限 {gain_max}（相机 {gain_range['min']}..{gain_range['max']}）"
+        f"｜曝光范围 {exp_range['min']}..{exp_range['max']}")
+    if exp_max * 0.1 > 6.0:
+        log(f"⚠️ 曝光上限 {exp_max * 0.1:.1f} ms 偏大：角速度一上去角点就被糊没了")
+
+    # 增益梯子按"范围的百分比"走，不假设单位是 dB 还是线性倍数
+    best, reached = None, None
+    for frac in (0.0, 0.03, 0.07, 0.12, 0.2, 0.3, 0.45, 0.65, 1.0):
+        want_gain = int(round(gain_range["min"] + frac * (gain_max - gain_range["min"])))
+        actual_exp = _set_raw(fd, "exposure", exp_max)
+        actual_gain = _set_raw(fd, "gain", want_gain)
+        mean = _gray_mean(cap)
+        row = {"gain": actual_gain, "exposure": actual_exp, "mean": round(mean, 1)}
+        evidence["ladder"].append(row)
+        log(f"  曝光 {actual_exp}（{actual_exp * 0.1:.1f} ms）增益 {actual_gain}"
+            f" → 灰度 {mean:.1f}")
+        if best is None or mean > best["mean"]:
+            best = row
+        if mean >= target:
+            reached = row
+            break
+    if reached is not None:
+        best = reached
+
+    # 光很足时按比例收曝光：同样达到目标亮度，但运动模糊更小。
+    # 迭代两次 —— 第一次可能因为高光截断（255 封顶）而收得不够。
+    for _ in range(2):
+        if best is None or best["mean"] <= target * 1.25 or best["exposure"] <= exp_range["min"]:
+            break
+        shrink = target / best["mean"]
+        want = max(exp_range["min"] + exp_range["step"],
+                   int(round(best["exposure"] * shrink)))
+        if want >= best["exposure"]:
+            break
+        actual_exp = _set_raw(fd, "exposure", want)
+        _set_raw(fd, "gain", best["gain"])
+        mean = _gray_mean(cap)
+        best = {"gain": best["gain"], "exposure": actual_exp, "mean": round(mean, 1)}
+        evidence["ladder"].append({**best, "note": "按目标收缩曝光以减少运动模糊"})
+        log(f"  收缩曝光：{actual_exp * 0.1:.1f} ms 增益 {best['gain']}"
+            f" → 灰度 {mean:.1f}")
+
+    _set_raw(fd, "exposure", best["exposure"])
+    _set_raw(fd, "gain", best["gain"])
+    evidence.update(status="ok", exposure=best["exposure"], gain=best["gain"],
+                    exposure_ms=round(best["exposure"] * 0.1, 1),
+                    achieved_mean=best["mean"], target=target,
+                    gain_range=[gain_range["min"], gain_range["max"]],
+                    exposure_range=[exp_range["min"], exp_range["max"]])
+    log(f"  锁定：曝光 {best['exposure']}（{best['exposure'] * 0.1:.1f} ms）"
+        f"增益 {best['gain']} → 灰度 {best['mean']:.1f}")
+
+    # 【2026-10-21】曝光/增益都顶满才勉强够亮 = 场地光不够。session29 就是这样过的关
+    # （曝光 18 ms、增益 100、灰度只有 49.5，而门槛 45），结果尺度偏 5 倍。
+    exp_pinned = exp_max >= int(round(min(_blur_ms, args.auto_expose_max_exposure_ms) * 10)) - exp_range["step"]
+    gain_pinned = best["gain"] >= gain_max
+    if (exp_pinned and gain_pinned and best["mean"] < target
+            and not args.allow_blur and not args.allow_dark):
+        log(f"❌ 曝光和增益都顶到上限（{best['exposure'] * 0.1:.2f} ms / 增益 {best['gain']}）"
+            f"才到灰度 {best['mean']:.1f}，离目标 {target:.0f} 差得远 —— 光不够。")
+        log(f"   这样录下去运动模糊会超过 {_budget_px:g} px，KLT 跟踪会崩"
+            f"（实测存活率会从 80% 掉到 40% 以下）。")
+        log("   加灯，或者把 AUTO_EXPOSE_EXPECTED_RATE_DPS 调低到你的真实角速度。")
+        evidence["status"] = "insufficient_light"
+        evidence["exp_pinned"] = True
+        evidence["gain_pinned"] = True
+        return False, evidence
+
+    if best["mean"] < args.auto_expose_min_mean:
+        if args.allow_dark:
+            log(f"⚠️ 只能到灰度 {best['mean']:.1f}（低于 {args.auto_expose_min_mean}），"
+                "是 --allow-dark 才继续的 —— 这种亮度的数据大概率发散")
+            evidence["status"] = "too_dark_allowed"
+            return True, evidence
+        evidence["status"] = "too_dark"
+        return False, evidence
+    return True, evidence
+
+
+def verify_manual_exposure(cap, fd, args, attempts=3):
+    """用图像本身验证手动曝光真的接管了 —— G_CTRL 读回只证明驱动缓存。
+
+    【2026-10-20 加】set_ctrl_checked 比对的是 uvcvideo 的驱动缓存，不是固件。
+    session05 恢复成 exposure_auto=3 且回读一致，session06 一开相机读到的却还是
+    锁定的 1 —— 写入根本没落地。唯一可信的验证是看图像：目标曝光测线性亮度 L1，
+    把曝光调成 k 倍测 L2，期望 L2/L1 ≈ k。比值 ≈ 1 就是 AE 还在掌权（它会把
+    画面拉回原来的亮度）。
+
+    必须在 (v/255)**2.4 的线性域比，不能拿原始灰度比：实测 2 倍曝光在原始域
+    只有 1.330（正好是 2**(1/2.4)=1.33），线性域 1.983 ≈ 理论 2.00。
+
+    返回 (是否通过, 证据字典)。太暗导致无法验证时按通过处理并注明 ——
+    光不够是另一码事，不该被这里拦成"曝光没锁上"。
+    """
+    target = int(args.exposure)
+    flush = max(6, int(args.warmup_frames))
+    samples = 8
+    multiplier = 2.0          # 第一次用 2 倍；过曝就退到 1.5 倍重试
+    evidence = {"status": "skipped", "gamma_used": GAMMA, "attempts": []}
+
+    def finish(passed):
+        # 每次尝试要读 2*(丢弃+采样) 帧，最后一次恢复曝光再丢 flush 帧。
+        # 不把这个数记下来，外面用 v4l2_sequence 算"丢帧"会把这 40 多帧
+        # 当成相机丢帧 —— 实际是验证自己消耗掉的。
+        evidence["frames_consumed"] = len(evidence["attempts"]) * 2 * (flush + samples) + flush
+        return passed, evidence
+    for attempt in range(1, attempts + 1):
+        actual_high = real_k = 0.0
+        try:
+            actual_target = _write_exposure(fd, target)
+            if actual_target != target:
+                raise RuntimeError(f"目标曝光 {target} 写不进去（实际 {actual_target}）")
+            _discard(cap, flush)
+            light_low, sat_low = _measure_light(cap, samples)
+            # 画面已经偏亮时别用 2 倍，否则高光截断会把比值压低、造成假失败。
+            k = min(multiplier, 2.0 if light_low < 0.25 else 1.5)
+            actual_high = _write_exposure(fd, int(round(target * k)))
+            real_k = actual_high / target if target else 0.0
+            _discard(cap, flush)
+            light_high, sat_high = _measure_light(cap, samples)
+        finally:
+            try:
+                _write_exposure(fd, target)
+                _discard(cap, flush)
+            except (OSError, RuntimeError, cv2.error):
+                pass
+
+        ratio = light_high / light_low if light_low > 0 else 0.0
+        one = {"attempt": attempt, "target_exposure": target, "high_exposure": actual_high,
+               "actual_multiplier": round(real_k, 3),
+               "linear_before": round(light_low, 5), "linear_after": round(light_high, 5),
+               "linear_ratio": round(ratio, 4),
+               "saturation_before": round(sat_low, 4), "saturation_after": round(sat_high, 4)}
+        evidence["attempts"].append(one)
+
+        if real_k < 1.25:
+            one["verdict"] = f"跳过：曝光上限只有 {real_k:.2f} 倍，测不出比值"
+            evidence.update(status="inconclusive", verdict=one["verdict"])
+            return finish(True)
+        if light_low < 0.0015:
+            one["verdict"] = f"跳过：太暗（线性亮度 {light_low:.5f}），比值不可信"
+            evidence.update(status="too_dark", verdict=one["verdict"])
+            return finish(True)
+        if sat_high > 0.25:
+            one["saturated"] = True
+            one["verdict"] = f"重试：高光过曝 {100 * sat_high:.0f}%，比值不可信"
+            multiplier = 1.5
+            continue
+        need = 1.0 + 0.5 * (real_k - 1.0)
+        if ratio >= need:
+            one["verdict"] = f"通过：线性比值 {ratio:.2f} ≥ 门槛 {need:.2f}"
+            evidence.update(status="passed", verdict=one["verdict"], need=round(need, 3))
+            return finish(True)
+        one["verdict"] = f"不通过：线性比值 {ratio:.2f} < 门槛 {need:.2f}（像 AE 还在接管）"
+
+    last = evidence["attempts"][-1]
+    if last.get("saturated"):
+        # 过曝是"测不出来"，不是"锁定失败"：别把亮场景判成相机坏了。
+        evidence["status"] = "inconclusive"
+        evidence["verdict"] = ("跳过：多次高光过曝，比值不可信"
+                               "（把灯移开或降低曝光后重测）")
+        return finish(True)
+    evidence["status"] = "failed"
+    evidence["verdict"] = last["verdict"]
+    return finish(False)
 
 
 def positive_int(value):
@@ -373,6 +714,39 @@ def arguments(argv=None):
     parser.add_argument("--brightness", type=int, default=config.BRIGHTNESS)
     parser.add_argument("--contrast", type=int, default=config.CONTRAST)
     parser.add_argument("--sharpness", type=int, default=config.SHARPNESS)
+    parser.add_argument("--backlight-compensation", type=int,
+                        default=config.BACKLIGHT_COMPENSATION,
+                        help="逆光补偿；默认 0（关）。开着会在 AE 漏网时二次改测光")
+    parser.add_argument("--skip-exposure-check", action="store_true",
+                        default=config.SKIP_EXPOSURE_CHECK,
+                        help="跳过锁定后的曝光步进验证（仅用于确认是误判时）")
+    parser.add_argument("--auto-expose", action="store_true", default=config.AUTO_EXPOSE,
+                        help="先测光再锁定（默认开）；关掉就用 --exposure/--gain 写死")
+    parser.add_argument("--no-auto-expose", action="store_false", dest="auto_expose")
+    parser.add_argument("--auto-expose-target", type=float, default=config.AUTO_EXPOSE_TARGET,
+                        help="测光目标：灰度均值")
+    parser.add_argument("--auto-expose-min-mean", type=float,
+                        default=config.AUTO_EXPOSE_MIN_MEAN,
+                        help="测光最好也只能到这个灰度以下时，拒绝采集")
+    parser.add_argument("--auto-expose-max-exposure-ms", type=float,
+                        default=config.AUTO_EXPOSE_MAX_EXPOSURE_MS,
+                        help="曝光绝对上限（毫秒）。真正的模糊约束请看下面三项")
+    parser.add_argument("--auto-expose-blur-budget-px", type=float,
+                        default=getattr(config, "AUTO_EXPOSE_BLUR_BUDGET_PX", 3.0),
+                        help="允许的运动模糊（像素）。实测 >12 px 时 KLT 存活率掉到 55%%")
+    parser.add_argument("--auto-expose-expected-rate-dps", type=float,
+                        default=getattr(config, "AUTO_EXPOSE_EXPECTED_RATE_DPS", 100.0),
+                        help="预期最大角速度（度/秒）。曝光上限 = blur / (f * ω)")
+    parser.add_argument("--focal-px", type=float,
+                        default=getattr(config, "FOCAL_PX", 1367.5),
+                        help="相机焦距（像素），与 kalibr_imucam_chain.yaml 的 fx 一致")
+    parser.add_argument("--auto-expose-max-gain", type=int,
+                        default=getattr(config, "AUTO_EXPOSE_MAX_GAIN", 40),
+                        help="增益上限；100 的噪声会把 KLT 拖死（实测 σ≥8 时存活率腰斩）")
+    parser.add_argument("--allow-blur", action="store_true", default=False,
+                        help="明知光不够、会糊也硬录（只用于排查）")
+    parser.add_argument("--allow-dark", action="store_true", default=config.ALLOW_DARK,
+                        help="测光不达标也硬录（数据大概率发散，只用于排查）")
     parser.add_argument("--power-line-frequency", type=int, choices=(0, 1, 2), default=config.POWER_LINE_FREQUENCY)
     parser.add_argument("--cols", type=positive_int, default=config.COLS, help="横向内角点数，必须和实物一致")
     parser.add_argument("--rows", type=positive_int, default=config.ROWS, help="纵向内角点数，必须和实物一致")
@@ -522,6 +896,8 @@ def main(argv=None):
         raise RuntimeError(f"{camera_dir} 已有图片；请为每次采集使用新目录，避免混用不同参数")
     cap = fd = preview = None
     mode = settings = original = None
+    control_notes = exposure_check = None
+    start = None
     backend_name = None
     reconnects = []
     last_metadata = None
@@ -539,10 +915,52 @@ def main(argv=None):
         cap, backend_name = open_backend(device, args)
         mode = cap.mode
         fd = os.open(device, os.O_RDWR | os.O_NONBLOCK)
-        original, settings = lock_controls(fd, args)
+        original, settings, control_notes = lock_controls(fd, args)
+        auto = {"status": "disabled"}
+        if args.auto_expose:
+            ok, auto = auto_expose(cap, fd, args)
+            if not ok:
+                raise RuntimeError(
+                    f"测光失败：曝光和增益都到顶，也只能到灰度 {auto.get('achieved_mean')}"
+                    f"（门槛 {args.auto_expose_min_mean:g}）。这个亮度下特征会断崖式消失"
+                    "（session25/26/27 就是），录了也是白录。换更亮的时段/位置，或者加灯；"
+                    "确认要硬录可加 --allow-dark。")
+            # 后续验证和 manifest 都以测光选出的值为准
+            args.exposure = int(auto.get("exposure", args.exposure))
+            args.gain = int(auto.get("gain", args.gain))
+            # 【2026-10-20 修】lock_controls 返回的 settings 是**测光之前**的快照。
+            # 测光会改曝光/增益，不重新读一遍，manifest 的 locked_controls 就会
+            # 写着 gain=30 而实际跑的是 100（session29 就是这样，差点误判成"测光没生效"）。
+            settings = {name: get_ctrl(fd, CONTROLS[name]) for name in settings}
+        else:
+            print("⚠️ 已关闭自动测光（--no-auto-expose）：曝光/增益是写死的，"
+                  "换场景亮度就会不匹配")
+        exposure_check = {"status": "skipped", "verdict": "已用 --skip-exposure-check 跳过"}
+        if not args.skip_exposure_check:
+            # 控件回读只证明驱动缓存；这里从图像本身确认手动曝光真的接管了。
+            passed, exposure_check = verify_manual_exposure(cap, fd, args)
+            print(f"曝光验证: {exposure_check['verdict']}")
+            last = (exposure_check.get("attempts") or [{}])[-1]
+            if last:
+                print(f"  曝光 {last['target_exposure']} → {last['high_exposure']}"
+                      f"（×{last['actual_multiplier']}），线性亮度 "
+                      f"{last['linear_before']} → {last['linear_after']}，"
+                      f"比值 {last['linear_ratio']}（γ={GAMMA}）")
+            if not passed:
+                raise RuntimeError(
+                    "曝光步进测试不通过：控件回读说明写进去了，但图像亮度不随曝光变化，"
+                    "手动曝光没有真正接管（相机还在自动曝光）。先跑 `v4l2-ctl -d <节点> "
+                    "--list-ctrls-menus | grep -A2 auto_exposure` 确认是不是 1(Manual)，"
+                    "拔插一次相机再试；确认是误判可加 --skip-exposure-check。")
+        else:
+            print("⚠️ 已跳过曝光验证：本次亮度是否可复现没有证据", file=sys.stderr)
         if not args.no_preview:
             preview = PreviewWindow()
         camera_dir.mkdir(parents=True, exist_ok=True)
+        # 【2026-10-20 加】锁定+验证要花几秒，倒计时不能从进程启动算起，
+        # 否则"剩 25 秒"其实只剩 21 秒，闭环的时长窗口整个错位。
+        # record_session.py 见到这一行才把计时器归零。
+        print("@记录开始@", flush=True)
         start = time.monotonic()
         print("警告: 传感器曝光时间尚未验证，sensor_timestamp_ns=null。"
               "本次数据仅用于内参，不能据此完成相机-IMU 时间偏移标定。", file=sys.stderr)
@@ -570,7 +988,12 @@ def main(argv=None):
                                if backend_name == "v4l2" else
                                OpenCVCamera(device, args.width, args.height, args.fps))
                         fd = os.open(device, os.O_RDWR | os.O_NONBLOCK)
-                        _, settings = lock_controls(fd, args)
+                        _orig, settings, _notes = lock_controls(fd, args)
+                        # 重连后相机状态未知，重新从图像确认一次（只试 1 次，别拖太久）
+                        if not args.skip_exposure_check:
+                            passed, check = verify_manual_exposure(cap, fd, args, attempts=1)
+                            if not passed:
+                                raise RuntimeError(f"重连后曝光验证不通过：{check['verdict']}")
                         frame, metadata = cap.read()
                         reconnects.append({"attempt": attempt, "host_time_ns": time.time_ns(),
                                            "initial_error": str(first_error)})
@@ -622,6 +1045,7 @@ def main(argv=None):
                          "SPACE: save   Q: quit" + ("   green dots: covered regions" if args.cols else "") ]
                 key = preview.show(preview_image(frame, corners, lines, covered if args.cols else None))
             if key in (ord('q'), ord('Q')):
+                termination = "user_stopped"
                 break
             automatic = args.auto_interval > 0 and (not saved or now - last_save_time >= args.auto_interval)
             if key == 32 or automatic:
@@ -651,6 +1075,7 @@ def main(argv=None):
             if args.duration and now - start >= args.duration:
                 break
             if args.max_images and len(saved) >= args.max_images:
+                termination = "max_images_reached"
                 break
     except KeyboardInterrupt:
         termination = "user_interrupted"
@@ -672,9 +1097,27 @@ def main(argv=None):
         if camera_dir.is_dir() and mode is not None and settings is not None:
             elapsed = (last_frame_time - first_frame_time) if frames > 1 else 0.0
             observed = (frames - 1) / elapsed if elapsed > 0 else 0.0
+            requested = float(args.duration) if args.duration else None
+            delivered = (last_frame_time - start
+                         if requested and start is not None and last_frame_time else None)
+            # 【2026-10-20 加】静默截断不再记成 completed。
+            # 实测有一次请求 60 秒只交付 39.84 秒：v4l2_sequence 连续、无重连、
+            # termination 写着 completed —— 翻 manifest 完全看不出问题，
+            # 而闭环 VIO 的时长窗口会直接错掉。宁可在采集端就判失败。
+            if (requested and delivered is not None and not args.max_images
+                    and termination == "completed" and delivered < 0.9 * requested):
+                termination = (f"failed: 只交付 {delivered:.2f}s / 请求 {requested:g}s"
+                               f"（相机在 {delivered:.1f}s 处停止出流）")
+                print(f"❌ {termination}", file=sys.stderr)
             summary = {"device": str(device), "camera_ids": "2bc5:0511",
                        "mode": mode, "locked_controls": settings, "frames_read": frames,
                        "original_controls": original, "control_restoration": restoration,
+                       "control_notes": control_notes or {},
+                       "auto_exposure": auto,
+                       "unsupported_controls": (control_notes or {}).get("unsupported", []),
+                       "exposure_verification": exposure_check,
+                       "requested_duration_s": requested,
+                       "delivered_duration_s": None if delivered is None else round(delivered, 3),
                        "backend": backend_name, "termination": termination, "reconnections": reconnects,
                        "timestamp_source": (last_metadata or {}).get("timestamp_source", "no_frames"),
                        "sensor_timestamp_ns": None,
@@ -682,6 +1125,10 @@ def main(argv=None):
                        "filename_timestamp_source": "host_receive_time_ns_unix",
                        "usable_for_camera_imu_time_calibration": False,
                        "board_inner_corners": [args.cols, args.rows],
+                       # 【2026-10-20】不记这个数，外面用
+                       # (末尾 v4l2_sequence + 1 - frames_read) 算"丢帧"会
+                       # 恰好多出 warmup-1，看起来像相机丢帧。
+                       "warmup_frames": args.warmup_frames,
                        "elapsed_between_first_last_frames_s": elapsed,
                        "observed_read_fps": observed, "requested_fps": args.fps,
                        "throughput_shortfall_vs_requested_percent": max(0.0, 100 * (1 - observed / args.fps)),

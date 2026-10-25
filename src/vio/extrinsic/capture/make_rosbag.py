@@ -33,19 +33,18 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_ROOT = ROOT.parent / "data"       # src/vio/data/
-DATA = DATA_ROOT / "calib"             # 打 bag 只为 Kalibr → 只看标定板数据
 DEFAULT_SESSION = None          # None = 自动挑最新的
-BAG_DIR = ROOT / "bags"          # 容器里看到的是 extrinsic/bags/
+BAG_DIR = Path("/home/kxy/calib/rosbags")
 CAM_TOPIC = "/cam0/image_raw"
 IMU_TOPIC = "/imu0"
 
 
 def find_sessions() -> list[str]:
-    """data/calib/ 下同时有 images.csv 和 imu.csv 的目录，按时间从新到旧。"""
-    if not DATA.is_dir():
+    """data/ 下同时有 images.csv 和 imu.csv 的目录，按时间从新到旧。"""
+    data = ROOT / "data"
+    if not data.is_dir():
         return []
-    out = [(p.stat().st_mtime, p.name) for p in DATA.iterdir()
+    out = [(p.stat().st_mtime, p.name) for p in data.iterdir()
            if p.is_dir() and (p / "images.csv").is_file() and (p / "imu.csv").is_file()]
     return [name for _, name in sorted(out, reverse=True)]
 
@@ -89,11 +88,11 @@ def main() -> int:
             print(f"  {name}")
         return 0
     if not sessions:
-        print(f"❌ {DATA} 下没有找到同时含 images.csv 和 imu.csv 的 session")
+        print(f"❌ {ROOT/'data'} 下没有找到同时含 images.csv 和 imu.csv 的 session")
         return 2
 
     name = args.session or sessions[0]
-    session = DATA / name
+    session = ROOT / "data" / name
     if not session.is_dir():
         print(f"❌ 没有这个 session：{session}")
         print(f"   可用的：{'  '.join(sessions)}")
@@ -210,12 +209,12 @@ def main() -> int:
 
     print()
     print("下一步 —— 生成 OpenVINS 配置（如果还没生成）：")
-    print(f"  python tools/prepare_openvins.py --calibration results/{name}_window \\")
+    print(f"  python prepare_openvins.py --calibration results/{name}_window \\")
     print("      --template-config ~/vio_ws/final_config \\")
     print(f"      --output ~/calib/ov_config_{name} \\")
     print(f"      --imu-topic {IMU_TOPIC} --cam-topic {CAM_TOPIC}")
     print()
-    print("再下一步 —— 跑 OpenVINS：用上面生成的配置（导出参数的含义见 tools/prepare_openvins.py 顶部说明）")
+    print("再下一步 —— 跑 OpenVINS：见 capture/OPENVINS_HOWTO.md")
     return 0
 
 

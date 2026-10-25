@@ -1,7 +1,8 @@
 # capture/ —— 外参标定的采集链路
 
 
-在 `src/vio/extrinsic/` 下运行（先 `conda activate vins`），然后：
+在 PyCharm 里打开 `camera_imu_calibration` 作为项目（解释器选
+`/home/kxy/miniforge3/envs/vins/bin/python`），然后：
 
 ```
                       ┌─────────────────────────────┐
@@ -34,9 +35,8 @@
 
 ```
 ① capture/record_session.py      ← 采集：图像 + IMU，同一个宿主机墙钟
-        ↓ 产出 ../data/<calib|vio>/sessionNN/{images.csv, imu.csv, cam0/*.png}
-② extrinsic/kalibr/run_kalibr.py      ← 标定（推荐，Kalibr）
-   extrinsic/calibrate_extrinsics.py   ← 标定（无 Docker 时用自写版，两者应互相印证）
+        ↓ 产出 data/sessionNN/{images.csv, imu.csv, cam0/*.png}
+② camera_imu_calibration/calibrate_extrinsics.py   ← 标定（项目根目录那个）
         ↓ 产出 results/sessionNN/{report.json, camchain-kalibr.yaml, ...}
 ③ results/sessionNN/extraction.json  ← 先看这个，判冒烟测试过不过
 ```
@@ -45,8 +45,9 @@
 `images` / `imu` / `output` 指向 `record_session.py` 打印出来的那个会话目录。
 （`record_session.py` 跑完会把该复制的三行原样打印出来。改错了它会警告。）
 
-> 为什么 `record_session.py` 不自动帮你改：那个文件是标定侧的配置，多一个写入方
-> 出问题时就分不清是谁改的。所以它只**告诉你**该改什么，不改你的文件。
+> 为什么 `record_session.py` 不自动帮你改：那个文件是标定项目的核心配置，
+> 由另一个 AI 维护并带 `MANIFEST.sha256` 完整性校验。多一个写入方只会让校验失效、
+> 出问题时分不清是谁改的。所以它只**告诉你**该改什么，不改你的文件。
 
 ---
 
@@ -133,7 +134,7 @@
 | 元凶 | 每帧代价 | 修法 |
 |---|---:|---|
 | **Tk/PIL 预览窗**（这个 conda 的 OpenCV 没有 GUI，只能用 `ImageTk.PhotoImage`） | ~306 ms，**且与分辨率无关**（预览图一律缩到 960 宽） | `capture_config.py`：`SHOW_PREVIEW = False` |
-| **保存时逐帧重新做棋盘检测**（内参标定时代的逻辑） | 1080p 上 180~330 ms | `vendor/capture_calibration.py:611` 加 `and not args.no_preview` |
+| **保存时逐帧重新做棋盘检测**（内参标定时代的逻辑） | 1080p 上 180~330 ms | `vendor/capture_calibration.py` 第 616 行加 `and not args.no_preview` |
 
 修完之后的预算（1080p，`--no-preview`）：
 
@@ -164,7 +165,7 @@
 ## `vendored/` 里是什么
 
 三个从你已有脚本**原样复制**的文件（相机采集、MAVLink 编解码），
-复制是为了让 `extrinsic/` 自包含。来源与哈希见
+复制是为了让这个 PyCharm 工程自包含。来源与哈希见
 [vendor/PROVENANCE.md](vendor/PROVENANCE.md)。**不要在那里改任何东西。**
 
 ---
@@ -172,7 +173,8 @@
 ## 现在就能做的（相机还没插）
 
 ```bash
-python capture/selftest_capture.py
+# 在 PyCharm 里直接点 selftest_capture.py 即可，等价于：
+/home/kxy/miniforge3/envs/vins/bin/python capture/selftest_capture.py
 ```
 
 它用**真实串口抓包**验证 MAVLink 解码、用**伪终端造一个假飞控**走完

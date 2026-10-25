@@ -12,20 +12,21 @@
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
 
-from capture import capture_config as cfg         # noqa: E402
-from capture import image_health                  # noqa: E402
-from capture import imu_recorder                  # noqa: E402
-from capture import make_images_csv               # noqa: E402
+import capture_config as cfg                       # noqa: E402
+import image_health                                # noqa: E402
+import imu_recorder                                # noqa: E402
+import make_images_csv                              # noqa: E402
 
 VENDOR = HERE / "vendor"
 CAMERA_SCRIPT = VENDOR / "capture_calibration.py"
@@ -64,6 +65,29 @@ def scan_cameras(expected="2bc5:0511"):
         if ids == (vendor, product) and index == "0":
             found.append((node, name))
     return found, seen
+
+
+def usb_devices(ids="2bc5:0511"):
+    """按 USB 身份在 sysfs 里找设备（不看 /dev/video*）。
+
+    用来区分两种完全不同的故障：
+      - 设备在总线上、只是没有 /dev/video 节点  → uvcvideo 没绑上（被 libuvc 抢走后没还）
+      - 设备根本不在总线上                      → 线没插好 / 口不供电
+    返回 sysfs 子目录名，例如 ['3-6.1']。
+    """
+    vendor, product = ids.lower().split(":")
+    hits = []
+    for d in sorted(Path("/sys/bus/usb/devices").glob("*")):
+        if ":" in d.name:          # 接口项（3-6.1:1.0）也带 idVendor，跳过
+            continue
+        try:
+            v = (d / "idVendor").read_text().strip().lower()
+            p = (d / "idProduct").read_text().strip().lower()
+        except OSError:
+            continue
+        if (v, p) == (vendor, product):
+            hits.append(d.name)
+    return hits
 
 
 def read_target(path):
@@ -110,6 +134,22 @@ def preflight():
               f"/dev/video* 上现在挂着的是：")
         for line in (seen or ["     （一个都没有）"]):
             print(f"     {line}")
+        on_bus = usb_devices(cfg.CAMERA_USB_ID)
+        if on_bus:
+            node = on_bus[0]
+            print()
+            print(f"  ⚠️  但它在 USB 总线上是在的：{', '.join(on_bus)}")
+            print("     => 设备没掉线，是内核没给它建 /dev/video 节点。")
+            print("     最常见原因：刚跑过 vio_online 或 orbbec_probe —— 它们用 libuvc")
+            print("     直接抢走了这颗相机的 UVC 接口，退出时 uvcvideo 没能重新绑回去。")
+            print()
+            print("     恢复（任选一个，a 最稳）：")
+            print("       a) 把相机的 USB 线拔掉、等 3 秒、插回去")
+            print(f"       b) sudo sh -c 'echo 0 > /sys/bus/usb/devices/{node}/authorized;"
+                  f" sleep 1; echo 1 > /sys/bus/usb/devices/{node}/authorized'")
+            print("       c) sudo modprobe -r uvcvideo && sudo modprobe uvcvideo")
+            print("     恢复后 v4l2-ctl --list-devices 里应该重新出现 2bc5:0511。")
+            raise RuntimeError("相机在总线上但没有 /dev/video 节点（uvcvideo 没绑定回去）。")
         raise RuntimeError("相机没插或没被识别：USB 数据线插好了吗？"
                            "（笔记本内置摄像头是 04f2:b829，不是它）")
     device, name = cameras[0]
@@ -184,12 +224,132 @@ def camera_command(device, target_info):
         "--exposure", str(cfg.EXPOSURE),
         "--white-balance", str(cfg.WHITE_BALANCE),
         "--gain", str(cfg.GAIN),
+        # 【2026-10-20】影响亮度的其余控件也从 capture_config 显式传下去，
+        # 不再让采集脚本自己取 vendor/calibration_config.py 的默认值。
+        "--brightness", str(cfg.BRIGHTNESS),
+        "--contrast", str(cfg.CONTRAST),
+        "--sharpness", str(cfg.SHARPNESS),
+        "--power-line-frequency", str(cfg.POWER_LINE_FREQUENCY),
+        "--backlight-compensation", str(cfg.BACKLIGHT_COMPENSATION),
         "--cols", str(cols), "--rows", str(rows),
         # 每帧都存：给一个远小于帧间隔的自动间隔，避免浮点比较漏掉某些帧
         "--auto-interval", f"{0.5 / cfg.FPS:.6f}",
         "--max-images", "0",
         "--duration", str(cfg.DURATION_S),
-    ] + ([] if cfg.SHOW_PREVIEW else ["--no-preview"])
+        "--auto-expose-max-exposure-ms", str(cfg.AUTO_EXPOSE_MAX_EXPOSURE_MS),
+        "--auto-expose-target", str(cfg.AUTO_EXPOSE_TARGET),
+        "--auto-expose-min-mean", str(cfg.AUTO_EXPOSE_MIN_MEAN),
+    ] + ([] if cfg.AUTO_EXPOSE else ["--no-auto-expose"]
+         ) + (["--allow-dark"] if cfg.ALLOW_DARK else []
+    ) + (["--skip-exposure-check"] if cfg.SKIP_EXPOSURE_CHECK else []
+         ) + ([] if cfg.SHOW_PREVIEW else ["--no-preview"])
+
+
+def _pump_with_timer(proc):
+    """边采集边报时：每秒一行"已过几秒 / 还剩几秒"。
+
+    相机子进程每存一张图就打一行 "保存 ..."，30 fps 会把控制台刷爆，所以这里把它
+    吞掉只计数；其它行（警告/错误/模式回读）照常转发。
+
+    最后 10 秒开始每秒响一次终端提示音，这样不用盯着屏幕也能知道快结束了。
+    """
+    import queue
+    import threading
+
+    lines = queue.Queue()
+
+    def _reader():
+        try:
+            for ln in proc.stdout:
+                lines.put(ln.rstrip("\n"))
+        finally:
+            lines.put(None)
+
+    threading.Thread(target=_reader, daemon=True).start()
+
+    t0 = time.monotonic()
+    saved = 0
+    last_beat = -1.0
+    last_qual = -99.0
+    beeped = set()
+    duration = float(cfg.DURATION_S)
+    width = 78
+    latest = None
+    qual = None
+    try:
+        import cv2
+        _fast = cv2.FastFeatureDetector.create(20, True)
+    except Exception:                                          # noqa: BLE001
+        cv2, _fast = None, None
+
+    def _clear():
+        print("\r" + " " * width + "\r", end="")
+
+    while True:
+        drained = False
+        try:
+            ln = lines.get(timeout=0.1)
+            if ln is None:
+                drained = True
+            elif ln.startswith("保存 "):
+                saved += 1
+                parts = ln.split()
+                if len(parts) >= 2:
+                    latest = parts[1]
+            elif ln.strip() == "@记录开始@":
+                # 【2026-10-20 加】相机子进程锁定控件 + 曝光步进验证要花几秒，
+                # 倒计时从前面对齐到真正开始存图的那一刻，否则"还剩 25s"其实只剩 21s，
+                # 闭环的时长窗口整个错位。
+                t0 = time.monotonic()
+                last_beat = -1.0
+                beeped.clear()
+                _clear()
+                print("   ▶ 曝光已锁定并验证，计时从现在开始")
+            elif ln.strip():
+                _clear()
+                print(f"   {ln}")
+        except queue.Empty:
+            pass
+
+        now = time.monotonic()
+        elapsed = now - t0
+        remain = duration - elapsed
+        # 每 2 秒读一张刚存的图算亮度和特征数 —— 太暗就当场看得出，不用走完才发现
+        if cv2 is not None and latest and now - last_qual >= 2.0:
+            last_qual = now
+            img = cv2.imread(latest, cv2.IMREAD_GRAYSCALE)
+            if img is not None:
+                nf = len(_fast.detect(img, None))
+                qual = (float(img.mean()), nf)
+
+        if now - last_beat >= 1.0:
+            last_beat = now
+            tail = f" | 还剩 {remain:4.1f}s" if remain >= 0 else " | 超时了"
+            if qual is not None:
+                mean_v, nf = qual
+                mark = "OK" if (mean_v >= 40 and nf >= 400) else "!!"
+                tail += f" | 亮度 {mean_v:3.0f} 特征 {nf:4d} {mark}"
+            print(f"\r  [{elapsed:5.1f}s / {duration:g}s]  存图 {saved:4d}{tail}",
+                  end="", flush=True)
+
+        # 最后 10 秒：每秒一声；1 秒时连响三声
+        sec = int(round(remain))
+        if 0 <= sec <= 10 and sec not in beeped:
+            beeped.add(sec)
+            n = 3 if sec == 0 else 1
+            sys.stdout.write("\a" * n)
+            sys.stdout.flush()
+
+        if drained:
+            break
+
+    try:
+        proc.wait(timeout=5)
+    except Exception:                                          # noqa: BLE001
+        pass
+    _clear()
+    print(f"  采集结束：{saved} 张图，用时 {time.monotonic() - t0:.1f} s")
+    print("  请确认你此刻正站在起点地贴上 —— 闭环要靠这个")
 
 
 def record(device, port, target_info):
@@ -212,8 +372,10 @@ def record(device, port, target_info):
 
     proc, interrupted = None, False
     try:
-        proc = subprocess.Popen(camera_command(device, target_info))
-        proc.wait()
+        proc = subprocess.Popen(camera_command(device, target_info),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        _pump_with_timer(proc)
     except KeyboardInterrupt:
         interrupted = True
         print("\n  收到中断，正在收尾……")
@@ -261,6 +423,28 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
         else:
             print("  采集脚本自带的棋盘检出  N/A（采图脚本只会找棋盘；AprilGrid 看下面的画面体检）")
         print(f"  结束状态 {img_stats['manifest_termination']}")
+        manifest_path = Path(cfg.SESSION_DIR) / "capture_manifest.json"
+        try:
+            mm = json.loads(manifest_path.read_text(encoding="utf-8"))
+            ae = mm.get("auto_exposure") or {}
+            if ae.get("achieved_mean") is not None:
+                print(f"  自动测光 {ae.get('status')}：曝光 {ae.get('exposure_ms')} ms，"
+                      f"增益 {ae.get('gain')} → 灰度 {ae.get('achieved_mean')}"
+                      f"（目标 {ae.get('target')}）")
+                if ae.get("gain_range"):
+                    print(f"           增益可用范围 {ae['gain_range']}，"
+                          f"曝光范围 {ae['exposure_range']}")
+                for row in (ae.get("ladder") or [])[-4:]:
+                    note = f"  {row['note']}" if row.get("note") else ""
+                    print(f"           {row.get('exposure', 0) * 0.1:5.1f} ms  "
+                          f"gain {row.get('gain'):>4}  → 灰度 {row.get('mean')}{note}")
+        except Exception:                                          # noqa: BLE001
+            pass
+        # 【2026-10-20 加】termination 里带 failed 就是采集脚本自己判失败了
+        # （曝光没锁上 / 出流中断提前结束）。以前这种情况只打印不判死，
+        # 于是会带着一份时长不足的数据往下跑标定。
+        if str(img_stats["manifest_termination"] or "").startswith("failed"):
+            print("  ❌ 相机采集没正常完成，这次数据不要用")
 
     slow = (img_stats is not None and img_stats["observed_fps"] < cfg.FPS * 0.6
             and img_stats["span_s"] > 2.0)
@@ -289,7 +473,22 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
         min_tags = int(getattr(ec.SETTINGS, "min_tags", 4))
     except Exception:                                          # noqa: BLE001
         pnp_gate, min_tags = 2.0, 4
-    if images and board is not None:
+    purpose = str(getattr(cfg, "CAPTURE_PURPOSE", "calibration")).lower()
+    if images and board is not None and purpose == "vio":
+        # 【2026-10-20 加】VIO 采集是"拿着相机走场景"，画面里没有 AprilGrid，
+        # 检测器必然 0 检出。以前照样报 "0/20 检出" + 一整页"为什么一个 tag 都解不出"
+        # + 一轮 1~2 分钟的逐帧复算 —— 全是误导，还白等。这里只报亮度。
+        b = image_health.brightness_stats(images, sample=20)
+        print()
+        print("画面体检（VIO 用途：画面里没有标定板，不做 tag 检出）")
+        if b:
+            print(f"  亮度            p50={b['p50']:.0f}  p90={b['p90']:.0f}"
+                  f"  p99={b['p99']:.0f}  均值={b['mean']:.0f}")
+            level, text = image_health.brightness_verdict(b)
+            icon = {"pass": "✅", "warn": "⚠️", "fail": "❌"}.get(level, "•")
+            print(f"  {icon} {text}")
+        print("  标定板检出      跳过（这份数据是给 VIO 用的，不是内参/外参标定）")
+    elif images and board is not None:
         print()
         print("画面体检")
         health = image_health.analyze(images, cfg.TARGET_YAML, sample=20)
@@ -342,6 +541,9 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
         fatal = True
     if img_stats is None:
         fatal = True
+    elif str(img_stats.get("manifest_termination") or "").startswith("failed"):
+        print(f"❌ 相机采集失败：{img_stats['manifest_termination']}")
+        fatal = True
     elif img_stats["images"] < 35:
         print(f"❌ 图像只有 {img_stats['images']} 张，低于标定下限（35 张有效检出）")
         fatal = True
@@ -364,12 +566,6 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
 
 
 def pat_hint():
-    if cfg.DATA_KIND == "vio":
-        hr("下一步：跑 VIO（这组是场景数据，不用标定）")
-        run_vio = ROOT.parent / "estimator" / "scripts" / "run_vio_offline.py"
-        print(f"  python3 {run_vio} \\")
-        print(f"      --session {cfg.SESSION_DIR} --distance <实测米数>")
-        return
     import extrinsics_config as ec
     want = {"images": Path(cfg.SESSION_DIR) / "images.csv",
             "imu": Path(cfg.SESSION_DIR) / "imu.csv",
@@ -382,16 +578,14 @@ def pat_hint():
         print("⚠️  extrinsics_config.py 的 PATHS 还没指向本次会话。"
               "把它最下面那几行改成：")
         print()
-        print(f'    "images":  DATA_ROOT / "{cfg.DATA_KIND}/{cfg.SESSION_NAME}/images.csv",')
-        print(f'    "imu":     DATA_ROOT / "{cfg.DATA_KIND}/{cfg.SESSION_NAME}/imu.csv",')
+        print(f'    "images":  ROOT / "data/{cfg.SESSION_NAME}/images.csv",')
+        print(f'    "imu":     ROOT / "data/{cfg.SESSION_NAME}/imu.csv",')
         print(f'    "output":  ROOT / "results/{cfg.SESSION_NAME}",')
         print()
         print(f"  （当前 images 指向 {ec.PATHS['images']}）")
 
 
 def next_steps():
-    if cfg.DATA_KIND != "calib":
-        return  # VIO 场景数据不走标定，下一步见 pat_hint()
     hr("接下来点哪个")
     print(f"  1) 打开 {ROOT / 'calibrate_extrinsics.py'}，点右上角绿三角")
     print("     —— 它读的是 extrinsics_config.py 里的 PATHS 和 SETTINGS。")
@@ -411,7 +605,7 @@ def next_steps():
 # --------------------------------------------------------------------------
 
 def main():
-    hr("相机–IMU 采集 · " + ("外参标定数据" if cfg.DATA_KIND == "calib" else "VIO 场景数据"))
+    hr("相机–IMU 外参标定 · 采集")
     try:
         device, port, target_info = preflight()
     except Exception as exc:                                   # noqa: BLE001

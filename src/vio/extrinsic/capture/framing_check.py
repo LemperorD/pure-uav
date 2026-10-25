@@ -19,15 +19,15 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
 
-from capture import capture_config as cfg         # noqa: E402
-from capture import image_health                  # noqa: E402
-from capture import record_session as rs          # noqa: E402
+import capture_config as cfg                       # noqa: E402
+import image_health                                # noqa: E402
+import record_session as rs                        # noqa: E402
 
-CHECK_DIR = cfg.DATA_ROOT / "_framing_check"
+CHECK_DIR = Path(ROOT) / "data" / "_framing_check"
 SECONDS = 10.0
 
 

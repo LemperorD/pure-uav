@@ -27,14 +27,14 @@ import cv2
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
 
-from capture import capture_config as cfg                 # noqa: E402
-from capture import record_session as rs                  # noqa: E402
+import capture_config as cfg                              # noqa: E402
+import record_session as rs                               # noqa: E402
 
-SAVE_DIR = cfg.DATA_ROOT / "_preview"
+SAVE_DIR = ROOT / "data" / "_preview"
 DISPLAY_WIDTH = 880          # 预览窗宽度（只影响显示，检测始终在全分辨率上跑）
 
 # ---- 最小 V4L2 控件封装（和 vendor/capture_calibration.py 同一套 cid） -----------
@@ -47,7 +47,17 @@ CIDS = {
     "auto_white_balance": 0x0098090C,
     "white_balance_temperature": 0x0098091A,
     "gain": 0x00980913,
+    "brightness": 0x00980900,
+    "contrast": 0x00980901,
+    "sharpness": 0x0098091B,
+    "power_line_frequency": 0x00980918,
+    "backlight_compensation": 0x0098091C,
+    "gamma": 0x00980910,
 }
+# 恢复顺序：先手动量、后自动开关
+_RESTORE_ORDER = ["exposure", "white_balance_temperature", "gain", "brightness",
+                  "contrast", "sharpness", "backlight_compensation", "gamma",
+                  "power_line_frequency", "exposure_auto", "auto_white_balance"]
 
 
 def set_ctrl(fd, cid, value):
@@ -60,20 +70,46 @@ def get_ctrl(fd, cid):
 
 
 def lock_controls(device):
-    """把曝光/白平衡/增益钉死 —— 让预览看到的亮度和正式采集一致。"""
+    """把影响亮度的控件钉死，返回 (fd, 原值)；退出时交给 restore_controls 恢复。
+
+    【2026-10-20 改】以前锁完就把 fd 关掉、而且从不恢复。后果：跑完预览，
+    相机留在"曝光 10ms / 手动白平衡 / 逆光补偿已改"的状态，下一个进程
+    （正式采集或 vio）读到的 original_controls 就是上一次的锁定值 ——
+    这正是"同一段代码，第二次跑亮度不一样"的一个来源。
+
+    顺带把 brightness/contrast/sharpness/逆光补偿也写死：逆光补偿默认是 1，
+    AE 一旦漏网它会再改一次测光；gamma 不猜数值，读出当前值再写回同一个值。
+    """
+    import os
     try:
-        import os
         fd = os.open(str(device), os.O_RDWR | os.O_NONBLOCK)   # 和 vendor 脚本同一套打开方式
     except OSError as exc:
         print(f"  ⚠️ 打不开 {device} 调 V4L2 控件：{exc}")
         print("     预览亮度可能和正式采集不一致（正式采集那边仍然会锁）")
-        return
+        return None, None, []
+
+    previous, unsupported = {}, []
+    for name in CIDS:
+        try:
+            previous[name] = get_ctrl(fd, CIDS[name])
+        except OSError:
+            unsupported.append(name)
+
+    wanted = [("exposure_auto", 1), ("exposure", int(cfg.EXPOSURE)),
+              ("auto_white_balance", 0),
+              ("white_balance_temperature", int(cfg.WHITE_BALANCE)),
+              ("gain", int(cfg.GAIN)),
+              ("brightness", int(getattr(cfg, "BRIGHTNESS", 0))),
+              ("contrast", int(getattr(cfg, "CONTRAST", 32))),
+              ("sharpness", int(getattr(cfg, "SHARPNESS", 3))),
+              ("backlight_compensation", int(getattr(cfg, "BACKLIGHT_COMPENSATION", 0))),
+              ("power_line_frequency", int(getattr(cfg, "POWER_LINE_FREQUENCY", 1)))]
+    wanted = [(name, value) for name, value in wanted if name in previous]
+    if "gamma" in previous:
+        wanted.append(("gamma", previous["gamma"]))      # 钉住当前值，不猜
+
+    failed = 0
     try:
-        wanted = [("exposure_auto", 1), ("exposure", int(cfg.EXPOSURE)),
-                  ("auto_white_balance", 0),
-                  ("white_balance_temperature", int(cfg.WHITE_BALANCE)),
-                  ("gain", int(cfg.GAIN))]
-        failed = 0
         for name, value in wanted:
             try:
                 set_ctrl(fd, CIDS[name], value)
@@ -87,9 +123,35 @@ def lock_controls(device):
         if failed:
             print("  ⚠️ 有控件没锁上 —— 预览亮度和正式采集可能不一致（正式采集那边会再锁一次）")
         else:
-            print(f"  控件已锁：曝光 {cfg.EXPOSURE}（100µs）, 白平衡 {cfg.WHITE_BALANCE}K, 增益 {cfg.GAIN}")
+            print(f"  控件已锁：曝光 {cfg.EXPOSURE}（100µs）, 白平衡 {cfg.WHITE_BALANCE}K, "
+                  f"增益 {cfg.GAIN}, 逆光补偿 0")
+        if unsupported:
+            print(f"  本固件不支持、已跳过：{', '.join(unsupported)}")
+    except BaseException:
+        restore_controls(fd, previous)
+        raise
+    return fd, previous, unsupported
+
+
+def restore_controls(fd, previous):
+    """退出时把控件写回预览之前的值，不把"被锁定"的状态留给下一个进程。"""
+    import os
+    if fd is None:
+        return
+    try:
+        if previous:
+            for name in _RESTORE_ORDER:
+                if name not in previous:
+                    continue
+                try:
+                    set_ctrl(fd, CIDS[name], previous[name])
+                    if get_ctrl(fd, CIDS[name]) != previous[name]:
+                        raise OSError("恢复后回读值不一致")
+                except OSError as exc:
+                    print(f"  ⚠️ 恢复 {name} 失败：{exc}")
+            print(f"  已恢复预览前的相机控件（自动曝光={previous.get('exposure_auto')}, "
+                  f"曝光={previous.get('exposure')}）")
     finally:
-        import os
         os.close(fd)
 
 
@@ -231,8 +293,12 @@ def main(argv=None):
     print(f"  画面    {cfg.WIDTH}x{cfg.HEIGHT} @ {cfg.FPS} fps，预览缩到 {DISPLAY_WIDTH} 宽")
     print("  操作    Q / Esc 退出，S 存一张原图")
     print("=" * 74)
-    lock_controls(device)
-    cap = open_camera(device, cfg.WIDTH, cfg.HEIGHT, cfg.FPS)
+    fd, previous, unsupported = lock_controls(device)
+    try:
+        cap = open_camera(device, cfg.WIDTH, cfg.HEIGHT, cfg.FPS)
+    except BaseException:
+        restore_controls(fd, previous)
+        raise
 
     root = label = None
     if not args.headless:
@@ -292,6 +358,9 @@ def main(argv=None):
         pass
     finally:
         cap.release()
+        # 【2026-10-20 加】退出时把控件写回去，否则相机留在锁定状态，
+        # 下一个进程读到的 original_controls 就是上一次的锁定值。
+        restore_controls(fd, previous)
         if root is not None:
             root.destroy()
     print("退出。")

@@ -7,7 +7,6 @@ import math
 import sys
 
 ROOT = Path(__file__).resolve().parent
-DATA_ROOT = ROOT.parent / "data"   # 录制数据统一放 src/vio/data/（calib/ 标定板，vio/ 场景）
 
 @dataclass
 class Settings:
@@ -36,7 +35,7 @@ class Settings:
     min_duration_s: float = 5.0
     max_camera_gap_s: float = 0.35  # 成功检测帧之间的最大空洞；超限拒绝跨洞拟合
     max_imu_gap_s: float = 0.05
-    min_rotation_std_rad_s: float = 0.05  # 三轴里最弱那一轴（singular[2]）的最低标准差
+    min_rotation_std_rad_s: float = 0.05  # 角速度协方差第2特征方向的最低标准差
     min_lever_singular: float = 0.15  # 杠杆臂回归矩阵最小归一化奇异值，单位 s^-2
     min_target_depth_m: float = 0.01  # 数值保护下界；最终所有角点必须至少在相机前 1cm
     depth_sigma_m: float = 0.001  # 优化试探步的可见性惩罚尺度，不是传感器噪声
@@ -103,10 +102,10 @@ class Settings:
 PATHS = {
     "camera": ROOT / "configs/gemini_pro_rgb.yaml",  # 建议换成自己的内参文件
     "target": ROOT / "configs/aprilgrid.yaml",  # 尺寸必须实测！
-    "images": DATA_ROOT / "calib/session01/images.csv",  # timestamp,filename
-    "imu": DATA_ROOT / "calib/session01/imu.csv",  # timestamp,ax,ay,az,gx,gy,gz
+    "images": ROOT / "data/session14/images.csv",  # timestamp,filename
+    "imu": ROOT / "data/session14/imu.csv",  # timestamp,ax,ay,az,gx,gy,gz
     "bag": None,  # ROS1 .bag / ROS2 bag 目录；设置后替代 images / imu
-    "output": ROOT / "results/session01",
+    "output": ROOT / "results/session14",
 }
 CAM_TOPIC = "/cam0/image_raw"
 IMU_TOPIC = "/imu0"

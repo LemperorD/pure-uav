@@ -7,6 +7,7 @@
 import sys
 
 from tools.verify_synthetic import main
+from tools.verify_synthetic import ROOT, compare, generate  # noqa: F401  兼容旧的模块级引用（verify_review.py）
 
 if __name__ == "__main__":
     sys.exit(main())

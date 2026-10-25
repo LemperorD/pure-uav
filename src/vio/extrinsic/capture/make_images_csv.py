@@ -15,10 +15,6 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent   # extrinsic/：唯一需要上 sys.path 的路径
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 
 class ManifestError(RuntimeError):
     pass
@@ -45,6 +41,20 @@ def build(session_dir, out_name="images.csv", log=print):
     rows, missing = [], []
     for entry in saved:
         stamp = int(entry["host_receive_time_ns"])
+        # 【2026-10-20 试过又回滚：用驱动"曝光开始"时间戳代替帧到达时间】
+        #
+        # 动机是真的：host_receive_time_ns 是帧**传完**到主机的时刻，比驱动给的
+        # 曝光开始时刻晚 28.37 ms（session29 的 1041 帧实测，中位），且延迟有
+        # 1~3 ms 抖动（p5~p95 28.03~29.04 ms）。抖动会直接变成时间同步误差。
+        #
+        # 但换基准的代价是 timeshift_cam_imu 必须重新确定，而实测扫描没找到
+        # 新的可用区间（新基准下 0~+60 ms 全部发散或初始化失败，-40~0 ms 也发散），
+        # 收益上限只有 1~3 ms。所以保持原样：用帧到达时间 + 标定得到的 −15.844 ms。
+        #
+        # 将来真要换，正确做法是换完**重新跑一遍 Kalibr 标定**，不要手工平移。
+        # 用下面这行可以还原修正版（需要同步重标）：
+        #   mono = entry.get("host_receive_monotonic_ns"); vbuf = entry.get("v4l2_buffer_timestamp_ns")
+        #   if mono and vbuf: stamp -= int(mono) - int(vbuf)
         name = entry["file"]
         if not (session_dir / name).is_file():
             missing.append(name)
@@ -88,7 +98,9 @@ def build(session_dir, out_name="images.csv", log=print):
 
 
 def main():
-    from capture import capture_config as cfg
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here))
+    import capture_config as cfg
 
     print(f"会话目录：{cfg.SESSION_DIR}")
     try:

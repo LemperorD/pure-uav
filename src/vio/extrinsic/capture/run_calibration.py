@@ -31,13 +31,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent   # extrinsic/：唯一需要上 sys.path 的路径
-DATA_ROOT = ROOT.parent / "data"                # src/vio/data/
-DATA = DATA_ROOT / "calib"                      # 标定窗口挑选只看标定板数据
+ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capture import image_health                            # noqa: E402
+import image_health                                     # noqa: E402
 
 # 这几个跟着上一轮实测定下来的甜点走，可以用命令行覆盖
 KNOT_SPACING_S = 0.10
@@ -46,10 +44,10 @@ MAX_PNP_RMS_PX = 3.5
 
 
 def find_sessions() -> list[str]:
-    """data/calib/ 下的 session，新的在前。"""
-    if not DATA.is_dir():
+    data = ROOT / "data"
+    if not data.is_dir():
         return []
-    out = [(p.stat().st_mtime, p.name) for p in DATA.iterdir()
+    out = [(p.stat().st_mtime, p.name) for p in data.iterdir()
            if p.is_dir() and (p / "images.csv").is_file() and (p / "imu.csv").is_file()]
     return [n for _, n in sorted(out, reverse=True)]
 
@@ -74,10 +72,10 @@ def main() -> int:
             print(f"  {n}")
         return 0
     if not sessions:
-        print(f"❌ {DATA} 下没有找到 session")
+        print(f"❌ {ROOT/'data'} 下没有找到 session")
         return 2
     name = args.session or sessions[0]
-    session = DATA / name
+    session = ROOT / "data" / name
     if not session.is_dir():
         print(f"❌ 没有这个 session：{session}\n   可用的：{'  '.join(sessions)}")
         return 2
@@ -201,7 +199,7 @@ def main() -> int:
             yml = output / "camchain-kalibr.yaml"
             print(f"\n  外参：{yml.relative_to(ROOT)}")
             print("  下一步 —— 生成 OpenVINS 配置：")
-            print(f"    python tools/prepare_openvins.py --calibration results/{name}{suffix} \\")
+            print(f"    python prepare_openvins.py --calibration results/{name}{suffix} \\")
             print("        --template-config ~/vio_ws/final_config \\")
             print(f"        --output ~/calib/ov_config_{name} \\")
             print("        --imu-topic /imu0 --cam-topic /cam0/image_raw")
