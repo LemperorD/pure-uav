@@ -139,28 +139,46 @@ def image_health(session_dir, n=8):
 
 
 def report_health(h):
-    """打印采集质量 + 给出"这份数据能不能信"的判断。"""
+    """打印采集质量 + 给出"这份数据能不能信"的判断。
+
+    【2026-10-20 改】以前只打印警告就照跑 —— session25/26/27 三份明显发废的数据
+    全都完整跑了一遍 VIO 才在最后看到"发散"。现在返回结论，暗到一定程度的
+    直接拒绝跑，除非 --force。判死不是看不起数据，是省时间。
+    """
     if h is None:
         print("  采集质量    跳过（当前解释器没有 cv2）")
-        return
+        return "unknown"
     print(f"  采集质量    亮度 mean {h['mean_avg']:.0f}"
           f"（首 {h['mean_first']:.0f} → 末 {h['mean_last']:.0f}）")
     print(f"              特征 FAST {h['feat_first']} → {h['feat_last']}"
           f"（中位 {h['feat_median']}，最少 {h['feat_min']}）")
     warns = []
-    if h["mean_avg"] < 40:
-        warns.append("整体偏暗（mean < 40）→ 抓不到特征，调 GAIN 或换亮处")
+    fatal = []
+    if h["mean_avg"] < 38:
+        fatal.append(f"整体太暗（均值 {h['mean_avg']:.0f} < 38）")
+    elif h["mean_avg"] < 45:
+        warns.append("整体偏暗（mean < 45）→ 抓到的特征会明显变少")
+    if h["feat_median"] < 200:
+        fatal.append(f"特征太少（中位 {h['feat_median']} < 200），MSCKF 根本组不成约束")
     if h["feat_median"] < 400:
         warns.append(f"特征太少（中位 {h['feat_median']} < 400）→ MSCKF 更新会掉线")
     if h["feat_first"] > 0 and h["feat_last"] < 0.5 * h["feat_first"]:
         warns.append(f"特征在衰减（{h['feat_first']} → {h['feat_last']}）→ "
                      "走到了暗处/白墙，后半程容易发散")
+    if fatal:
+        for w in fatal:
+            print(f"              ❌ {w}")
+        print("              => 这种亮度下 VIO 不是精度差，是直接发散（session25/26/27 都是）")
+        print("                 采集端现在会自动测光；如果测光已经顶到曝光/增益上限，")
+        print("                 就是这段录像当时的光确实不够 —— 重录，别硬跑")
+        return "unusable"
     if warns:
         for w in warns:
             print(f"              ⚠️  {w}")
         print("              => 数据质量偏弱，结论不稳；有条件就重录一次更踏实")
-    else:
-        print("              ✅ 数据质量合格")
+        return "weak"
+    print("              ✅ 数据质量合格")
+    return "ok"
 
 
 def attitude_check(session_dir, rows):
@@ -288,6 +306,8 @@ def main():
                     help="闭环的路径总长（米），用于算回环误差率和尺度")
     ap.add_argument("--config-dir", default=None, help="VIO 配置目录")
     ap.add_argument("--no-build", action="store_true", help="不自动编译")
+    ap.add_argument("--force", action="store_true",
+                    help="画面明显太暗也照样跑（只用于排查，结果基本不可信）")
     args = ap.parse_args()
 
     session_arg = args.session or SESSION
@@ -366,7 +386,14 @@ def main():
             return 2
     print(f"  可执行      {BIN}")
 
-    report_health(image_health(session_dir))
+    verdict = report_health(image_health(session_dir))
+    if verdict == "unusable" and not args.force:
+        print()
+        print("  ❌ 这份数据的画面太暗，VIO 跑下去只会发散 —— 先不跑了。")
+        print("     重录之前先跑一次：python3 tools/light_check.py")
+        print("     （它会自动测光，并告诉你曝光/增益还有多少余量）")
+        print("     确实要硬跑加 --force。")
+        return 3
 
     ds_dir = DS_ROOT / f"{name}_vio"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
