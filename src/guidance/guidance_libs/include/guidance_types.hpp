@@ -39,7 +39,7 @@ struct GuidanceState {
     //   制导核自己算 ω：按 `GuidanceParams::los_rate_source` 二选一
     //     · FROM_RELATIVE_VELOCITY：ω = (r × v_rel)/R²  （仿真，需 v_T）
     //     · FROM_LOS_DIFFERENCE   ：ω = û × (dû/dt)     （真机，只需 û 历史）
-    //   算出的 ω 回填到输出 `GuidanceCmd::lam_dot`（调试量）。
+    //   算出的 ω 回填到输出 `PureGuidanceCmd::lam_dot`（调试量）。
     //   本字段仅供**上游/日志对照**（例如视觉自己估了一路 λ̇ 想比对）——可选，留零即可。
     double lam_dot = 0.0;  // [可选·调试] 视线角速率 λ̇ (rad/s)；制导不消费
     double range = 0.0;    // 相对距离 R (m)
@@ -59,9 +59,22 @@ struct GuidanceState {
 // ============================================================
 //  二、输出：制导指令
 // ============================================================
+//
+// ★ 2026-10-20 改名（`GuidanceCmd/GuidanceMode` → `PureGuidanceCmd/PureGuidanceMode`）：
+//   同仓库的通信模块（`src/driver/communicate/include/communicator.hpp`、
+//   `communication` 分支的 `src/common/msg.hpp`）在**同一个 `pure_uav` 命名空间**里
+//   也定义了 `GuidanceCmd` / `GuidanceMode`（内容是"期望位置/速度/加速度"的 setpoint，
+//   与本模块的"导引律输出"不是同一个东西）。同名同命名空间 ⇒ 任何 TU 同时 include
+//   两者都会报重定义。
+//   ⇒ 本模块统一加 **`Pure` 前缀**（与 `libpure_guidance.so` 的命名一致），
+//     机载主循环里两者可以并存：
+//        · `PureGuidanceCmd`  ← 我们算出来的指令（ENU 加速度 + 调试量）
+//        · `GuidanceCmd`      ← 通信模块的 setpoint（NED 位置/速度/加速度）
+//     接线方式：`cmd_accel_to_ned()` → `GuidanceCmd{mode=ACCELERATION, afx,afy,afz}`。
+//   ⚠ 将来若通信模块也改名，本前缀可以保留（不影响语义，只是多一层保险）。
 
 // 制导模式
-enum class GuidanceMode {
+enum class PureGuidanceMode {
     PN,      // 比例导引
     APN,     // 增广比例导引
     HOLD,    // 末端冻结（t_go 过小，保持上一帧指令）
@@ -69,14 +82,14 @@ enum class GuidanceMode {
 };
 
 // 制导输出，字段对齐《输出数据字典.md》
-struct GuidanceCmd {
+struct PureGuidanceCmd {
     double t = 0.0;                 // 本指令时间戳(s)
     Vec3   a_cmd;                   // [核心] 期望加速度(m/s²，惯性系)
     double a_cmd_norm = 0.0;        // |a_cmd|
     bool   sat = false;             // 是否触发过载限幅
     bool   valid = false;           // 本周期输入是否有效
     double t_go = 0.0;              // 剩余飞行时间(s)
-    GuidanceMode mode = GuidanceMode::SEARCH;
+    PureGuidanceMode mode = PureGuidanceMode::SEARCH;
 
     // --- 调试量（回放/调参/写报告的证据链）---
     double lam_dot = 0.0;           // 视线角速率

@@ -217,6 +217,7 @@ TAKEOFF_MAX_TILT = 25.0            # 起飞段（低空）允许的最大姿态�
 TAKEOFF_ABORT_TILT = 45.0          # 起飞段（低空）姿态超过它 ⇒ 直接中止（必打地）
 
 GUIDED_TIMEOUT = 8.0               # GUIDED 段超时（s，按目标相对时间）
+PLATE_TAIL_SEC = 0.30              # ★ 撞板 HIT 后的判定尾窗 (s)：继续检测真穿板
 CRUISE_TIMEOUT = 8.0               # 巡航/预加速段超时（s，墙钟）
 ALT_ADJ_A_MAX = 3.0                # SETTLE 段垂直调整的最大加速度 (m/s²)
 ALT_SETTLE_TOL = 0.35              # 高度到位容差 (m)
@@ -729,6 +730,10 @@ class PhaseBGuidance(Node):
         self.plate_min_dist = None
         self.plate_min_t = None
         self._plate_prev = None
+        # ★ 2026-10-25：HIT 后的判定尾窗（见 plate_tail_step）
+        self.plate_tail_until = None      # 尾窗截止（time.monotonic）
+        self.plate_tail_prev = None       # 尾窗内的上一拍位置（ENU）
+        self.plate_tail_confirmed = False
         self.plate_hit_tol = float(getattr(args, "plate_hit_tol", 0.15))
         self.plate_body_radius = float(getattr(args, "plate_body_radius", 0.20))
         if getattr(args, "armor_plate", False):
@@ -1685,6 +1690,7 @@ class PhaseBGuidance(Node):
         self.poll_service(now)
 
         self.track_h_disp()          # 全程最大水平位移（报告用）
+        self.plate_tail_step(now)    # ★ 撞板判定尾窗（HIT 后继续找真穿板）
 
         # ---------------- Ctrl-C 收尾请求 ----------------
         # ⚠ 用 `ending` 而不是 `landing_phase` —— BRAKE 段还没进 landing_phase，
@@ -2854,9 +2860,22 @@ class PhaseBGuidance(Node):
                 self.plate_verdict_rec = vd
                 self.log("")
                 self.log("★" * 36)
-                self.log(f"★ 撞板成功！（{vd['kind']}）距板心 R_true={R_true:.3f} m  "
-                         f"板面残差 Δu={vd['du']:+.3f} Δv={vd['dv']:+.3f} m  "
-                         f"@ t_rel={self.t_rel:.3f}s")
+                if vd["kind"] == "THROUGH":
+                    self.log(f"★ 撞板成功！（THROUGH 真穿板）距板心 R_true={R_true:.3f} m  "
+                             f"板面残差 Δu={vd['du']:+.3f} Δv={vd['dv']:+.3f} m  "
+                             f"@ t_rel={self.t_rel:.3f}s")
+                else:
+                    self.log(f"★ 撞板命中（HIT 容差命中，未穿板）距板心 R_true={R_true:.3f} m  "
+                             f"板面残差 Δu={vd['du']:+.3f} Δv={vd['dv']:+.3f} m  "
+                             f"@ t_rel={self.t_rel:.3f}s")
+                    # ★★ 2026-10-25：HIT ≠ 真穿板。实测（板 -20,-6,4 / yaw45 / pitch30）
+                    #   真穿越发生在"最后一个 GUIDED 拍 → 第一个 BRAKE 拍"之间（s=0.46），
+                    #   原逻辑在 HIT 就 finish ⇒ 永远看不到 THROUGH。
+                    #   ⇒ 再开一个短判定尾窗，只判定、不改飞行指令。
+                    self.plate_tail_until = now + PLATE_TAIL_SEC
+                    self.plate_tail_prev = tuple(p_enu) if p_enu is not None else None
+                    self.plate_tail_confirmed = False
+                    self.log(f"   ↳ 进入 {PLATE_TAIL_SEC:.1f} s 判定尾窗：继续检测是否真穿板…")
                 self.log("★" * 36)
                 self.finish("撞板")
                 return
@@ -2998,6 +3017,46 @@ class PhaseBGuidance(Node):
         self.state = "LAND"
         self.t_state = now
 
+    def plate_tail_step(self, now):
+        """★ 撞板判定尾窗（2026-10-25）：HIT 之后继续检测是否**真穿板**。
+
+        动机（实测 + 目视确认）：撞板模式下一旦 `verdict` 返回 HIT 就 `finish("撞板")`，
+        而真穿越可能发生在"最后一个 GUIDED 拍 → 第一个 BRAKE 拍"之间
+        （板 -20,-6,4 / yaw45 / pitch30 那组：s=0.46，穿点 Δu/Δv 仅 7 mm / 1 mm）。
+        原逻辑因此会把 THROUGH 误报成 HIT。
+
+        本方法只在收尾段做**判定**，不改变任何飞行指令；尾窗内检测到穿越就把
+        `plate_verdict_rec` 升级为 THROUGH，回传报告随之改成「真穿板」。
+        """
+        if self.plate is None or self.plate_tail_until is None:
+            return
+        if now > self.plate_tail_until:
+            self.plate_tail_until = None
+            if not self.plate_tail_confirmed:
+                self.log("   ↳ 判定尾窗结束：未检测到穿越板面 ⇒ 维持 HIT（容差命中）")
+            return
+        p_enu, _ = self.state_enu()
+        if p_enu is None or self.plate_tail_prev is None:
+            return
+        vd = self.plate.verdict(self.plate_tail_prev, p_enu,
+                                tol=self.plate_hit_tol,
+                                body_radius=self.plate_body_radius)
+        self.plate_tail_prev = tuple(p_enu)
+        if vd["kind"] == "THROUGH":
+            self.plate_verdict_rec = vd
+            self.plate_tail_confirmed = True
+            self.plate_tail_until = None
+            self.plate_hit = True
+            self.log("")
+            self.log("★" * 36)
+            self.log(f"★★ 判定尾窗确认：THROUGH（真穿板）"
+                     f" Δu={vd['du']:+.3f} Δv={vd['dv']:+.3f} m"
+                     f"  @ t_rel={self.t_rel:.3f}s")
+            self.log("★" * 36)
+        elif self.plate_min_dist is None or vd["dist"] < self.plate_min_dist:
+            self.plate_min_dist = float(vd["dist"])
+            self.plate_min_t = self.t_rel
+
     def plate_kind_text(self):
         """撞板判定的**可读文字**（★ 2026-10-19：区分"真穿板"与"容差命中"）。
 
@@ -3006,6 +3065,8 @@ class PhaseBGuidance(Node):
         不是真撞上。`THROUGH` 才是"真的穿过板面矩形"。
         """
         kind = (self.plate_verdict_rec or {}).get("kind", "MISS")
+        if kind == "HIT" and self.plate_tail_until is not None:
+            return "HIT（容差命中，未穿板；尾窗确认中…）"
         return {"THROUGH": "THROUGH（**真穿板**）",
                 "HIT": "HIT（容差命中，未穿板）",
                 "MISS": "MISS"}.get(kind, kind)
