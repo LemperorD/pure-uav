@@ -16,6 +16,7 @@ src/app/
   guidance_loop.{hpp,cpp}   主循环本体（一拍做什么，顺序不可颠倒）
   synthetic_world.{hpp,cpp} 合成世界（零依赖闭环）+ 闭环驱动（测试复用）
   csv_io.{hpp,cpp}          录制 / 回放 / 指令落盘 / NullSink
+  params.{hpp,cpp}          参数加载 / 校验（YAML 子集 + CLI 覆盖，零第三方依赖）
   main.cpp                  薄壳：命令行解析 + 打印
 ```
 
@@ -36,14 +37,17 @@ src/app/
 
 # ③ 回放：只用录下来的输入重算一遍（不跑合成世界）
 ./bin/main --replay=flight.csv --out=replay.csv
+
+# ④ 参数文件：默认值 < YAML < 显式命令行；先看最终参数
+./bin/main --config=guidance.yaml --print-params
 ```
 
-参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F`。
+参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 
 **默认全速跑**（不睡眠）—— 只验链路。降级计时用墙钟，全速下走不完，
 要看降级行为加 `--realtime`（或直接用 `test_guidance` §16 的桩）。
 
-### 基线（2026-10-21 实测，PPN N=4 a_max=10，50 Hz，300 拍）
+### 基线（2026-10-25 复验，PPN N=4 a_max=10，50 Hz，300 拍）
 
 | 量 | 值 |
 | --- | --- |
@@ -51,6 +55,22 @@ src/app/
 | 饱和 | 0 次 |
 | 发送 | 300 拍全部发出（`sent == ticks`） |
 | 目标帧 | 250（后 50 拍目标出画 ⇒ 只重发、不重算） |
+
+### 2.1 参数加载（`params.{hpp,cpp}`）
+
+- **优先级**：默认值 < `--config=FILE` < **显式给出的**命令行项
+  （`--law/--n/--a-max/--hz`；没给的不会覆盖 YAML）。
+- **YAML 子集**（故意不引入 yaml-cpp）：缩进嵌套或扁平点号键、`#` 注释、
+  整数/浮点/布尔/枚举名（大小写不敏感）、`cam.R_body_cam` 9 个逗号分隔浮点。
+- **校验**（`validate()`，失败直接退出码 2）：`N ∈ (0.5,20]`、`a_max ∈ (0,100]`、
+  `loop_hz ∈ [1,1000]`、`sensor_timeout ≥ max_sample_age`、`hold_last ≤ sensor_timeout`、
+  相机 `fx/fy` 必须成对……
+- **支持的键**：
+  `guidance.{law,N,a_max,freeze_criterion,t_go_freeze,R_freeze,los_rate_source}` ·
+  `loop.{loop_hz,max_sample_age_s,sensor_timeout_s,on_unhealthy,hold_last_max_s,full_check_hz,send_on_every_tick}` ·
+  `cam.{fx,fy,cx,cy,R_body_cam}`
+- `--print-params` 打印最终值（两次配置可 diff）；`cam.*` 未配时**只有合成世界 demo**
+  才回退 `demo_camera()`，真机必须在 YAML 里给相机。
 
 ---
 
@@ -94,6 +114,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `test_guidance` §16 | 主循环外壳：像素反投影、PN 方向、SEARCH、三级降级、过期、重发、统计 | 37 |
 | `test_guidance` §17 | **端到端闭环回归**：跑一整段交会并断言 min R / 饱和 / HOLD / 每拍发送 | 16 |
 | `test_guidance` §18 | **CSV 录制 → 回放逐位一致**（黑匣子有效性）+ 句柄生命周期 + 句柄泄漏计数 | 59 |
+| `test_guidance` §19 | **参数加载**：默认值 / 嵌套与扁平 YAML / 未知键 / 类型错 / 重复键 / 范围校验 / to_string | 33 |
 
 §17 的价值：§1~§16 都是分段验证，分段全绿 ≠ 整条链没坏
 （2026-10-20 就踩过 HOLD 窗口起算点写错、分段测试全过的事）。
@@ -131,7 +152,6 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `mavlink_ins_source.cpp` / `mavlink_sink.cpp`（真机数据入口/出口） | communication 合进 main |
 | `VisionTargetSource`（接检测） | 检测组接口（像素 + 距离 + 曝光时戳） |
 | `SimTruthInsSource` / `SimTruthTargetSource`（XTDrone2 真值） | 仿真桥 |
-| 参数加载（YAML / CLI → `GuidanceParams`） | 无 |
 | 端到端打点（t0 取数 → t3 发出，P50/P95/max） | 无 |
 | 环形缓冲黑匣子（循环内零 I/O） | 无 |
 | EKF 重置监控（`kEstimatorReset`） | 通信侧给标志 |

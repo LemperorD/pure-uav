@@ -15,6 +15,7 @@ add_library(app_guidance STATIC
     guidance_loop.cpp
     synthetic_world.cpp
     csv_io.cpp
+    params.cpp
 )
 target_include_directories(app_guidance PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

@@ -13,6 +13,8 @@
 //         ./bin/main --record=flight.csv --out=cmd.csv
 //    ③ 回放录制（不跑合成世界，只用录下来的输入重算一遍）：
 //         ./bin/main --replay=flight.csv --out=replay_cmd.csv
+//    ④ 参数文件（默认值 < YAML < 命令行）：
+//         ./bin/main --config=guidance.yaml --print-params
 //
 //  【为什么现在就用合成世界而不是真机】
 //    真机闭环缺三样外部东西（检测接口 / VIO 运行时 / 通信合并），都不在本模块内。
@@ -30,6 +32,7 @@
 
 #include "csv_io.hpp"
 #include "guidance_loop.hpp"
+#include "params.hpp"
 #include "synthetic_world.hpp"
 
 using namespace pure_uav;
@@ -49,6 +52,13 @@ struct Args {
     const char *record = nullptr;   // 输入录制 CSV
     const char *out    = nullptr;   // 指令落盘 CSV
     const char *replay = nullptr;   // 输入回放 CSV
+    const char *config = nullptr;   // YAML 参数文件（默认值 < 文件 < 命令行）
+    bool   print_params = false;    // 打印最终参数后退出
+    // ★ 只有**显式给出**的命令行项才覆盖 YAML（否则会把文件里的值冲掉）
+    bool   law_given = false;
+    bool   n_given = false;
+    bool   a_max_given = false;
+    bool   hz_given = false;
 };
 
 bool parse_int(const char *s, int &out) {
@@ -103,30 +113,23 @@ void usage(const char *prog) {
         "  --record=F    把每拍输入录成 CSV（合成世界里也能录，便于试格式）\n"
         "  --out=F       把每拍指令落盘成 CSV\n"
         "  --replay=F    回放录制好的 CSV（不跑合成世界）\n"
+        "  --config=F    YAML 参数文件（默认值 < 文件 < 命令行）\n"
+        "  --print-params 打印最终参数后退出\n"
         "  --help        本帮助\n",
         prog);
 }
 
-GuidanceParams make_params(const Args &a) {
-    GuidanceParams p;
-    p.N     = a.N;
-    p.a_max = a.a_max;
-    p.law   = (a.law == 1) ? GuidanceLaw::TPN
-            : (a.law == 2) ? GuidanceLaw::APN
-                           : GuidanceLaw::PPN;
-    // 合成世界给的是真值 ⇒ 可以直接用"真值法"算 ω。
-    // ⚠ 真机必须改成 FROM_LOS_DIFFERENCE（拿不到 v_T）；这一行是"跑 demo"专用的。
-    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
-    return p;
+GuidanceLaw law_from_int(int v) {
+    return (v == 1) ? GuidanceLaw::TPN : (v == 2) ? GuidanceLaw::APN : GuidanceLaw::PPN;
 }
 
-LoopConfig make_config(const Args &a) {
-    LoopConfig cfg;
-    cfg.cam     = demo_camera();
-    cfg.loop_hz = a.hz;
-    // 合成世界每拍都更新，把"过期"阈值放宽一点点，避免浮点边界误判
-    cfg.max_sample_age_s = 0.2;
-    return cfg;
+const char *law_name(GuidanceLaw law) {
+    switch (law) {
+        case GuidanceLaw::PPN: return "PPN";
+        case GuidanceLaw::TPN: return "TPN";
+        case GuidanceLaw::APN: return "APN";
+    }
+    return "?";
 }
 
 // ---------------------------------------------------------------- 打印
@@ -143,10 +146,11 @@ void on_tick_print(void *user, int k, const SyntheticWorld &world, const Guidanc
                 out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.sat ? "Y" : ".");
 }
 
-void print_banner(const Args &a, const char *law_name) {
+void print_banner(const Args &a, const AppParams &ap) {
     std::printf("=== pure-uav 制导主程序（合成世界，闭环）===\n");
-    std::printf("  律=%s  N=%.1f  a_max=%.1f m/s²  loop=%d Hz  拍数=%d\n", law_name, a.N,
-                a.a_max, a.hz, a.ticks);
+    std::printf("  律=%s  N=%.1f  a_max=%.1f m/s²  loop=%d Hz  拍数=%d\n",
+                law_name(ap.guidance.law), ap.guidance.N, ap.guidance.a_max,
+                ap.loop.loop_hz, a.ticks);
     std::printf("  起点 (0,0,-5) NED，初速 (8,0,0)，靶 (40,3,-5)\n");
     std::printf("  ⚠ 理想点质量积分（无姿态环/重力），目的在验证制导链路\n");
     if (!a.realtime) {
@@ -160,8 +164,8 @@ void print_banner(const Args &a, const char *law_name) {
 // ============================================================================
 //  ① 合成世界闭环（可顺带录制）
 // ============================================================================
-int run_synthetic(const Args &a) {
-    const double dt = 1.0 / static_cast<double>(a.hz);
+int run_synthetic(const Args &a, const AppParams &ap) {
+    const double dt = 1.0 / static_cast<double>(ap.loop.loop_hz);
 
     SceneConfig sc;
     sc.dt = dt;
@@ -192,14 +196,13 @@ int run_synthetic(const Args &a) {
     ICommandSink &sink = a.out ? static_cast<ICommandSink &>(tee)
                                : static_cast<ICommandSink &>(world);
 
-    GuidanceLoop loop(make_params(a), make_config(a), ins, tgt, sink);
+    GuidanceLoop loop(ap.guidance, ap.loop, ins, tgt, sink);
     if (!loop.init()) {
         std::printf("GuidanceLoop 初始化失败（检查相机模型 / 参数）\n");
         return 1;
     }
 
-    const char *law_name = (a.law == 1) ? "TPN" : (a.law == 2) ? "APN" : "PPN";
-    print_banner(a, law_name);
+    print_banner(a, ap);
     if (want_rec) std::printf("  录制 → %s\n", a.record);
     if (a.out)    std::printf("  落盘 → %s\n", a.out);
     if (want_rec || a.out) std::printf("\n");
@@ -247,7 +250,7 @@ int run_synthetic(const Args &a) {
 // ============================================================================
 //  ③ 回放
 // ============================================================================
-int run_replay(const Args &a) {
+int run_replay(const Args &a, const AppParams &ap) {
     CsvReader reader;
     if (!reader.open(a.replay)) {
         std::printf("!! 打不开回放文件：%s\n", a.replay);
@@ -264,7 +267,7 @@ int run_replay(const Args &a) {
     ICommandSink &sink = a.out ? static_cast<ICommandSink &>(csv_sink)
                                : static_cast<ICommandSink &>(null_sink);
 
-    GuidanceLoop loop(make_params(a), make_config(a), src, src, sink);
+    GuidanceLoop loop(ap.guidance, ap.loop, src, src, sink);
     if (!loop.init()) {
         std::printf("GuidanceLoop 初始化失败\n");
         return 1;
@@ -287,7 +290,7 @@ int run_replay(const Args &a) {
         if (src.done()) break;
         if (a.realtime) {
             std::this_thread::sleep_for(std::chrono::nanoseconds(
-                static_cast<long long>(1e9 / static_cast<double>(a.hz))));
+                static_cast<long long>(1e9 / static_cast<double>(ap.loop.loop_hz))));
         }
     }
 
@@ -317,17 +320,38 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         const char *s = argv[i];
         auto eq = [s](const char *key) { return std::strncmp(s, key, std::strlen(key)) == 0; };
-        if (eq("--hz="))         { parse_int(s + 5, a.hz); }
-        else if (eq("--law="))   { parse_int(s + 6, a.law); }
-        else if (eq("--n="))     { parse_double(s + 4, a.N); }
-        else if (eq("--a-max=")) { parse_double(s + 8, a.a_max); }
-        else if (eq("--ticks=")) { parse_int(s + 8, a.ticks); }
-        else if (eq("--record=")) { a.record = s + 9; }
-        else if (eq("--out="))   { a.out = s + 6; }
-        else if (eq("--replay=")){ a.replay = s + 9; }
-        else if (std::strcmp(s, "--realtime") == 0) { a.realtime = true; }
-        else if (std::strcmp(s, "--quiet") == 0) { a.verbose = false; }
-        else if (std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0) {
+        if (eq("--hz=")) {
+            if (!parse_int(s + 5, a.hz)) { std::printf("!! --hz 解析失败：%s\n", s); return 2; }
+            a.hz_given = true;
+        } else if (eq("--law=")) {
+            if (!parse_int(s + 6, a.law)) { std::printf("!! --law 解析失败：%s\n", s); return 2; }
+            a.law_given = true;
+        } else if (eq("--n=")) {
+            if (!parse_double(s + 4, a.N)) { std::printf("!! --n 解析失败：%s\n", s); return 2; }
+            a.n_given = true;
+        } else if (eq("--a-max=")) {
+            if (!parse_double(s + 8, a.a_max)) {
+                std::printf("!! --a-max 解析失败：%s\n", s);
+                return 2;
+            }
+            a.a_max_given = true;
+        } else if (eq("--ticks=")) {
+            if (!parse_int(s + 8, a.ticks)) { std::printf("!! --ticks 解析失败：%s\n", s); return 2; }
+        } else if (eq("--record=")) {
+            a.record = s + 9;
+        } else if (eq("--out=")) {
+            a.out = s + 6;
+        } else if (eq("--replay=")) {
+            a.replay = s + 9;
+        } else if (eq("--config=")) {
+            a.config = s + 9;
+        } else if (std::strcmp(s, "--print-params") == 0) {
+            a.print_params = true;
+        } else if (std::strcmp(s, "--realtime") == 0) {
+            a.realtime = true;
+        } else if (std::strcmp(s, "--quiet") == 0) {
+            a.verbose = false;
+        } else if (std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0) {
             usage(argv[0]);
             return 0;
         } else {
@@ -335,14 +359,44 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
-    if (a.hz <= 0 || a.ticks <= 0) {
-        std::printf("参数非法：hz 与 ticks 必须 > 0\n");
+
+    if (a.ticks <= 0) {
+        std::printf("参数非法：--ticks 必须 > 0\n");
         return 2;
     }
-    if (a.law < 0 || a.law > 2) {
+    if (a.law_given && (a.law < 0 || a.law > 2)) {
         std::printf("参数非法：--law 只能是 0/1/2\n");
         return 2;
     }
 
-    return a.replay ? run_replay(a) : run_synthetic(a);
+    // ★ 默认值 → YAML → 命令行（只覆盖显式给出的项）
+    AppParams ap = default_params();
+    if (a.config != nullptr) {
+        const ParamResult r = load_yaml_file(a.config, &ap);
+        if (!r.ok) {
+            std::printf("!! 配置加载失败：%s\n", r.error.c_str());
+            return 2;
+        }
+    }
+    if (a.law_given) ap.guidance.law = law_from_int(a.law);
+    if (a.n_given) ap.guidance.N = a.N;
+    if (a.a_max_given) ap.guidance.a_max = a.a_max;
+    if (a.hz_given) ap.loop.loop_hz = a.hz;
+
+    const ParamResult vr = validate(ap);
+    if (!vr.ok) {
+        std::printf("!! 参数校验失败：%s\n", vr.error.c_str());
+        return 2;
+    }
+
+    // 合成世界 demo：配置里没给相机时回退演示相机。
+    // ⚠ 真机必须在 YAML 里给 cam.fx/fy/cx/cy/R_body_cam（否则这里会用假内参）。
+    if (!ap.loop.cam.valid()) ap.loop.cam = demo_camera();
+
+    if (a.print_params) {
+        std::printf("%s", to_string(ap).c_str());
+        return 0;
+    }
+
+    return a.replay ? run_replay(a, ap) : run_synthetic(a, ap);
 }

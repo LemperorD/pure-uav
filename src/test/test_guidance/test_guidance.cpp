@@ -19,6 +19,7 @@
 //   17. ★ 端到端闭环回归：合成世界里真跑一整段交会（min R / 饱和 / HOLD / 每拍发送）
 //   18. ★ CSV 录制 → 回放：同一份输入喂回同一个 loop，输出必须逐位一致（黑匣子）
 //       + 句柄生命周期体检（重复 open / 幂等 close / 关闭后不碰野句柄 / 刷盘）
+//   19. ★ 参数加载：YAML 子集 / CLI 覆盖 / 范围校验 / to_string（零第三方依赖）
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
@@ -58,6 +59,7 @@
 #include "guidance_loop.hpp"     // 机载主循环外壳（§16）
 #include "synthetic_world.hpp"   // 合成世界 + 闭环驱动（§17）
 #include "csv_io.hpp"            // 录制 / 回放（§18）
+#include "params.hpp"            // 参数加载 / 校验（§19）
 
 using namespace pure_uav;
 
@@ -1548,6 +1550,114 @@ static void test_csv_roundtrip() {
 }
 
 // ============================================================
+//  19. 参数加载 / 校验（YAML 子集 + CLI 覆盖）
+// ============================================================
+static void test_params() {
+    section("19. 参数加载（YAML 子集 / 校验）");
+
+    // ---- 默认值必须与 main.cpp 旧硬编码一致（接入加载器后行为不变）----
+    const app::AppParams d = app::default_params();
+    near(d.guidance.N, 4.0, 1e-12, "默认 N=4");
+    near(d.guidance.a_max, 10.0, 1e-12, "默认 a_max=10");
+    ok(d.guidance.law == GuidanceLaw::PPN, "默认 law=PPN");
+    ok(d.loop.loop_hz == 50, "默认 loop_hz=50");
+    near(d.loop.max_sample_age_s, 0.2, 1e-12, "默认 max_sample_age=0.2");
+    ok(!d.loop.cam.valid(), "默认相机留空（必须由配置给，demo 才回退）");
+
+    // ---- 嵌套 YAML ----
+    const char *yaml = R"YAML(
+# 制导
+guidance:
+  law: TPN
+  N: 3.5
+  a_max: 12
+  freeze_criterion: by_tgo_or_range
+  t_go_freeze: 0.2
+  los_rate_source: from_los_difference
+loop:
+  loop_hz: 100
+  on_unhealthy: safe_hover
+  send_on_every_tick: false
+cam:
+  fx: 432
+  fy: 432
+  cx: 320
+  cy: 240
+  R_body_cam: 1,0,0, 0,1,0, 0,0,1
+)YAML";
+    app::AppParams p = app::default_params();
+    app::ParamResult r = app::load_yaml_text(yaml, &p);
+    ok(r.ok, r.ok ? "嵌套 YAML 解析成功" : r.error.c_str());
+    ok(p.guidance.law == GuidanceLaw::TPN, "嵌套 law=TPN");
+    near(p.guidance.N, 3.5, 1e-12, "嵌套 N=3.5");
+    near(p.guidance.a_max, 12.0, 1e-12, "嵌套 a_max=12");
+    ok(p.guidance.freeze_criterion == FreezeCriterion::BY_TGO_OR_RANGE,
+       "嵌套 freeze=BY_TGO_OR_RANGE");
+    ok(p.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE,
+       "嵌套 los=FROM_LOS_DIFFERENCE");
+    ok(p.loop.loop_hz == 100, "嵌套 loop_hz=100");
+    ok(p.loop.on_unhealthy == app::LoopConfig::OnUnhealthy::kSafeHover,
+       "嵌套 on_unhealthy=SAFE_HOVER");
+    ok(!p.loop.send_on_every_tick, "嵌套 send_on_every_tick=false");
+    ok(p.loop.cam.valid(), "嵌套相机有效");
+    near(p.loop.cam.fx, 432.0, 1e-12, "嵌套 fx=432");
+    near(p.loop.cam.R_body_cam[8], 1.0, 1e-12, "嵌套 R_body_cam[8]=1");
+
+    // ---- 扁平点号键 + 行尾注释 ----
+    app::AppParams q = app::default_params();
+    r = app::load_yaml_text("guidance.law: APN\nguidance.N: 6  # 行尾注释\n", &q);
+    ok(r.ok, "扁平点号 + 注释解析成功");
+    ok(q.guidance.law == GuidanceLaw::APN, "扁平 law=APN");
+    near(q.guidance.N, 6.0, 1e-12, "扁平 N=6");
+
+    // ---- 失败路径：未知键 / 类型错 / 重复键 / 矩阵数量错 ----
+    app::AppParams u = app::default_params();
+    r = app::load_yaml_text("guidance.N: 4\nguidance.typo: 1\n", &u);
+    ok(!r.ok && r.error.find("typo") != std::string::npos,
+       "未知键被拒绝且错误里带键名");
+
+    app::AppParams t = app::default_params();
+    r = app::load_yaml_text("guidance.N: abc\n", &t);
+    ok(!r.ok, "非数字被拒绝");
+
+    app::AppParams dup = app::default_params();
+    r = app::load_yaml_text("guidance.N: 4\nguidance.N: 5\n", &dup);
+    ok(!r.ok, "重复键被拒绝");
+
+    app::AppParams m = app::default_params();
+    r = app::load_yaml_text("cam.R_body_cam: 1,0,0\n", &m);
+    ok(!r.ok, "R_body_cam 不是 9 个被拒绝");
+
+    // ---- 校验：范围与一致性 ----
+    app::AppParams v = app::default_params();
+    v.guidance.N = 0.0;
+    ok(!app::validate(v).ok, "N=0 校验失败");
+    v = app::default_params();
+    v.guidance.a_max = -1.0;
+    ok(!app::validate(v).ok, "a_max<0 校验失败");
+    v = app::default_params();
+    v.loop.loop_hz = 0;
+    ok(!app::validate(v).ok, "loop_hz=0 校验失败");
+    v = app::default_params();
+    v.loop.sensor_timeout_s = 0.05;   // < max_sample_age(0.2)
+    ok(!app::validate(v).ok, "sensor_timeout < max_sample_age 校验失败");
+    v = app::default_params();
+    v.loop.hold_last_max_s = 1.0;     // > sensor_timeout(0.5)
+    ok(!app::validate(v).ok, "hold_last_max > sensor_timeout 校验失败");
+    v = app::default_params();
+    v.loop.cam.fx = 400.0;            // 只配 fx、不配 fy
+    ok(!app::validate(v).ok, "相机只配 fx 校验失败");
+    ok(app::validate(app::default_params()).ok, "默认参数校验通过");
+
+    // ---- 打印（便于 --print-params / 两次配置 diff）----
+    const std::string s = app::to_string(app::default_params());
+    ok(s.find("guidance.N") != std::string::npos &&
+       s.find("loop.loop_hz") != std::string::npos &&
+       s.find("cam.R_body_cam") != std::string::npos,
+       "to_string 含关键键");
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -1569,6 +1679,7 @@ int main() {
     test_guidance_loop();
     test_closed_loop_regression();
     test_csv_roundtrip();
+    test_params();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
