@@ -20,6 +20,7 @@
 
 #include "guidance_loop.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -31,6 +32,41 @@
 
 namespace pure_uav {
 namespace app {
+
+// ============================================================================
+//  LatencyStats 实现（只在循环外调用：复制到栈上排序，无堆分配）
+// ============================================================================
+
+std::uint64_t LatencyStats::percentile_ns(Stage s, double p) const {
+    const int idx = static_cast<int>(s);
+    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
+    const Ring &ring = r[idx];
+    const int m = ring.size();
+    if (m <= 0) return 0;
+
+    std::uint64_t tmp[kCap];
+    for (int i = 0; i < m; ++i) tmp[i] = ring.v[i];
+    std::sort(tmp, tmp + m);
+
+    const double q = (p < 0.0) ? 0.0 : (p > 1.0 ? 1.0 : p);
+    int pos = static_cast<int>(std::ceil(q * static_cast<double>(m))) - 1;
+    if (pos < 0) pos = 0;
+    if (pos >= m) pos = m - 1;
+    return tmp[pos];
+}
+
+std::uint64_t LatencyStats::max_ns(Stage s) const {
+    const int idx = static_cast<int>(s);
+    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
+    const Ring &ring = r[idx];
+    const int m = ring.size();
+    if (m <= 0) return 0;
+    std::uint64_t mx = 0;
+    for (int i = 0; i < m; ++i) {
+        if (ring.v[i] > mx) mx = ring.v[i];
+    }
+    return mx;
+}
 
 namespace {
 
@@ -99,6 +135,25 @@ inline GuidanceOutput make_safe_hover(std::uint64_t boot_us, InputHealth health)
     o.health     = health;
     return o;
 }
+
+// 打点用 RAII：所有 return 路径都会落一条样本（包括超时/无帧/降级）。
+// 只读时钟 + 写固定数组 ⇒ 循环内零分配；不改变任何控制流。
+struct LatencyTrace {
+    LatencyStats *dst = nullptr;
+    std::chrono::steady_clock::time_point t0{}, t1{}, t2{}, t3{};
+    bool armed = false;
+
+    ~LatencyTrace() {
+        if (!armed || dst == nullptr) return;
+        const auto t4 = std::chrono::steady_clock::now();
+        auto ns = [](const std::chrono::steady_clock::time_point &a,
+                     const std::chrono::steady_clock::time_point &b) {
+            return static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count());
+        };
+        dst->add(ns(t0, t1), ns(t1, t2), ns(t2, t3), ns(t3, t4), ns(t0, t4));
+    }
+};
 
 }  // namespace
 
@@ -171,6 +226,13 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
     if (!inited_) return LoopStatus::kNotInitialized;
     if (stop_requested_.load(std::memory_order_relaxed)) return LoopStatus::kStopped;
 
+    // ---- 端到端打点（RAII：任何 return 都落一条样本）----
+    LatencyTrace trace;
+    trace.dst   = &stats_.latency;
+    trace.t0    = std::chrono::steady_clock::now();
+    trace.t1    = trace.t2 = trace.t3 = trace.t0;
+    trace.armed = true;
+
     ++stats_.ticks;
     const double t_local = local_now_s();
 
@@ -187,6 +249,9 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
         last_tgt_s_ = t_local;
         if (tgt_now_.present) ++stats_.tgt_frames;
     }
+
+    trace.t1 = std::chrono::steady_clock::now();       // 取数完成
+    trace.t2 = trace.t3 = trace.t1;                    // 未走反投影/制导时这两段为 0
 
     // ---- ② 掉线判定（本地单调时钟；数据时间戳只用于"新鲜度"）----
     if (have_ins_ && (t_local - last_ins_s_) > cfg_.sensor_timeout_s) {
@@ -251,10 +316,12 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
 
             // 5.5 调核（纯函数）→ 出口换算（唯一一次 ENU→NED）
             if (health == InputHealth::kOk) {
+                trace.t2 = std::chrono::steady_clock::now();   // 反投影+适配+体检完成
                 const PureGuidanceCmd cmd = guidance_step(st, params_, memory_);
 
                 double ned[3];
                 adapter::cmd_accel_to_ned(cmd, ned);
+                trace.t3 = std::chrono::steady_clock::now();   // 制导 + 出口换算完成
 
                 GuidanceOutput o;
                 o.boot_us    = tgt_now_.boot_us;

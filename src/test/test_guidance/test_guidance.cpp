@@ -20,6 +20,7 @@
 //   18. ★ CSV 录制 → 回放：同一份输入喂回同一个 loop，输出必须逐位一致（黑匣子）
 //       + 句柄生命周期体检（重复 open / 幂等 close / 关闭后不碰野句柄 / 刷盘）
 //   19. ★ 参数加载：YAML 子集 / CLI 覆盖 / 范围校验 / to_string（零第三方依赖）
+//   20. ★ 端到端打点：取数/反投影/制导/发送/总延迟的 P50/P95/max + 环形回绕
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
@@ -1658,6 +1659,50 @@ cam:
 }
 
 // ============================================================
+//  20. 端到端打点（P50/P95/max + 环形缓冲）
+// ============================================================
+static void test_latency() {
+    section("20. 端到端打点（P50/P95/max + 环形缓冲）");
+
+    // ---- 空统计：所有分位数都是 0，不许除零 ----
+    app::LatencyStats empty;
+    ok(empty.count() == 0, "空统计 count=0");
+    ok(empty.size() == 0, "空统计 size=0");
+    ok(empty.percentile_ns(app::LatencyStats::Stage::kTotal, 0.95) == 0, "空统计 p95=0");
+    ok(empty.max_ns(app::LatencyStats::Stage::kTotal) == 0, "空统计 max=0");
+
+    // ---- 跑 300 拍（> kCap=128）验证环形回绕 ----
+    LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+    app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+    ok(loop.init(), "§20 init");
+
+    const int ticks = 300;
+    for (int k = 0; k < ticks; ++k) {
+        ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
+        app::GuidanceOutput o;
+        loop.run_once(&o);
+    }
+    const app::LoopStats &st = loop.stats();
+    ok(st.latency.count() == static_cast<std::uint64_t>(ticks), "打点样本数 = 拍数（含回绕）");
+    ok(st.latency.size() == app::LatencyStats::kCap, "环形只保留 kCap 个样本");
+    ok(st.ticks == static_cast<std::uint64_t>(ticks), "ticks 同步");
+
+    // ---- P50 ≤ P95 ≤ max；总延迟 ≥ 任一段（逐样本单调 ⇒ 分位数也单调）----
+    using S = app::LatencyStats::Stage;
+    const std::uint64_t t50  = st.latency.percentile_ns(S::kTotal, 0.50);
+    const std::uint64_t t95  = st.latency.percentile_ns(S::kTotal, 0.95);
+    const std::uint64_t tmax = st.latency.max_ns(S::kTotal);
+    ok(t50 <= t95 && t95 <= tmax, "总延迟 P50 ≤ P95 ≤ max");
+    ok(tmax > 0, "总延迟 max > 0（时钟真的在走）");
+    ok(st.latency.percentile_ns(S::kPoll, 0.95) <= t95, "总延迟 P95 ≥ 取数段 P95");
+    ok(st.latency.percentile_ns(S::kProject, 0.95) <= t95, "总延迟 P95 ≥ 反投影段 P95");
+    ok(st.latency.percentile_ns(S::kGuidance, 0.95) <= t95, "总延迟 P95 ≥ 制导段 P95");
+    ok(st.latency.percentile_ns(S::kSend, 0.95) <= t95, "总延迟 P95 ≥ 发送段 P95");
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -1680,6 +1725,7 @@ int main() {
     test_closed_loop_regression();
     test_csv_roundtrip();
     test_params();
+    test_latency();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);

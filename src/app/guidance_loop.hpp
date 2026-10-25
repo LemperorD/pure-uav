@@ -134,6 +134,55 @@ struct LoopConfig {
     CameraModel cam;
 };
 
+// ---------------------------------------------------------------- 端到端打点
+//
+// 每拍记录 5 段耗时（ns）到**固定容量环形缓冲**：循环内零分配、零 STL、零 I/O。
+// 打点本身只有 4 次 `steady_clock::now()` + 5 次数组写入，不参与控制。
+//
+//   kPoll      取数（两个 poll）
+//   kProject   像素→世界视线 + 组装 RawFrame + quick_check
+//   kGuidance  guidance_step + ENU→NED 出口换算
+//   kSend      sink->send()
+//   kTotal     t0 → t4（整拍）
+//
+// P50/P95 在**循环外**按需计算（只在报告里调用；内部复制到栈上排序）。
+struct LatencyStats {
+    static constexpr int kCap = 128;      // 128 拍 ≈ 2.5 s @ 50 Hz
+    enum class Stage : int { kPoll = 0, kProject, kGuidance, kSend, kTotal, kCount };
+
+    struct Ring {
+        std::uint64_t v[kCap] = {};
+        int           head = 0;          // 下一个写入位置
+        std::uint64_t n = 0;             // 累计样本数（可 > kCap）
+        void add(std::uint64_t x) noexcept {
+            v[head] = x;
+            head = (head + 1) % kCap;
+            ++n;
+        }
+        std::uint64_t count() const noexcept { return n; }
+        int size() const noexcept { return static_cast<int>(n < kCap ? n : kCap); }
+    };
+
+    Ring r[static_cast<int>(Stage::kCount)];
+
+    void add(std::uint64_t poll_ns, std::uint64_t project_ns,
+             std::uint64_t guidance_ns, std::uint64_t send_ns,
+             std::uint64_t total_ns) noexcept {
+        r[static_cast<int>(Stage::kPoll)].add(poll_ns);
+        r[static_cast<int>(Stage::kProject)].add(project_ns);
+        r[static_cast<int>(Stage::kGuidance)].add(guidance_ns);
+        r[static_cast<int>(Stage::kSend)].add(send_ns);
+        r[static_cast<int>(Stage::kTotal)].add(total_ns);
+    }
+
+    std::uint64_t count() const noexcept { return r[0].count(); }
+    int size() const noexcept { return r[0].size(); }
+
+    // p ∈ [0,1]；返回分位数（ns，无舍入；无样本时 0）。
+    std::uint64_t percentile_ns(Stage s, double p) const;
+    std::uint64_t max_ns(Stage s) const;
+};
+
 // ---------------------------------------------------------------- 统计
 //
 // 只做累加，不打印。落地时建议再加一个"环形缓冲日志"，异常前后各留 N 秒。
@@ -149,6 +198,7 @@ struct LoopStats {
     std::uint64_t safe_hover   = 0;   // 降级为"零速度悬停"的拍数
     std::uint64_t sink_errors  = 0;   // 发送失败次数
     std::uint64_t max_latency_us = 0; // 采样时刻 → 发出时刻 的最大值（用于看时延）
+    LatencyStats  latency;            // ★ 端到端打点（固定环形缓冲，零分配）
 };
 
 // ---------------------------------------------------------------- 主循环

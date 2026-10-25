@@ -72,6 +72,16 @@ src/app/
 - `--print-params` 打印最终值（两次配置可 diff）；`cam.*` 未配时**只有合成世界 demo**
   才回退 `demo_camera()`，真机必须在 YAML 里给相机。
 
+### 2.2 端到端打点（`LoopStats::latency`）
+
+- `run_once()` 每拍记录 **5 段耗时（ns）**：取数 / 反投影 / 制导 / 发送 / 总；
+- 固定**环形缓冲 `kCap=128`**（≈2.5 s @50 Hz）：循环内零分配、零 STL、零 I/O，
+  只有 4 次 `steady_clock::now()` + 5 次数组写入；
+- `LatencyTrace` 是 RAII：**所有 return 路径**（超时 / 无帧 / 降级 / 不健康）都落一条样本；
+- P50/P95/max 在**循环外**按需计算（复制到栈上排序）；`main` 汇总里打印一行；
+- ⚠ Windows `steady_clock` 分辨率约 **100 ns** ⇒ 数值是 100 ns 的整数倍；
+  WSL/Linux 上更细。真实机载时延（串口/调度）会比合成世界大得多，以实机为准。
+
 ---
 
 ## 3 CSV 格式（一行 = 一拍）
@@ -115,6 +125,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `test_guidance` §17 | **端到端闭环回归**：跑一整段交会并断言 min R / 饱和 / HOLD / 每拍发送 | 16 |
 | `test_guidance` §18 | **CSV 录制 → 回放逐位一致**（黑匣子有效性）+ 句柄生命周期 + 句柄泄漏计数 | 59 |
 | `test_guidance` §19 | **参数加载**：默认值 / 嵌套与扁平 YAML / 未知键 / 类型错 / 重复键 / 范围校验 / to_string | 33 |
+| `test_guidance` §20 | **端到端打点**：五段 P50/P95/max、环形回绕、空统计 | 14 |
 
 §17 的价值：§1~§16 都是分段验证，分段全绿 ≠ 整条链没坏
 （2026-10-20 就踩过 HOLD 窗口起算点写错、分段测试全过的事）。

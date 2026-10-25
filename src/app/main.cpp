@@ -132,6 +132,21 @@ const char *law_name(GuidanceLaw law) {
     return "?";
 }
 
+// ---------------------------------------------------------------- 打点打印
+struct Lat3 {
+    unsigned long long p50 = 0;
+    unsigned long long p95 = 0;
+    unsigned long long max = 0;
+};
+
+Lat3 lat3(const LatencyStats &l, LatencyStats::Stage s) {
+    Lat3 v;
+    v.p50 = static_cast<unsigned long long>(l.percentile_ns(s, 0.50));
+    v.p95 = static_cast<unsigned long long>(l.percentile_ns(s, 0.95));
+    v.max = static_cast<unsigned long long>(l.max_ns(s));
+    return v;
+}
+
 // ---------------------------------------------------------------- 打印
 struct PrintCtx {
     int    every = 5;      // 每几拍打一行
@@ -232,6 +247,19 @@ int run_synthetic(const Args &a, const AppParams &ap) {
                 rep.min_r, rep.min_r_tick, world.pos().x, world.pos().y, world.pos().z);
     std::printf("  末速度 (%.2f, %.2f, %.2f)  max_latency=%llu us\n", world.vel().x,
                 world.vel().y, world.vel().z, (unsigned long long)s.max_latency_us);
+    if (s.latency.count() > 0) {
+        const Lat3 poll = lat3(s.latency, LatencyStats::Stage::kPoll);
+        const Lat3 proj = lat3(s.latency, LatencyStats::Stage::kProject);
+        const Lat3 guid = lat3(s.latency, LatencyStats::Stage::kGuidance);
+        const Lat3 send = lat3(s.latency, LatencyStats::Stage::kSend);
+        const Lat3 tot  = lat3(s.latency, LatencyStats::Stage::kTotal);
+        std::printf("  打点 P50/P95/max (ns)  取数 %llu/%llu/%llu  反投影 %llu/%llu/%llu\n",
+                    poll.p50, poll.p95, poll.max, proj.p50, proj.p95, proj.max);
+        std::printf("                        制导 %llu/%llu/%llu  发送 %llu/%llu/%llu"
+                    "  总 %llu/%llu/%llu\n",
+                    guid.p50, guid.p95, guid.max, send.p50, send.p95, send.max,
+                    tot.p50, tot.p95, tot.max);
+    }
     if (want_rec) std::printf("  录制行数 %llu（%s）\n",
                               (unsigned long long)rec.rows(), rec.ok() ? "ok" : "写失败");
     if (a.out) std::printf("  落盘行数 %llu（%s）\n",
