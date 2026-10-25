@@ -17,6 +17,7 @@ src/app/
   synthetic_world.{hpp,cpp} 合成世界（零依赖闭环）+ 闭环驱动（测试复用）
   csv_io.{hpp,cpp}          录制 / 回放 / 指令落盘 / NullSink
   params.{hpp,cpp}          参数加载 / 校验（YAML 子集 + CLI 覆盖，零第三方依赖）
+  ring_log.{hpp,cpp}        黑匣子（固定环形缓冲，循环内零 I/O）
   main.cpp                  薄壳：命令行解析 + 打印
 ```
 
@@ -82,6 +83,16 @@ src/app/
 - ⚠ Windows `steady_clock` 分辨率约 **100 ns** ⇒ 数值是 100 ns 的整数倍；
   WSL/Linux 上更细。真实机载时延（串口/调度）会比合成世界大得多，以实机为准。
 
+### 2.3 黑匣子（`RingLog`）
+
+- 每拍 `push` 一条 `RingRecord`（`boot_us` / `ctrl` / `mode` / `health` / flags /
+  `a_ned` / `v_ned` / `a_norm` / `t_go` / `Vc` / `R` / `lam_dot`），
+  固定环形 **`kCap=512`**（≈10.2 s @50 Hz，约 49 KB）；
+- 循环内**零 I/O、零分配**；只有 `dump_csv()` 才碰磁盘；
+- `GuidanceLoop::blackbox()` 暴露只读视图：跑完 / 异常现场 / 手动触发都能 dump；
+- `main --blackbox=F --blackbox-sec=S` 跑完写最近 S 秒（`<=0` = 全部）；
+- 与 `csv_io` 互补：CSV 是**持续录制/复盘**，RingLog 是常驻内存的"最后一口气"。
+
 ---
 
 ## 3 CSV 格式（一行 = 一拍）
@@ -126,6 +137,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `test_guidance` §18 | **CSV 录制 → 回放逐位一致**（黑匣子有效性）+ 句柄生命周期 + 句柄泄漏计数 | 59 |
 | `test_guidance` §19 | **参数加载**：默认值 / 嵌套与扁平 YAML / 未知键 / 类型错 / 重复键 / 范围校验 / to_string | 33 |
 | `test_guidance` §20 | **端到端打点**：五段 P50/P95/max、环形回绕、空统计 | 14 |
+| `test_guidance` §21 | **黑匣子**：环形回绕、时间窗 dump、文件内容、与 loop 接线 | 19 |
 
 §17 的价值：§1~§16 都是分段验证，分段全绿 ≠ 整条链没坏
 （2026-10-20 就踩过 HOLD 窗口起算点写错、分段测试全过的事）。
@@ -163,8 +175,8 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `mavlink_ins_source.cpp` / `mavlink_sink.cpp`（真机数据入口/出口） | communication 合进 main |
 | `VisionTargetSource`（接检测） | 检测组接口（像素 + 距离 + 曝光时戳） |
 | `SimTruthInsSource` / `SimTruthTargetSource`（XTDrone2 真值） | 仿真桥 |
-| 端到端打点（t0 取数 → t3 发出，P50/P95/max） | 无 |
-| 环形缓冲黑匣子（循环内零 I/O） | 无 |
+| 端到端打点（t0 取数 → t3 发出，P50/P95/max） | ✅ 已完成（§20） |
+| 环形缓冲黑匣子（循环内零 I/O） | ✅ 已完成（§21） |
 | EKF 重置监控（`kEstimatorReset`） | 通信侧给标志 |
 
 详见 `src/guidance/后续注意问题.md` §1（阻塞项）与 §9（缺口）。

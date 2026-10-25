@@ -54,6 +54,8 @@ struct Args {
     const char *replay = nullptr;   // 输入回放 CSV
     const char *config = nullptr;   // YAML 参数文件（默认值 < 文件 < 命令行）
     bool   print_params = false;    // 打印最终参数后退出
+    const char *blackbox = nullptr; // 黑匣子落盘 CSV（跑完把最近 N 秒写出）
+    double blackbox_sec = 5.0;      // 黑匣子窗口（秒；<=0 表示全部）
     // ★ 只有**显式给出**的命令行项才覆盖 YAML（否则会把文件里的值冲掉）
     bool   law_given = false;
     bool   n_given = false;
@@ -115,6 +117,8 @@ void usage(const char *prog) {
         "  --replay=F    回放录制好的 CSV（不跑合成世界）\n"
         "  --config=F    YAML 参数文件（默认值 < 文件 < 命令行）\n"
         "  --print-params 打印最终参数后退出\n"
+        "  --blackbox=F  跑完把黑匣子（最近 --blackbox-sec 秒）写成 CSV\n"
+        "  --blackbox-sec=S  黑匣子窗口秒数（默认 5；<=0 = 全部）\n"
         "  --help        本帮助\n",
         prog);
 }
@@ -265,6 +269,12 @@ int run_synthetic(const Args &a, const AppParams &ap) {
     if (a.out) std::printf("  落盘行数 %llu（%s）\n",
                            (unsigned long long)csv_sink.rows(),
                            csv_sink.ok() ? "ok" : "写失败");
+    if (a.blackbox != nullptr) {
+        const long rows = loop.blackbox().dump_csv(a.blackbox, a.blackbox_sec);
+        if (rows < 0) std::printf("  黑匣子：写失败 → %s\n", a.blackbox);
+        else std::printf("  黑匣子：%ld 行（最近 %.1f s）→ %s\n", rows, a.blackbox_sec,
+                         a.blackbox);
+    }
 
     if (rep.min_r < 1.0)
         std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 ✅\n");
@@ -336,6 +346,12 @@ int run_replay(const Args &a, const AppParams &ap) {
     if (a.out) std::printf("  落盘行数 %llu（%s）\n",
                            (unsigned long long)csv_sink.rows(),
                            csv_sink.ok() ? "ok" : "写失败");
+    if (a.blackbox != nullptr) {
+        const long rows = loop.blackbox().dump_csv(a.blackbox, a.blackbox_sec);
+        if (rows < 0) std::printf("  黑匣子：写失败 → %s\n", a.blackbox);
+        else std::printf("  黑匣子：%ld 行（最近 %.1f s）→ %s\n", rows, a.blackbox_sec,
+                         a.blackbox);
+    }
 
     return (stop == LoopStatus::kOk || src.error() == nullptr) ? 0 : 1;
 }
@@ -373,6 +389,13 @@ int main(int argc, char **argv) {
             a.replay = s + 9;
         } else if (eq("--config=")) {
             a.config = s + 9;
+        } else if (eq("--blackbox=")) {
+            a.blackbox = s + 11;
+        } else if (eq("--blackbox-sec=")) {
+            if (!parse_double(s + 15, a.blackbox_sec)) {
+                std::printf("!! --blackbox-sec 解析失败：%s\n", s);
+                return 2;
+            }
         } else if (std::strcmp(s, "--print-params") == 0) {
             a.print_params = true;
         } else if (std::strcmp(s, "--realtime") == 0) {

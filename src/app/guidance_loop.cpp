@@ -178,6 +178,7 @@ bool GuidanceLoop::init() {
     tracker_.reset();
     memory_        = GuidanceMemory{};
     stats_         = LoopStats{};
+    blackbox_.clear();
     have_ins_      = false;
     have_tgt_      = false;
     computed_      = false;
@@ -202,6 +203,7 @@ double GuidanceLoop::local_now_s() const {
 // ============================================================================
 
 LoopStatus GuidanceLoop::emit(const GuidanceOutput &o, GuidanceOutput *out) {
+    blackbox_.push(o);                 // ★ 先记黑匣子（即使发送失败也要留下证据）
     if (!sink_.send(o)) {
         ++stats_.sink_errors;
         return LoopStatus::kSinkError;
@@ -383,7 +385,8 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
             break;
 
         case LoopConfig::OnUnhealthy::kStop:
-            // 不发（把主动权交给飞控 offboard 失联 failsafe）
+            // 不发（把主动权交给飞控 offboard 失联 failsafe），但要留下黑匣子证据
+            blackbox_.push(o);
             return LoopStatus::kUnhealthyInput;
     }
 

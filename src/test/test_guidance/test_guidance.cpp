@@ -21,6 +21,7 @@
 //       + 句柄生命周期体检（重复 open / 幂等 close / 关闭后不碰野句柄 / 刷盘）
 //   19. ★ 参数加载：YAML 子集 / CLI 覆盖 / 范围校验 / to_string（零第三方依赖）
 //   20. ★ 端到端打点：取数/反投影/制导/发送/总延迟的 P50/P95/max + 环形回绕
+//   21. ★ 黑匣子：固定环形缓冲 + 按时间窗 dump + 与 GuidanceLoop 的接线
 //
 // 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
 
@@ -28,6 +29,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -1703,6 +1705,94 @@ static void test_latency() {
 }
 
 // ============================================================
+//  21. 黑匣子（固定环形缓冲 + 时间窗 dump）
+// ============================================================
+static void test_ring_log() {
+    section("21. 黑匣子（环形缓冲 / 时间窗 dump）");
+
+    app::RingLog log;
+    ok(log.empty() && log.count() == 0 && log.size() == 0, "空黑匣子");
+
+    // 稀疏样本：每 1 s 一条
+    for (int k = 0; k < 5; ++k) {
+        app::GuidanceOutput o;
+        o.boot_us   = static_cast<std::uint64_t>(k) * 1000000ull;
+        o.a_cmd_ned = Vec3(0.1 * k, 0.2 * k, 0.3 * k);
+        o.a_cmd_norm = 0.1 * k;
+        o.mode      = PureGuidanceMode::PN;
+        o.health    = app::InputHealth::kOk;
+        o.valid     = true;
+        log.push(o);
+    }
+    ok(log.size() == 5 && log.count() == 5, "push 5 条");
+    ok(log.at(0).boot_us == 0, "at(0) = 最旧");
+    ok(log.newest().boot_us == 4000000ull, "newest = 最后一条");
+    near(log.at(2).a_ned[1], 0.4, 1e-12, "a_e 记录正确");
+
+    // 时间窗 dump：最近 2.5 s ⇒ 1.5 s 之后（2/3/4 s 共 3 条）
+    const char *path = "ringlog_test.csv";
+    long rows = log.dump_csv(path, 2.5);
+    ok(rows == 3, "dump 最近 2.5 s = 3 行");
+    std::FILE *f = std::fopen(path, "rb");
+    ok(f != nullptr, "dump 文件可打开");
+    if (f != nullptr) {
+        char line[256];
+        int  lines = 0;
+        bool header = false;
+        bool last_ok = false;
+        while (std::fgets(line, sizeof(line), f) != nullptr) {
+            ++lines;
+            if (lines == 1 && std::strstr(line, "boot_us") != nullptr) header = true;
+            if (std::strstr(line, "4000000") != nullptr) last_ok = true;
+        }
+        std::fclose(f);
+        ok(header, "CSV 有表头");
+        ok(lines == 4, "文件 = 表头 + 3 行");
+        ok(last_ok, "最后一行是 4 s 样本");
+        std::remove(path);
+    }
+
+    // 全量 dump（seconds <= 0）
+    rows = log.dump_csv(path, 0.0);
+    ok(rows == 5, "seconds<=0 ⇒ 全部 5 行");
+    std::remove(path);
+    ok(log.dump_csv("no_such_dir_xyz/x.csv", 1.0) == -1, "打不开路径返回 -1");
+
+    // 环形回绕：push kCap+10 条
+    log.clear();
+    const int total = app::RingLog::kCap + 10;
+    for (int k = 0; k < total; ++k) {
+        app::GuidanceOutput o;
+        o.boot_us = static_cast<std::uint64_t>(k) * 1000ull;
+        log.push(o);
+    }
+    ok(log.size() == app::RingLog::kCap, "回绕后 size = kCap");
+    ok(log.count() == static_cast<std::uint64_t>(total), "count 累计不丢");
+    ok(log.at(0).boot_us ==
+           static_cast<std::uint64_t>(total - app::RingLog::kCap) * 1000ull,
+       "回绕后最旧 = 第 (total-kCap) 条");
+    ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ull,
+       "回绕后最新 = 最后一条");
+
+    // 集成：GuidanceLoop 每拍都进黑匣子
+    LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
+    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+    app::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
+    ok(lp.init(), "§21 init");
+    for (int k = 0; k < 60; ++k) {
+        ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
+        app::GuidanceOutput o;
+        lp.run_once(&o);
+    }
+    ok(lp.blackbox().size() == 60, "GuidanceLoop 每拍都进黑匣子（60 条）");
+    const char *path2 = "ringlog_loop.csv";
+    const long rows2 = lp.blackbox().dump_csv(path2, 0.5);
+    ok(rows2 == 26, "dump 最近 0.5 s = 26 行（20 ms/拍，含端点）");
+    std::remove(path2);
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -1726,6 +1816,7 @@ int main() {
     test_csv_roundtrip();
     test_params();
     test_latency();
+    test_ring_log();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);

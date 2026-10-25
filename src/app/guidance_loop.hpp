@@ -54,6 +54,7 @@
 #include "command_sink.hpp"
 #include "guidance_types.hpp"   // GuidanceParams / GuidanceMemory
 #include "output.hpp"
+#include "ring_log.hpp"
 #include "sample.hpp"
 #include "sensor_source.hpp"
 #include "state_adapter.hpp"    // adapter::StateTimeTracker
@@ -227,6 +228,8 @@ public:
     void request_stop();
 
     const LoopStats &stats() const { return stats_; }
+    // ★ 黑匣子：最近 kCap 拍的关键量（循环内只 push，不落盘；dump 由上层决定时机）
+    const RingLog &blackbox() const { return blackbox_; }
     bool initialized() const { return inited_; }
 
 private:
@@ -273,6 +276,7 @@ private:
     std::atomic<bool> stop_requested_{false};
 
     LoopStats stats_{};
+    RingLog   blackbox_{};       // 端到端黑匣子（固定环形，零 I/O）
 };
 
 }  // namespace app
