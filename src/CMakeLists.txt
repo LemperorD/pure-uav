@@ -1,6 +1,9 @@
 add_subdirectory(app)
 add_subdirectory(common)
 add_subdirectory(driver)
+
+# VIO 估计器（OpenVINS，ROS-free）
+add_subdirectory(vio/estimator)
 add_subdirectory(guidance)
 add_subdirectory(interface)
 # test 放最后：test_math 依赖 common、test_guidance 依赖 guidance、

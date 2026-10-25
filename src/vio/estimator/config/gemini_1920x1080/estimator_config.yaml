@@ -1,0 +1,95 @@
+%YAML:1.0
+---
+# 【2026-10-20 定版，唯一配置】num_pts 200->300, track_frequency 21->60
+#
+# 为什么是 60 而不是 21 或 30：
+#   track_frequency 的单位是 Hz，含义是"每秒最多接受多少次视觉更新"。
+#   它是一个【相对帧率】的参数，同一个数字在不同帧率下丢帧比例完全不同：
+#       session05 (24.8 fps) + 21 Hz -> 丢 15%   ← README 旧结论的出处
+#       session24 (30.1 fps) + 21 Hz -> 丢 50%   ← 同一个 21，语义已经变了
+#   OpenVINS 取帧是"离上一帧 ≥ 1/f 就取"，所以 30 fps 流上：
+#       21 Hz -> 每 2 帧取 1（15.1 Hz）
+#       30 Hz -> 抖动时会漏（19.8 Hz）
+#       60 Hz -> 每帧都取（30.2 Hz）← 定这个，留 2 倍余量
+#
+# 收益（session24，实测单程 4.7 m，VIO 窗口占录制 78.8%）：
+#   丢一半帧：速度曲线 1.26->3.13 m/s（单调加速=发散），位移 15.84 m
+#   一帧不丢：速度曲线 0.48->0.50 m/s（平=物理正确），位移 3.78 m
+#             = 4.7*0.788*(1+2.0%)，尺度误差约 2%
+#
+# 注意：判据不靠卷尺 —— 匀速行走时速度曲线应当是平的。发散时必然单调上升。
+# 旧值存档在 config/_archive_track21hz/（只作证据，不要按数据集切换配置）
+verbosity: INFO
+use_fej: true
+integration: rk4
+use_stereo: false
+max_cameras: 1
+calib_cam_extrinsics: false
+calib_cam_intrinsics: false
+calib_cam_timeoffset: false
+calib_imu_intrinsics: false
+calib_imu_g_sensitivity: false
+max_clones: 11
+max_slam: 50
+max_slam_in_update: 25
+max_msckf_in_update: 40
+dt_slam_delay: 1
+gravity_mag: 9.81
+feat_rep_msckf: GLOBAL_3D
+feat_rep_slam: ANCHORED_MSCKF_INVERSE_DEPTH
+feat_rep_aruco: ANCHORED_MSCKF_INVERSE_DEPTH
+try_zupt: false
+zupt_chi2_multipler: 0
+zupt_max_velocity: 0.1
+zupt_noise_multiplier: 10
+zupt_max_disparity: 0.5
+zupt_only_at_beginning: false
+init_window_time: 2.0
+init_imu_thresh: 1.5
+init_max_disparity: 10.0
+init_max_features: 50
+init_dyn_use: true
+init_dyn_mle_opt_calib: false
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.05
+init_dyn_mle_max_threads: 6
+init_dyn_num_pose: 6
+init_dyn_min_deg: 10.0
+init_dyn_inflation_ori: 10
+init_dyn_inflation_vel: 100
+init_dyn_inflation_bg: 10
+init_dyn_inflation_ba: 100
+init_dyn_min_rec_cond: 1e-12
+init_dyn_bias_g: [0.0, 0.0, 0.0]
+init_dyn_bias_a: [0.0, 0.0, 0.0]
+record_timing_information: false
+record_timing_filepath: /tmp/traj_timing.txt
+save_total_state: false
+filepath_est: /tmp/ov_estimate.txt
+filepath_std: /tmp/ov_estimate_std.txt
+filepath_gt: /tmp/ov_groundtruth.txt
+use_klt: true
+num_pts: 300
+fast_threshold: 20
+grid_x: 5
+grid_y: 5
+min_px_dist: 10
+knn_ratio: 0.7
+track_frequency: 60.0
+downsample_cameras: false
+num_opencv_threads: 4
+histogram_method: HISTOGRAM
+use_aruco: false
+num_aruco: 1024
+downsize_aruco: true
+up_msckf_sigma_px: 1
+up_msckf_chi2_multipler: 1
+up_slam_sigma_px: 1
+up_slam_chi2_multipler: 1
+up_aruco_sigma_px: 1
+up_aruco_chi2_multipler: 1
+use_mask: false
+relative_config_imu: kalibr_imu_chain.yaml
+relative_config_imucam: kalibr_imucam_chain.yaml
+topic_imu: /imu0
+topic_camera0: /cam0/image_raw
