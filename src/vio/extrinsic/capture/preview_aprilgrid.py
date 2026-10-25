@@ -27,14 +27,14 @@ import cv2
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-import capture_config as cfg                              # noqa: E402
-import record_session as rs                               # noqa: E402
+from capture import capture_config as cfg                 # noqa: E402
+from capture import record_session as rs                  # noqa: E402
 
-SAVE_DIR = ROOT / "data" / "_preview"
+SAVE_DIR = cfg.DATA_ROOT / "_preview"
 DISPLAY_WIDTH = 880          # 预览窗宽度（只影响显示，检测始终在全分辨率上跑）
 
 # ---- 最小 V4L2 控件封装（和 vendor/capture_calibration.py 同一套 cid） -----------

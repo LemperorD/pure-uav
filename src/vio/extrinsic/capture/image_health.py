@@ -13,7 +13,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent   # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def _pick(paths, n):
@@ -74,8 +76,6 @@ def _load_target(target_yaml, min_tags=None):
     min_tags 不传时去 extrinsics_config 读，保证"体检说能过"和"标定真会用"
     的下限是同一个数（AprilGrid 默认 8，别在这里写死 4）。
     """
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
     if min_tags is None:
         try:
             import extrinsics_config as ec
@@ -235,8 +235,6 @@ def full_timeline(paths, camera_yaml, target_yaml, max_pnp_rms=2.0, stride=1,
     采样 12 张的"检出率"看不出来：86% 检出率完全可能被 4 处 0.5~1.9 秒的
     盲区毁掉（2026-10-15 就是这样白跑了三次标定，每次 5 分钟）。
     """
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
     from calib.data import Camera, Target, make_observation, read_yaml
 
     cam = Camera.load(camera_yaml)
@@ -331,11 +329,6 @@ def calib_quality_stats(paths, camera_yaml, target_yaml, window=24,
     最终只有 63 帧，还留下了 5 处 >0.35 s 的空洞，整份数据作废。
     静态的检出率、亮度全都看不出来，**只有 PnP 残差看得出**（那些帧糊了）。
     """
-    import sys
-    from pathlib import Path
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
     from calib.data import Camera, Target, make_observation, read_yaml
 
     cam = Camera.load(camera_yaml)

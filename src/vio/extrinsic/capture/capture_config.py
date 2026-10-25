@@ -15,6 +15,7 @@ PyCharm 用法：只改这个文件 → 右键 `record_session.py` → Run（右
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent      # extrinsic/
+DATA_ROOT = ROOT.parent / "data"                  # src/vio/data/：所有录制数据都在这
 
 # ==========================================================================
 # 1. 这次录到哪儿
@@ -24,7 +25,12 @@ ROOT = Path(__file__).resolve().parent.parent      # extrinsic/
 # 一起改掉 —— record_session.py 跑完会把该复制的三行直接打印出来。
 SESSION_NAME = "session01"
 
-SESSION_DIR = ROOT / "data" / SESSION_NAME
+# 录到 src/vio/data/<DATA_KIND>/<SESSION_NAME>。两类内容别混：
+#   "calib" = 标定板数据（给 ③ 外参标定）
+#   "vio"   = 走路/场景数据（给 ④ estimator 离线评估）
+DATA_KIND = "calib"
+
+SESSION_DIR = DATA_ROOT / DATA_KIND / SESSION_NAME
 RESULTS_DIR = ROOT / "results" / SESSION_NAME
 
 # 目标目录里已经有上一次的采集结果时，是否允许覆盖。

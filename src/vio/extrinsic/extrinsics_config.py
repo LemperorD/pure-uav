@@ -7,6 +7,7 @@ import math
 import sys
 
 ROOT = Path(__file__).resolve().parent
+DATA_ROOT = ROOT.parent / "data"   # 录制数据统一放 src/vio/data/（calib/ 标定板，vio/ 场景）
 
 @dataclass
 class Settings:
@@ -102,8 +103,8 @@ class Settings:
 PATHS = {
     "camera": ROOT / "configs/gemini_pro_rgb.yaml",  # 建议换成自己的内参文件
     "target": ROOT / "configs/aprilgrid.yaml",  # 尺寸必须实测！
-    "images": ROOT / "data/session01/images.csv",  # timestamp,filename
-    "imu": ROOT / "data/session01/imu.csv",  # timestamp,ax,ay,az,gx,gy,gz
+    "images": DATA_ROOT / "calib/session01/images.csv",  # timestamp,filename
+    "imu": DATA_ROOT / "calib/session01/imu.csv",  # timestamp,ax,ay,az,gx,gy,gz
     "bag": None,  # ROS1 .bag / ROS2 bag 目录；设置后替代 images / imu
     "output": ROOT / "results/session01",
 }

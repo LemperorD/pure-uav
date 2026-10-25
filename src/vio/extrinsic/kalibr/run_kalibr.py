@@ -4,7 +4,7 @@
 
 数据流
 ------
-    data/<session>/            images.csv + imu.csv + cam0/*.png
+    data/calib/<session>/      images.csv + imu.csv + cam0/*.png
         │  capture/make_rosbag.py     （复用你已验证的打包脚本，不重写）
         ▼
     kalibr/bags/<session>.bag   ROS1 bag，/cam0/image_raw + /imu0
@@ -23,10 +23,10 @@
 
 容器里看到的路径
 ----------------
-    宿主  <repo>/src/vio/extrinsic/   →   容器  /data/
-    于是  data/session17/                  →   /data/data/session17/
-          kalibr/bags/session17.bag         →   /data/kalibr/bags/session17.bag
-          kalibr/configs/                   →   /data/kalibr/configs/
+    宿主  <repo>/src/vio/                 →   容器  /data/
+    于是  data/calib/session17/               →   /data/data/calib/session17/
+          extrinsic/kalibr/bags/session17.bag →   /data/extrinsic/kalibr/bags/session17.bag
+          extrinsic/kalibr/configs/           →   /data/extrinsic/kalibr/configs/
 
 本脚本只在 kalibr/ 下新增文件；项目里既有的脚本和配置一个都不动。
 运行环境必须是 `vins`（ROS1 Noetic），因为打 bag 需要 rosbag 模块。
@@ -43,7 +43,7 @@ from pathlib import Path
 
 # ---------------------------------------------------------------- 路径常量
 ROOT = Path(__file__).resolve().parent.parent          # extrinsic/
-DATA = ROOT / "data"
+DATA = ROOT.parent / "data" / "calib"   # 标定板数据（src/vio/data/calib/）
 KALIB = ROOT / "kalibr"
 CONF = KALIB / "configs"
 BAGS = KALIB / "bags"
@@ -78,8 +78,8 @@ def fail(msg: str, code: int = 1):
 
 
 def container_path(p: Path) -> str:
-    """宿主路径 → 容器内 /data 下的路径。"""
-    return MOUNT + "/" + p.relative_to(ROOT).as_posix()
+    """宿主路径 → 容器内 /data 下的路径（挂载的是 src/vio/）。"""
+    return MOUNT + "/" + p.relative_to(ROOT.parent).as_posix()
 
 
 def have_module(name: str) -> bool:
@@ -235,7 +235,7 @@ def build_bag(session: str, rebuild: bool) -> Path:
     script = ROOT / "capture" / "make_rosbag.py"
     if not script.is_file():
         fail(f"找不到 {script}")
-    info(f"bag：从 data/{session}/ 打包（复用 capture/make_rosbag.py）")
+    info(f"bag：从 data/calib/{session}/ 打包（复用 capture/make_rosbag.py）")
     rc = run_tee([sys.executable, str(script), "--session", session,
                   "--output", str(bag)])
     if rc != 0 or not bag.exists():
@@ -306,7 +306,7 @@ def run_kalibr(args, docker: list[str], session: str, bag: Path) -> Path:
         inner += f" --bag-from-to {args.from_to[0]} {args.from_to[1]}"
 
     cmd = docker + ["run", "--rm",
-                    "-v", f"{ROOT}:{MOUNT}",
+                    "-v", f"{ROOT.parent}:{MOUNT}",
                     "-w", container_path(out_dir),
                     "--user", f"{os.getuid()}:{os.getgid()}",
                     "-e", "HOME=/tmp", "-e", "MPLCONFIGDIR=/tmp/mpl",

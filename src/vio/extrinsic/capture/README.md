@@ -34,7 +34,7 @@
 
 ```
 ① capture/record_session.py      ← 采集：图像 + IMU，同一个宿主机墙钟
-        ↓ 产出 data/sessionNN/{images.csv, imu.csv, cam0/*.png}
+        ↓ 产出 ../data/<calib|vio>/sessionNN/{images.csv, imu.csv, cam0/*.png}
 ② extrinsic/kalibr/run_kalibr.py      ← 标定（推荐，Kalibr）
    extrinsic/calibrate_extrinsics.py   ← 标定（无 Docker 时用自写版，两者应互相印证）
         ↓ 产出 results/sessionNN/{report.json, camchain-kalibr.yaml, ...}

@@ -33,11 +33,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor"))
-from mavlink_min import MavlinkParser, pack  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]  # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import imu_timebase  # noqa: E402  同目录，纯运算模块
+from capture import imu_timebase  # noqa: E402  同包，纯运算模块
+from capture.vendor.mavlink_min import MavlinkParser, pack  # noqa: E402
 
 MAV_CMD_SET_MESSAGE_INTERVAL = 511
 MSG_HIGHRES_IMU = 105
@@ -497,9 +498,7 @@ def format_stats(stats) -> str:
 # 单独运行 = IMU 体检（不采图，只验证飞控这条链路）
 # --------------------------------------------------------------------------
 def _main():
-    here = Path(__file__).resolve().parent
-    sys.path.insert(0, str(here))
-    import capture_config as cfg
+    from capture import capture_config as cfg
 
     seconds = float(getattr(cfg, "IMU_CHECK_SECONDS", 10.0))
     print("=" * 74)

@@ -28,14 +28,13 @@ from pathlib import Path
 import math
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(HERE / "vendor"))
+ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-import imu_recorder                                 # noqa: E402
-import make_images_csv                              # noqa: E402
-from mavlink_min import MavlinkParser, pack         # noqa: E402
+from capture import imu_recorder                            # noqa: E402
+from capture import make_images_csv                         # noqa: E402
+from capture.vendor.mavlink_min import MavlinkParser, pack  # noqa: E402
 
 WORK = HERE / "_selftest_tmp"
 PASS, FAIL = [], []
@@ -480,7 +479,7 @@ def test_end_to_end_formats():
 def test_image_health():
     hr("[5/5] 画面体检 · 判据与阈值")
     import numpy as np
-    import image_health as ih
+    from capture import image_health as ih
 
     def bright(p90):
         return {"p50": p90 * 0.4, "p90": p90, "p99": p90 * 1.5, "mean": p90 * 0.5, "n": 8}

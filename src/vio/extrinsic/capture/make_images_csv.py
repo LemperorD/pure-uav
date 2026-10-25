@@ -15,6 +15,10 @@ import json
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent   # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 class ManifestError(RuntimeError):
     pass
@@ -84,9 +88,7 @@ def build(session_dir, out_name="images.csv", log=print):
 
 
 def main():
-    here = Path(__file__).resolve().parent
-    sys.path.insert(0, str(here))
-    import capture_config as cfg
+    from capture import capture_config as cfg
 
     print(f"会话目录：{cfg.SESSION_DIR}")
     try:

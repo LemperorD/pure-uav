@@ -22,26 +22,57 @@
 
 ```
 extrinsic/
-├── calibrate_extrinsics.py    ① 自写路线：连续时间 B 样条联合优化（主入口）
+├── calibrate_extrinsics.py    ① 自写路线主入口：连续时间 B 样条联合优化
 ├── extrinsics_config.py          自写路线的参数（Paths / Settings），现场只改这个
-├── kalibr/
-│   ├── run_kalibr.py          ② Kalibr 路线：打 bag → docker run → 收 yaml
-│   ├── compare.py                两条路线逐 session 对比
-│   └── configs/                  target.yaml（板子）/ imu.yaml（噪声）/ camchain.yaml（内参）
+│
 ├── calib/                     自写路线的数学模型
 │   ├── data.py                   读数据 / AprilGrid + 棋盘检测 / PnP
 │   ├── spline.py                 均匀三次 B 样条
 │   ├── solver.py                 初始化 + 联合优化 + 报告
 │   ├── acquisition.py            采集说明解析（时钟域 / 滤波链 / IMU 实例声明）
 │   └── windows.py                检出空洞诊断 + 自动挑连续窗口
+│
 ├── capture/                   采集链（相机 + 飞控 IMU），详见 capture/README.md
+│   ├── record_session.py         ② 采集主入口（体检 → 起线程 → 汇总报告）
+│   ├── capture_config.py         采集参数，采集侧只改这个
+│   ├── imu_recorder.py           飞控 IMU 录制（MAVLink → imu.csv）
+│   ├── imu_timebase.py           时间基拟合（纯运算，被录制与单测共用）
+│   ├── image_health.py           画面体检（亮度 / 检出 / PnP 残差）
+│   ├── framing_check.py          取景 / 曝光体检（10 秒，当场判读）
+│   ├── check_board.py            验板子（反解 tagSpacing / tag_rotation）
+│   ├── preview_aprilgrid.py      AprilGrid 实时预览
+│   ├── make_images_csv.py        capture_manifest.json → images.csv
+│   ├── make_rosbag.py            images.csv + imu.csv → ROS1 bag
+│   ├── run_calibration.py        自写路线：先体检再标定
+│   ├── selftest_capture.py       采集链离线自检（假飞控 + 假串口）
+│   └── vendor/                   原样复制的厂商采集脚本（不魔改，见其 PROVENANCE.md）
+│
+├── kalibr/                    ③ Kalibr 路线（结果以这条为准）
+│   ├── run_kalibr.py             打 bag → docker run → 收 yaml
+│   ├── compare.py                两条路线逐 session 对比
+│   └── configs/                  target.yaml（板子）/ imu.yaml（噪声）/ camchain.yaml（内参）
+│
+├── tools/                     离线工具（不碰硬件）
+│   ├── prepare_openvins.py       标定结果 → OpenVINS 配置
+│   ├── remap_imu_clock.py        用同步锚点把 IMU 时钟映射到图像时钟
+│   └── verify_synthetic.py       合成数据端到端自检（真值是独立生成的）
+│
 ├── configs/                   板子与相机的几何参数
 ├── results/final/             ★ 当前这套安装的最终外参（见下）
 ├── tests/                     48 个单元测试（unittest）
-├── prepare_openvins.py        把标定结果导出成 OpenVINS 配置
-├── remap_imu_clock.py         用测得的同步锚点把 IMU 时钟映射到图像时钟
-└── verify_synthetic.py        合成数据端到端自检（真值是独立生成的）
+│
+├── prepare_openvins.py        兼容入口 → tools/prepare_openvins.py（老命令不用改）
+├── remap_imu_clock.py         兼容入口 → tools/remap_imu_clock.py
+└── verify_synthetic.py        兼容入口 → tools/verify_synthetic.py
 ```
+
+组织约定（改代码时照着来）：
+
+- `extrinsic/` 是**唯一的包根**：模块间互引统一 `from capture import xxx`、
+  `from calib.data import xxx`；各入口脚本开头只有同样两行包根引导，
+  不要再散落地 `sys.path.insert`，更不要在函数内部拼路径。
+- 根目录只放 ① 主入口、参数文件和三个兼容入口；工具实现都在 `tools/`。
+- `capture/vendor/` 是原样复制的厂商代码，只被 import / 当子进程跑，不做任何修改。
 
 ---
 
@@ -71,7 +102,7 @@ python capture/run_calibration.py --session session01   # 自动挑连续窗口�
 python kalibr/compare.py session01
 
 # 6) 导出给 OpenVINS
-python prepare_openvins.py --calibration results/session01 \
+python tools/prepare_openvins.py --calibration results/session01 \
     --template-config <你现有的 OpenVINS 配置目录> --output <输出目录>
 ```
 
@@ -143,6 +174,9 @@ t_imu = t_cam + timeshift_cam_imu
 
 ```bash
 python -m unittest discover -s tests          # 48 项
-python verify_synthetic.py                    # 合成数据端到端，真值独立生成
+python tools/verify_synthetic.py              # 合成数据端到端，真值独立生成
 python capture/selftest_capture.py            # 采集链（假飞控 + 假串口）
 ```
+
+> 根目录的 `prepare_openvins.py` / `remap_imu_clock.py` / `verify_synthetic.py`
+> 是兼容入口，等价于 `tools/` 下的同名脚本；老命令和 PyCharm 里已有的运行配置不用改。

@@ -18,14 +18,14 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(ROOT))
+ROOT = HERE.parent                # extrinsic/：唯一需要上 sys.path 的路径
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-import capture_config as cfg                       # noqa: E402
-import image_health                                # noqa: E402
-import imu_recorder                                # noqa: E402
-import make_images_csv                             # noqa: E402
+from capture import capture_config as cfg         # noqa: E402
+from capture import image_health                  # noqa: E402
+from capture import imu_recorder                  # noqa: E402
+from capture import make_images_csv               # noqa: E402
 
 VENDOR = HERE / "vendor"
 CAMERA_SCRIPT = VENDOR / "capture_calibration.py"
@@ -364,6 +364,12 @@ def report(imu_stats, cam_rc, img_stats, interrupted):
 
 
 def pat_hint():
+    if cfg.DATA_KIND == "vio":
+        hr("下一步：跑 VIO（这组是场景数据，不用标定）")
+        run_vio = ROOT.parent / "estimator" / "scripts" / "run_vio_offline.py"
+        print(f"  python3 {run_vio} \\")
+        print(f"      --session {cfg.SESSION_DIR} --distance <实测米数>")
+        return
     import extrinsics_config as ec
     want = {"images": Path(cfg.SESSION_DIR) / "images.csv",
             "imu": Path(cfg.SESSION_DIR) / "imu.csv",
@@ -376,14 +382,16 @@ def pat_hint():
         print("⚠️  extrinsics_config.py 的 PATHS 还没指向本次会话。"
               "把它最下面那几行改成：")
         print()
-        print(f'    "images":  ROOT / "data/{cfg.SESSION_NAME}/images.csv",')
-        print(f'    "imu":     ROOT / "data/{cfg.SESSION_NAME}/imu.csv",')
+        print(f'    "images":  DATA_ROOT / "{cfg.DATA_KIND}/{cfg.SESSION_NAME}/images.csv",')
+        print(f'    "imu":     DATA_ROOT / "{cfg.DATA_KIND}/{cfg.SESSION_NAME}/imu.csv",')
         print(f'    "output":  ROOT / "results/{cfg.SESSION_NAME}",')
         print()
         print(f"  （当前 images 指向 {ec.PATHS['images']}）")
 
 
 def next_steps():
+    if cfg.DATA_KIND != "calib":
+        return  # VIO 场景数据不走标定，下一步见 pat_hint()
     hr("接下来点哪个")
     print(f"  1) 打开 {ROOT / 'calibrate_extrinsics.py'}，点右上角绿三角")
     print("     —— 它读的是 extrinsics_config.py 里的 PATHS 和 SETTINGS。")
@@ -403,7 +411,7 @@ def next_steps():
 # --------------------------------------------------------------------------
 
 def main():
-    hr("相机–IMU 外参标定 · 采集")
+    hr("相机–IMU 采集 · " + ("外参标定数据" if cfg.DATA_KIND == "calib" else "VIO 场景数据"))
     try:
         device, port, target_info = preflight()
     except Exception as exc:                                   # noqa: BLE001
