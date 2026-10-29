@@ -41,9 +41,13 @@ using namespace ov_msckf;
 
 UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &noises, std::shared_ptr<ov_core::FeatureDatabase> db,
                                          std::shared_ptr<Propagator> prop, double gravity_mag, double zupt_max_velocity,
-                                         double zupt_noise_multiplier, double zupt_max_disparity)
+                                         double zupt_noise_multiplier, double zupt_max_disparity, double zupt_max_omega_deg,
+                                         double zupt_max_acc_dev, double zupt_sigma_v, int zupt_min_still_frames,
+                                         bool zupt_v_only)
     : _options(options), _noises(noises), _db(db), _prop(prop), _zupt_max_velocity(zupt_max_velocity),
-      _zupt_noise_multiplier(zupt_noise_multiplier), _zupt_max_disparity(zupt_max_disparity) {
+      _zupt_noise_multiplier(zupt_noise_multiplier), _zupt_max_disparity(zupt_max_disparity),
+      _zupt_max_omega_deg(zupt_max_omega_deg), _zupt_max_acc_dev(zupt_max_acc_dev), _zupt_sigma_v(zupt_sigma_v),
+      _zupt_min_still_frames(zupt_min_still_frames), _zupt_v_only(zupt_v_only) {
 
   // Gravity
   _gravity << 0.0, 0.0, gravity_mag;
@@ -106,6 +110,71 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     return false;
   }
 
+  //===================================================================================
+  // 【2026-10-25】IMU 静止判据（独立于视觉的第二证据）
+  //
+  // 为什么加：上游只看图像位移（disparity）和卡方。两个都不够：
+  //   · 图像位移会被重复纹理 + 暗光骗 —— 天花板条纹上 KLT 能把错误匹配一路跟下去；
+  //   · 卡方在"姿态已经错了 11°"时必然爆表，于是最该救场的那次零速更新被拒。
+  // IMU 判据不受这两件事影响：静止时 |ω| 有界、‖a‖ 一定等于 g。而且它只读观测值，
+  // 不含任何状态估计，所以滤波器错得再离谱也不会影响这条判据。
+  // 实测（turn4/turn5 的安静段）：|ω| 0.4~0.6 °/s、| ‖a‖ − g | < 0.02 m/s²。
+  //===================================================================================
+  double mean_w_deg = 0.0, mean_acc_dev = 0.0;
+  {
+    double sw = 0.0, sa = 0.0;
+    for (const auto &m : imu_recent) {
+      sw += m.wm.norm();
+      sa += std::abs(m.am.norm() - _gravity.norm());
+    }
+    mean_w_deg = (sw / (double)imu_recent.size()) * 180.0 / M_PI;
+    mean_acc_dev = sa / (double)imu_recent.size();
+  }
+  const bool imu_still = (mean_w_deg < _zupt_max_omega_deg) && (mean_acc_dev < _zupt_max_acc_dev);
+
+  //===================================================================================
+  // 【2026-10-25】轻量路径：只把速度钉到零（不动 q/bg/ba）
+  // 见头文件 _zupt_v_only 的说明。这里是"停下来不许再加速"的最小充分实现。
+  //===================================================================================
+  if (_zupt_v_only) {
+    double disp_avg = 0.0, disp_var = 0.0;
+    int num_features = 0;
+    FeatureHelper::compute_disparity(_db, state->_timestamp, timestamp, disp_avg, disp_var, num_features);
+    last_disp_avg = disp_avg;
+    const bool vision_still = (disp_avg < _zupt_max_disparity && num_features > 20);
+    const double v_now0 = state->_imu->vel().norm();
+
+    // 去抖：IMU 判据必须连续成立 _zupt_min_still_frames 帧（15 Hz 以上才有意义）
+    _still_streak = (imu_still && v_now0 < _zupt_max_velocity) ? (_still_streak + 1) : 0;
+    if (!vision_still || _still_streak < _zupt_min_still_frames) {
+      last_zupt_state_timestamp = 0.0;
+      last_zupt_count = 0;
+      return false;
+    }
+
+    const double sg = (_zupt_sigma_v > 1e-4) ? _zupt_sigma_v : 0.05;
+    std::vector<std::shared_ptr<Type>> Hx_order;
+    Hx_order.push_back(state->_imu->v());
+    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(3, 3);
+    Eigen::VectorXd res = -state->_imu->vel();
+    Eigen::MatrixXd R = (sg * sg) * Eigen::MatrixXd::Identity(3, 3);
+    if (last_zupt_count >= 2) {
+      _db->cleanup_measurements_exact(last_zupt_state_timestamp);
+    }
+    StateHelper::EKFUpdate(state, Hx_order, H, res, R);
+    state->_timestamp = timestamp;
+    last_zupt_state_timestamp = timestamp;
+    last_zupt_count++;
+
+    static double last_print_t2 = -1e9;
+    if (timestamp - last_print_t2 > 2.0) {
+      last_print_t2 = timestamp;
+      PRINT_INFO(CYAN "[ZUPT] t=%.2f 判静止→锁速度 |v|=%.3f→0 |w|=%.2f°/s ‖a‖偏差=%.3f 位移=%.2fpx(%d特征)\n" RESET,
+                 timestamp, v_now0, mean_w_deg, mean_acc_dev, disp_avg, num_features);
+    }
+    return true;
+  }
+
   // If we should integrate the acceleration and say the velocity should be zero
   // Also if we should still inflate the bias based on their random walk noises
   bool integrated_accel_constraint = false; // untested
@@ -113,18 +182,23 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   bool override_with_disparity_check = true;
   bool explicitly_enforce_zero_motion = false;
 
+  // 【2026-10-25】显式零速残差：把速度状态也拉进更新，观测 "v = 0"。
+  const bool add_zero_velocity = (_zupt_sigma_v > 0.0) && !integrated_accel_constraint;
+
   // Order of our Jacobian
   std::vector<std::shared_ptr<Type>> Hx_order;
   Hx_order.push_back(state->_imu->q());
   Hx_order.push_back(state->_imu->bg());
   Hx_order.push_back(state->_imu->ba());
-  if (integrated_accel_constraint) {
+  if (integrated_accel_constraint || add_zero_velocity) {
     Hx_order.push_back(state->_imu->v());
   }
+  const int col_v = 9; // v 在 H 列里的起点（q/bg/ba 之后）
 
   // Large final matrices used for update (we will compress these)
-  int h_size = (integrated_accel_constraint) ? 12 : 9;
-  int m_size = 6 * ((int)imu_recent.size() - 1);
+  // 【2026-10-25】add_zero_velocity 时多 3 行 "v = 0"
+  int h_size = (integrated_accel_constraint) ? 12 : (add_zero_velocity ? 12 : 9);
+  int m_size = 6 * ((int)imu_recent.size() - 1) + (add_zero_velocity ? 3 : 0);
   Eigen::MatrixXd H = Eigen::MatrixXd::Zero(m_size, h_size);
   Eigen::VectorXd res = Eigen::VectorXd::Zero(m_size);
 
@@ -179,6 +253,18 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     dt_summed += dt;
   }
 
+  //===================================================================================
+  // 【2026-10-25】追加 "v = 0" 三行（白化后）
+  // 细节：更新末尾会把 R 乘上 _zupt_noise_multiplier，所以这里先按 sqrt(mult) 反向
+  // 缩放，保证最终等效噪声就是 _zupt_sigma_v，不受 multiplier 影响。
+  //===================================================================================
+  if (add_zero_velocity) {
+    const double mult = (_zupt_noise_multiplier > 1e-6) ? _zupt_noise_multiplier : 1.0;
+    const double w_v = std::sqrt(mult) / _zupt_sigma_v;
+    res.block(m_size - 3, 0, 3, 1) = -w_v * state->_imu->vel();
+    H.block(m_size - 3, col_v, 3, 3) = w_v * Eigen::Matrix3d::Identity();
+  }
+
   // Compress the system (we should be over determined)
   UpdaterHelper::measurement_compress_inplace(H, res);
   if (H.rows() < 1) {
@@ -226,6 +312,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     double disp_avg = 0.0;
     double disp_var = 0.0;
     FeatureHelper::compute_disparity(_db, time0_cam, time1_cam, disp_avg, disp_var, num_features);
+    last_disp_avg = disp_avg;   // 仅用于日志
 
     // Check if this disparity is enough to be classified as moving
     disparity_passed = (disp_avg < _zupt_max_disparity && num_features > 20);
@@ -236,17 +323,42 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     }
   }
 
-  // Check if we are currently zero velocity
-  // We need to pass the chi2 and not be above our velocity threshold
-  if (!disparity_passed && (chi2 > _options.chi2_multipler * chi2_check || state->_imu->vel().norm() > _zupt_max_velocity)) {
+  //===================================================================================
+  // 【2026-10-25】判据重写
+  //
+  // 上游逻辑：`if (!disparity_passed && (chi2 爆 || |v| 大)) reject`
+  //   → 只要图像位移小就**无条件接受**，卡方和速度都不看。实测 turn4 每帧都进来，
+  //     连 |v|=0.255 > 0.20 也照收。反过来，卡方在姿态错了 11° 时必然 2989 >> 84，
+  //     如果图像位移刚好超一点，就变成"最该救场的时候偏偏拒绝"。
+  //
+  // 新逻辑：三条独立证据全部通过才接受
+  //   ① 视觉：相邻帧平均位移 < zupt_max_disparity 且存活特征 > 20   （证明图像没动）
+  //   ② IMU ：窗口内 |ω| 与 |‖a‖−g| 都有界                        （证明机体没动）
+  //   ③ 状态：|v| < zupt_max_velocity                              （连状态自己都不认为在动）
+  // 卡方只记录、不作为门限：姿态/零偏本身错了的时候卡方一定爆，而零速更新正是把
+  // 它拉回来的唯一手段，用它当门限等于"错得越狠越不给改"。
+  //===================================================================================
+  const double v_now = state->_imu->vel().norm();
+  const bool vel_ok = (v_now < _zupt_max_velocity);
+  const bool still_now = disparity_passed && imu_still && vel_ok;
+
+  // 【2026-10-25】去抖：静止条件必须连续满足 _zupt_min_still_frames 帧才动手。
+  // 单帧判据在暗光下会闪断，而一次误触发（真在动却判静止）会被 v=0 残差硬拽，
+  // 实测 turn5 只错 7 次就把 10.4 m 的轨迹搞成 44.6 m —— 宁可晚 0.2 s 也不能误触发。
+  _still_streak = still_now ? (_still_streak + 1) : 0;
+  if (!still_now || _still_streak < _zupt_min_still_frames) {
     last_zupt_state_timestamp = 0.0;
     last_zupt_count = 0;
-    PRINT_DEBUG(YELLOW "[ZUPT]: rejected |v_IinG| = %.3f (chi2 %.3f > %.3f)\n" RESET, state->_imu->vel().norm(), chi2,
-                _options.chi2_multipler * chi2_check);
     return false;
   }
-  PRINT_INFO(CYAN "[ZUPT]: accepted |v_IinG| = %.3f (chi2 %.3f < %.3f)\n" RESET, state->_imu->vel().norm(), chi2,
-             _options.chi2_multipler * chi2_check);
+  // 打印限流：每 2 s 最多一条，避免刷屏
+  static double last_print_t = -1e9;
+  const bool do_print = (timestamp - last_print_t) > 2.0;
+  if (do_print) {
+    last_print_t = timestamp;
+    PRINT_INFO(CYAN "[ZUPT]: t=%.2f 判静止→零速更新 |v|=%.3f→0 |w|=%.2f°/s ‖a‖偏差=%.3f 位移=%.2fpx chi2=%.0f(门限%.0f，仅记录)\n" RESET,
+               timestamp, v_now, mean_w_deg, mean_acc_dev, last_disp_avg, chi2, _options.chi2_multipler * chi2_check);
+  }
 
   // Do our update, only do this update if we have previously detected
   // If we have succeeded, then we should remove the current timestamp feature tracks

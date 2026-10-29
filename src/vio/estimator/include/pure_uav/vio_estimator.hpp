@@ -122,6 +122,16 @@ public:
     // 已经进入过 LOST 并完成重建的次数
     int recoveryCount() const;
 
+    /// 【2026-10-29】飞控时间基变了（飞控重启 / 串口重连 / IMU 时间戳大幅回退）：
+    /// 立即丢弃旧时间基的估计，按新时间基从头初始化。
+    ///
+    /// 与 LOST 重建的区别（这是刻意分开的两条路）：
+    ///   · 不要求静止、不看 reinit_on_recover —— 重启是外部事件，不能等"停稳"；
+    ///   · 锚点清零：新轨迹从原点开始（飞控那边是 reset_counter 变化，会重新锚定）；
+    ///   · rebuildCount 递增，作为 ODOMETRY 的 reset_counter 告诉飞控"我重置了"。
+    /// 只能在 feedImu()/feedImage() 的同一线程调用。
+    void resetForNewTimebase(const char* reason = nullptr);
+
     // 统计/调试
     // MSCKF 更新诊断：calls=更新调用次数，feat_in=进入更新的特征数，
     // chi2_rej=被卡方门限拒掉的数，updates=真正执行的更新次数，rows=压缩后残差行数。
@@ -170,6 +180,10 @@ public:
     };
     TiltCheck tiltCheck() const;
 
+    /// 【2026-10-25】运行期开关零速更新（要求 config 里 try_zupt: true）。
+    /// 上层按"飞控是否解锁"自动切：地面上开（静止时钉住速度），空中关（防悬停误判）。
+    void setZuptEnabled(bool enable);
+
     // ---- 运动有效性自检（判断"这次测试到底有没有平移"）----
     // 单目 VIO 靠平移拿视差，没有视差就三角化不出来。实测（2026-10-21）：
     //   原地转（手持）      ||a|-g| 中位 0.015~0.071  -> 三角化成功率 0.000
@@ -189,6 +203,9 @@ public:
 
     /// 深度一致性：特征数 / 平均中位重投影误差(px) / 6 档直方图(<1 <2 <5 <10 <25 >=25)
     void depthErrStats(long long& n, double& mean_px, long long hist[6]) const;
+    /// 【2026-10-25】近 2 s 深度一致性**中位数**（px）。稳健，不会被离群点带偏。
+    /// 没有样本时返回 -1。健康门限和状态行都用这个，不要再用均值。
+    double recentDepthErrMedianPx(double now_s);
 
 
 private:

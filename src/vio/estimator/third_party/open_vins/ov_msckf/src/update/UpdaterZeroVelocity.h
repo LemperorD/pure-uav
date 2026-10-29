@@ -65,9 +65,14 @@ public:
    * @param zupt_noise_multiplier Multiplier of our IMU noise matrix (default should be 1.0)
    * @param zupt_max_disparity Max disparity we should consider to do a update with
    */
+  /// 构造函数（2026-10-25 增加后 3 个参数：IMU 静止判据 + 显式零速残差）
+  /// @param zupt_max_omega_deg 窗口内平均 |ω| 上限（deg/s），超了就不认为静止；<=0 或 999 表示不用这条
+  /// @param zupt_max_acc_dev   窗口内平均 | ‖a‖ − g | 上限（m/s²）；同上
+  /// @param zupt_sigma_v       零速残差 σ（m/s）；<=0 表示不加显式 v=0 约束（等价旧行为）
   UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &noises, std::shared_ptr<ov_core::FeatureDatabase> db,
                       std::shared_ptr<Propagator> prop, double gravity_mag, double zupt_max_velocity, double zupt_noise_multiplier,
-                      double zupt_max_disparity);
+                      double zupt_max_disparity, double zupt_max_omega_deg = 999.0, double zupt_max_acc_dev = 999.0,
+                      double zupt_sigma_v = 0.0, int zupt_min_still_frames = 0, bool zupt_v_only = false);
 
   /**
    * @brief Feed function for inertial data
@@ -138,6 +143,33 @@ protected:
 
   /// Max disparity (pixels) that we should consider a zupt with
   double _zupt_max_disparity = 1.0;
+
+  /// 【2026-10-25】IMU 静止判据：窗口内平均角速度上限（deg/s）
+  /// 为什么必须有：只看图像位移会被"重复纹理 + 暗光"骗 —— 天花板条纹上 KLT 可以把
+  /// 错误匹配一路跟下去，图像位移 0.3 px 而机器其实在动。IMU 是独立证据源。
+  double _zupt_max_omega_deg = 999.0;
+
+  /// 【2026-10-25】IMU 静止判据：平均 |‖a‖ − g| 上限（m/s²）
+  double _zupt_max_acc_dev = 999.0;
+
+  /// 【2026-10-25】连续满足静止条件的帧数门限（去抖）。0 = 不要求。
+  /// 为什么需要：暗光下相邻帧像素位移有 0.4~0.5 px 的噪声底，单帧判据会闪断，而一次
+  /// 误触发（真在动却判静止）用 σ=0.1 m/s 的 v=0 残差去拽，代价是整条轨迹崩。
+  int _zupt_min_still_frames = 0;
+  int _still_streak = 0;
+  double last_disp_avg = 0.0;   ///< 仅日志：上一帧的平均像素位移
+
+  /// 【2026-10-25】只做 "v = 0" 的轻量零速更新：不动 q / bg / ba。
+  /// 为什么：上游那套 IMU 残差（ω=0、比力=重力）在状态已经错了的时候会把 ba 拽飞
+  /// （实测 turn4：只触发 1 次，|ba| 从 1.84 → 5.07 m/s²，轨迹 32.7 → 70.6 m）。
+  /// 而"停下来别再加速"这个需求只需要一条约束：速度为零。姿态错了不会让位置跑。
+  bool _zupt_v_only = false;
+
+  /// 【2026-10-25】显式零速残差 σ（m/s）。>0 时在更新里加 3 行 "v = 0"。
+  /// 为什么必须加：上游 ZUPT 的 Hx_order 只有 [q, bg, ba]，它把"角速度=0、比力=重力"
+  /// 当观测，却**不约束速度**。实测 turn4：静止 13 s，|v| 从 0.13 长到 5.92 m/s，
+  /// 位置飘 32.7 m —— 因为状态里的 v 从头到尾没人管。
+  double _zupt_sigma_v = 0.0;
 
   /// Chi squared 95th percentile table (lookup would be size of residual)
   std::map<int, double> chi_squared_table;

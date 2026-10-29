@@ -48,6 +48,15 @@ struct HealthConfig {
     double degrade_after_s = 0.4;   // 特征不足持续多久 → DEGRADED
     double lost_after_s = 1.5;      // 多久没有 MSCKF 更新 / 持续特征不足 → LOST
 
+    // 【2026-10-25】深度一致性门限。这是唯一能抓到"稳定但错"的指标：
+    //   run4 全程 0 次重建、特征 169–237（健康门限全过），但 deperr 一直 17–23 px，
+    //   速度从 0.65 爬到 1.61 —— 输出的是"看起来连续、其实是错的"轨迹。
+    //   好数据实测 1.3–4 px，坏数据 9–23 px，界线很清楚。
+    double deperr_degrade_px = 12.0;   // 近 2 s 深度一致性超过它 → DEGRADED（仍发布，标记不可信）
+    double deperr_lost_px = 15.0;      // 超过它并持续 deperr_lost_s → LOST（停止发布）
+                                       // 实测：好数据 1.3–4 px、run3 峰值 9.4、run4 全程 17–23
+    double deperr_lost_s = 2.0;
+
     // 【2026-10-22】物理合理性保护（纯安全项，只会有正面效应）：
     // 实测过"健康门限报 OK、但估计速度从 0.18 一路爬到 4.9 m/s、闭环误差 94%"的
     // 静默发散。这种位姿发出去比不发达危险，所以这里按物理上限硬拦：
@@ -56,6 +65,17 @@ struct HealthConfig {
     // 手持/室内无人机正常速度都远低于 3 m/s；真高速飞行时把这个值调大即可。
     double max_speed_mps = 3.0;
     double max_speed_hold_s = 0.5;
+
+    // 【2026-10-25】重力泄漏门限（只在准静止时刻可测，见 VioEstimator::tiltCheck）。
+    //
+    // 为什么必须有这条：turn4/turn5 实测"人完全静止、面板上 tilt err 10.8°"——姿态错了
+    // 10.8°，就有 g·sinθ = 1.84 m/s² 的重力没被扣掉，被当成真实加速度积分。实测速度
+    // 13 秒从 0.13 涨到 5.92 m/s、位置飘 32.7 m，而这 13 秒里健康状态是 DEGRADED（照发）。
+    // 这条是纯粹的"别信我"开关：泄漏超过 tilt_lost_deg 并持续 tilt_lost_s → 停发。
+    // 参考刻度：倾角差 1° ↔ 0.17 m/s² 假加速度；5.7° ↔ 1 m/s²。
+    double tilt_degrade_deg = 5.0;   // 超过 → DEGRADED（仍发，标记不可信）
+    double tilt_lost_deg = 8.0;      // 超过并持续 tilt_lost_s → LOST（停发）
+    double tilt_lost_s = 1.0;
     double recover_after_s = 1.0;   // 恢复需要连续正常多久
 
     // 挂掉后恢复时是否重建估计器（否则只把状态改回 OK，轨迹会带着跑偏的状态）。
@@ -112,7 +132,9 @@ public:
     // 每来一帧相机调用一次。time_s 必须单调递增（相机时间域）。
     /// @param visual_updated 这一帧是否产生了**任意**视觉 EKF 更新（MSCKF 或 SLAM）。
     ///        注意：不要只传 MSCKF 的更新标志 —— max_slam>0 时只走 SLAM 的帧也是有效视觉信息。
-    void update(double time_s, int features, bool visual_updated);
+    /// @param tilt_deg 准静止时刻"滤波器重力方向 vs 加速度计"的夹角（度）；<0 表示本帧测不准（在动）
+    void update(double time_s, int features, bool visual_updated, double deperr_px = -1.0,
+                double tilt_deg = -1.0);
 
     /// 物理合理性违规时强制判失效（NaN/Inf 或速度超出物理上限）
     void mark_implausible(double time_s);
@@ -140,6 +162,8 @@ private:
     double last_time_ = -1.0;
     double last_update_time_ = -1.0;   // 上一次真正的 MSCKF 更新
     double bad_since_ = -1.0;          // 特征不足的起点
+    double bad_dep_since_ = -1.0;      // 深度一致性崩掉的起点
+    double bad_tilt_since_ = -1.0;     // 倾角差超限的起点
     double good_since_ = -1.0;         // 恢复候选的起点
     double state_changed_at_ = -1.0;
 

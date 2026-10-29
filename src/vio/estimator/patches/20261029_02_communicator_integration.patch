@@ -1,0 +1,1073 @@
+--- a/src/common/msg.hpp
++++ b/src/common/msg.hpp
+@@ -60,6 +60,24 @@
+     float vx = 0.0f;  // m/s
+     float vy = 0.0f;
+     float vz = 0.0f;
++
++    //=======================================================================
++    // 【2026-10-28 联调新增】给飞控的附加信息（MAVLink ODOMETRY 里的
++    // quality / reset_counter / 协方差）。默认值保持"旧行为"：不给就按未知发，
++    // 所以老调用方（只填上面 10 个字段）不需要改一行代码。
++    //
++    //   quality       0-100 可信度。0 = 未知（负值按 0 处理）。
++    //                 ArduPilot 会用 VISO_QUAL_MIN 丢弃低质量帧（默认 0，但通常
++    //                 会配成 50 做保护）—— 所以"健康/降级"必须真的写进来。
++    //   reset_counter 估计器重建（重锚定）次数，必须单调增长。飞控只在它变化时
++    //                 触发位置/速度/姿态重锚定；不能拿质量或别的量冒充。
++    //   pos_sigma_m / vel_sigma_mps  标准差（米 / m/s）。<=0 表示未知，
++    //                 发送时协方差对应元素填 NaN（MAVLink 约定 NaN = 未知）。
++    //=======================================================================
++    int8_t quality = 0;
++    uint8_t reset_counter = 0;
++    float pos_sigma_m = 0.0f;
++    float vel_sigma_mps = 0.0f;
+ };
+ 
+ // 制导控制模式
+--- a/src/driver/communicate/include/communicator.hpp
++++ b/src/driver/communicate/include/communicator.hpp
+@@ -2,7 +2,9 @@
+ 
+ #include <atomic>
+ #include <chrono>
++#include <cstddef>
+ #include <cstdint>
++#include <deque>
+ #include <mutex>
+ #include <string>
+ #include <thread>
+@@ -23,6 +25,10 @@
+     int highres_imu_interval_us = 10000;     // IMU 100Hz
+     int battery_interval_us = 1000000;       // 电量 1Hz
+     int system_time_interval_us = 1000000;   // 时间同步 1Hz
++    // 【2026-10-29】目标飞控身份。0 = 自动锁定（首个"像飞控"的心跳）。
++    // 锁定后只接受该 sysid/compid 的心跳与数据；地面站/机载计算机/其他飞行器一律忽略。
++    uint8_t fcu_sysid = 0;
++    uint8_t fcu_compid = 0;                  // 0 = 不限定组件号
+ };
+ 
+ // 从 YAML 加载通信配置
+@@ -55,7 +61,7 @@
+     
+     
+     //上位机向飞控通讯
+-    bool pushVisionPose(const VisionPose& p);   // 发视觉位姿
++    bool pushVisionPose(const VisionPose& p);   // 发视觉位姿（质量/重置/协方差取 p 里的字段）
+     bool pushGuidanceCmd(const GuidanceCmd& c); // 发制导期望状态（Offboard）
+     bool sendTakeoff(float altitude_m, int timeout_ms = 1000, uint8_t* result = nullptr);  // 起飞（NAV_TAKEOFF）  高度m
+     bool sendLand(int timeout_ms = 1000, uint8_t* result = nullptr);                       // 降落（NAV_LAND）
+@@ -64,6 +70,27 @@
+     bool requestMessageInterval(uint32_t msgid, int32_t interval_us);  // 请求某消息频率（非阻塞，recvLoop 内调用）
+     void requestDefaultStreams();               // 连接后请求默认消息流
+ 
++    //=======================================================================
++    // 【2026-10-28 联调新增】逐帧 IMU 交付
++    //
++    // 原来只有 getImu()，它返回"最近一帧"的覆盖式缓存。VIO 必须按时间顺序
++    // 一帧不落地吃 IMU（漏帧就等于积分少了一块），所以需要队列：
++    //   · 接收线程只做"解码 + 入队"，耗时工作留在 VIO 自己的线程；
++    //   · 每条带飞控 boot 时间戳 + 到达主机时的单调时钟（给 FcuClock 做映射）；
++    //   · 溢出丢最旧的帧并单独计数，绝不静默丢；
++    //   · IMU 不变，getImu() 保留，老模块不用改。
++    //=======================================================================
++    struct TimedImu {
++        ImuData imu;          // timestamp_us 是飞控 boot 时间
++        int64_t host_ns = 0;  // 收到该帧时的主机单调时钟（steady_clock）
++    };
++    bool popImu(TimedImu& out);   // 取队列里最早的一帧；空队列返回 false
++    size_t imuQueueSize() const;
++    uint64_t droppedImu() const { return dropped_imu_.load(); }   // 因队列满被丢的帧数
++    uint64_t receivedImu() const { return count_highres_imu_.load(); }  // 累计收到的帧数
++    void setImuQueueCapacity(size_t cap);   // 0 表示不排队（只保留最新帧语义）
++    size_t imuQueueCapacity() const { return imu_queue_capacity_.load(); }
++
+ 
+ 
+     // 各模块拿数据
+@@ -73,6 +100,15 @@
+     bool getImu(ImuData& out) const;                 //IMU数据
+     bool getSystemTime(SystemTime& out) const;      //时间戳
+     bool isConnected() const { return connected_.load(); }  //连接是否成功
++    // 【2026-10-28】飞控是否已解锁（HEARTBEAT.base_mode 的 SAFETY_ARMED 位）。
++    // VIO 用它决定地面零速更新是否开启：地面开、空中必须关。
++    bool isArmed() const { return armed_.load(); }
++    // 是否已锁定目标飞控身份（收到第一个"像飞控"的心跳后为 true）
++    bool targetLocked() const { return locked_sysid_.load() != 0; }
++    // 【2026-10-29】串口重连次数。设备掉线后重新打开成功一次 +1。
++    uint64_t reconnectCount() const { return reconnects_.load(); }
++    // 距离最近一次心跳的毫秒数；从未收到返回 -1。判断"连接状态还新不新鲜"用。
++    int64_t lastHeartbeatAgeMs() const;
+     uint32_t getCustomMode() const { return custom_mode_.load(); } //飞行模式（完整 custom_mode 值）
+     const char* getFlightModeNameCn() const;    // 当前飞行模式中文名
+     uint8_t getAutopilot() const { return autopilot_.load(); }    // 飞控固件类型（3=ArduPilot, 12=PX4）
+@@ -88,6 +124,12 @@
+ 
+ private:
+     void recvLoop();  // 接收线程
++    // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
++    bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
++    // 每次连接会话开始/结束时的状态复位：清空 IMU 队列、缓存数据、解锁状态与身份锁定
++    void resetSessionState();
++    // 只清 IMU 队列（串口掉线重连时用：保留解锁状态/计数，但旧时间基的帧不能留）
++    void clearImuQueue();
+     void sendGcsHeartbeat();  // 发一条 GCS 心跳（让飞控知道上位机在线，主动推流）
+     bool sendMessage(const uint8_t* buf, uint16_t len);  // 串口写
+     bool waitForAck(uint16_t command, int timeout_ms, uint8_t* result);  // 等某条命令的 ACK（超时返回 false）
+@@ -105,6 +147,10 @@
+     uint8_t sysid_ = 2;   // 上位机 system id
+     uint8_t compid_ = 1;    // 上位机 component id
+     std::atomic<uint8_t> fcu_sysid_{1};  // 飞控 system id（从心跳学习）
++    std::atomic<uint8_t> fcu_compid_{1}; // 飞控 component id（从心跳学习）
++    std::atomic<uint8_t> locked_sysid_{0};   // 0 = 还没锁定
++    std::atomic<uint8_t> locked_compid_{0};
++    std::atomic<uint64_t> reconnects_{0};    // 串口重新打开成功次数
+     std::atomic<uint8_t> autopilot_{0};  // 飞控固件类型（3=ArduPilot, 12=PX4, 0=未知）
+     // 各消息累计接收帧数
+     std::atomic<uint32_t> count_attitude_{0};
+@@ -128,6 +174,16 @@
+     std::atomic<uint16_t> last_ack_command_{0};  //最近一次 ACK 对应的命令号
+     std::atomic<uint8_t> last_ack_result_{UINT8_MAX};   //最近一次 ACK 结果（UINT8_MAX=未收到）
+ 
++    // 【2026-10-28】解锁状态 + 心跳新鲜度
++    std::atomic<bool> armed_{false};
++    std::atomic<int64_t> last_heartbeat_ns_{0};   // steady_clock 纳秒，0 = 从未收到
++
++    // 【2026-10-28】逐帧 IMU 队列（接收线程写，VIO 线程 pop）
++    mutable std::mutex imu_queue_mutex_;
++    std::deque<TimedImu> imu_queue_;
++    std::atomic<size_t> imu_queue_capacity_{2000};  // 200 Hz 下约 10 秒
++    std::atomic<uint64_t> dropped_imu_{0};
++
+     std::mutex send_mutex_;  // 串口写锁
+ };
+ 
+--- a/src/driver/communicate/include/serial_port.hpp
++++ b/src/driver/communicate/include/serial_port.hpp
+@@ -26,6 +26,10 @@
+     // 非阻塞读：返回实际读取字节数；0 表示暂无数据；<0 表示错误。
+     ssize_t read(uint8_t* buf, size_t len);
+ 
++    // 【2026-10-29】等待可读并返回 poll 的 revents（用于发现 POLLHUP/POLLERR = 设备拔出）。
++    // 返回 -1 表示 fd 无效/poll 失败。
++    int pollIn(int timeout_ms, short* revents = nullptr);
++
+     // 写：返回实际写入字节数。
+     ssize_t write(const uint8_t* buf, size_t len);
+ 
+--- a/src/driver/communicate/src/communicator.cpp
++++ b/src/driver/communicate/src/communicator.cpp
+@@ -5,6 +5,7 @@
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
++#include <poll.h>
+ #include <unistd.h>
+ 
+ // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
+@@ -26,6 +27,12 @@
+         duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+ }
+ 
++// 单调时钟纳秒（IMU 到达时刻用，FcuClock 做主机↔飞控时钟映射）
++int64_t steadyNowNs() {
++    using namespace std::chrono;
++    return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
++}
++
+ //欧拉角 → 四元数 wxyz
+ void eulerToQuat(float roll, float pitch, float yaw, float q[4]) {
+     const float cy = std::cos(yaw * 0.5f), sy = std::sin(yaw * 0.5f);
+@@ -46,12 +53,19 @@
+     if (running_.load()) {
+         return true;
+     }
++    // 记录设备参数：串口掉线后 recvLoop 要用同一个路径重新打开
++    cfg_.device = device;
++    cfg_.baudrate = baud;
+     if (!port_.open(device, baud)) {
+         printf("打开串口失败: %s\n", device.c_str());
+         return false;
+     }
+     port_.flush();   //清空缓冲
+ 
++    // 【2026-10-29】每次 start() 都是新会话：清掉上一次连接的 IMU 队列、
++    // 缓存数据、解锁状态和身份锁定，避免把旧会话的数据混进新连接。
++    resetSessionState();
++
+     // 先"打招呼"：飞控（ArduPilot/PX4）要看到地面站发过数据才开始推流，
+     // 只读不写会双方互等，所以这里立刻发心跳并请求一次消息流。
+     sendGcsHeartbeat();
+@@ -69,9 +83,94 @@
+         recv_thread_.join();
+     }
+     port_.close();
++    // 会话结束：队列里的数据不能再被 popImu() 取到；解锁/心跳/缓存全部失效
++    resetSessionState();
++}
++
++
++// 【2026-10-29】心跳来源筛选：只认目标飞控。
++bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
++    if (sysid == sysid_) return false;   // 自己的心跳（回环）
++
++    if (cfg_.fcu_sysid != 0) {           // 显式配置优先
++        if (sysid != cfg_.fcu_sysid) return false;
++        if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
++        locked_sysid_.store(sysid);
++        locked_compid_.store(compid);
++        return true;
++    }
++
++    const uint8_t locked = locked_sysid_.load();
++    if (locked != 0) {
++        return sysid == locked && compid == locked_compid_.load();
++    }
++
++    // 自动锁定第一个"像飞控"的心跳：排除地面站、机载计算机和无自动驾驶类型的组件。
++    if (autopilot == MAV_AUTOPILOT_INVALID) return false;
++    if (type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
++    if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
++
++    locked_sysid_.store(sysid);
++    locked_compid_.store(compid);
++    printf("[COMM] 锁定目标飞控心跳 sysid=%u compid=%u autopilot=%u\n",
++           static_cast<unsigned>(sysid), static_cast<unsigned>(compid),
++           static_cast<unsigned>(autopilot));
++    return true;
++}
++
++// 【2026-10-29】会话级复位：start()/stop() 都调用。
++// 目的：停止后再启动时，popImu() 绝不能返回上一次连接留下的帧；
++// 旧心跳、解锁状态、固件类型、缓存数据也都必须失效。
++void Communicator::resetSessionState() {
++    {
++        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++        imu_queue_.clear();
++    }
++    dropped_imu_.store(0);
++    {
++        std::lock_guard<std::mutex> lk(imu_mutex_);
++        imu_ = ImuData{};
++    }
++    {
++        std::lock_guard<std::mutex> lk(attitude_mutex_);
++        attitude_ = Attitude{};
++    }
++    {
++        std::lock_guard<std::mutex> lk(battery_mutex_);
++        battery_ = Battery{};
++    }
++    {
++        std::lock_guard<std::mutex> lk(local_position_mutex_);
++        local_pos_ = LocalPosition{};
++    }
++    {
++        std::lock_guard<std::mutex> lk(system_time_mutex_);
++        system_time_ = SystemTime{};
++    }
+     connected_.store(false);
++    armed_.store(false);
++    streams_requested_.store(false);
++    last_heartbeat_ns_.store(0);
++    locked_sysid_.store(0);
++    locked_compid_.store(0);
++    reconnects_.store(0);
++    fcu_sysid_.store(1);
++    fcu_compid_.store(1);
++    autopilot_.store(0);
++    custom_mode_.store(0);
++    count_attitude_.store(0);
++    count_local_position_.store(0);
++    count_highres_imu_.store(0);
++    count_battery_.store(0);
++    count_system_time_.store(0);
++    last_ack_command_.store(0);
++    last_ack_result_.store(UINT8_MAX);
+ }
+ 
++void Communicator::clearImuQueue() {
++    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++    imu_queue_.clear();
++}
+ 
+ // 接收线程
+ void Communicator::recvLoop() {
+@@ -81,22 +180,116 @@
+     mavlink_message_t msg{};
+     mavlink_status_t status{}; 
+     uint8_t buf[1024];
++    long long ignored_heartbeats = 0;
+     auto last_heartbeat = steady_clock::now();
+     auto last_gcs_heartbeat = steady_clock::now();
++    int read_errors = 0;       // 连续读错误计数（掉线判定）
++    int reopen_failures = 0;   // 打印节流
+ 
+     while (running_.load()) {
++        // ---- 串口已关闭：每 500ms 用同一路径尝试重开（飞控重启会重新枚举 USB）----
++        if (!port_.isOpen()) {
++            std::this_thread::sleep_for(milliseconds(500));
++            if (!running_.load()) break;
++            if (port_.open(cfg_.device, cfg_.baudrate)) {
++                port_.flush();
++                reopen_failures = 0;
++                read_errors = 0;
++                connected_.store(false);
++                streams_requested_.store(false);
++                locked_sysid_.store(0);
++                locked_compid_.store(0);
++                last_heartbeat_ns_.store(0);
++                clearImuQueue();
++                reconnects_.fetch_add(1);
++                last_heartbeat = steady_clock::now();
++                last_gcs_heartbeat = steady_clock::now();
++                // 新会话主动打招呼，否则飞控可能不推流
++                sendGcsHeartbeat();
++                requestDefaultStreams();
++                streams_requested_.store(true);
++                printf("[COMM] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n",
++                       cfg_.device.c_str(),
++                       static_cast<unsigned long long>(reconnects_.load()));
++                fflush(stdout);
++            } else if (++reopen_failures % 10 == 1) {
++                printf("[COMM] 串口重连失败（%s），继续尝试…\n", cfg_.device.c_str());
++                fflush(stdout);
++            }
++            continue;
++        }
++
++        // 先用 poll 看设备是否还在：USB 拔出/飞控重启时 master 端关闭，
++        // 读会一直返回 0/错误，光靠心跳超时无法触发"重新打开串口"。
++        short revents = 0;
++        const int pr = port_.pollIn(1, &revents);
++        if (pr > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
++            printf("[COMM] 串口挂断（poll revents=0x%x）：设备掉线，等待重连…\n",
++                   static_cast<unsigned>(revents));
++            fflush(stdout);
++            port_.close();
++            connected_.store(false);
++            streams_requested_.store(false);
++            locked_sysid_.store(0);
++            locked_compid_.store(0);
++            clearImuQueue();
++            read_errors = 0;
++            continue;
++        }
+         ssize_t n = port_.read(buf, sizeof(buf));
++        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
++            if (++read_errors >= 5) {
++                printf("[COMM] 串口读错误（%s）：设备掉线，停止解析，等待重连…\n",
++                       std::strerror(errno));
++                fflush(stdout);
++                port_.close();
++                connected_.store(false);
++                streams_requested_.store(false);
++                locked_sysid_.store(0);
++                locked_compid_.store(0);
++                clearImuQueue();
++                read_errors = 0;
++            }
++        } else if (n >= 0) {
++            read_errors = 0;
++        }
+ 
+         if (n > 0) {
+             for (ssize_t i = 0; i < n; ++i) {
+                 if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
++                    // 锁定飞控后只接受该 sysid 的数据；同链路路由转发过来的其他
++                    // 飞行器/地面站消息不能污染姿态、位置、IMU 缓存。
++                    const uint8_t locked_sysid = locked_sysid_.load();
++                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT && locked_sysid != 0 &&
++                        msg.sysid != locked_sysid) {
++                        continue;
++                    }
+                     switch (msg.msgid) {
+                         case MAVLINK_MSG_ID_HEARTBEAT: {     //心跳和飞行模式
+                             mavlink_heartbeat_t hb;
+                             mavlink_msg_heartbeat_decode(&msg, &hb);
++                            // 【2026-10-29】只认目标飞控的心跳。地面站/机载计算机/
++                            // 其他飞行器的心跳不能覆盖飞控身份、解锁状态和固件类型。
++                            if (!acceptHeartbeat(msg.sysid, msg.compid, hb.autopilot, hb.type)) {
++                                ++ignored_heartbeats;
++                                if (ignored_heartbeats <= 3 || ignored_heartbeats % 200 == 0) {
++                                    printf("[COMM] 忽略非目标心跳 sysid=%u compid=%u type=%u"
++                                           " autopilot=%u（累计 %lld）\n",
++                                           static_cast<unsigned>(msg.sysid),
++                                           static_cast<unsigned>(msg.compid),
++                                           static_cast<unsigned>(hb.type),
++                                           static_cast<unsigned>(hb.autopilot),
++                                           ignored_heartbeats);
++                                }
++                                break;
++                            }
+                             fcu_sysid_.store(msg.sysid);   // 学习飞控 sysid
++                            fcu_compid_.store(msg.compid);
+                             autopilot_.store(hb.autopilot);   // 学习飞控固件类型
+                             custom_mode_.store(hb.custom_mode);
++                            // 【2026-10-28】解锁状态：VIO 地面开零速更新、空中必须关
++                            armed_.store((hb.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0);
++                            last_heartbeat_ns_.store(steadyNowNs());
+                             connected_.store(true);
+                             last_heartbeat = steady_clock::now();
+                             // 首次连上飞控，请求需要的消息流
+@@ -167,14 +360,34 @@
+                             count_highres_imu_.fetch_add(1);
+                             mavlink_highres_imu_t imu;
+                             mavlink_msg_highres_imu_decode(&msg, &imu);
+-                            std::lock_guard<std::mutex> lk(imu_mutex_);
+-                            imu_.timestamp_us = imu.time_usec; 
+-                            imu_.gx = imu.xgyro;
+-                            imu_.gy = imu.ygyro;
+-                            imu_.gz = imu.zgyro;
+-                            imu_.ax = imu.xacc;
+-                            imu_.ay = imu.yacc;
+-                            imu_.az = imu.zacc;
++                            const int64_t host_ns = steadyNowNs();
++
++                            ImuData sample;
++                            sample.timestamp_us = imu.time_usec;
++                            sample.gx = imu.xgyro;
++                            sample.gy = imu.ygyro;
++                            sample.gz = imu.zgyro;
++                            sample.ax = imu.xacc;
++                            sample.ay = imu.yacc;
++                            sample.az = imu.zacc;
++                            {
++                                std::lock_guard<std::mutex> lk(imu_mutex_);
++                                imu_ = sample;   // 兼容旧接口：最新一帧
++                            }
++                            // 【2026-10-28】逐帧入队给 VIO。接收线程只做入队，
++                            // 保持这里短小；VIO 的运算在它自己的线程里做。
++                            const size_t cap = imu_queue_capacity_.load();
++                            if (cap > 0) {
++                                TimedImu item;
++                                item.imu = sample;
++                                item.host_ns = host_ns;
++                                std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++                                while (imu_queue_.size() >= cap) {
++                                    imu_queue_.pop_front();
++                                    dropped_imu_.fetch_add(1);
++                                }
++                                imu_queue_.push_back(item);
++                            }
+                             break;
+                         }
+                         default:
+@@ -195,6 +408,9 @@
+             steady_clock::now() - last_heartbeat > heartbeat_timeout) {
+             connected_.store(false);
+             streams_requested_.store(false);  // 掉线重置，飞控恢复后重新请求消息流
++            // 清身份锁定，允许飞控重启后重新锁定（sysid 理论上可能变）
++            locked_sysid_.store(0);
++            locked_compid_.store(0);
+         }
+ 
+         if (n <= 0) {
+@@ -299,21 +515,51 @@
+ bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
+     mavlink_message_t msg;
+     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
++
++    //=======================================================================
++    // 【2026-10-28】把质量/重置/协方差一起发出去（原来是写死的 0 和 NaN）。
++    //
++    // 为什么必须真的发：
++    //   · ArduPilot 的 AP_VisualOdom 用 quality 和 VISO_QUAL_MIN 比较，
++    //     低于门限的帧直接丢（不进 EKF），VISP 日志里能看到 reject 标志；
++    //   · reset_counter 变化时飞控会重锚定位置/速度/姿态。VIO 重建后位姿
++    //     会跳变，不告诉飞控"我重置了"，它会把跳变当成真实运动。
++    //
++    // 协方差布局：6x6 上三角逐行，对角线下标 0/6/11/15/18/20。
++    // 只填位置/速度对角；姿态没有估计值就保持 0（飞控会 constrain 到
++    // VISO_YAW_M_NSE 之类的配置下限）。没给 sigma → NaN（MAVLink 约定 = 未知）。
++    //=======================================================================
+     float pose_cov[21] = {0.0f};
+-    pose_cov[0] = std::nanf(""); 
+     float vel_cov[21] = {0.0f};
+-    vel_cov[0] = std::nanf("");  
++    if (p.pos_sigma_m > 0.0f) {
++        pose_cov[0] = pose_cov[6] = pose_cov[11] = p.pos_sigma_m * p.pos_sigma_m;
++    } else {
++        // 未知：三个对角都标 NaN（只标 [0] 会让另外两个 0 被当成"完美已知"）
++        pose_cov[0] = pose_cov[6] = pose_cov[11] = std::nanf("");
++    }
++    if (p.vel_sigma_mps > 0.0f) {
++        vel_cov[0] = vel_cov[6] = vel_cov[11] = p.vel_sigma_mps * p.vel_sigma_mps;
++    } else {
++        vel_cov[0] = vel_cov[6] = vel_cov[11] = std::nanf("");
++    }
++
++    int quality = p.quality;
++    if (quality < 0) quality = 0;
++    if (quality > 100) quality = 100;
++
++    // ⚠️ 最后三个参数的顺序是 (reset_counter, estimator_type, quality)，
++    //    这是 MAVLink 生成函数的签名。写反了编译器不会报错（都是整数）。
+     mavlink_msg_odometry_pack(sysid_, compid_, &msg,
+                               p.timestamp_us,
+-                              static_cast<uint8_t>(p.frame_id),       
+-                              static_cast<uint8_t>(p.child_frame_id),  
++                              static_cast<uint8_t>(p.frame_id),
++                              static_cast<uint8_t>(p.child_frame_id),
+                               p.x, p.y, p.z, p.q,
+                               p.vx, p.vy, p.vz,
+-                              0.0f, 0.0f, 0.0f,        
++                              0.0f, 0.0f, 0.0f,
+                               pose_cov, vel_cov,
+-                              0,                      
+-                              MAV_ESTIMATOR_TYPE_VIO,  
+-                              0);                     
++                              p.reset_counter,                 // 1) 重置计数
++                              MAV_ESTIMATOR_TYPE_VIO,          // 2) 估计器类型
++                              static_cast<int8_t>(quality));   // 3) 质量 0-100
+     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+     return sendMessage(buf, len);
+ }
+@@ -497,6 +743,38 @@
+     return true;
+ }
+ 
++// 【2026-10-28】逐帧 IMU 交付给 VIO。
++bool Communicator::popImu(TimedImu& out) {
++    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++    if (imu_queue_.empty()) return false;
++    out = imu_queue_.front();
++    imu_queue_.pop_front();
++    return true;
++}
++
++size_t Communicator::imuQueueSize() const {
++    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++    return imu_queue_.size();
++}
++
++void Communicator::setImuQueueCapacity(size_t cap) {
++    {
++        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
++        imu_queue_capacity_.store(cap);
++        // 缩小容量时立刻裁掉多余部分，避免"设置了却还占着内存"
++        while (imu_queue_.size() > cap) {
++            imu_queue_.pop_front();
++            dropped_imu_.fetch_add(1);
++        }
++    }
++}
++
++int64_t Communicator::lastHeartbeatAgeMs() const {
++    const int64_t last = last_heartbeat_ns_.load();
++    if (last == 0) return -1;
++    return (steadyNowNs() - last) / 1000000;
++}
++
+ bool Communicator::getSystemTime(SystemTime& out) const {
+     std::lock_guard<std::mutex> lk(system_time_mutex_);
+     out = system_time_;
+--- a/src/driver/communicate/src/serial_port.cpp
++++ b/src/driver/communicate/src/serial_port.cpp
+@@ -3,6 +3,7 @@
+ #include <cerrno>
+ #include <cstring>
+ #include <fcntl.h>
++#include <poll.h>
+ #include <termios.h>
+ #include <unistd.h>
+ 
+@@ -90,6 +91,17 @@
+     return ::read(fd_, buf, len);
+ }
+ 
++int SerialPort::pollIn(int timeout_ms, short* revents) {
++    if (revents) *revents = 0;
++    if (fd_ < 0) return -1;
++    struct pollfd pfd{};
++    pfd.fd = fd_;
++    pfd.events = POLLIN;
++    const int r = ::poll(&pfd, 1, timeout_ms);
++    if (revents) *revents = pfd.revents;
++    return r;
++}
++
+ ssize_t SerialPort::write(const uint8_t* buf, size_t len) {  //发送返回发送字节数
+     return ::write(fd_, buf, len);
+ }
+--- a/src/test/CMakeLists.txt
++++ b/src/test/CMakeLists.txt
+@@ -119,6 +119,22 @@
+     communicate
+ )
+ 
++# 【2026-10-28】无飞控联调回归：PTY 模拟飞控，验证
++#   · 心跳解锁位 → isArmed()
++#   · HIGHRES_IMU → 逐帧队列 popImu()（顺序/主机时钟/溢出计数）
++#   · pushVisionPose() → ODOMETRY 的 quality / reset_counter / 协方差
++# 不需要真机、不需要摄像头。VIO↔通信交接时先跑它。
++add_executable(test_vision_pose_wire
++    test_driver/test_vision_pose_wire.cpp
++)
++target_include_directories(test_vision_pose_wire PUBLIC
++    ${CMAKE_CURRENT_SOURCE_DIR}/../driver/communicate/include
++    ${CMAKE_SOURCE_DIR}/src/common
++)
++target_link_libraries(test_vision_pose_wire
++    communicate
++)
++
+ set_target_properties(
+     shm_write
+     shm_read
+@@ -131,6 +147,7 @@
+     test_communicate
+     test_frequency
+     test_multithread
++    test_vision_pose_wire
+     PROPERTIES
+         RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR}
+ )
+\ 文件末尾没有换行符
+--- /dev/null
++++ b/src/test/test_driver/test_vision_pose_wire.cpp
+@@ -0,0 +1,444 @@
++// Communication 模块的"线上联调"回归测试：不需要飞控，用伪终端(PTY)当飞控。
++//
++// 它验证的是 VIO↔通信↔飞控 这条链上最容易出错、又最不容易在编译期发现的三件事：
++//   1) pushVisionPose() 真的把 quality / reset_counter / 协方差写进了 ODOMETRY；
++//   2) 逐帧 IMU 队列（popImu）按到达顺序交付，溢出计数不撒谎；
++//   3) 心跳里的解锁位能被 isArmed() 读到（VIO 地面零速更新依赖它）。
++//
++// 做法：
++//   主端(master) 扮演飞控：发 HEARTBEAT / HIGHRES_IMU；
++//   从端(slave) 交给 Communicator，就像打开 /dev/ttyACM0 一样。
++//   然后从 master 把 Communicator 发出来的字节解析回来逐字段核对。
++//
++// 编译/运行：见 src/test/CMakeLists.txt 的 test_vision_pose_wire
++//   ./bin/test/test_vision_pose_wire
++
++#define _GNU_SOURCE
++#include <poll.h>
++#include <fcntl.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <deque>
++#include <string>
++#include <vector>
++
++#include "communicator.hpp"
++#include "common/mavlink.h"
++
++namespace {
++
++int g_failed = 0;
++
++int64_t nowMs() {
++    return std::chrono::duration_cast<std::chrono::milliseconds>(
++               std::chrono::steady_clock::now().time_since_epoch())
++        .count();
++}
++
++#define CHECK(cond)                                                     \
++    do {                                                                \
++        if (!(cond)) {                                                  \
++            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);   \
++            ++g_failed;                                                 \
++        }                                                               \
++    } while (0)
++
++bool writeAll(int fd, const uint8_t* buf, size_t len) {
++    size_t off = 0;
++    while (off < len) {
++        const ssize_t n = ::write(fd, buf + off, len - off);
++        if (n > 0) {
++            off += static_cast<size_t>(n);
++            continue;
++        }
++        if (n < 0 && errno == EINTR) continue;
++        return false;
++    }
++    return true;
++}
++
++bool sendPacked(int fd, const mavlink_message_t& msg) {
++    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
++    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
++    return writeAll(fd, buf, len);
++}
++
++// master 端消息读取器。
++//
++// 注意：一次 read() 可能带回**多条**消息（本机心跳 + 消息流请求 + ODOMETRY 常常
++// 挤在同一个 TCP/PTY 读里）。早先的写法只返回第一条、把同一次 read 里剩下的
++// 消息直接丢了 —— 于是"偶尔读不到 ODOMETRY"，其实是测试自己的 bug。
++// 这里用一个 pending 队列把所有解析出来的消息都留着，逐条交付。
++struct MsgReader {
++    int fd = -1;
++    uint8_t chan = MAVLINK_COMM_1;
++    std::deque<mavlink_message_t> pending;
++
++    bool next(mavlink_message_t& out, int timeout_ms) {
++        if (!pending.empty()) {
++            out = pending.front();
++            pending.pop_front();
++            return true;
++        }
++        mavlink_status_t status{};
++        uint8_t buf[1024];
++        const int64_t deadline = nowMs() + timeout_ms;
++        while (true) {
++            const int64_t now = nowMs();
++            if (now >= deadline) return false;
++
++            struct pollfd pfd{};
++            pfd.fd = fd;
++            pfd.events = POLLIN;
++            const int pr = ::poll(&pfd, 1, static_cast<int>(deadline - now));
++            if (pr <= 0) return false;
++
++            const ssize_t n = ::read(fd, buf, sizeof(buf));
++            if (n <= 0) continue;
++            for (ssize_t i = 0; i < n; ++i) {
++                mavlink_message_t msg{};
++                if (mavlink_parse_char(chan, buf[i], &msg, &status)) {
++                    pending.push_back(msg);
++                }
++            }
++            if (!pending.empty()) {
++                out = pending.front();
++                pending.pop_front();
++                return true;
++            }
++        }
++    }
++};
++
++// 等 master 端出现第一条 ODOMETRY（中间可能夹着本机心跳 / 消息流请求）
++bool readOdometry(MsgReader& reader, mavlink_odometry_t& odo, int timeout_ms) {
++    const int64_t deadline = nowMs() + timeout_ms;
++    while (true) {
++        mavlink_message_t msg{};
++        const int64_t now = nowMs();
++        if (now >= deadline) return false;
++        if (!reader.next(msg, static_cast<int>(deadline - now))) return false;
++        if (msg.msgid == MAVLINK_MSG_ID_ODOMETRY) {
++            mavlink_msg_odometry_decode(&msg, &odo);
++            return true;
++        }
++    }
++}
++
++template <typename Pred>
++bool waitMs(Pred pred, int timeout_ms) {
++    const auto deadline = nowMs() + timeout_ms;
++    while (nowMs() < deadline) {
++        if (pred()) return true;
++        ::usleep(10000);
++    }
++    return pred();
++}
++
++bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot,
++                   uint8_t base_mode) {
++    mavlink_message_t msg;
++    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0,
++                               MAV_STATE_ACTIVE);
++    return sendPacked(fd, msg);
++}
++
++bool sendHighresImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
++    mavlink_message_t msg;
++    mavlink_msg_highres_imu_pack(
++        sysid, 1, &msg, t_us,
++        ax, 0.0f, 9.8f,
++        0.0f, 0.0f, 0.0f,
++        NAN, NAN, NAN,
++        0.0f, 0.0f, 0.0f, 0.0f,
++        0, 0);
++    return sendPacked(fd, msg);
++}
++
++// 创建一对 PTY，返回 master fd；slave 路径写入 out。
++bool makePty(int& master, std::string& slave_path) {
++    master = ::posix_openpt(O_RDWR | O_NOCTTY);
++    if (master < 0) return false;
++    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
++    const char* name = ::ptsname(master);
++    if (name == nullptr) return false;
++    slave_path = name;
++    // master 端也设成非阻塞，readMsg 用 poll 控制阻塞。
++    const int flags = ::fcntl(master, F_GETFL, 0);
++    ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
++    return true;
++}
++
++}  // namespace
++
++int main() {
++    std::printf("===== Communicator 线上回归测试（PTY 模拟飞控）=====\n");
++
++    int master = -1;
++    std::string slave_path;
++    if (!makePty(master, slave_path)) {
++        std::printf("  ❌ 创建 PTY 失败\n");
++        return 1;
++    }
++    std::printf("[准备] 模拟飞控口: %s\n", slave_path.c_str());
++
++    MsgReader reader;
++    reader.fd = master;
++
++    pure_uav::Communicator comm;
++    comm.setSystemId(2);
++    comm.setComponentId(1);
++    if (!comm.start(slave_path, 921600)) {
++        std::printf("  ❌ Communicator 打不开 PTY 从端\n");
++        return 1;
++    }
++
++    // ---- 1) 心跳：解锁位 ----
++    {
++        mavlink_message_t hb;
++        mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
++                                   MAV_AUTOPILOT_ARDUPILOTMEGA,
++                                   MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
++                                   0, MAV_STATE_ACTIVE);
++        CHECK(sendPacked(master, hb));
++        for (int i = 0; i < 300 && !(comm.isConnected() && comm.isArmed()); ++i) {
++            ::usleep(10000);
++        }
++        CHECK(comm.isConnected());
++        CHECK(comm.isArmed());
++        const int64_t age = comm.lastHeartbeatAgeMs();
++        CHECK(age >= 0 && age < 2000);
++        std::printf("[1] 心跳 OK: armed=%d age=%lldms\n", static_cast<int>(comm.isArmed()),
++                    static_cast<long long>(age));
++    }
++
++    // ---- 1b) 心跳来源筛选：地面站/其他飞行器不得覆盖飞控状态 ----
++    {
++        CHECK(sendHeartbeat(master, 255, 190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, 0));
++        CHECK(sendHeartbeat(master, 255, 190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, 0));
++        ::usleep(200000);
++        CHECK(comm.isArmed());          // 关键：不能被地面站的"未解锁"覆盖
++        CHECK(comm.isConnected());
++        CHECK(comm.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);  // 固件类型不被覆盖
++        CHECK(comm.lastHeartbeatAgeMs() >= 0 && comm.lastHeartbeatAgeMs() < 2000);
++
++        // 已锁定后，其他飞行器(sysid=42)的心跳也必须忽略
++        CHECK(sendHeartbeat(master, 42, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0));
++        ::usleep(150000);
++        CHECK(comm.isArmed());
++        CHECK(comm.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);
++
++        // 目标飞控自己发的未解锁心跳必须生效
++        CHECK(sendHeartbeat(master, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0));
++        for (int i = 0; i < 100 && comm.isArmed(); ++i) ::usleep(10000);
++        CHECK(!comm.isArmed());
++        CHECK(comm.isConnected());
++        std::printf("[2] 心跳来源筛选 OK（地面站/其他飞行器忽略，飞控自己生效）\n");
++    }
++
++    // ---- 2) 逐帧 IMU：顺序 + 主机时间戳 + 溢出计数 ----
++    {
++        auto sendImu = [&](uint64_t t_us, float ax) {
++            mavlink_message_t msg;
++            mavlink_msg_highres_imu_pack(
++                1, 1, &msg, t_us,
++                ax, 0.0f, 9.8f,                    // xacc yacc zacc（机体系 FRD，静止时 z=+g）
++                0.0f, 0.0f, 0.0f,                  // xgyro ygyro zgyro
++                NAN, NAN, NAN,                     // 磁力计（未用）
++                0.0f, 0.0f, 0.0f, 0.0f,            // 气压/温度
++                0, 0);                             // fields_updated, id
++            CHECK(sendPacked(master, msg));
++        };
++        sendImu(1000000ULL, 1.0f);
++        sendImu(1005000ULL, 2.0f);
++        sendImu(1010000ULL, 3.0f);
++
++        for (int i = 0; i < 300 && comm.getCountImu() < 3; ++i) ::usleep(10000);
++        CHECK(comm.getCountImu() >= 3);
++        // 队列里可能还留着，全部取出核对顺序
++        std::vector<pure_uav::Communicator::TimedImu> got;
++        pure_uav::Communicator::TimedImu item;
++        while (comm.popImu(item)) got.push_back(item);
++        CHECK(got.size() >= 3);
++        CHECK(got[0].imu.timestamp_us == 1000000ULL);
++        CHECK(got[1].imu.timestamp_us == 1005000ULL);
++        CHECK(got[2].imu.timestamp_us == 1010000ULL);
++        CHECK(std::fabs(got[0].imu.ax - 1.0f) < 1e-6f);
++        CHECK(std::fabs(got[2].imu.ax - 3.0f) < 1e-6f);
++        CHECK(got[0].host_ns > 0);
++        CHECK(got[1].host_ns >= got[0].host_ns);
++        CHECK(got[2].host_ns >= got[1].host_ns);
++        std::printf("[2] 逐帧 IMU OK: %zu 帧，时间戳/主机时钟单调\n", got.size());
++
++        // 容量 2，塞 3 帧 → 丢 1 帧，不能静默丢
++        comm.setImuQueueCapacity(2);
++        const uint64_t dropped_before = comm.droppedImu();
++        sendImu(2000000ULL, 4.0f);
++        sendImu(2005000ULL, 5.0f);
++        sendImu(2010000ULL, 6.0f);
++        for (int i = 0; i < 300 && comm.getCountImu() < 6; ++i) ::usleep(10000);
++        ::usleep(20000);
++        CHECK(comm.imuQueueSize() == 2);
++        CHECK(comm.droppedImu() == dropped_before + 1);
++        std::printf("[3] 队列溢出 OK: size=%zu dropped=%llu\n", comm.imuQueueSize(),
++                    static_cast<unsigned long long>(comm.droppedImu()));
++        while (comm.popImu(item)) {
++        }
++        comm.setImuQueueCapacity(2000);
++    }
++
++    // ---- 3) ODOMETRY：质量 / 重置 / 协方差 ----
++    {
++        pure_uav::VisionPose p;
++        p.timestamp_us = 1020000ULL;
++        p.frame_id = pure_uav::VisionFrame::LOCAL_FRD;
++        p.child_frame_id = pure_uav::VisionFrame::BODY_FRD;
++        p.x = 0.75f;
++        p.y = -0.25f;
++        p.z = -1.5f;  // 向上 1.5 m（FRD: 上为负）
++        p.q[0] = 0.9238795f;  // yaw=45°
++        p.q[3] = 0.3826834f;
++        p.vx = 0.1f;
++        p.vy = 0.2f;
++        p.vz = -0.3f;
++        p.quality = 90;
++        p.reset_counter = 7;
++        p.pos_sigma_m = 0.15f;
++        p.vel_sigma_mps = 0.25f;
++
++        CHECK(comm.pushVisionPose(p));
++
++        mavlink_odometry_t odo{};
++        CHECK(readOdometry(reader, odo, 3000));
++        CHECK(odo.time_usec == p.timestamp_us);
++        CHECK(odo.frame_id == 20);
++        CHECK(odo.child_frame_id == 12);
++        CHECK(std::fabs(odo.x - 0.75f) < 1e-6f);
++        CHECK(std::fabs(odo.z + 1.5f) < 1e-6f);
++        CHECK(std::fabs(odo.q[3] - 0.3826834f) < 1e-5f);
++        // ★ 联调核心：这三项以前是写死的 0
++        CHECK(odo.quality == 90);
++        CHECK(odo.reset_counter == 7);
++        CHECK(odo.estimator_type == MAV_ESTIMATOR_TYPE_VIO);
++        CHECK(std::fabs(odo.pose_covariance[0] - 0.15f * 0.15f) < 1e-7f);
++        CHECK(std::fabs(odo.velocity_covariance[11] - 0.25f * 0.25f) < 1e-7f);
++        std::printf("[4] ODOMETRY OK: quality=%d reset=%u type=%u pos_cov0=%.4f\n",
++                    static_cast<int>(odo.quality), static_cast<unsigned>(odo.reset_counter),
++                    static_cast<unsigned>(odo.estimator_type),
++                    static_cast<double>(odo.pose_covariance[0]));
++
++        // 未知 sigma → NaN（未知），不能是 0（完美已知）
++        pure_uav::VisionPose p2;
++        p2.timestamp_us = 1025000ULL;
++        p2.quality = 50;
++        CHECK(comm.pushVisionPose(p2));
++        mavlink_odometry_t odo2{};
++        CHECK(readOdometry(reader, odo2, 3000));
++        CHECK(std::isnan(odo2.pose_covariance[0]));
++        CHECK(std::isnan(odo2.velocity_covariance[0]));
++        CHECK(odo2.quality == 50);
++        std::printf("[5] 未知协方差 OK: NaN，quality=50\n");
++    }
++
++    // ---- 6) 停止 → 重新启动：旧 IMU/旧心跳状态不得跨会话 ----
++    {
++        const uint32_t imu_before = comm.getCountImu();   // 计数是累计的，不能和 1 比
++        CHECK(sendHighresImu(master, 1, 777777ULL, 1.0f));
++        for (int i = 0; i < 300 && comm.getCountImu() == imu_before; ++i) ::usleep(10000);
++        CHECK(comm.getCountImu() > imu_before);
++        CHECK(comm.imuQueueSize() >= 1);
++
++        comm.stop();
++        CHECK(comm.imuQueueSize() == 0);          // stop 必须清空队列
++        CHECK(!comm.isArmed());                   // 旧解锁状态失效
++        CHECK(comm.lastHeartbeatAgeMs() == -1);   // 旧心跳失效
++        CHECK(comm.getCountImu() == 0);           // 会话计数复位
++
++        CHECK(comm.start(slave_path, 921600));
++        pure_uav::Communicator::TimedImu stale;
++        CHECK(!comm.popImu(stale));               // 关键：重启后不能吐出上一次的帧
++        CHECK(!comm.isArmed());
++        CHECK(comm.lastHeartbeatAgeMs() == -1);
++
++        // 新会话仍然能正常收数据
++        CHECK(sendHeartbeat(master, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                            MAV_MODE_FLAG_SAFETY_ARMED));
++        for (int i = 0; i < 300 && !comm.isArmed(); ++i) ::usleep(10000);
++        CHECK(comm.isArmed());
++        CHECK(sendHighresImu(master, 1, 888888ULL, 2.0f));
++        for (int i = 0; i < 300 && comm.getCountImu() < 1; ++i) ::usleep(10000);
++        pure_uav::Communicator::TimedImu fresh;
++        CHECK(comm.popImu(fresh));
++        CHECK(fresh.imu.timestamp_us == 888888ULL);
++        std::printf("[6] 停止→重启会话清理 OK（旧帧不可见，新会话正常）\n");
++    }
++
++    // ---- 7) 串口拔出→重新枚举：自动重连 + 清旧队列 + 重新锁定身份 ----
++    {
++        int master_a = -1;
++        std::string slave_a;
++        CHECK(makePty(master_a, slave_a));
++        const std::string link_path = "/tmp/pure_uav_comm_link_" + std::to_string(::getpid());
++        ::unlink(link_path.c_str());
++        CHECK(::symlink(slave_a.c_str(), link_path.c_str()) == 0);
++
++        pure_uav::Communicator comm2;
++        comm2.setSystemId(2);
++        comm2.setComponentId(1);
++        CHECK(comm2.start(link_path, 921600));
++
++        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                            MAV_MODE_FLAG_SAFETY_ARMED));
++        CHECK(waitMs([&] { return comm2.isConnected() && comm2.isArmed(); }, 2000));
++        const uint32_t cnt_before = comm2.getCountImu();
++        CHECK(sendHighresImu(master_a, 1, 500000ULL, 1.0f));
++        CHECK(waitMs([&] { return comm2.getCountImu() > cnt_before; }, 2000));
++
++        // 模拟设备拔出
++        ::close(master_a);
++        CHECK(waitMs([&] { return !comm2.isConnected(); }, 3000));
++
++        // 模拟重新枚举：新 PTY + 稳定路径指过去
++        int master_b = -1;
++        std::string slave_b;
++        CHECK(makePty(master_b, slave_b));
++        ::unlink(link_path.c_str());
++        CHECK(::symlink(slave_b.c_str(), link_path.c_str()) == 0);
++
++        CHECK(waitMs([&] { return comm2.reconnectCount() >= 1; }, 6000));
++        CHECK(comm2.imuQueueSize() == 0);       // 旧时间基的帧必须清掉
++
++        // 重连后重新学习身份：故意换 sysid=9
++        CHECK(sendHeartbeat(master_b, 9, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                            MAV_MODE_FLAG_SAFETY_ARMED));
++        CHECK(waitMs([&] { return comm2.isConnected() && comm2.isArmed(); }, 3000));
++        CHECK(comm2.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);
++        const uint32_t cnt2 = comm2.getCountImu();
++        CHECK(sendHighresImu(master_b, 9, 600000ULL, 2.0f));
++        CHECK(waitMs([&] { return comm2.getCountImu() > cnt2; }, 2000));
++        pure_uav::Communicator::TimedImu fresh2;
++        CHECK(comm2.popImu(fresh2));
++        CHECK(fresh2.imu.timestamp_us == 600000ULL);
++        std::printf("[7] 串口拔出→自动重连 OK（清旧队列、重新锁定 sysid=9）\n");
++
++        comm2.stop();
++        ::unlink(link_path.c_str());
++        ::close(master_b);
++    }
++
++    comm.stop();
++    ::close(master);
++
++    if (g_failed == 0) {
++        std::printf("PASS: 心跳筛选/逐帧 IMU/ODOMETRY/会话清理/串口重连 全部通过\n");
++        return 0;
++    }
++    std::printf("FAILED: %d 处不通过\n", g_failed);
++    return 1;
++}

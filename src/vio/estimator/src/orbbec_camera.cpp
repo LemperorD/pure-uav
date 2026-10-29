@@ -462,7 +462,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 // 两级曝光：先尊重模糊预算（blur_cap），不够亮才放到现场光的上限（light_cap）。
                 // 因为暗场地必须能跑，但亮场地也不该白牺牲转速。
                 const int exp_cap = std::max(er.min + std::max(1, er.step), blur_cap);
-                const int exp_cap_dark = std::max(er.min + std::max(1, er.step), light_cap);
+                const int exp_cap_dark = cfg.tune_strict_blur
+                                             ? exp_cap     // 严守模糊预算：不放到现场光上限
+                                             : std::max(er.min + std::max(1, er.step), light_cap);
                 const int gain_cap = std::max(gr.min, std::min(gr.max, cfg.tune_max_gain));
                 impl->exp_min = er.min; impl->exp_max = er.max; impl->exp_step = std::max(1, er.step);
                 impl->gain_min = gr.min; impl->gain_max = gr.max;
@@ -720,14 +722,29 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                         // 阈值可用环境变量压窄，用来在亮/暗场景里验证这条路径真的会触发
                         static const double hi_thr = getenv("OV_RETUNE_HI") ? atof(getenv("OV_RETUNE_HI")) : 170.0;
                         static const double lo_thr = getenv("OV_RETUNE_LO") ? atof(getenv("OV_RETUNE_LO")) : 45.0;
-                        if (mean_now > hi_thr) {
+                        // 【2026-10-25】有富余就把曝光往模糊预算收回：亮度够却还烧着长曝光 =
+                        // 白送模糊。这条只降不升，不会和"太暗"分支打架。
+                        if (mean_now > 140.0 && impl->cfg.exposure > impl->blur_cap) {
+                            new_exp = std::max(impl->blur_cap,
+                                               std::min(static_cast<int>(cur_exp * 2.0 / 3.0),
+                                                        impl->cfg.exposure));
+                        } else if (mean_now > hi_thr) {
                             // 过曝：优先砍曝光（也顺带减小模糊）
                             new_exp = std::max(impl->exp_min, static_cast<int>(cur_exp * 2.0 / 3.0));
                             if (new_exp == cur_exp) new_gain = std::max(impl->gain_min, cur_gain - 8);
                         } else if (mean_now < lo_thr) {
                             // 过暗：先加增益，噪声换亮度；增益顶了再放曝光
+                            //=================================================================
+                            // 【2026-10-25】运行中**不再把曝光放到"现场光上限"**，只到模糊预算。
+                            //
+                            // long2 实测：晚上房间灰度只有 17-73（白天 99-160），启动测光
+                            // 把曝光顶到 15 ms（比 10.4 ms 的模糊预算多 44%），而人还在走
+                            // 1.5-1.9 m/s —— 结果是"又糊又暗"：deperr 9-22 px，深度一致性直接
+                            // 报了崩塌。既然暗到这个程度，多放的曝光换不来可用特征，只会加糊。
+                            // 现在：增益顶了也只放到 blur_cap，并且一次性提醒操作员"光不够，降速/补光"。
+                            //=================================================================
                             if (cur_gain < impl->gain_cap) new_gain = std::min(impl->gain_cap, cur_gain + 8);
-                            else new_exp = std::min(impl->light_cap, static_cast<int>(cur_exp * 4.0 / 3.0));
+                            else new_exp = std::min(impl->blur_cap, static_cast<int>(cur_exp * 4.0 / 3.0));
                         }
                         if (cooled && (new_exp != cur_exp || new_gain != cur_gain)) {
                             try {
@@ -741,6 +758,22 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                     ? (impl->cfg.tune_blur_budget_px / (impl->color_fx * t_exp_s2)) * 180.0 / M_PI
                                     : 0.0;
                                 if (new_exp > impl->blur_cap) ++retune_over_blur;
+                                static bool warned_dark = false;
+                                if (!warned_dark && mean_now < 60.0 &&
+                                    new_exp >= impl->blur_cap && new_gain >= impl->gain_cap) {
+                                    warned_dark = true;
+                                    const double t_cap_s = impl->blur_cap * 1e-4;
+                                    const double v_cap = (t_cap_s > 1e-6 && impl->color_fx > 1.0)
+                                        ? impl->cfg.tune_blur_budget_px / (impl->color_fx * t_cap_s)
+                                        : 0.0;
+                                    std::printf("[Orbbec] ⚠️ 现场光不足（灰度 %.0f，目标 %.0f）：曝光已到模糊预算"
+                                                " %.1f ms、增益已到上限 %d。建议补光或降速——"
+                                                "本场地上限约 %.2f×Z m/s（1m→%.2f 2m→%.2f）\n",
+                                                mean_now, impl->cfg.tune_target_mean,
+                                                impl->blur_cap * 0.1, impl->gain_cap,
+                                                v_cap, v_cap, v_cap * 2.0);
+                                    std::fflush(stdout);
+                                }
                                 std::printf("[Orbbec] 重测光：灰度 %.0f → 曝光 %.1f ms 增益 %d"
                                             "（运动上限 %.1f°/s%s）\n",
                                             mean_now, new_exp * 0.1, new_gain, om2,

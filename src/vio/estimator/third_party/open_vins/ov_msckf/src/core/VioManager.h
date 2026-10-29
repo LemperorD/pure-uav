@@ -156,6 +156,13 @@ public:
   /// 录制时人站着不动、真实速度就是 0，动态初始化却给出 0.2-0.4 m/s 的虚假速度。
   void set_init_zero_velocity(bool enable) { init_zero_velocity_ = enable; }
 
+  // 【2026-10-25】运行期开关零速更新（只在 try_zupt=true 时有效）。
+  // 为什么要运行期开关：地面上（飞控未解锁）静止时，零速更新能把"停着还在加速"直接钉死；
+  // 空中（已解锁）它反而危险 —— 悬停时画面几乎不动，误判会把速度硬钉 0，位置估计被冻住，
+  // 飞控还以为没漂。所以由上层按"是否解锁"自动切，不需要任何人在飞行中操作。
+  void set_zupt_enabled(bool enable) { zupt_runtime_on_ = enable; }
+  bool zupt_enabled() const { return zupt_runtime_on_; }
+
   /// 【2026-10-23】"初始化窗口内是否接近静止"——由上层用 IMU 统计量判定后每帧传入。
   /// 只在它为 true 时才允许把初速度置 0（rep2 就是初始化发生在 19.9°/s 转动中，
   /// 无条件清零会把它从 7% 变成 62%，门限正好避开这种）。
@@ -184,6 +191,13 @@ public:
     /// 健康判断应该看这个：max_slam=50 时只走 SLAM 的帧也是有效视觉信息。
     /// 实测 clean1：总共 770 次 EKF 更新，其中 583 次只走 SLAM —— 原来健康门限只看到 24%。
     bool any_visual_update = false;
+    /// 【2026-10-25】该帧 MSCKF 实际参与更新的观测行数。
+    /// 这是"视觉到底有没有在约束状态"的直接度量：特征数 200 但 rows=2 等于没约束
+    /// （实测 run3/run4：rows 掉到 2-3，速度就开始发散）。
+    int msckf_rows = 0;
+    /// 【2026-10-25】该帧走了零速更新（ZUPT）：没有克隆、没有 MSCKF，但 q/bg/ba/v 都被约束过。
+    /// 静止时故意不做 MSCKF 是**正常行为**，上层健康判据必须认这一点，否则会把"静止"误判成"视觉失效"。
+    bool zupt = false;
     bool slam_updated = false;  ///< 有 SLAM 更新但 MSCKF 没有（诊断用）
     double time = -1.0;     ///< 该帧时间（秒）
   };
@@ -272,6 +286,8 @@ protected:
   Eigen::Vector3d t_c2d_m_ = Eigen::Vector3d::Zero();
   bool use_depth_init_ = false;
   bool init_zero_velocity_ = false;
+  /// 零速更新是否**当前**生效（默认跟 try_zupt 一致，可被 set_zupt_enabled 覆盖）
+  bool zupt_runtime_on_ = false;
   bool init_still_ = false;
 
   /// Our sparse feature tracker (klt or descriptor)

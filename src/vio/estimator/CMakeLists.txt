@@ -222,11 +222,102 @@ endif()
 add_executable(test_pose_convert tests/test_pose_convert.cpp)
 target_link_libraries(test_pose_convert PRIVATE pure_vio_core)
 
+# 离线"飞控时间基变化"恢复测试：需要已录数据集，没给 --dataset 时返回 77（ctest=skip）。
+# 手动跑：
+#   ./bin/test_timebase_recovery --dataset datasets/loop5 --config-dir config/gemini_1920x1080
+add_executable(test_timebase_recovery
+    tests/test_timebase_recovery_offline.cpp
+    src/offline_dataset.cpp
+)
+target_include_directories(test_timebase_recovery PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_timebase_recovery PRIVATE pure_vio_core)
+
 add_executable(test_fcu_clock tests/test_fcu_clock.cpp src/fcu_clock.cpp)
 target_include_directories(test_fcu_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 find_package(Threads REQUIRED)
 target_link_libraries(test_fcu_clock PRIVATE Threads::Threads)
 
+# ODOMETRY 打包/解析回归：不需要飞控、相机、串口，只需要 MAVLink 头文件。
+# 它拦的是「字段顺序传反」这类只看发送返回值发现不了的 bug（2026-10-28 修过一次）。
+if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
+    add_executable(test_odometry_pack tests/test_odometry_pack.cpp src/mavlink_link.cpp)
+    target_include_directories(test_odometry_pack PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(test_odometry_pack PRIVATE Threads::Threads)
+
+    # MavlinkLink 的 PTY 线上回归：心跳来源筛选 + 解锁状态 + IMU 队列/清空
+    add_executable(test_mavlink_link_wire tests/test_mavlink_link_wire.cpp src/mavlink_link.cpp)
+    target_include_directories(test_mavlink_link_wire PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(test_mavlink_link_wire PRIVATE Threads::Threads)
+
+    # 联调工具核心逻辑（合成轨迹 + ODOMETRY 统计）
+    add_executable(test_odom_tool_core tests/test_odom_tool_core.cpp)
+    target_include_directories(test_odom_tool_core PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(test_odom_tool_core PRIVATE Threads::Threads)
+
+    # 台架工具：合成轨迹发送器（无相机/无 VIO 时单独测飞控接收与轴向）
+    add_executable(odometry_sender tools/odometry_sender.cpp src/mavlink_link.cpp)
+    target_include_directories(odometry_sender PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(odometry_sender PRIVATE Threads::Threads)
+
+    # 台架工具：假飞控（PTY），没有飞机时把"上位机→飞控"整段跑通
+    add_executable(fake_fcu tools/fake_fcu.cpp)
+    target_include_directories(fake_fcu PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(fake_fcu PRIVATE Threads::Threads)
+
+    # 台架工具：ODOMETRY 线上探针（从串口/原始字节文件解码核对）
+    add_executable(odometry_probe tools/odometry_probe.cpp)
+    target_include_directories(odometry_probe PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools
+        ${PURE_UAV_MAVLINK_DIR}
+    )
+    target_link_libraries(odometry_probe PRIVATE Threads::Threads)
+else()
+    message(STATUS "test_odometry_pack: 跳过（没找到 MAVLink 头文件: ${PURE_UAV_MAVLINK_DIR}）")
+endif()
+
 enable_testing()
 add_test(NAME pose_convert COMMAND test_pose_convert)
 add_test(NAME fcu_clock COMMAND test_fcu_clock)
+if(TARGET test_odometry_pack)
+    add_test(NAME odometry_pack COMMAND test_odometry_pack)
+endif()
+if(TARGET test_mavlink_link_wire)
+    add_test(NAME mavlink_link_wire COMMAND test_mavlink_link_wire)
+endif()
+if(TARGET test_odom_tool_core)
+    add_test(NAME odom_tool_core COMMAND test_odom_tool_core)
+endif()
+
+# 离线时间基恢复测试需要一份已录数据集。给了路径才加进 ctest；否则只保留可执行文件。
+set(PURE_VIO_TEST_DATASET "" CACHE PATH "已录数据集目录（离线时间基恢复测试用；空则跳过）")
+if(PURE_VIO_TEST_DATASET AND TARGET test_timebase_recovery)
+    add_test(NAME timebase_recovery COMMAND test_timebase_recovery
+             --dataset ${PURE_VIO_TEST_DATASET}
+             --config-dir ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080
+             --warmup-frames 100
+             --max-after 200
+             --quiet)
+    set_tests_properties(timebase_recovery PROPERTIES TIMEOUT 900)
+endif()

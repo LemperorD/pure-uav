@@ -29,7 +29,7 @@ calib_cam_intrinsics: false
 calib_cam_timeoffset: false
 calib_imu_intrinsics: false
 calib_imu_g_sensitivity: false
-max_clones: 11
+max_clones: 15
 max_slam: 50
 max_slam_in_update: 25
 max_msckf_in_update: 40
@@ -38,12 +38,42 @@ gravity_mag: 9.81
 feat_rep_msckf: GLOBAL_3D
 feat_rep_slam: ANCHORED_MSCKF_INVERSE_DEPTH
 feat_rep_aruco: ANCHORED_MSCKF_INVERSE_DEPTH
-try_zupt: false
-zupt_chi2_multipler: 0
-zupt_max_velocity: 0.1
+#=====================================================================================
+# 【2026-10-25】零速更新（ZUPT）重新启用 —— 直接对症"停下来了还在加速"
+#
+# 现场症状（turn4/turn5 录制，均有完整日志可复算）：
+#   · 人静止 13 s，IMU 实测 |w|=0.4~0.6°/s、| ‖a‖−g |<0.02（真的没动）；
+#   · VIO 却把 |v| 从 0.13 单调拉到 5.92 m/s，位置飘 32.7 m；
+#   · 实时面板 tilt check 显示姿态与重力差 10.8°，漏掉 g·sinθ=1.84 m/s²；
+#   · 加速度计零偏被估计成 1.56 m/s²（正常几 mg）——它只是把自己顶错了的姿态"吸收"进去。
+# 机制：视觉塌了（rows/帧 6.0，好数据是 52.6）→ 姿态/零偏失去观测 → 重力泄漏被当加速度
+#       积分 → 卡方门限把剩下的特征也拒了 → 正反馈。这一步是 VIO 的固有弱点，不是天花板条纹。
+#
+# 为什么上次（2026-10-22）打开 ZUPT 没效果：三个原因同时存在
+#   ① zupt_chi2_multipler: 0 → 门限 `chi2 > 0` 恒真，一次都没触发；
+#   ② 上游 ZUPT 的 Hx_order 只有 [q,bg,ba]，**不约束速度** —— 即使触发，v 照样跑；
+#   ③ 只用图像位移判静止，暗光/重复纹理下会被骗。
+# 这次三处都改（UpdaterZeroVelocity.cpp）：IMU 静止判据 + 视觉位移 + |v| 三重与门，
+# 并显式加 3 行 "v = 0" 残差。卡方降级为日志，因为它恰恰在"最该救场"时爆表。
+#
+# 【为什么不设成飞行中也要开的硬开关】空中悬停时画面几乎不动，容易被判静止 → v 被钉 0、
+# 位置估计冻住，飞控还以为没漂。所以 live 程序按"飞控是否解锁"自动切（见 vio_live_main.cpp）：
+#   未解锁（地面/手持）→ 开；已解锁（空中）→ 关。飞行中不需要任何人操作。
+# 离线回放（vio_offline）没有飞控状态，按这里的 true 直接开。
+#=====================================================================================
+try_zupt: true
+zupt_chi2_multipler: 5          # 只用于日志打印，不再当门限
+zupt_max_velocity: 0.50         # 状态自己的速度都得 <0.3 m/s（旧值 0.1 太严，从未触发）
 zupt_noise_multiplier: 10
-zupt_max_disparity: 0.5
-zupt_only_at_beginning: false
+zupt_max_disparity: 0.5         # 相邻帧平均像素位移 <0.5 px 才算图像静止
+zupt_only_at_beginning: false   # 全程生效：静止就锁，动了立刻放
+zupt_max_omega_deg: 8.0         # IMU 判据①：窗口内平均 |ω| < 8°/s（静止实测 0.5）
+zupt_max_acc_dev: 0.40          # IMU 判据②：平均 |‖a‖−g| < 0.40 m/s²（静止实测 0.02）
+zupt_sigma_v: 0.10              # 显式 "v=0" 残差，σ=5 cm/s
+# 去抖：IMU 静止条件需连续多少帧（30 帧 ≈ 0.5 s @60fps）
+zupt_min_still_frames: 60       # 静止条件要连续 1 s（60 帧 @60fps）才动手 —— 1 s 是误触发和真静止的分界线
+# true = 只锁速度、不动 q/bg/ba（轻量安全版）；false = 上游那套 IMU 残差
+zupt_v_only: true
 init_window_time: 2.0
 init_imu_thresh: 1.5
 init_max_disparity: 10.0
@@ -75,6 +105,10 @@ grid_x: 5
 grid_y: 5
 min_px_dist: 10
 knn_ratio: 0.7
+# 【2026-10-25】60 -> 120。OpenVINS 的取帧门限是"距上一帧 >= 1/track_frequency 才接受"。
+# 640x480@60 的帧间隔实测 p50 16.05 ms < 16.67 ms(=1/60)，于是隔帧丢一半 ——
+# 诊断 CSV 实测处理速率只有 31.2 Hz，而相机给的是 62 fps。
+# 提到 120 后门限 8.33 ms，每帧都收。
 track_frequency: 60.0
 downsample_cameras: false
 num_opencv_threads: 4

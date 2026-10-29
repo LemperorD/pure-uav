@@ -1,64 +1,59 @@
-# 给 Communicator 增加 IMU 回调（VIO 用）
+# patches/ 说明（2026-10-29 更新）
 
-## 为什么需要
+## 当前有效
 
-`Communicator::getImu()` 每次只返回**最新一帧** IMU：
+| 文件 | 作用 | 适用分支 | 顺序 |
+|---|---|---|---|
+| `20261028_01_odometry_field_order.patch` | 修 ODOMETRY 的 `quality/reset_counter` 传反 | `vio` | 1 |
+| `20261029_03_vio_heartbeat_clock.patch` | 心跳来源筛选、FcuClock 重启检测、串口自动重连、台架工具（假飞控/发送器/探针）、PTY 回归 | `vio` | 2（先应用 01） |
+| `20261029_02_communicator_integration.patch` | 逐帧 IMU 队列、位姿质量/重置/协方差、心跳锁定、会话复位、PTY 回归 | `communication` | — |
+
+应用方式（在 pure-uav 仓库里）：
+
+```bash
+git checkout vio
+git apply .../20261028_01_odometry_field_order.patch
+git apply .../20261029_03_vio_heartbeat_clock.patch
+
+git checkout communication
+git apply .../20261029_02_communicator_integration.patch
+```
+
+三个 patch 都在干净 worktree 上验证过：apply → 编译 → 测试通过。
+
+台架工具（无飞机也能跑，见联调方案 §11）：
+
+```bash
+./bin/fake_fcu --link /tmp/fc_sim --duration 35 --save-raw /tmp/raw.bin
+./bin/odometry_sender --serial /tmp/fc_sim --rate 30
+./bin/odometry_probe --file /tmp/raw.bin --csv /tmp/pose.csv
+```
+
+`test_timebase_recovery`（离线模拟飞控重启）只在工作树里有：它需要
+`VioEstimator::resetForNewTimebase()`，而分支快照的估计器还是旧版，等主工作树推上去时一起带上。
+
+## 已废弃
+
+`communicator_imu_callback.patch`（2026-10-18）**不要再用**：
+
+- 它引用 `communicator.cpp` 里的 `data_mutex_`，而现在的实现已改成"每种数据一把锁"，
+  `git apply` 会直接失败；
+- 需要的能力已经由 `20261029_02_communicator_integration.patch` 提供，而且是**队列**
+  而不是回调（接收线程只入队，VIO 线程自己取，不会在串口线程里做耗时工作）。
+
+## 正式集成时 VIO 侧怎么接
 
 ```cpp
-case MAVLINK_MSG_ID_HIGHRES_IMU: {
-    std::lock_guard<std::mutex> lk(data_mutex_);
-    imu_.timestamp_us = imu.time_usec;
-    ...
+// 接收线程里 Communicator 已经自动逐帧入队，VIO 线程这样取：
+pure_uav::Communicator::TimedImu item;
+while (comm.popImu(item)) {
+    estimator.feedImu(item.imu);      // item.imu.timestamp_us 是飞控 boot 时间
+    clock.addSample(item.host_ns, item.imu.timestamp_us);  // 主机↔飞控时钟
 }
+// 位姿回传：
+pose.quality = 90; pose.reset_counter = rc; pose.pos_sigma_m = 0.15f; pose.vel_sigma_mps = 0.25f;
+comm.pushVisionPose(pose);
 ```
 
-VIO 线程无论按什么频率轮询，都可能在某两次轮询之间丢掉 IMU 帧；而 MSCKF 的传播对
-IMU 完整性比较敏感（尤其是 100/200 Hz 下丢 1~2 帧）。
-
-## patch 内容
-
-1. `communicator.hpp`
-   - `#include <functional>`
-   - 新增 `void setImuCallback(std::function<void(const ImuData&)> cb);`
-   - 私有成员 `std::function<void(const ImuData&)> imu_callback_;`
-2. `communicator.cpp`
-   - `HIGHRES_IMU` 分支里先组好 `ImuData sample`，加锁写入 `imu_` 并拷贝回调，
-     **在锁外**调用 `cb(sample)`（避免 VIO 入队时死锁）。
-   - 实现 `setImuCallback`。
-
-## 应用方式
-
-communication 分支（不是 git 仓库也能用 `patch`）：
-
-```bash
-cd ~/桌面/pure-uav/pure-uav-communication
-patch -p1 < ~/calib/vio_online/patches/communicator_imu_callback.patch
-```
-
-如果已经是 git 仓库：
-
-```bash
-git apply ~/calib/vio_online/patches/communicator_imu_callback.patch
-```
-
-## VIO 侧用法
-
-```cpp
-std::mutex q_mtx;
-std::deque<pure_uav::ImuData> imu_q;
-
-comm.setImuCallback([&](const pure_uav::ImuData& imu) {
-    std::lock_guard<std::mutex> lk(q_mtx);
-    imu_q.push_back(imu);              // 只入队；不要做耗时操作
-});
-```
-
-VIO 线程从 `imu_q` 取数据喂给 `VioEstimator::feedImu()`，图像同理从相机线程入队。
-
-## 说明
-
-- `~/calib/vio_online` 里的 `vio_live` **没有**用这个 patch：它自带 `MavlinkLink`，
-  自己开串口，方便在不动通信模块的情况下先上真机验证。
-- 正式单进程版本应让 `Communicator` 做唯一的串口拥有者，避免两个进程/两个对象
-  同时读写同一个 `/dev/ttyACM*`。
-- `getImu()` 保留不变，其他模块（日志/监控）仍可轮询最新值。
+注意：`Communicator` 目前**没有串口自动重连**（`MavlinkLink` 已有）。正式集成时要么把
+`MavlinkLink` 的 `handleLinkLoss/tryReopen` 策略搬过去，要么明确飞控重启后重启上位机程序。

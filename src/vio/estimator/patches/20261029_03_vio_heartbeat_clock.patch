@@ -1,0 +1,2182 @@
+--- a/src/vio/estimator/src/mavlink_link.cpp
++++ b/src/vio/estimator/src/mavlink_link.cpp
+@@ -17,7 +17,6 @@
+ 
+ namespace {
+ 
+-constexpr uint8_t kFcuCompId = 1;
+ 
+ int64_t steadyNowNs() {
+     using namespace std::chrono;
+@@ -93,13 +92,21 @@
+     if (running_.load()) return true;
+     cfg_ = cfg;
+ 
++    std::lock_guard<std::mutex> lk(fd_mtx_);
+     fd_ = openSerial(cfg.device, cfg.baudrate, error);
+     if (fd_ < 0) return false;
+ 
++    // 新会话：身份锁定、连接态、时间戳全部从头开始
+     streams_requested_ = false;
+     last_stream_request_ns_ = 0;
+     last_heartbeat_recv_ns_ = 0;
+     last_heartbeat_send_ns_ = 0;
++    connected_.store(false);
++    armed_.store(false);
++    locked_sysid_.store(0);
++    locked_compid_.store(0);
++    reconnects_.store(0);
++    clearImuQueue();
+ 
+     running_.store(true);
+     thread_ = std::thread(&MavlinkLink::recvLoop, this);
+@@ -107,28 +114,36 @@
+ }
+ 
+ void MavlinkLink::stop() {
+-    if (!running_.exchange(false)) {
+-        if (thread_.joinable()) thread_.join();
+-        return;
+-    }
++    running_.store(false);
+     if (thread_.joinable()) thread_.join();
+-    if (fd_ >= 0) {
+-        ::close(fd_);
+-        fd_ = -1;
++    {
++        std::lock_guard<std::mutex> lk(fd_mtx_);
++        if (fd_ >= 0) {
++            ::close(fd_);
++            fd_ = -1;
++        }
+     }
+     connected_.store(false);
++    armed_.store(false);
++    clearImuQueue();
++}
++
++void MavlinkLink::clearImuQueue() {
++    std::lock_guard<std::mutex> lk(q_mtx_);
++    imu_q_.clear();
+ }
+ 
+ bool MavlinkLink::sendBytes(const uint8_t* buf, uint16_t len) {
+-    if (fd_ < 0) return false;
+     std::lock_guard<std::mutex> lk(send_mtx_);
+-    return writeAll(buf, len);
++    std::lock_guard<std::mutex> fdlk(fd_mtx_);
++    if (fd_ < 0) return false;
++    return writeAll(fd_, buf, len);
+ }
+ 
+-bool MavlinkLink::writeAll(const uint8_t* buf, size_t len) {
++bool MavlinkLink::writeAll(int fd, const uint8_t* buf, size_t len) {
+     size_t off = 0;
+     while (off < len) {
+-        const ssize_t n = ::write(fd_, buf + off, len - off);
++        const ssize_t n = ::write(fd, buf + off, len - off);
+         if (n > 0) {
+             off += static_cast<size_t>(n);
+             continue;
+@@ -136,7 +151,7 @@
+         if (n < 0 && (errno == EINTR)) continue;
+         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+             struct pollfd pfd{};
+-            pfd.fd = fd_;
++            pfd.fd = fd;
+             pfd.events = POLLOUT;
+             ::poll(&pfd, 1, 100);
+             continue;
+@@ -173,7 +188,7 @@
+         mavlink_message_t msg;
+         uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+         mavlink_msg_command_long_pack(
+-            sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
++            sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
+             MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+             static_cast<float>(msg_id), static_cast<float>(interval_us),
+             0, 0, 0, 0, 0);
+@@ -201,32 +216,168 @@
+     std::fflush(stdout);
+ }
+ 
++bool MavlinkLink::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
++    // 自己的心跳（某些路由会回环）不能当成飞控
++    if (sysid == sysid_) return false;
++
++    // 1) 显式配置优先
++    if (cfg_.target_sysid != 0) {
++        if (sysid != cfg_.target_sysid) return false;
++        if (cfg_.target_compid != 0 && compid != cfg_.target_compid) return false;
++        locked_sysid_.store(sysid);
++        locked_compid_.store(compid);
++        return true;
++    }
++
++    // 2) 已锁定：只认同一个 sysid/compid
++    const uint8_t locked = locked_sysid_.load();
++    if (locked != 0) {
++        return sysid == locked && compid == locked_compid_.load();
++    }
++
++    // 3) 自动锁定第一个"像飞控"的心跳：
++    //    · 排除地面站（MAV_TYPE_GCS）和机载计算机（ONBOARD_CONTROLLER）
++    //    · 排除没有自动驾驶类型的组件（autopilot=INVALID）
++    //    这正是"地面站心跳覆盖飞控状态"那个 bug 的修法：地面站心跳进不来。
++    if (autopilot == MAV_AUTOPILOT_INVALID) return false;
++    if (type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
++    if (cfg_.target_compid != 0 && compid != cfg_.target_compid) return false;
++
++    locked_sysid_.store(sysid);
++    locked_compid_.store(compid);
++    std::printf("[MAVLink] 锁定目标飞控心跳 sysid=%u compid=%u autopilot=%u\n",
++                static_cast<unsigned>(sysid), static_cast<unsigned>(compid),
++                static_cast<unsigned>(autopilot));
++    std::fflush(stdout);
++    return true;
++}
++
++void MavlinkLink::handleLinkLoss(const char* why) {
++    int old = -1;
++    {
++        std::lock_guard<std::mutex> lk(fd_mtx_);
++        old = fd_;
++        fd_ = -1;
++    }
++    if (old >= 0) ::close(old);
++
++    // 注意：**不清 armed_**。链路断开时若把"已解锁"误判成"地面"，VIO 会打开零速更新；
++    // 空中丢链路是可能的，这时宁可保持最后一次已知状态（发送已经被 connected() 挡住）。
++    connected_.store(false);
++    streams_requested_ = false;
++    last_heartbeat_recv_ns_ = 0;
++    last_stream_request_ns_ = 0;
++    clearImuQueue();
++    std::printf("[MAVLink] 链路断开（%s）：停止发送位姿，等待串口重连…\n", why);
++    std::fflush(stdout);
++}
++
++bool MavlinkLink::tryReopen(std::string* error) {
++    const int nfd = openSerial(cfg_.device, cfg_.baudrate, error);
++    if (nfd < 0) return false;
++    {
++        std::lock_guard<std::mutex> lk(fd_mtx_);
++        fd_ = nfd;
++    }
++    // 新会话：重新学习飞控身份，旧队列/旧连接态全部作废
++    connected_.store(false);
++    locked_sysid_.store(0);
++    locked_compid_.store(0);
++    streams_requested_ = false;
++    clearImuQueue();
++    reconnects_.fetch_add(1);
++    return true;
++}
++
+ void MavlinkLink::recvLoop() {
+     mavlink_message_t msg{};
+     mavlink_status_t status{};
+     uint8_t buf[512];
+     int64_t last_imu_recv_ns = 0;
++    long long ignored_heartbeats = 0;
++    int reopen_failures = 0;
+ 
+     while (running_.load()) {
++        int fd = -1;
++        {
++            std::lock_guard<std::mutex> lk(fd_mtx_);
++            fd = fd_;
++        }
++
++        // ---- 设备掉线：每 500 ms 尝试重新打开（FC 重启时 USB 常常会重新枚举）----
++        if (fd < 0) {
++            std::this_thread::sleep_for(std::chrono::milliseconds(500));
++            if (!running_.load()) break;
++            std::string err;
++            if (tryReopen(&err)) {
++                reopen_failures = 0;
++                last_imu_recv_ns = 0;
++                last_stream_request_ns_ = 0;
++                last_heartbeat_recv_ns_ = 0;
++                last_heartbeat_send_ns_ = 0;
++                last_imu_us_.store(0);
++                std::printf("[MAVLink] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n",
++                            cfg_.device.c_str(),
++                            static_cast<unsigned long long>(reconnects_.load()));
++                std::fflush(stdout);
++            } else if (++reopen_failures % 10 == 1) {
++                std::printf("[MAVLink] 串口重连失败（%s），继续尝试…\n", err.c_str());
++                std::fflush(stdout);
++            }
++            continue;
++        }
++
+         struct pollfd pfd{};
+-        pfd.fd = fd_;
++        pfd.fd = fd;
+         pfd.events = POLLIN;
+         const int pr = ::poll(&pfd, 1, 50);
+-        if (pr > 0 && (pfd.revents & (POLLIN | POLLERR | POLLHUP))) {
+-            const ssize_t n = ::read(fd_, buf, sizeof(buf));
++        bool fatal = false;
++        if (pr > 0) {
++            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) fatal = true;
++            ssize_t n = 0;
++            {
++                std::lock_guard<std::mutex> lk(fd_mtx_);
++                if (fd_ != fd) continue;   // 期间被停止/重连换掉了
++                n = ::read(fd_, buf, sizeof(buf));
++            }
+             if (n > 0) {
+                 for (ssize_t i = 0; i < n; ++i) {
+                     if (!mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
+                         continue;
+                     }
++                    // 锁定飞控后，只接受该 sysid 的数据流。否则同链路如果路由转发了
++                    // 别的飞行器/地面站的 ODOMETRY/LOCAL_POSITION，会把状态搅乱。
++                    const uint8_t locked = locked_sysid_.load();
++                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT && locked != 0 &&
++                        msg.sysid != locked) {
++                        continue;
++                    }
+                     switch (msg.msgid) {
+                         case MAVLINK_MSG_ID_HEARTBEAT: {
+                             mavlink_heartbeat_t hb;
+                             mavlink_msg_heartbeat_decode(&msg, &hb);
++                            if (!acceptHeartbeat(msg.sysid, msg.compid, hb.autopilot, hb.type)) {
++                                ++ignored_heartbeats;
++                                if (ignored_heartbeats <= 3 || ignored_heartbeats % 200 == 0) {
++                                    std::printf("[MAVLink] 忽略非目标心跳 sysid=%u compid=%u"
++                                                " type=%u autopilot=%u（累计 %lld）\n",
++                                                static_cast<unsigned>(msg.sysid),
++                                                static_cast<unsigned>(msg.compid),
++                                                static_cast<unsigned>(hb.type),
++                                                static_cast<unsigned>(hb.autopilot),
++                                                ignored_heartbeats);
++                                    std::fflush(stdout);
++                                }
++                                break;
++                            }
+                             fcu_sysid_.store(msg.sysid);
++                            fcu_compid_.store(msg.compid);
++                            // 【2026-10-25】解锁状态：地面可开零速更新，空中必须关
++                            armed_.store((hb.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0);
+                             if (!connected_.exchange(true)) {
+-                                std::printf("[MAVLink] 飞控心跳 sysid=%u autopilot=%u\n",
++                                std::printf("[MAVLink] 飞控心跳 sysid=%u compid=%u autopilot=%u\n",
+                                             static_cast<unsigned>(msg.sysid),
++                                            static_cast<unsigned>(msg.compid),
+                                             static_cast<unsigned>(hb.autopilot));
+                                 std::fflush(stdout);
+                             }
+@@ -298,18 +449,26 @@
+                     }
+                 }
+             } else if (n < 0 && errno != EAGAIN && errno != EINTR) {
+-                // 串口异常：等待重连（保持线程活着）
+-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
++                fatal = true;
++            } else if (n == 0 && (pfd.revents & POLLHUP)) {
++                fatal = true;
+             }
+         }
+ 
++        if (fatal) {
++            handleLinkLoss("串口读错误/设备拔出");
++            continue;
++        }
++
+         const int64_t now = steadyNowNs();
+ 
+-        // 心跳超时
++        // 心跳超时：断开连接态；同时清掉身份锁定，允许飞控重启后重新锁定。
+         if (connected_.load() && last_heartbeat_recv_ns_ > 0 &&
+             now - last_heartbeat_recv_ns_ > 3000000000LL) {
+             connected_.store(false);
+             streams_requested_ = false;
++            locked_sysid_.store(0);
++            locked_compid_.store(0);
+             std::printf("[MAVLink] 心跳超时，等待重连…\n");
+             std::fflush(stdout);
+         }
+@@ -336,15 +495,16 @@
+ }
+ 
+ void MavlinkLink::requestParamByName(const std::string& name) {
+-    if (fd_ < 0) return;
+     mavlink_message_t msg;
+     mavlink_msg_param_request_read_pack(static_cast<uint8_t>(sysid_), static_cast<uint8_t>(compid_),
+-                                        &msg, fcu_sysid_.load(), MAV_COMP_ID_AUTOPILOT1,
++                                        &msg, fcu_sysid_.load(), fcu_compid_.load(),
+                                         name.c_str(), -1);
+     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+     std::lock_guard<std::mutex> lk(send_mtx_);
+-    writeAll(buf, len);
++    std::lock_guard<std::mutex> fdlk(fd_mtx_);
++    if (fd_ < 0) return;
++    writeAll(fd_, buf, len);
+ }
+ 
+ MavlinkLink::Ekf3Velocity MavlinkLink::ekf3Velocity() const {
+@@ -381,16 +541,23 @@
+     // 0（飞控侧会 constrain 到 VISO_YAW_M_NSE 之类的参数下限）。
+     // 没给 sigma 时按老行为把 [0] 填 NaN（= 未知）。
+     //=======================================================================
++    // 两个 sigma 必须**各自独立**判断：只给位置不给速度时，位置的不确定性
++    // 不能因为速度未知就一起丢掉（2026-10-29 验收指出的问题）。
+     float pose_cov[21] = {0.0f};
+     float vel_cov[21] = {0.0f};
+-    if (pos_sigma_m > 0.0f && vel_sigma_mps > 0.0f) {
++    if (pos_sigma_m > 0.0f) {
+         const float pv = pos_sigma_m * pos_sigma_m;
+-        const float vv = vel_sigma_mps * vel_sigma_mps;
+         pose_cov[0] = pose_cov[6] = pose_cov[11] = pv;
++    } else {
++        // 未知就把三个对角都标成 NaN。只标 [0] 的话，飞控按 0/6/11 组合时
++        // 另外两个 0 会被当成"完美已知"，语义就混了。
++        pose_cov[0] = pose_cov[6] = pose_cov[11] = std::nanf("");
++    }
++    if (vel_sigma_mps > 0.0f) {
++        const float vv = vel_sigma_mps * vel_sigma_mps;
+         vel_cov[0] = vel_cov[6] = vel_cov[11] = vv;
+     } else {
+-        pose_cov[0] = std::nanf("");
+-        vel_cov[0] = std::nanf("");
++        vel_cov[0] = vel_cov[6] = vel_cov[11] = std::nanf("");
+     }
+ 
+     const int q = quality < 0 ? 0 : (quality > 100 ? 100 : quality);
+@@ -426,5 +593,4 @@
+     return sendBytes(buf, len);
+ }
+ 
+-
+ }  // namespace pure_uav
+--- a/src/vio/estimator/src/mavlink_link.hpp
++++ b/src/vio/estimator/src/mavlink_link.hpp
+@@ -36,6 +36,11 @@
+         int heartbeat_interval_ms = 1000;      // 本机心跳
+         bool send_heartbeat = true;
+         size_t max_imu_queue = 2000;           // 200Hz 下约 10 秒
++        // 【2026-10-29】目标飞控身份。0 = 自动锁定（首个"像飞控"的心跳）。
++        // 锁定后只接受该 sysid/compid 的心跳；地面站/机载计算机/其他飞行器的心跳一律忽略。
++        // 多机同链路时显式指定，避免锁错。
++        uint8_t target_sysid = 0;
++        uint8_t target_compid = 0;             // 0 = 不限定组件号
+     };
+ 
+     struct TimedImu {
+@@ -54,7 +59,20 @@
+ 
+     bool running() const { return running_.load(); }
+     bool connected() const { return connected_.load(); }
++
++    // 【2026-10-25】飞控是否已解锁（HEARTBEAT.base_mode 的 SAFETY_ARMED 位）。
++    // 用途：地面上（未解锁）允许开零速更新，空中（已解锁）绝不允许 —— 见 VioManager 的说明。
++    // 没收到过心跳时返回 false（= 当成"地面"），这样纯手持/无飞控的场景行为不变。
++    bool armed() const { return armed_.load(); }
+     uint8_t fcuSysId() const { return fcu_sysid_.load(); }
++    // 【2026-10-29】串口重连次数。每次"设备掉线后重新打开成功" +1。
++    // vio_live 用它判定"新会话，时间基要重来"。
++    uint64_t reconnectCount() const { return reconnects_.load(); }
++    bool targetLocked() const { return locked_sysid_.load() != 0; }
++
++    // 【2026-10-29】清空 IMU 队列（飞控重启/串口重连/时间基变化时用）。
++    // 旧时间基的样本绝不能再喂给估计器。
++    void clearImuQueue();
+ 
+     // 取出最早的一帧 IMU；无数据返回 false。
+     bool popImu(TimedImu& out);
+@@ -67,10 +85,18 @@
+     /// 【2026-10-22】发位姿。原来 pose_cov/vel_cov 填 NaN（未知）、quality=0、
+     /// reset_counter=0 —— 飞控完全不知道数据可信度和"我们重置过"。
+     /// 重建后位姿会跳变，不告诉飞控重置会导致它把跳变当成真实运动。
+-    /// @param quality        0-100 可信度（0 = 未知）
+-    /// @param reset_counter  估计器重建次数（必须单调增长）
+-    /// @param pos_sigma_m    位置标准差估计（米）
+-    /// @param vel_sigma_mps  速度标准差估计（m/s）
++    /// @param quality        0-100 可信度（0 = 未知；本函数把越界值夹到 0..100）
++    /// @param reset_counter  估计器重建次数（必须单调增长，飞控据此处理重锚定跳变）
++    /// @param pos_sigma_m    位置标准差估计（米，<=0 表示未知 → 协方差填 NaN）
++    /// @param vel_sigma_mps  速度标准差估计（m/s，<=0 表示未知 → 协方差填 NaN）
++    /// 【2026-10-28】修掉字段顺序 bug。MAVLink 的 pack 签名最后三个参数是
++    ///   reset_counter, estimator_type, quality
++    /// 旧代码按 quality, estimator_type, reset_counter 传，结果：
++    ///   想发"质量 90、重置 0" 实际发成"重置 90、质量 0"。
++    /// 现场后果有两个：① 飞控看到的 reset_counter 随健康状态在 90/50 之间跳，
++    /// 每跳一次都被当成"估计器重置"，触发位置/速度/姿态重锚定；
++    /// ② 真正重建（reset_counter 1,2,3…）反而没告诉飞控，跳变被当成真实运动。
++    /// 这条 bug 在 ArduPilot 的 VISP 日志里能直接看到（R 字段）。
+     /// 【2026-10-23】飞控 EKF3 的速度估计（NED，m/s）。用作 VIO 的第二意见。
+     struct Ekf3Velocity {
+         bool valid = false;
+@@ -104,15 +130,25 @@
+     void recvLoop();
+     void requestStreams();
+     bool sendBytes(const uint8_t* buf, uint16_t len);
+-    bool writeAll(const uint8_t* buf, size_t len);
++    bool writeAll(int fd, const uint8_t* buf, size_t len);
+     void pushImu(const TimedImu& item);
++    // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
++    bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
++    void handleLinkLoss(const char* why);   // 关闭 fd、清状态/队列，等重连
++    bool tryReopen(std::string* error);     // 尝试重新打开串口
+ 
+     Config cfg_;
+     int fd_ = -1;
++    mutable std::mutex fd_mtx_;   // 保护 fd_ 的打开/关闭（发送线程 vs 重连线程）
+     std::thread thread_;
+     std::atomic<bool> running_{false};
+     std::atomic<bool> connected_{false};
++    std::atomic<bool> armed_{false};
+     std::atomic<uint8_t> fcu_sysid_{1};
++    std::atomic<uint8_t> fcu_compid_{1};
++    std::atomic<uint8_t> locked_sysid_{0};   // 0 = 还没锁定
++    std::atomic<uint8_t> locked_compid_{0};
++    std::atomic<uint64_t> reconnects_{0};
+     std::atomic<uint64_t> last_imu_us_{0};
+     std::atomic<uint64_t> imu_received_{0};
+     std::atomic<uint64_t> dropped_imu_{0};
+--- a/src/vio/estimator/src/fcu_clock.cpp
++++ b/src/vio/estimator/src/fcu_clock.cpp
+@@ -13,17 +13,47 @@
+ }
+ }  // namespace
+ 
+-void FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_us) {
++void FcuClock::clearLocked() {
++    offsets_.clear();
++    last_host_ns_ = 0;
++    estimate_ns_ = 0;
++    has_estimate_ = false;
++    since_recompute_ = 0;
++    last_imu_us_ = 0;
++}
++
++FcuClock::AddResult FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_us) {
+     std::lock_guard<std::mutex> lk(mtx_);
++
++    if (last_imu_us_ != 0 && imu_timestamp_us != 0) {
++        // 显著回退 = 飞控重启（boot 时间从 ~0 重来）。必须清空旧样本，
++        // 否则新旧两个时间基的 offset 会混在同一个 5% 分位里，映射结果直接错几百秒。
++        if (imu_timestamp_us + static_cast<uint64_t>(kRollbackUs) < last_imu_us_) {
++            clearLocked();
++            timebase_resets_.fetch_add(1);
++            last_imu_us_ = imu_timestamp_us;
++            offsets_.push_back(host_ns - static_cast<int64_t>(imu_timestamp_us) * 1000);
++            last_host_ns_ = host_ns;
++            return AddResult::kTimebaseReset;
++        }
++        // 重复帧 / 轻微乱序：丢弃，不污染偏移估计（主机时钟也不回退）
++        if (imu_timestamp_us <= last_imu_us_) {
++            out_of_order_.fetch_add(1);
++            return AddResult::kOutOfOrder;
++        }
++    }
++
+     offsets_.push_back(host_ns - static_cast<int64_t>(imu_timestamp_us) * 1000);
+     if (offsets_.size() > kMaxSamples) {
+         offsets_.pop_front();
+     }
++    last_imu_us_ = imu_timestamp_us;
+     last_host_ns_ = std::max(last_host_ns_, host_ns);
+     if (!has_estimate_ || ++since_recompute_ >= 16) {
+         recomputeLocked();
+         since_recompute_ = 0;
+     }
++    return AddResult::kOk;
+ }
+ 
+ void FcuClock::recomputeLocked() const {
+@@ -63,13 +93,14 @@
+     return offsets_.size();
+ }
+ 
++uint64_t FcuClock::lastImuTimestampUs() const {
++    std::lock_guard<std::mutex> lk(mtx_);
++    return last_imu_us_;
++}
++
+ void FcuClock::reset() {
+     std::lock_guard<std::mutex> lk(mtx_);
+-    offsets_.clear();
+-    last_host_ns_ = 0;
+-    estimate_ns_ = 0;
+-    has_estimate_ = false;
+-    since_recompute_ = 0;
++    clearLocked();
+ }
+ 
+ }  // namespace pure_uav
+--- a/src/vio/estimator/src/fcu_clock.hpp
++++ b/src/vio/estimator/src/fcu_clock.hpp
+@@ -9,9 +9,18 @@
+ //
+ // 注意：相机帧的传输/解码延迟、IMU 的串口延迟都会引入固定偏差，这部分
+ // 由标定得到的 timeshift_cam_imu（或 OpenVINS 在线时间偏移）吸收。
++//
++// 【2026-10-29】飞控重启处理：
++//   HIGHRES_IMU.time_usec 是**飞控 boot 以来**的微秒数。飞控重启后它从 ~0 重新开始，
++//   而主机时钟继续前进。旧实现只往 offsets_ 里追加样本，重启后的样本会算出
++//   "约 303 秒"这类完全错误的时间，而且 valid() 依旧返回 true —— 图像、IMU、输出位姿
++//   就会落在两个不同的时间基准里。
++//   现在 addSample() 返回 AddResult：检测到显著回退就自动清空旧样本、按新时间基重来，
++//   调用方据此暂停发布并重建估计器（见 vio_live_main.cpp 的 onFcuTimebaseReset）。
+ 
+ #pragma once
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <deque>
+ #include <mutex>
+@@ -20,10 +29,19 @@
+ 
+ class FcuClock {
+ public:
++    // addSample() 的判定结果
++    enum class AddResult {
++        kOk,             // 正常样本，已纳入偏移估计
++        kOutOfOrder,     // 重复或轻微回退（< kRollbackUs），丢弃，不影响估计
++        kTimebaseReset,  // 飞控时间戳大幅回退 = 飞控重启/换了时间基；旧样本已清空
++    };
++
+     FcuClock() = default;
+ 
+     // 加入一个 IMU 时间戳样本（host_ns 用 CLOCK_MONOTONIC）。
+-    void addSample(int64_t host_ns, uint64_t imu_timestamp_us);
++    // 返回 kTimebaseReset 时：内部已清空旧时间基的所有样本，本样本作为新时间基的
++    // 第 1 帧保留；此时 valid() 为 false，需要重新累积 kMinSamples 帧才恢复。
++    AddResult addSample(int64_t host_ns, uint64_t imu_timestamp_us);
+ 
+     // 是否有足够样本且最近更新过（默认 2 秒内）。
+     bool valid() const;
+@@ -34,14 +52,24 @@
+     int64_t offsetNs() const;
+     size_t sampleCount() const;
+ 
++    // 统计（联调状态行/验收用）：被丢弃的乱序帧、检测到的时间基重置次数
++    uint64_t outOfOrderCount() const { return out_of_order_.load(); }
++    uint64_t timebaseResetCount() const { return timebase_resets_.load(); }
++    uint64_t lastImuTimestampUs() const;
++
++    // 手动清空（程序启动、串口重连等）。不清统计计数。
+     void reset();
+ 
+ private:
+     void recomputeLocked() const;
++    void clearLocked();
+ 
+     static constexpr size_t kMaxSamples = 600;  // 100Hz 下约 6 秒
+     static constexpr size_t kMinSamples = 10;
+     static constexpr int64_t kMaxAgeNs = 2000000000LL;  // 2 s
++    // 时间戳回退超过它，才认为是"换了时间基"而不是乱序。
++    // 200 Hz 流里真正的乱序通常只有几毫秒；飞控重启是回退到接近 0。
++    static constexpr int64_t kRollbackUs = 100000;  // 100 ms
+ 
+     mutable std::mutex mtx_;
+     std::deque<int64_t> offsets_;  // host_ns - imu_us*1000
+@@ -49,6 +77,10 @@
+     mutable int64_t estimate_ns_ = 0;
+     mutable bool has_estimate_ = false;
+     size_t since_recompute_ = 0;
++    uint64_t last_imu_us_ = 0;
++
++    std::atomic<uint64_t> out_of_order_{0};
++    std::atomic<uint64_t> timebase_resets_{0};
+ };
+ 
+ }  // namespace pure_uav
+--- a/src/vio/estimator/tests/test_fcu_clock.cpp
++++ b/src/vio/estimator/tests/test_fcu_clock.cpp
+@@ -41,7 +41,11 @@
+         // 到达延迟：0~2 ms（单向延迟，所以 offset 只会偏大）
+         const int64_t host_ns = imu_us * 1000 + static_cast<int64_t>(true_offset_ns) +
+                                 static_cast<int64_t>(jitter_us(rng) * 1000.0);
+-        clock.addSample(host_ns, static_cast<uint64_t>(imu_us));
++        const auto r = clock.addSample(host_ns, static_cast<uint64_t>(imu_us));
++        if (r != FcuClock::AddResult::kOk) {
++            std::fprintf(stderr, "FAIL 正常样本被判定为非 kOk\n");
++            g_failures++;
++        }
+     }
+ 
+     if (!clock.valid()) {
+@@ -74,8 +78,92 @@
+         g_failures++;
+     }
+ 
++    //---------------------------------------------------------------------------
++    // 用例 2：轻微乱序（5 ms 回退）只丢帧，不能触发时间基重置
++    //---------------------------------------------------------------------------
++    {
++        const size_t before = clock.sampleCount();
++        const uint64_t last_us = clock.lastImuTimestampUs();
++        const auto r = clock.addSample(now_ns, static_cast<uint64_t>(last_us - 5000));
++        if (r != FcuClock::AddResult::kOutOfOrder) {
++            std::fprintf(stderr, "FAIL 5ms 回退应判 kOutOfOrder\n");
++            g_failures++;
++        }
++        if (clock.sampleCount() != before) {
++            std::fprintf(stderr, "FAIL 乱序帧不应进入偏移估计\n");
++            g_failures++;
++        }
++        if (!clock.valid()) {
++            std::fprintf(stderr, "FAIL 轻微乱序不应让时钟失效\n");
++            g_failures++;
++        }
++        if (clock.timebaseResetCount() != 0) {
++            std::fprintf(stderr, "FAIL 轻微乱序不应计为时间基重置\n");
++            g_failures++;
++        }
++    }
++
++    //---------------------------------------------------------------------------
++    // 用例 3：飞控重启。模拟"运行到约 303 s 后重启，boot 时间回到 1.075 s"。
++    // 旧实现会继续用旧 offset，映射出约 303 s；现在必须清空旧样本并判 kTimebaseReset。
++    //---------------------------------------------------------------------------
++    {
++        const uint64_t fcu_before_reboot_us = clock.lastImuTimestampUs();
++        const uint64_t reboot_boot_us = 1075000;  // 重启后 1.075 s
++        const int64_t host_at_reboot_ns = now_ns + 10000000;  // 重启帧此时到达
++        const auto r = clock.addSample(host_at_reboot_ns, reboot_boot_us);
++        if (r != FcuClock::AddResult::kTimebaseReset) {
++            std::fprintf(stderr,
++                         "FAIL 飞控重启（%llu us → %llu us）未判 kTimebaseReset\n",
++                         static_cast<unsigned long long>(fcu_before_reboot_us),
++                         static_cast<unsigned long long>(reboot_boot_us));
++            g_failures++;
++        }
++        if (clock.valid()) {
++            std::fprintf(stderr, "FAIL 时间基重置后 valid() 必须为 false（要重新累积样本）\n");
++            g_failures++;
++        }
++        if (clock.sampleCount() != 1) {
++            std::fprintf(stderr, "FAIL 时间基重置后应只剩新基的 1 帧，实际 %zu\n",
++                         clock.sampleCount());
++            g_failures++;
++        }
++        if (clock.timebaseResetCount() != 1) {
++            std::fprintf(stderr, "FAIL timebaseResetCount 应为 1\n");
++            g_failures++;
++        }
++
++        // 新时间基重新累积 30 帧（≈150 ms），映射必须落在新基附近，而不是旧的 303 s。
++        for (int i = 1; i <= 30; ++i) {
++            const int64_t imu_us = static_cast<int64_t>(reboot_boot_us) + i * 5000;
++            const int64_t host_ns = host_at_reboot_ns + i * 5000LL * 1000LL;
++            const auto rr = clock.addSample(host_ns, static_cast<uint64_t>(imu_us));
++            if (rr != FcuClock::AddResult::kOk) {
++                std::fprintf(stderr, "FAIL 新时间基样本被误判（i=%d）\n", i);
++                g_failures++;
++            }
++        }
++        if (!clock.valid()) {
++            std::fprintf(stderr, "FAIL 新时间基样本足够后应恢复 valid\n");
++            g_failures++;
++        }
++        uint64_t mapped = 0;
++        const int64_t probe_host_ns = host_at_reboot_ns + 30 * 5000LL * 1000LL;
++        if (!clock.hostToFcuUs(probe_host_ns, mapped)) {
++            std::fprintf(stderr, "FAIL 新时间基 hostToFcuUs 返回 false\n");
++            g_failures++;
++        } else {
++            const double mapped_s = static_cast<double>(mapped) * 1e-6;
++            std::printf("重启后映射: %.3f s（旧时间基约 303 s）\n", mapped_s);
++            if (mapped_s > 10.0) {
++                std::fprintf(stderr, "FAIL 重启后映射仍落在旧时间基: %.3f s\n", mapped_s);
++                g_failures++;
++            }
++        }
++    }
++
+     if (g_failures == 0) {
+-        std::printf("PASS: FcuClock 时间映射测试通过\n");
++        std::printf("PASS: FcuClock 时间映射测试通过（含飞控重启/乱序）\n");
+         return 0;
+     }
+     return 1;
+--- a/src/vio/estimator/CMakeLists.txt
++++ b/src/vio/estimator/CMakeLists.txt
+@@ -236,6 +236,49 @@
+         ${PURE_UAV_MAVLINK_DIR}
+     )
+     target_link_libraries(test_odometry_pack PRIVATE Threads::Threads)
++
++    # MavlinkLink 的 PTY 线上回归：心跳来源筛选 + 解锁状态 + IMU 队列/清空 + 串口重连
++    add_executable(test_mavlink_link_wire tests/test_mavlink_link_wire.cpp src/mavlink_link.cpp)
++    target_include_directories(test_mavlink_link_wire PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/src
++        ${CMAKE_CURRENT_SOURCE_DIR}/include
++        ${PURE_UAV_MAVLINK_DIR}
++    )
++    target_link_libraries(test_mavlink_link_wire PRIVATE Threads::Threads)
++
++    # 联调工具核心逻辑（合成轨迹 + ODOMETRY 统计）
++    add_executable(test_odom_tool_core tests/test_odom_tool_core.cpp)
++    target_include_directories(test_odom_tool_core PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/tools
++        ${PURE_UAV_MAVLINK_DIR}
++    )
++    target_link_libraries(test_odom_tool_core PRIVATE Threads::Threads)
++
++    # 台架工具：合成轨迹发送器（无相机/无 VIO 时单独测飞控接收与轴向）
++    add_executable(odometry_sender tools/odometry_sender.cpp src/mavlink_link.cpp)
++    target_include_directories(odometry_sender PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/src
++        ${CMAKE_CURRENT_SOURCE_DIR}/include
++        ${CMAKE_CURRENT_SOURCE_DIR}/tools
++        ${PURE_UAV_MAVLINK_DIR}
++    )
++    target_link_libraries(odometry_sender PRIVATE Threads::Threads)
++
++    # 台架工具：假飞控（PTY），没有飞机时把"上位机→飞控"整段跑通
++    add_executable(fake_fcu tools/fake_fcu.cpp)
++    target_include_directories(fake_fcu PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/tools
++        ${PURE_UAV_MAVLINK_DIR}
++    )
++    target_link_libraries(fake_fcu PRIVATE Threads::Threads)
++
++    # 台架工具：ODOMETRY 线上探针（从串口/原始字节文件解码核对）
++    add_executable(odometry_probe tools/odometry_probe.cpp)
++    target_include_directories(odometry_probe PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/tools
++        ${PURE_UAV_MAVLINK_DIR}
++    )
++    target_link_libraries(odometry_probe PRIVATE Threads::Threads)
+ else()
+     message(STATUS "test_odometry_pack: 跳过（没找到 MAVLink 头文件: ${PURE_UAV_MAVLINK_DIR}）")
+ endif()
+@@ -246,3 +289,9 @@
+ if(TARGET test_odometry_pack)
+     add_test(NAME odometry_pack COMMAND test_odometry_pack)
+ endif()
++if(TARGET test_mavlink_link_wire)
++    add_test(NAME mavlink_link_wire COMMAND test_mavlink_link_wire)
++endif()
++if(TARGET test_odom_tool_core)
++    add_test(NAME odom_tool_core COMMAND test_odom_tool_core)
++endif()
+--- /dev/null
++++ b/src/vio/estimator/tests/test_mavlink_link_wire.cpp
+@@ -0,0 +1,262 @@
++// MavlinkLink 的"线上"回归测试：用伪终端(PTY)模拟一条飞控链路，不需要真机。
++//
++// 覆盖 2026-10-29 验收指出的两个问题：
++//   1) 地面站/其他飞行器的心跳会覆盖飞控身份与解锁状态 —— 现在必须按 sysid/compid 锁定，
++//      只有目标飞控的心跳能更新连接/解锁状态；
++//   2) IMU 队列在时间基变化/重连时必须能整队清空（clearImuQueue）。
++//
++// 不覆盖"串口拔出后重新打开"——PTY 没有设备重新枚举的过程，那条路径只能在真机/
++// USB 上验证（见联调方案第 6 节的重启/重连用例）。
++//
++// 运行：./bin/test_mavlink_link_wire
++
++#define _GNU_SOURCE
++#include <fcntl.h>
++#include <poll.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <thread>
++
++#include "common/mavlink.h"
++
++#include "mavlink_link.hpp"
++
++namespace {
++
++int g_failed = 0;
++
++#define CHECK(cond)                                                      \
++    do {                                                                 \
++        if (!(cond)) {                                                   \
++            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
++            ++g_failed;                                                  \
++        }                                                                \
++    } while (0)
++
++bool writeAll(int fd, const uint8_t* buf, size_t len) {
++    size_t off = 0;
++    while (off < len) {
++        const ssize_t n = ::write(fd, buf + off, len - off);
++        if (n > 0) {
++            off += static_cast<size_t>(n);
++            continue;
++        }
++        if (n < 0 && errno == EINTR) continue;
++        return false;
++    }
++    return true;
++}
++
++bool sendMsg(int fd, const mavlink_message_t& msg) {
++    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
++    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
++    return writeAll(fd, buf, len);
++}
++
++bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot,
++                   uint8_t base_mode) {
++    mavlink_message_t msg;
++    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0,
++                               MAV_STATE_ACTIVE);
++    return sendMsg(fd, msg);
++}
++
++bool sendImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
++    mavlink_message_t msg;
++    mavlink_msg_highres_imu_pack(
++        sysid, 1, &msg, t_us,
++        ax, 0.0f, 9.8f,                 // xacc yacc zacc
++        0.0f, 0.0f, 0.0f,               // gyro
++        NAN, NAN, NAN,                  // mag
++        0.0f, 0.0f, 0.0f, 0.0f,         // pressure/temperature
++        0, 0);
++    return sendMsg(fd, msg);
++}
++
++bool makePty(int& master, std::string& slave_path) {
++    master = ::posix_openpt(O_RDWR | O_NOCTTY);
++    if (master < 0) return false;
++    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
++    const char* name = ::ptsname(master);
++    if (name == nullptr) return false;
++    slave_path = name;
++    const int flags = ::fcntl(master, F_GETFL, 0);
++    ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
++    return true;
++}
++
++template <typename Pred>
++bool waitFor(Pred pred, int timeout_ms) {
++    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
++    while (std::chrono::steady_clock::now() < deadline) {
++        if (pred()) return true;
++        std::this_thread::sleep_for(std::chrono::milliseconds(10));
++    }
++    return pred();
++}
++
++}  // namespace
++
++int main() {
++    std::printf("===== MavlinkLink 心跳筛选/队列回归测试（PTY 模拟飞控）=====\n");
++
++    int master = -1;
++    std::string slave_path;
++    if (!makePty(master, slave_path)) {
++        std::printf("  ❌ 创建 PTY 失败\n");
++        return 1;
++    }
++    std::printf("[准备] 模拟飞控口: %s\n", slave_path.c_str());
++
++    pure_uav::MavlinkLink link;
++    pure_uav::MavlinkLink::Config cfg;
++    cfg.device = slave_path;
++    cfg.baudrate = 921600;
++    cfg.max_imu_queue = 16;
++    std::string err;
++    if (!link.start(cfg, &err)) {
++        std::printf("  ❌ MavlinkLink 打不开 PTY 从端: %s\n", err.c_str());
++        return 1;
++    }
++
++    // ---- 1) 目标飞控心跳：锁定 + 解锁 ----
++    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
++                        MAV_AUTOPILOT_ARDUPILOTMEGA,
++                        MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED));
++    CHECK(waitFor([&] { return link.connected() && link.armed() && link.fcuSysId() == 1; },
++                  2000));
++    CHECK(link.targetLocked());
++    std::printf("[1] 飞控心跳 OK: connected=%d armed=%d sysid=%u\n",
++                static_cast<int>(link.connected()), static_cast<int>(link.armed()),
++                static_cast<unsigned>(link.fcuSysId()));
++
++    // ---- 2) 地面站心跳（sysid=255 / type=GCS / autopilot=INVALID）不得覆盖状态 ----
++    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
++                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
++    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
++                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
++    std::this_thread::sleep_for(std::chrono::milliseconds(200));
++    CHECK(link.armed());          // 关键：不能被地面站的"未解锁"覆盖
++    CHECK(link.connected());
++    CHECK(link.fcuSysId() == 1);  // 关键：sysid 不能被改成 255
++    std::printf("[2] 地面站心跳被忽略 OK: armed=%d sysid=%u\n",
++                static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
++
++    // ---- 3) 已锁定后，其他飞行器(sysid=42)的心跳也不得改状态 ----
++    CHECK(sendHeartbeat(master, /*sysid=*/42, /*compid=*/1, MAV_TYPE_QUADROTOR,
++                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
++    std::this_thread::sleep_for(std::chrono::milliseconds(150));
++    CHECK(link.armed());
++    CHECK(link.fcuSysId() == 1);
++    std::printf("[3] 其他飞行器心跳被忽略 OK\n");
++
++    // ---- 4) 目标飞控自己发未解锁心跳：必须生效 ----
++    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
++                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
++    CHECK(waitFor([&] { return !link.armed(); }, 1000));
++    CHECK(link.connected());
++    std::printf("[4] 飞控未解锁心跳生效 OK\n");
++
++    // ---- 5) 逐帧 IMU 顺序 + clearImuQueue ----
++    CHECK(sendImu(master, 1, 1000000ULL, 1.0f));
++    CHECK(sendImu(master, 1, 1005000ULL, 2.0f));
++    CHECK(sendImu(master, 1, 1010000ULL, 3.0f));
++    CHECK(waitFor([&] { return link.receivedImu() >= 3; }, 2000));
++
++    pure_uav::MavlinkLink::TimedImu item;
++    CHECK(link.popImu(item));
++    CHECK(item.imu.timestamp_us == 1000000ULL);
++    CHECK(link.popImu(item));
++    CHECK(item.imu.timestamp_us == 1005000ULL);
++    CHECK(link.popImu(item));
++    CHECK(item.imu.timestamp_us == 1010000ULL);
++    CHECK(item.host_ns > 0);
++
++    CHECK(sendImu(master, 1, 1015000ULL, 4.0f));
++    CHECK(waitFor([&] { return link.imuQueueSize() >= 1; }, 2000));
++    link.clearImuQueue();
++    CHECK(link.imuQueueSize() == 0);
++    CHECK(!link.popImu(item));
++    std::printf("[5] IMU 顺序 + 整队清空 OK\n");
++
++    // 非目标 sysid 的 IMU 不应入队（锁定后只收飞控数据流）
++    CHECK(sendImu(master, /*sysid=*/42, 2000000ULL, 7.0f));
++    std::this_thread::sleep_for(std::chrono::milliseconds(200));
++    CHECK(link.imuQueueSize() == 0);
++    std::printf("[6] 其他 sysid 的 IMU 被过滤 OK\n");
++
++    // ---- 7) 串口拔出→重新枚举：自动重连 + 清旧队列 + 重新锁定身份 ----
++    // 用软链接模拟稳定的设备名（真实场景一般是 /dev/serial/by-id/... 或 udev 别名）；
++    // 换 PTY 就等价于"设备重新枚举后路径不变"。
++    {
++        int master_a = -1;
++        std::string slave_a;
++        CHECK(makePty(master_a, slave_a));
++        const std::string link_path = "/tmp/pure_uav_fc_link_" + std::to_string(::getpid());
++        ::unlink(link_path.c_str());
++        CHECK(::symlink(slave_a.c_str(), link_path.c_str()) == 0);
++
++        pure_uav::MavlinkLink link2;
++        pure_uav::MavlinkLink::Config cfg2;
++        cfg2.device = link_path;
++        cfg2.baudrate = 921600;
++        cfg2.max_imu_queue = 16;
++        std::string err2;
++        CHECK(link2.start(cfg2, &err2));
++
++        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                            MAV_MODE_FLAG_SAFETY_ARMED));
++        CHECK(waitFor([&] { return link2.connected() && link2.armed(); }, 2000));
++        const uint64_t rx_before = link2.receivedImu();
++        CHECK(sendImu(master_a, 1, 3000000ULL, 1.0f));
++        CHECK(waitFor([&] { return link2.receivedImu() > rx_before; }, 2000));
++        CHECK(link2.imuQueueSize() >= 1);   // 故意不取走，留给断线清理检查
++
++        // 模拟设备拔出
++        ::close(master_a);
++        CHECK(waitFor([&] { return !link2.connected(); }, 2000));
++
++        // 模拟重新枚举：新 PTY + 把稳定路径指过去
++        int master_b = -1;
++        std::string slave_b;
++        CHECK(makePty(master_b, slave_b));
++        ::unlink(link_path.c_str());
++        CHECK(::symlink(slave_b.c_str(), link_path.c_str()) == 0);
++
++        CHECK(waitFor([&] { return link2.reconnectCount() >= 1; }, 6000));
++        CHECK(link2.imuQueueSize() == 0);   // 旧时间基的帧必须清掉
++
++        // 重连后重新学习身份：故意把 sysid 换成 7，证明锁定被重置
++        CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                            MAV_MODE_FLAG_SAFETY_ARMED));
++        CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; },
++                      3000));
++        const uint64_t rx2 = link2.receivedImu();
++        CHECK(sendImu(master_b, 7, 4000000ULL, 2.0f));
++        CHECK(waitFor([&] { return link2.receivedImu() > rx2; }, 2000));
++        pure_uav::MavlinkLink::TimedImu reconnected;
++        CHECK(link2.popImu(reconnected));
++        CHECK(reconnected.imu.timestamp_us == 4000000ULL);
++        std::printf("[7] 串口拔出→自动重连 OK（清旧队列、重新锁定 sysid=7）\n");
++
++        link2.stop();
++        ::unlink(link_path.c_str());
++        ::close(master_b);
++    }
++
++    link.stop();
++    ::close(master);
++
++    if (g_failed == 0) {
++        std::printf("PASS: 心跳筛选、解锁状态、IMU 队列、串口重连全部正确\n");
++        return 0;
++    }
++    std::printf("FAILED: %d 处不通过\n", g_failed);
++    return 1;
++}
+--- /dev/null
++++ b/src/vio/estimator/tests/test_odom_tool_core.cpp
+@@ -0,0 +1,138 @@
++// 联调工具核心逻辑测试（不依赖硬件）：
++//   · 合成轨迹（odometry_sender 用）：位置/速度/航向在关键点上的值；
++//   · ODOMETRY 统计（odometry_probe 用）：帧数/质量/reset 变化/坐标系/乱序/频率。
++//
++// 运行：./bin/test_odom_tool_core
++
++#include <cmath>
++#include <cstdio>
++#include <cstring>
++
++#include "common/mavlink.h"
++
++#include "odom_tool_core.hpp"
++
++namespace {
++int g_failed = 0;
++
++#define CHECK(cond)                                                      \
++    do {                                                                 \
++        if (!(cond)) {                                                   \
++            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
++            ++g_failed;                                                  \
++        }                                                                \
++    } while (0)
++
++#define CHECK_NEAR(a, b, tol)                                                 \
++    do {                                                                      \
++        const double _va = static_cast<double>(a);                            \
++        const double _vb = static_cast<double>(b);                            \
++        if (std::fabs(_va - _vb) > (tol)) {                                   \
++            std::printf("  ❌ 第 %d 行: %s=%.6f 与 %s=%.6f 差超过 %.3g\n",      \
++                        __LINE__, #a, _va, #b, _vb, (double)(tol));           \
++            ++g_failed;                                                       \
++        }                                                                     \
++    } while (0)
++
++}  // namespace
++
++int main() {
++    using namespace pure_uav::odom_tool;
++    std::printf("===== 联调工具核心逻辑测试 =====\n");
++
++    // ---- 1) 脚本轨迹 ----
++    {
++        CHECK_NEAR(scriptDuration(), 27.0, 1e-9);
++
++        const auto p0 = sampleScript(0.0);
++        CHECK_NEAR(p0.x, 0.0, 1e-6);
++        CHECK_NEAR(p0.z, 0.0, 1e-6);
++        CHECK_NEAR(p0.q[0], 1.0, 1e-6);
++
++        const auto fwd = sampleScript(4.5);   // 前移中点
++        CHECK_NEAR(fwd.x, 0.5, 1e-6);
++        CHECK_NEAR(fwd.y, 0.0, 1e-6);
++        CHECK_NEAR(fwd.vx, 1.0 / 3.0, 1e-6);
++        CHECK_NEAR(fwd.vy, 0.0, 1e-6);
++
++        const auto fwd_hold = sampleScript(6.5);  // 停住
++        CHECK_NEAR(fwd_hold.x, 1.0, 1e-6);
++        CHECK_NEAR(fwd_hold.vx, 0.0, 1e-6);
++
++        const auto back = sampleScript(7.5);      // 退回中点
++        CHECK_NEAR(back.x, 0.5, 1e-6);
++        CHECK_NEAR(back.vx, -1.0, 1e-6);
++
++        const auto right = sampleScript(10.5);    // 右移中点
++        CHECK_NEAR(right.y, 0.3, 1e-6);
++        CHECK_NEAR(right.vy, 0.2, 1e-6);
++
++        const auto up = sampleScript(16.5);       // 上抬中点（FRD: 上为负）
++        CHECK_NEAR(up.z, -0.25, 1e-6);
++        CHECK_NEAR(up.vz, -0.5 / 3.0, 1e-6);
++
++        const auto yaw_mid = sampleScript(23.0);  // 偏航中点 45°
++        const double yaw = 2.0 * std::atan2(yaw_mid.q[3], yaw_mid.q[0]);
++        CHECK_NEAR(yaw, M_PI / 4.0, 1e-5);
++        // 四元数必须归一
++        const double qn = std::sqrt(yaw_mid.q[0] * yaw_mid.q[0] + yaw_mid.q[3] * yaw_mid.q[3]);
++        CHECK_NEAR(qn, 1.0, 1e-6);
++
++        // 阶段序号
++        CHECK(scriptPhaseIndex(0.0) == 0);    // 静止
++        CHECK(scriptPhaseIndex(4.0) == 1);    // 前移
++        CHECK(scriptPhaseIndex(16.0) == 9);   // 上抬
++        CHECK(scriptPhaseIndex(26.9) == 14);  // 保持 90°
++    }
++
++    // ---- 2) Probe 统计 ----
++    {
++        ProbeStats st;
++        auto make = [](uint64_t t, float x, float y, float z, uint8_t reset, int8_t quality,
++                       uint8_t frame, uint8_t child) {
++            mavlink_odometry_t o{};
++            std::memset(&o, 0, sizeof(o));
++            o.time_usec = t;
++            o.x = x;
++            o.y = y;
++            o.z = z;
++            o.q[0] = 1.0f;
++            o.reset_counter = reset;
++            o.quality = quality;
++            o.estimator_type = MAV_ESTIMATOR_TYPE_VIO;
++            o.frame_id = frame;
++            o.child_frame_id = child;
++            return o;
++        };
++
++        st.add(make(1000000ULL, 0.0f, 0.0f, 0.0f, 0, 90, 20, 12), 0);
++        st.add(make(1033333ULL, 0.1f, 0.0f, 0.0f, 0, 90, 20, 12), 0);
++        st.add(make(1066666ULL, 0.2f, 0.0f, 0.0f, 1, 50, 20, 12), 0);  // reset 变化
++        st.add(make(1000000ULL, 0.2f, 0.0f, 0.0f, 1, 40, 12, 12), 0);  // 时间倒退 + 坐标系错 + 低质量
++
++        CHECK(st.odometry == 4);
++        CHECK(st.reset_changes == 1);
++        CHECK(st.time_backwards == 1);
++        CHECK(st.min_quality == 40);
++        CHECK(st.max_quality == 90);
++        CHECK(st.bad_quality == 1);   // 只有 40 低于 VISO_QUAL_MIN=50 的典型门限
++        CHECK(st.bad_frame == 1);
++        CHECK_NEAR(st.rateHz(), 30.0, 0.5);  // 333333 us 间隔 ≈ 30 Hz
++        st.countGaps();
++        CHECK(st.gaps == 0);          // 倒退那帧不计入间隔，其余等间隔
++
++        ProbeStats st2;
++        mavlink_odometry_t bad_q = make(2000000ULL, 0, 0, 0, 0, 90, 20, 12);
++        bad_q.q[0] = 0.5f;            // 非归一四元数
++        st2.add(bad_q, 0);
++        CHECK(st2.bad_quat == 1);
++        std::printf("[2] Probe 统计 OK（帧数/质量/reset/坐标系/乱序/频率）\n");
++    }
++
++    if (g_failed == 0) {
++        std::printf("PASS: 合成轨迹与 ODOMETRY 统计逻辑全部正确\n");
++        return 0;
++    }
++    std::printf("FAILED: %d 处不通过\n", g_failed);
++    return 1;
++}
+--- /dev/null
++++ b/src/vio/estimator/tools/odom_tool_core.hpp
+@@ -0,0 +1,217 @@
++// 无飞控/无相机联调工具的公共核心（header-only，可单元测试）。
++//
++// 两个工具：
++//   tools/odometry_sender.cpp  按脚本合成一条 LOCAL_FRD/BODY_FRD 轨迹，30 Hz 发 ODOMETRY。
++//                              用途：不接相机、不跑 VIO，单独验证"飞控能不能收到、轴向/单位对不对"。
++//   tools/odometry_probe.cpp   从串口/文件解码 ODOMETRY，打印 + 统计 + 异常告警。
++//                              用途：把"上位机发送成功 / 飞控收到 / 飞控融合"三件事分开取证。
++//
++// 这里只放纯逻辑（轨迹、统计），I/O 留在工具里，测试见 tests/test_odom_tool_core.cpp。
++
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <vector>
++
++#include "common/mavlink.h"
++
++namespace pure_uav {
++namespace odom_tool {
++
++// ---------------------------------------------------------------------------
++// 合成轨迹
++// ---------------------------------------------------------------------------
++struct PoseSample {
++    float x = 0.0f, y = 0.0f, z = 0.0f;  // m，LOCAL_FRD（z 向下为正）
++    float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z
++    float vx = 0.0f, vy = 0.0f, vz = 0.0f;  // m/s，BODY_FRD
++};
++
++struct ScriptStep {
++    double begin_s;
++    double end_s;
++    const char* name;    // 给操作员看的阶段名
++    const char* expect;  // 这个阶段飞控端应该看到什么
++};
++
++inline const std::vector<ScriptStep>& scriptSteps() {
++    static const std::vector<ScriptStep> steps = {
++        {0.0, 3.0, "静止", "位置保持 (0,0,0)，姿态不变"},
++        {3.0, 6.0, "前移 1 m", "x 从 0 增到 +1，y/z 不变"},
++        {6.0, 7.0, "停住", "保持 x=+1"},
++        {7.0, 8.0, "退回原点", "x 从 +1 减到 0"},
++        {8.0, 9.0, "静止", "保持 (0,0,0)"},
++        {9.0, 12.0, "右移 0.6 m", "y 从 0 增到 +0.6"},
++        {12.0, 13.0, "停住", "保持 y=+0.6"},
++        {13.0, 14.0, "退回原点", "y 从 +0.6 减到 0"},
++        {14.0, 15.0, "静止", "保持 (0,0,0)"},
++        {15.0, 18.0, "上抬 0.5 m", "z 从 0 变到 -0.5（FRD 向下为正）"},
++        {18.0, 19.0, "停住", "保持 z=-0.5"},
++        {19.0, 20.0, "落回原点", "z 从 -0.5 回到 0"},
++        {20.0, 21.0, "静止", "保持 (0,0,0)"},
++        {21.0, 25.0, "偏航 +90°", "航向顺时针转 90°（FRD：绕 z 正向）"},
++        {25.0, 27.0, "保持 90°", "位置不变，航向 90°"},
++    };
++    return steps;
++}
++
++inline double scriptDuration() { return scriptSteps().back().end_s; }
++
++// 线性插值 + 机身速度（与位置变化一致）。t 超出脚本长度时返回最后一帧。
++inline PoseSample sampleScript(double t_s) {
++    PoseSample p;
++    auto setYaw = [&](double yaw_rad) {
++        p.q[0] = static_cast<float>(std::cos(yaw_rad * 0.5));
++        p.q[1] = 0.0f;
++        p.q[2] = 0.0f;
++        p.q[3] = static_cast<float>(std::sin(yaw_rad * 0.5));
++    };
++    auto ramp = [](double t, double t0, double t1) {
++        if (t <= t0) return 0.0;
++        if (t >= t1) return 1.0;
++        return (t - t0) / (t1 - t0);
++    };
++
++    if (t_s < 3.0) {
++        return p;
++    } else if (t_s < 6.0) {                       // 前移 0→1
++        const double s = ramp(t_s, 3.0, 6.0);
++        p.x = static_cast<float>(s * 1.0);
++        p.vx = 1.0f / 3.0f;
++    } else if (t_s < 7.0) {
++        p.x = 1.0f;
++    } else if (t_s < 8.0) {                       // 退回 1→0
++        const double s = ramp(t_s, 7.0, 8.0);
++        p.x = static_cast<float>(1.0 - s);
++        p.vx = -1.0f;
++    } else if (t_s < 9.0) {
++        // 原点
++    } else if (t_s < 12.0) {                      // 右移 0→0.6
++        const double s = ramp(t_s, 9.0, 12.0);
++        p.y = static_cast<float>(s * 0.6);
++        p.vy = 0.2f;
++    } else if (t_s < 13.0) {
++        p.y = 0.6f;
++    } else if (t_s < 14.0) {                      // 退回
++        const double s = ramp(t_s, 13.0, 14.0);
++        p.y = static_cast<float>(0.6 - s * 0.6);
++        p.vy = -0.6f;
++    } else if (t_s < 15.0) {
++        // 原点
++    } else if (t_s < 18.0) {                      // 上抬 0→-0.5
++        const double s = ramp(t_s, 15.0, 18.0);
++        p.z = static_cast<float>(-s * 0.5);
++        p.vz = -0.5f / 3.0f;
++    } else if (t_s < 19.0) {
++        p.z = -0.5f;
++    } else if (t_s < 20.0) {                      // 落回
++        const double s = ramp(t_s, 19.0, 20.0);
++        p.z = static_cast<float>(-0.5 + s * 0.5);
++        p.vz = 0.5f;
++    } else if (t_s < 21.0) {
++        // 原点
++    } else {
++        const double s = ramp(t_s, 21.0, 25.0);
++        setYaw(s * M_PI / 2.0);
++    }
++    return p;
++}
++
++// t 所在阶段的序号；超出返回最后一个
++inline int scriptPhaseIndex(double t_s) {
++    const auto& steps = scriptSteps();
++    for (size_t i = 0; i < steps.size(); ++i) {
++        if (t_s < steps[i].end_s) return static_cast<int>(i);
++    }
++    return static_cast<int>(steps.size()) - 1;
++}
++
++// ---------------------------------------------------------------------------
++// ODOMETRY 解码统计（probe 用）
++// ---------------------------------------------------------------------------
++struct ProbeStats {
++    uint64_t odometry = 0;
++    uint64_t heartbeat = 0;
++    uint64_t imu = 0;
++    uint64_t other = 0;
++    uint64_t time_backwards = 0;   // time_usec 倒退次数
++    uint64_t reset_changes = 0;    // reset_counter 变化次数
++    uint64_t bad_quality = 0;      // quality < 50（ArduPilot 常见门限）
++    uint64_t bad_quat = 0;         // |q|-1 超过 1e-2
++    uint64_t bad_frame = 0;        // frame_id/child_frame_id 不是 20/12
++    uint64_t gaps = 0;             // 与上一帧间隔 > 3× 中位间隔
++    int64_t first_time_us = -1;
++    int64_t last_time_us = -1;
++    int64_t prev_time_us = -1;
++    uint8_t last_reset = 0;
++    bool have_reset = false;
++    int8_t min_quality = 127;
++    int8_t max_quality = -128;
++    double interval_sum_us = 0.0;
++    uint64_t interval_n = 0;
++    std::vector<double> intervals_us;
++
++    void add(const mavlink_odometry_t& o, int64_t host_ns) {
++        (void)host_ns;
++        ++odometry;
++        const int64_t t = static_cast<int64_t>(o.time_usec);
++        if (last_time_us >= 0 && t < last_time_us) ++time_backwards;
++        if (prev_time_us >= 0) {
++            const double dt = static_cast<double>(t - prev_time_us);
++            if (dt > 0) {
++                intervals_us.push_back(dt);
++                interval_sum_us += dt;
++                ++interval_n;
++                if (intervals_us.size() > 600) {
++                    intervals_us.erase(intervals_us.begin());
++                }
++            }
++        }
++        prev_time_us = t;
++        if (first_time_us < 0) first_time_us = t;
++        last_time_us = t;
++
++        if (have_reset && o.reset_counter != last_reset) ++reset_changes;
++        last_reset = o.reset_counter;
++        have_reset = true;
++
++        if (o.quality < min_quality) min_quality = o.quality;
++        if (o.quality > max_quality) max_quality = o.quality;
++        if (o.quality < 50) ++bad_quality;
++
++        const double qn = std::sqrt(static_cast<double>(o.q[0]) * o.q[0] +
++                                    static_cast<double>(o.q[1]) * o.q[1] +
++                                    static_cast<double>(o.q[2]) * o.q[2] +
++                                    static_cast<double>(o.q[3]) * o.q[3]);
++        if (std::fabs(qn - 1.0) > 1e-2) ++bad_quat;
++
++        if (o.frame_id != 20 || o.child_frame_id != 12) ++bad_frame;
++    }
++
++    double medianIntervalUs() const {
++        if (intervals_us.empty()) return 0.0;
++        std::vector<double> v = intervals_us;
++        std::sort(v.begin(), v.end());
++        return v[v.size() / 2];
++    }
++
++    double rateHz() const {
++        const double med = medianIntervalUs();
++        return med > 1.0 ? 1e6 / med : 0.0;
++    }
++
++    // 检查"明显不对"的间隔：>3×中位
++    void countGaps() {
++        const double med = medianIntervalUs();
++        if (med <= 1.0) return;
++        for (double dt : intervals_us) {
++            if (dt > 3.0 * med) ++gaps;
++        }
++    }
++};
++
++}  // namespace odom_tool
++}  // namespace pure_uav
+--- /dev/null
++++ b/src/vio/estimator/tools/odometry_sender.cpp
+@@ -0,0 +1,235 @@
++// 无相机/无 VIO 时的合成 ODOMETRY 发送器（台架测试用）。
++//
++// 用途：把"飞控能不能收到定位、轴向/单位对不对"和"VIO 算得准不准"彻底解耦。
++// 不接相机、不跑估计器，只按 scripts 里的轨迹以 30 Hz 发 ODOMETRY。
++//
++// 前提：串口另一头是飞控（会发 HEARTBEAT + HIGHRES_IMU）。时间戳必须落在飞控
++// boot 时间域，所以这里用第一帧 HIGHRES_IMU 的 time_usec 做锚点，再用主机单调
++// 时钟外推——和 vio_live 用的是同一套时间基准。
++//
++// 用法：
++//   ./bin/odometry_sender --serial /dev/ttyACM0 --baud 921600
++//   ./bin/odometry_sender --serial /dev/ttyACM0 --rate 30 --loop
++//
++// 阶段（共 27 s，`--loop` 会循环）：
++//   静止 → 前移 1 m → 退回 → 右移 0.6 m → 退回 → 上抬 0.5 m → 落回 → 偏航 90°
++// 每个阶段开始时打印"飞控端应该看到什么"，方便一个人操作、一个人看点。
++
++#include <atomic>
++#include <chrono>
++#include <cmath>
++#include <csignal>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <thread>
++
++#include "common/mavlink.h"
++
++#include "mavlink_link.hpp"
++#include "odom_tool_core.hpp"
++
++namespace {
++
++std::atomic<bool> g_stop{false};
++void onSigint(int) { g_stop.store(true); }
++
++int64_t steadyNowNs() {
++    using namespace std::chrono;
++    return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
++}
++
++void usage(const char* argv0) {
++    std::printf(
++        "用法: %s --serial DEV [选项]\n"
++        "\n"
++        "  --serial DEV     飞控串口（默认 /dev/ttyACM0）\n"
++        "  --baud N         波特率（默认 921600）\n"
++        "  --rate HZ        发送频率（默认 30，必须 ≥ 4 才满足 ArduPilot 外部定位要求）\n"
++        "  --loop           脚本跑完后循环\n"
++        "  --quality N      ODOMETRY quality（默认 90）\n"
++        "  --reset N        ODOMETRY reset_counter（默认 0）\n"
++        "  --hz-wait S      等飞控心跳/IMU 的超时秒数（默认 10）\n"
++        "  --duration S     只跑 S 秒（默认跑完整段脚本 ~27 s）\n"
++        "  -h, --help\n"
++        "\n"
++        "脚本：静止 → 前移 1 m → 右移 0.6 m → 上抬 0.5 m → 偏航 +90°，共约 27 s。\n",
++        argv0);
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    std::string serial = "/dev/ttyACM0";
++    int baud = 921600;
++    double rate_hz = 30.0;
++    bool loop = false;
++    int quality = 90;
++    int reset_counter = 0;
++    double wait_s = 10.0;
++    double run_s = 0.0;   // >0 时只跑这么久（默认按脚本长度）
++
++    for (int i = 1; i < argc; ++i) {
++        const std::string a = argv[i];
++        auto need = [&](const char* what) -> std::string {
++            if (i + 1 >= argc) {
++                std::fprintf(stderr, "%s 需要一个参数\n", what);
++                std::exit(2);
++            }
++            return argv[++i];
++        };
++        if (a == "-h" || a == "--help") {
++            usage(argv[0]);
++            return 0;
++        } else if (a == "--serial") {
++            serial = need("--serial");
++        } else if (a == "--baud") {
++            baud = std::stoi(need("--baud"));
++        } else if (a == "--rate") {
++            rate_hz = std::stod(need("--rate"));
++        } else if (a == "--loop") {
++            loop = true;
++        } else if (a == "--quality") {
++            quality = std::stoi(need("--quality"));
++        } else if (a == "--reset") {
++            reset_counter = std::stoi(need("--reset"));
++        } else if (a == "--hz-wait") {
++            wait_s = std::stod(need("--hz-wait"));
++        } else if (a == "--duration") {
++            run_s = std::stod(need("--duration"));
++        } else {
++            std::fprintf(stderr, "未知参数: %s\n", a.c_str());
++            usage(argv[0]);
++            return 2;
++        }
++    }
++    if (rate_hz < 4.0) {
++        std::fprintf(stderr, "发送频率至少要 4 Hz（ArduPilot 外部定位要求），当前 %.1f\n", rate_hz);
++        return 2;
++    }
++    reset_counter = reset_counter < 0 ? 0 : (reset_counter > 255 ? 255 : reset_counter);
++
++    std::signal(SIGINT, onSigint);
++    std::signal(SIGTERM, onSigint);
++
++    pure_uav::MavlinkLink link;
++    pure_uav::MavlinkLink::Config cfg;
++    cfg.device = serial;
++    cfg.baudrate = baud;
++    cfg.target_sysid = 0;   // 自动锁定
++    std::string err;
++    if (!link.start(cfg, &err)) {
++        std::fprintf(stderr, "打开串口失败: %s\n", err.c_str());
++        return 1;
++    }
++
++    std::printf("[sender] 等待飞控心跳（%s @ %d）…\n", serial.c_str(), baud);
++    const int64_t wait_deadline = steadyNowNs() + static_cast<int64_t>(wait_s * 1e9);
++    while (!link.connected() && steadyNowNs() < wait_deadline && !g_stop.load()) {
++        std::this_thread::sleep_for(std::chrono::milliseconds(50));
++    }
++    if (!link.connected()) {
++        std::fprintf(stderr, "[sender] %.0f s 内没收到飞控心跳，退出。检查串口/波特率/飞控是否上电。\n",
++                     wait_s);
++        link.stop();
++        return 1;
++    }
++    std::printf("[sender] 飞控已连接 sysid=%u，等待 HIGHRES_IMU 建立时间基准…\n",
++                static_cast<unsigned>(link.fcuSysId()));
++
++    while (link.lastImuTimestampUs() == 0 && !g_stop.load()) {
++        std::this_thread::sleep_for(std::chrono::milliseconds(20));
++    }
++    if (link.lastImuTimestampUs() == 0) {
++        std::fprintf(stderr, "[sender] 没收到 HIGHRES_IMU，拿不到飞控 boot 时间，无法发 ODOMETRY。\n"
++                             "         确认飞控在推 IMU（或先用 vio_live --dump-params 检查链路）。\n");
++        link.stop();
++        return 1;
++    }
++
++    const int64_t t0_host_ns = steadyNowNs();
++    const uint64_t t0_fcu_us = link.lastImuTimestampUs();
++    std::printf("[sender] 时间基准：飞控 %llu us / 主机 %lld ns。开始脚本（约 %.0f s）\n",
++                static_cast<unsigned long long>(t0_fcu_us),
++                static_cast<long long>(t0_host_ns), pure_uav::odom_tool::scriptDuration());
++    std::fflush(stdout);
++
++    const double period_s = 1.0 / rate_hz;
++    int64_t next_send_ns = t0_host_ns;
++    int last_phase = -1;
++    uint64_t sent = 0, failed = 0;
++    int64_t last_report_ns = t0_host_ns;
++
++    while (!g_stop.load()) {
++        const int64_t now_ns = steadyNowNs();
++        double t_s = static_cast<double>(now_ns - t0_host_ns) * 1e-9;
++        const double duration = pure_uav::odom_tool::scriptDuration();
++        if (run_s > 0.0 && t_s >= run_s) {
++            std::printf("\n[sender] 到达 --duration %.1f s，退出。\n", run_s);
++            break;
++        }
++        if (!loop && t_s > duration + 1.0) {
++            std::printf("\n[sender] 脚本跑完，退出。\n");
++            break;
++        }
++        if (loop && t_s > duration) {
++            // 循环：把时间折回脚本开头（时间戳继续前进，只是内容重复）
++            const double cycles = std::floor(t_s / duration);
++            t_s -= cycles * duration;
++        }
++
++        const int phase = pure_uav::odom_tool::scriptPhaseIndex(t_s);
++        if (phase != last_phase) {
++            last_phase = phase;
++            const auto& st = pure_uav::odom_tool::scriptSteps()[phase];
++            std::printf("\n[sender] 阶段 %d/%zu：%s  →  飞控端应看到：%s\n", phase + 1,
++                        pure_uav::odom_tool::scriptSteps().size(), st.name, st.expect);
++            std::fflush(stdout);
++        }
++
++        const auto sample = pure_uav::odom_tool::sampleScript(t_s);
++        pure_uav::VisionPose pose;
++        pose.timestamp_us = t0_fcu_us + static_cast<uint64_t>((now_ns - t0_host_ns) / 1000);
++        pose.frame_id = pure_uav::VisionFrame::LOCAL_FRD;
++        pose.child_frame_id = pure_uav::VisionFrame::BODY_FRD;
++        pose.x = sample.x;
++        pose.y = sample.y;
++        pose.z = sample.z;
++        std::memcpy(pose.q, sample.q, sizeof(pose.q));
++        pose.vx = sample.vx;
++        pose.vy = sample.vy;
++        pose.vz = sample.vz;
++
++        if (link.sendVisionPose(pose, quality, static_cast<uint8_t>(reset_counter), 0.15f, 0.25f)) {
++            ++sent;
++        } else {
++            ++failed;
++        }
++
++        if (now_ns - last_report_ns > 2000000000LL) {
++            last_report_ns = now_ns;
++            std::printf("[sender] t=%.1fs 已发 %llu 帧（失败 %llu）quality=%d reset=%d\n", t_s,
++                        static_cast<unsigned long long>(sent),
++                        static_cast<unsigned long long>(failed), quality, reset_counter);
++            std::fflush(stdout);
++        }
++
++        next_send_ns += static_cast<int64_t>(period_s * 1e9);
++        const int64_t sleep_ns = next_send_ns - steadyNowNs();
++        if (sleep_ns > 0) {
++            std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_ns));
++        } else {
++            next_send_ns = steadyNowNs();  // 落后就重新对齐，不追帧
++        }
++    }
++
++    std::printf("\n[sender] 结束：发送 %llu 帧，失败 %llu 帧\n",
++                static_cast<unsigned long long>(sent),
++                static_cast<unsigned long long>(failed));
++    if (failed > 0) {
++        std::printf("[sender] 有失败帧：优先检查串口是否被别的程序占用/线是否松。\n");
++    }
++    link.stop();
++    return failed == 0 ? 0 : 1;
++}
+--- /dev/null
++++ b/src/vio/estimator/tools/odometry_probe.cpp
+@@ -0,0 +1,297 @@
++// ODOMETRY 线上探针：从串口或原始字节文件解码 MAVLink，核对"发出去的到底是什么"。
++//
++// 用途（和联调方案第 6 节对应）：
++//   · ① 打包检查：可以喂一份抓到的原始字节，逐字段核对；
++//   · ③ 飞控接收前：用 USB-TTL 分线/tee 出一路，独立看上位机流；
++//   · 出问题时分清"没发出去"和"发了但飞控不用"。
++//
++// 用法：
++//   ./bin/odometry_probe --serial /dev/ttyUSB0 --baud 921600
++//   ./bin/odometry_probe --file raw_mavlink.bin
++//   ./bin/odometry_probe --file raw.bin --csv pose.csv --quiet
++//
++// 只读：不发任何数据（不发心跳、不请求消息流），所以不会干扰正在跑的链路。
++
++#include <fcntl.h>
++#include <poll.h>
++#include <termios.h>
++#include <unistd.h>
++
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <cmath>
++#include <csignal>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++
++#include "common/mavlink.h"
++
++#include "odom_tool_core.hpp"
++
++namespace {
++
++std::atomic<bool> g_stop{false};
++void onSigint(int) { g_stop.store(true); }
++
++speed_t toSpeed(int baud) {
++    switch (baud) {
++        case 115200: return B115200;
++        case 230400: return B230400;
++        case 460800: return B460800;
++        case 921600: return B921600;
++        case 1500000: return B1500000;
++        case 2000000: return B2000000;
++        case 3000000: return B3000000;
++        default: return B0;
++    }
++}
++
++int openSerial(const std::string& device, int baud, std::string* error) {
++    const speed_t sp = toSpeed(baud);
++    if (sp == B0) {
++        if (error) *error = "不支持的波特率 " + std::to_string(baud);
++        return -1;
++    }
++    const int fd = ::open(device.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
++    if (fd < 0) {
++        if (error) *error = "打开失败: " + std::string(std::strerror(errno));
++        return -1;
++    }
++    struct termios tty {};
++    if (tcgetattr(fd, &tty) != 0) {
++        if (error) *error = "tcgetattr 失败";
++        ::close(fd);
++        return -1;
++    }
++    cfmakeraw(&tty);
++    tty.c_cflag |= (CLOCAL | CREAD);
++    tty.c_cflag &= ~(CSTOPB | CRTSCTS | PARENB);
++    tty.c_cc[VMIN] = 0;
++    tty.c_cc[VTIME] = 0;
++    cfsetispeed(&tty, sp);
++    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
++        if (error) *error = "tcsetattr 失败";
++        ::close(fd);
++        return -1;
++    }
++    return fd;
++}
++
++void usage(const char* argv0) {
++    std::printf(
++        "用法: %s (--serial DEV | --file PATH) [选项]\n"
++        "\n"
++        "  --serial DEV     监听串口（只读，不发任何数据）\n"
++        "  --file PATH      解析保存下来的原始 MAVLink 字节流\n"
++        "  --baud N         波特率（默认 921600）\n"
++        "  --csv PATH       把 ODOMETRY 写成 CSV\n"
++        "  --duration S     跑 S 秒后退出（默认一直跑）\n"
++        "  --quiet          不逐帧打印，只在结束时给统计\n"
++        "  -h, --help\n",
++        argv0);
++}
++
++struct CsvOut {
++    FILE* fp = nullptr;
++    ~CsvOut() {
++        if (fp) std::fclose(fp);
++    }
++    void header() {
++        if (!fp) return;
++        std::fprintf(fp,
++                     "time_us,x,y,z,qw,qx,qy,qz,vx,vy,vz,quality,reset_counter,"
++                     "cov_x,cov_y,cov_z\n");
++    }
++    void row(const mavlink_odometry_t& o) {
++        if (!fp) return;
++        std::fprintf(fp, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%u,%.6g,%.6g,%.6g\n",
++                     static_cast<unsigned long long>(o.time_usec), o.x, o.y, o.z, o.q[0], o.q[1],
++                     o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality),
++                     static_cast<unsigned>(o.reset_counter), o.pose_covariance[0],
++                     o.pose_covariance[6], o.pose_covariance[11]);
++    }
++};
++
++void printSummary(const pure_uav::odom_tool::ProbeStats& st) {
++    std::printf("\n===== ODOMETRY 统计 =====\n");
++    std::printf("  ODOMETRY 帧数 : %llu\n", static_cast<unsigned long long>(st.odometry));
++    std::printf("  实测频率      : %.1f Hz（中位间隔 %.0f us）\n", st.rateHz(), st.medianIntervalUs());
++    std::printf("  quality       : min=%d max=%d（<50 的帧 %llu）\n", static_cast<int>(st.min_quality),
++                static_cast<int>(st.max_quality), static_cast<unsigned long long>(st.bad_quality));
++    std::printf("  reset 变化    : %llu 次\n", static_cast<unsigned long long>(st.reset_changes));
++    std::printf("  时间戳倒退    : %llu 次\n", static_cast<unsigned long long>(st.time_backwards));
++    std::printf("  四元数异常    : %llu 帧\n", static_cast<unsigned long long>(st.bad_quat));
++    std::printf("  坐标系异常    : %llu 帧（期望 frame=20 / child=12）\n",
++                static_cast<unsigned long long>(st.bad_frame));
++    std::printf("  超长间隔      : %llu 个（>3 倍中位）\n", static_cast<unsigned long long>(st.gaps));
++    if (st.odometry >= 4) {
++        if (st.time_backwards > 0 || st.bad_frame > 0 || st.bad_quat > 0) {
++            std::printf("  ⚠️ 有异常帧，先查编码/时间基准，不要直接上飞控。\n");
++        } else {
++            std::printf("  ✅ 帧结构正常。\n");
++        }
++    }
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    std::string serial;
++    std::string file;
++    std::string csv_path;
++    int baud = 921600;
++    double duration = 0.0;
++    bool quiet = false;
++
++    for (int i = 1; i < argc; ++i) {
++        const std::string a = argv[i];
++        auto need = [&](const char* what) -> std::string {
++            if (i + 1 >= argc) {
++                std::fprintf(stderr, "%s 需要一个参数\n", what);
++                std::exit(2);
++            }
++            return argv[++i];
++        };
++        if (a == "-h" || a == "--help") {
++            usage(argv[0]);
++            return 0;
++        } else if (a == "--serial") {
++            serial = need("--serial");
++        } else if (a == "--file") {
++            file = need("--file");
++        } else if (a == "--baud") {
++            baud = std::stoi(need("--baud"));
++        } else if (a == "--csv") {
++            csv_path = need("--csv");
++        } else if (a == "--duration") {
++            duration = std::stod(need("--duration"));
++        } else if (a == "--quiet") {
++            quiet = true;
++        } else {
++            std::fprintf(stderr, "未知参数: %s\n", a.c_str());
++            usage(argv[0]);
++            return 2;
++        }
++    }
++    if (serial.empty() && file.empty()) {
++        std::fprintf(stderr, "必须给 --serial 或 --file\n");
++        usage(argv[0]);
++        return 2;
++    }
++    if (!serial.empty() && !file.empty()) {
++        std::fprintf(stderr, "--serial 和 --file 只能二选一\n");
++        return 2;
++    }
++
++    std::signal(SIGINT, onSigint);
++    std::signal(SIGTERM, onSigint);
++
++    std::string err;
++    int fd = -1;
++    if (!serial.empty()) {
++        fd = openSerial(serial, baud, &err);
++        if (fd < 0) {
++            std::fprintf(stderr, "串口打开失败 %s: %s\n", serial.c_str(), err.c_str());
++            return 1;
++        }
++        std::printf("[probe] 只读监听 %s @ %d\n", serial.c_str(), baud);
++    }
++
++    CsvOut csv;
++    if (!csv_path.empty()) {
++        csv.fp = std::fopen(csv_path.c_str(), "w");
++        if (!csv.fp) {
++            std::fprintf(stderr, "打不开 CSV: %s\n", csv_path.c_str());
++            return 1;
++        }
++        csv.header();
++    }
++
++    pure_uav::odom_tool::ProbeStats stats;
++    mavlink_message_t msg{};
++    mavlink_status_t status{};
++    uint8_t buf[4096];
++
++    const bool from_file = !file.empty();
++    FILE* in = from_file ? std::fopen(file.c_str(), "rb") : nullptr;
++    if (from_file && !in) {
++        std::fprintf(stderr, "打不开文件: %s\n", file.c_str());
++        return 1;
++    }
++
++    // 统一成"读一段 → 逐字节喂 parser"
++    auto feed = [&](const uint8_t* data, size_t n) {
++        for (size_t i = 0; i < n; ++i) {
++            mavlink_message_t m{};
++            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) continue;
++            if (m.msgid == MAVLINK_MSG_ID_ODOMETRY) {
++                mavlink_odometry_t o{};
++                mavlink_msg_odometry_decode(&m, &o);
++                stats.add(o, 0);
++                csv.row(o);
++                if (!quiet) {
++                    const int64_t t = static_cast<int64_t>(o.time_usec);
++                    const bool backwards = stats.prev_time_us >= 0 && t < stats.prev_time_us;
++                    std::printf("[ODO] t=%.6fs frame=%u/%u pos=(%.3f,%.3f,%.3f) "
++                                "q=(%.4f,%.4f,%.4f,%.4f) v=(%.3f,%.3f,%.3f) q=%d reset=%u "
++                                "cov=(%.4g,%.4g,%.4g)%s%s%s\n",
++                                static_cast<double>(o.time_usec) * 1e-6,
++                                static_cast<unsigned>(o.frame_id),
++                                static_cast<unsigned>(o.child_frame_id), o.x, o.y, o.z, o.q[0],
++                                o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz,
++                                static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter),
++                                o.pose_covariance[0], o.pose_covariance[6], o.pose_covariance[11],
++                                backwards ? " ⚠️时间倒退" : "",
++                                (o.frame_id != 20 || o.child_frame_id != 12) ? " ⚠️坐标系" : "",
++                                std::fabs(o.q[0] * o.q[0] + o.q[1] * o.q[1] + o.q[2] * o.q[2] +
++                                              o.q[3] * o.q[3] - 1.0f) > 1e-2f
++                                    ? " ⚠️四元数"
++                                    : "");
++                    std::fflush(stdout);
++                }
++            } else if (m.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
++                ++stats.heartbeat;
++            } else if (m.msgid == MAVLINK_MSG_ID_HIGHRES_IMU) {
++                ++stats.imu;
++            } else {
++                ++stats.other;
++            }
++        }
++    };
++
++    if (from_file) {
++        size_t n = 0;
++        while ((n = std::fread(buf, 1, sizeof(buf), in)) > 0) feed(buf, n);
++        std::fclose(in);
++        in = nullptr;
++    } else {
++        const auto t0 = std::chrono::steady_clock::now();
++        while (!g_stop.load()) {
++            if (duration > 0.0) {
++                const double el =
++                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
++                if (el >= duration) break;
++            }
++            struct pollfd pfd{};
++            pfd.fd = fd;
++            pfd.events = POLLIN;
++            const int pr = ::poll(&pfd, 1, 50);
++            if (pr <= 0) continue;
++            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
++                std::printf("[probe] 串口挂断（revents=0x%x），退出。\n",
++                            static_cast<unsigned>(pfd.revents));
++                break;
++            }
++            const ssize_t n = ::read(fd, buf, sizeof(buf));
++            if (n > 0) feed(buf, static_cast<size_t>(n));
++        }
++        if (fd >= 0) ::close(fd);
++    }
++
++    stats.countGaps();
++    printSummary(stats);
++    return 0;
++}
+--- /dev/null
++++ b/src/vio/estimator/tools/fake_fcu.cpp
+@@ -0,0 +1,255 @@
++// 假飞控（PTY）：没有飞机时，也能把"上位机 → 飞控"这段链路完整跑一遍。
++//
++// 它创建一个伪终端，打印从端路径（并可选建一个稳定软链接），然后：
++//   · 1 Hz 发 HEARTBEAT（sysid=1 / compid=1 / ArduPilot / 可指定解锁位）；
++//   · 200 Hz 发 HIGHRES_IMU（time_usec 每帧 +5000 us，模拟飞控 boot 时间）；
++//   · 解析上位机发来的 ODOMETRY，统计帧数/频率/质量/reset/坐标系/时间戳，
++//     Ctrl-C 或 --duration 到点后打印汇总。
++//
++// 配套用法（终端 1 跑假飞控，终端 2 跑发送器）：
++//   ./bin/fake_fcu --link /tmp/fc_sim --duration 35
++//   ./bin/odometry_sender --serial /tmp/fc_sim --rate 30
++//
++// 真飞机接上后，同样的 ODOMETRY 字段应该和这里的汇总一致；这一步能把
++// "上位机发送成功" 和 "飞控真的融合" 分开验证。
++
++#define _GNU_SOURCE
++#include <fcntl.h>
++#include <poll.h>
++#include <stdlib.h>
++#include <termios.h>
++#include <unistd.h>
++
++#include <atomic>
++#include <chrono>
++#include <cmath>
++#include <csignal>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <thread>
++
++#include "common/mavlink.h"
++
++#include "odom_tool_core.hpp"
++
++namespace {
++
++std::atomic<bool> g_stop{false};
++void onSigint(int) { g_stop.store(true); }
++
++int64_t steadyNowNs() {
++    using namespace std::chrono;
++    return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
++}
++
++void usage(const char* argv0) {
++    std::printf(
++        "用法: %s [选项]\n"
++        "\n"
++        "  --link PATH      给 PTY 从端建一个稳定软链接（推荐，等价于 udev 固定路径）\n"
++        "  --duration S     运行 S 秒后退出（默认一直跑）\n"
++        "  --disarmed       发未解锁心跳（默认解锁）\n"
++        "  --verbose        逐帧打印收到的 ODOMETRY\n"
++        "  --save-raw PATH  把收到的原始字节存下来（给 odometry_probe --file 复核）\n"
++        "  -h, --help\n",
++        argv0);
++}
++
++bool makePty(int& master, std::string& slave_path) {
++    master = ::posix_openpt(O_RDWR | O_NOCTTY);
++    if (master < 0) return false;
++    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
++    const char* name = ::ptsname(master);
++    if (name == nullptr) return false;
++    slave_path = name;
++    const int flags = ::fcntl(master, F_GETFL, 0);
++    ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
++    return true;
++}
++
++bool writeAll(int fd, const uint8_t* buf, size_t len) {
++    size_t off = 0;
++    while (off < len) {
++        const ssize_t n = ::write(fd, buf + off, len - off);
++        if (n > 0) {
++            off += static_cast<size_t>(n);
++            continue;
++        }
++        if (n < 0 && errno == EINTR) continue;
++        return false;
++    }
++    return true;
++}
++
++bool sendMsg(int fd, const mavlink_message_t& msg) {
++    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
++    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
++    return writeAll(fd, buf, len);
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    std::string link_path;
++    double duration = 0.0;
++    bool armed = true;
++    bool verbose = false;
++    std::string save_raw;
++
++    for (int i = 1; i < argc; ++i) {
++        const std::string a = argv[i];
++        auto need = [&](const char* what) -> std::string {
++            if (i + 1 >= argc) {
++                std::fprintf(stderr, "%s 需要一个参数\n", what);
++                std::exit(2);
++            }
++            return argv[++i];
++        };
++        if (a == "-h" || a == "--help") {
++            usage(argv[0]);
++            return 0;
++        } else if (a == "--link") {
++            link_path = need("--link");
++        } else if (a == "--duration") {
++            duration = std::stod(need("--duration"));
++        } else if (a == "--disarmed") {
++            armed = false;
++        } else if (a == "--verbose") {
++            verbose = true;
++        } else if (a == "--save-raw") {
++            save_raw = need("--save-raw");
++        } else {
++            std::fprintf(stderr, "未知参数: %s\n", a.c_str());
++            usage(argv[0]);
++            return 2;
++        }
++    }
++
++    std::signal(SIGINT, onSigint);
++    std::signal(SIGTERM, onSigint);
++
++    int master = -1;
++    std::string slave;
++    if (!makePty(master, slave) || slave.empty()) {
++        std::fprintf(stderr, "创建 PTY 失败\n");
++        return 1;
++    }
++    std::string device = slave;
++    if (!link_path.empty()) {
++        ::unlink(link_path.c_str());
++        if (::symlink(slave.c_str(), link_path.c_str()) != 0) {
++            std::fprintf(stderr, "创建软链接失败: %s\n", link_path.c_str());
++            return 1;
++        }
++        device = link_path;
++    }
++    std::printf("[fake_fcu] 模拟飞控串口: %s\n", device.c_str());
++    std::printf("[fake_fcu] 心跳: sysid=1 compid=1 %s；IMU: 200 Hz\n",
++                armed ? "已解锁" : "未解锁");
++    std::printf("[fake_fcu] 上位机端请跑：odometry_sender --serial %s --rate 30\n", device.c_str());
++    std::fflush(stdout);
++
++    const int64_t t0_ns = steadyNowNs();
++    uint64_t fcu_us = 1000000;   // 从 1.0 s 开始，避免 0 被当成"无效时间戳"
++    int64_t next_imu_ns = t0_ns;
++    int64_t next_hb_ns = t0_ns;
++    const int64_t imu_period_ns = 5000000;  // 200 Hz
++    mavlink_message_t msg{};
++    mavlink_status_t status{};
++    uint8_t buf[1024];
++    pure_uav::odom_tool::ProbeStats stats;
++    uint64_t odom_frames = 0;
++    FILE* raw_fp = save_raw.empty() ? nullptr : std::fopen(save_raw.c_str(), "wb");
++    if (!save_raw.empty() && raw_fp == nullptr) {
++        std::fprintf(stderr, "打不开 --save-raw: %s\n", save_raw.c_str());
++        return 1;
++    }
++
++    while (!g_stop.load()) {
++        const int64_t now = steadyNowNs();
++        if (duration > 0.0 &&
++            static_cast<double>(now - t0_ns) * 1e-9 >= duration) {
++            break;
++        }
++
++        // 200 Hz IMU
++        if (now >= next_imu_ns) {
++            mavlink_message_t m;
++            mavlink_msg_highres_imu_pack(
++                /*sysid=*/1, /*compid=*/1, &m, fcu_us,
++                0.0f, 0.0f, 9.80665f,        // 静止：机体 z 轴 +g（FRD）
++                0.0f, 0.0f, 0.0f,
++                NAN, NAN, NAN,
++                0.0f, 0.0f, 0.0f, 0.0f,
++                0, 0);
++            sendMsg(master, m);
++            fcu_us += 5000;
++            next_imu_ns += imu_period_ns;
++            if (next_imu_ns < now - 1000000000LL) next_imu_ns = now;  // 落后太多就重对齐
++        }
++
++        // 1 Hz HEARTBEAT
++        if (now >= next_hb_ns) {
++            mavlink_message_t m;
++            mavlink_msg_heartbeat_pack(
++                1, 1, &m, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
++                armed ? (MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
++                      : MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
++                0, MAV_STATE_ACTIVE);
++            sendMsg(master, m);
++            next_hb_ns += 1000000000LL;
++        }
++
++        // 解析上位机发来的数据
++        struct pollfd pfd{};
++        pfd.fd = master;
++        pfd.events = POLLIN;
++        if (::poll(&pfd, 1, 1) > 0 && (pfd.revents & POLLIN)) {
++            const ssize_t n = ::read(master, buf, sizeof(buf));
++            if (raw_fp != nullptr && n > 0) std::fwrite(buf, 1, static_cast<size_t>(n), raw_fp);
++            for (ssize_t i = 0; i < n; ++i) {
++                mavlink_message_t m{};
++                if (!mavlink_parse_char(MAVLINK_COMM_2, buf[i], &m, &status)) continue;
++                if (m.msgid != MAVLINK_MSG_ID_ODOMETRY) continue;
++                mavlink_odometry_t o{};
++                mavlink_msg_odometry_decode(&m, &o);
++                stats.add(o, 0);
++                ++odom_frames;
++                if (verbose) {
++                    std::printf("[fake_fcu] ODO #%llu t=%.3fs pos=(%.3f,%.3f,%.3f) q=%d reset=%u\n",
++                                static_cast<unsigned long long>(odom_frames),
++                                static_cast<double>(o.time_usec) * 1e-6, o.x, o.y, o.z,
++                                static_cast<int>(o.quality),
++                                static_cast<unsigned>(o.reset_counter));
++                    std::fflush(stdout);
++                }
++            }
++        }
++    }
++
++    stats.countGaps();
++    std::printf("\n[fake_fcu] 收到 ODOMETRY %llu 帧，实测 %.1f Hz\n",
++                static_cast<unsigned long long>(stats.odometry), stats.rateHz());
++    if (stats.odometry > 0) {
++        std::printf("[fake_fcu] quality min/max = %d/%d，reset 变化 %llu 次\n",
++                    static_cast<int>(stats.min_quality), static_cast<int>(stats.max_quality),
++                    static_cast<unsigned long long>(stats.reset_changes));
++        std::printf("[fake_fcu] 时间戳倒退 %llu 次，坐标系异常 %llu 帧，超长间隔 %llu 个\n",
++                    static_cast<unsigned long long>(stats.time_backwards),
++                    static_cast<unsigned long long>(stats.bad_frame),
++                    static_cast<unsigned long long>(stats.gaps));
++        std::printf("[fake_fcu] %s\n",
++                    (stats.time_backwards == 0 && stats.bad_frame == 0 && stats.bad_quat == 0)
++                        ? "✅ 字段结构正常（这一步只证明“上位机→链路”没问题；融合要看真飞控日志）"
++                        : "⚠️ 有异常帧，先查编码/时间基准");
++    } else {
++        std::printf("[fake_fcu] 没有收到 ODOMETRY：检查上位机是否在发、波特率/路径是否一致。\n");
++    }
++
++    if (raw_fp != nullptr) std::fclose(raw_fp);
++    if (!link_path.empty()) ::unlink(link_path.c_str());
++    ::close(master);
++    return 0;
++}

@@ -60,6 +60,7 @@ struct FrameItem {
     cv::Mat gray;
     int64_t host_ns = 0;
     int64_t device_us = 0;   // 【2026-10-23】相机自己的时间戳（稳定，不含主机调度抖动）
+    int64_t depth_dev_us = 0; // 【2026-10-25】深度帧自己的设备时间戳（和彩色同源时钟）
     cv::Mat depth;   // 对齐到彩色的深度（毫米，CV_16UC1）；没开深度时空
 };
 
@@ -78,6 +79,9 @@ void printUsage(const char* argv0) {
         "  --safe-tum-out PATH 只写「实际发出」的位姿（健康门限通过的），给 RViz 看用\n"
         "  --imu-log PATH      把原始 IMU 存成 CSV（t_us,ax,ay,az,gx,gy,gz）\n"
         "  --imu-ts MODE       IMU 时间戳处理：uniform(默认，去抖) | raw(原样喂)\n"
+        "  --max-exposure-ms M  曝光硬上限（默认 15）。模糊预算更大时可以抬高换亮度；\n"
+        "                      暗场地想看清就抬到 20-25，代价是运动上限按比例下降\n"
+        "  --strict-blur        严守模糊预算：光不够也不把曝光放长（画面偏暗但更锐）\n"
         "  --cam-ts MODE        相机时间戳来源：host(默认，主机到达时刻) | device(设备时钟)\n"
         "                      device 在 --aggregate color 下把抖动从 13 ms 降到 0.8 ms；\n"
         "                      但 full 模式下尚未收敛(实测会变差)，别混用\n"
@@ -154,6 +158,8 @@ int main(int argc, char** argv) {
     bool enable_depth = true;  // --no-depth 关掉深度流
     int aggregate_mode = 0;    // --aggregate
     bool cam_ts_device = false;   // --cam-ts device
+    bool strict_blur = false;     // --strict-blur
+    double max_exposure_ms = -1.0;  // --max-exposure-ms
     double duration = 0.0;
     bool send = true;
     bool quiet = false;
@@ -212,6 +218,13 @@ int main(int argc, char** argv) {
             imu_log_path = need("--imu-log");
         } else if (a == "--record") {
             rec_dir = need("--record");
+        } else if (a == "--max-exposure-ms") {
+            max_exposure_ms = std::stod(need("--max-exposure-ms"));
+            if (max_exposure_ms < 1.0 || max_exposure_ms > 60.0) {
+                std::fprintf(stderr, "--max-exposure-ms 只接受 1..60\n"); return 2;
+            }
+        } else if (a == "--strict-blur") {
+            strict_blur = true;
         } else if (a == "--cam-ts") {
             const std::string v = need("--cam-ts");
             if (v == "host") cam_ts_device = false;
@@ -415,6 +428,8 @@ int main(int argc, char** argv) {
     cam_cfg.tune_blur_budget_px = tune_blur_budget;
     cam_cfg.tune_max_gain = tune_max_gain;
     cam_cfg.tune_allow_blur = tune_allow_blur;
+    cam_cfg.tune_strict_blur = strict_blur;
+    if (max_exposure_ms > 0) cam_cfg.tune_max_exposure_ms = max_exposure_ms;
     cam_cfg.tune_allow_dark = tune_allow_dark;
     if (no_tune) cam_cfg.auto_tune_exposure = false;
 
@@ -562,6 +577,7 @@ int main(int argc, char** argv) {
         if (!depth_mm.empty()) item.depth = depth_mm.clone();
         item.host_ns = host_ns;
         item.device_us = device_us;
+        item.depth_dev_us = depth_dev_us;
         {
             std::lock_guard<std::mutex> lk(frame_mtx);
             if (frame_q.size() >= kMaxFrameQueue) {
@@ -611,6 +627,8 @@ int main(int argc, char** argv) {
     // 5) VIO 线程
     std::atomic<int64_t> stats_poses{0};
     std::atomic<int64_t> stats_blocked{0};
+    std::atomic<int64_t> stats_timebase_resets{0};  // 飞控重启/串口重连导致的重新初始化次数
+    std::atomic<long long> stats_imu_out_of_order{0};  // 重复/乱序被丢弃的 IMU 样本数
     std::atomic<double> cur_speed_mps{0.0};
     // 深度一致性近 2 s 均值（见状态行注释）
     long long last_deperr_n = 0;
@@ -769,8 +787,68 @@ int main(int argc, char** argv) {
         double imu_hz = 0.0;
         bool imu_rate_warned = false;
 
+        //===================================================================================
+        // 【2026-10-29】飞控时间基变化的统一处理（飞控重启 / 串口重连 / 时间戳大幅回退）
+        //
+        // 验收要求：暂停发布 → 清旧队列、时钟映射、时间戳平滑状态 → 按新时间基重建估计器。
+        // 只重置 FcuClock 是不够的：估计器内部还停在旧时间基上，下一帧相机时间会从
+        // 303 s 掉到 1 s，OpenVINS 会按 302 秒的间隔做传播 → 直接发散。
+        //===================================================================================
+        uint64_t last_reconnect_count = link.reconnectCount();
+        bool timebase_recovering = false;
+        auto onFcuTimebaseReset = [&](const char* why) {
+            timebase_recovering = true;
+            clock.reset();                 // 主机↔飞控映射作废，重新累积样本
+            link.clearImuQueue();          // 旧时间基的 IMU 不再喂进估计器
+            {
+                std::lock_guard<std::mutex> lk(frame_mtx);
+                frame_q.clear();           // 旧时间基的相机帧同理
+            }
+            pending.reset();
+            pending_since_ns = 0;
+            prev_fed_us = 0;               // 图像时间戳平滑状态
+            fed_dt_ms.clear();
+            cam_off_us.clear();
+            last_sent_ts = 0;              // 恢复后第一帧必须发出去
+            pose_age_ms.clear();
+            vio_vs_ekf3_ms.clear();
+            imu_prev_raw_us = 0;           // IMU 去抖 + PLL 状态
+            imu_prev_host_ns = 0;
+            imu_ts_uni_us = -1.0;
+            was_blocked = true;            // 让恢复时打印"恢复发送"
+            estimator.resetForNewTimebase(why);
+            stats_timebase_resets.fetch_add(1);
+            std::printf("[VIO] ⏱ 飞控时间基变化（%s）：暂停发送，已清空 IMU/图像队列、"
+                        "时钟映射和时间戳平滑状态，按新时间基重新初始化\n", why);
+            std::fflush(stdout);
+        };
+
         while (!g_stop.load()) {
             bool did_work = false;
+
+            //===================================================================================
+            // 【2026-10-25】零速更新按"飞控是否解锁"自动开关 —— 飞行中不需要任何人操作
+            //
+            // 为什么这么切：
+            //   · 地面（未解锁）：静止时视觉塌了也不会加速度乱涨，零速更新直接把 v 钉 0
+            //     （实测 turn4：路径 32.7 → 10.7 m、|v|max 5.92 → 2.7）。
+            //   · 空中（已解锁）：悬停时画面几乎不动，容易被判成静止 → v 被硬钉 0、位置估计
+            //     被冻住，飞控还以为没漂。这条路上宁可"停发位姿"（LOST 门限已经在做），
+            //     也不要"发一个不动但其实在漂的位姿"。
+            // 没收到心跳（纯手持、或 --no-send 演示）→ armed=false → 当作地面，行为不变。
+            //===================================================================================
+            {
+                static int zupt_state = -1;  // -1 未定 / 0 关 / 1 开
+                const int want = link.armed() ? 0 : 1;
+                if (want != zupt_state) {
+                    zupt_state = want;
+                    estimator.setZuptEnabled(want == 1);
+                    std::printf("[ZUPT] %s → %s零速更新\n",
+                                want == 1 ? "地面待机（未解锁）" : "已解锁（空中）",
+                                want == 1 ? "启用" : "关闭");
+                    std::fflush(stdout);
+                }
+            }
 
             // 5.1 把队列里的 IMU 全部喂进去，同时更新主机↔飞控时钟
             pure_uav::MavlinkLink::TimedImu imu_item;
@@ -795,7 +873,20 @@ int main(int argc, char** argv) {
                     std::printf("[imu] 预热完成（丢弃 %lld 个样本），开始喂 IMU\n", imu_warmup_total);
                     std::fflush(stdout);
                 }
-                clock.addSample(imu_item.host_ns, imu_item.imu.timestamp_us);
+                // 串口重连也算一次时间基变化（新会话的 boot 时间很可能重新开始）
+                if (link.reconnectCount() != last_reconnect_count) {
+                    last_reconnect_count = link.reconnectCount();
+                    onFcuTimebaseReset("串口重连");
+                }
+                const auto clock_res =
+                    clock.addSample(imu_item.host_ns, imu_item.imu.timestamp_us);
+                if (clock_res == pure_uav::FcuClock::AddResult::kTimebaseReset) {
+                    // FcuClock 已清空旧样本；本帧作为新时间基的第一帧继续往下喂。
+                    onFcuTimebaseReset("飞控重启/时间戳回退");
+                } else if (clock_res == pure_uav::FcuClock::AddResult::kOutOfOrder) {
+                    stats_imu_out_of_order.fetch_add(1);   // 乱序帧不喂 OpenVINS（会破坏时间递增）
+                    continue;
+                }
                 //=======================================================================
                 // 【2026-10-21】IMU 时间戳去抖（重要）
                 // HIGHRES_IMU.time_usec 是 FCU 400 Hz 调度器的**发送时刻**，不是采样时刻，
@@ -934,8 +1025,17 @@ int main(int argc, char** argv) {
                     const int64_t waited_ns = steadyNowNs() - pending_since_ns;
                     // 等一个时间戳晚于图像的 IMU（保证传播能覆盖到图像时刻），最多等 100ms
                     if (last_imu_us > fcu_us || waited_ns > 100000000LL) {
+                        // 【2026-10-25】深度用它自己的时间戳，不再冒充彩色时间戳。
+                        // 两个设备时间戳同源，所以(color_fcu - color_dev) 的偏移对深度同样成立。
+                        uint64_t depth_fcu_us = fcu_us;
+                        if (pending->depth_dev_us > 0 && pending->device_us > 0) {
+                            const int64_t off = static_cast<int64_t>(fcu_us) - pending->device_us;
+                            const int64_t d = static_cast<int64_t>(pending->depth_dev_us) + off;
+                            if (d > 0 && std::llabs(d - static_cast<int64_t>(fcu_us)) < 200000)
+                                depth_fcu_us = static_cast<uint64_t>(d);
+                        }
                         if (use_depth_init && !pending->depth.empty() && cam_depth.valid())
-                            estimator.setDepthImage(pending->depth, fcu_us, cam_depth.fx,
+                            estimator.setDepthImage(pending->depth, depth_fcu_us, cam_depth.fx,
                                                     cam_depth.fy, cam_depth.cx, cam_depth.cy,
                                                     cam_depth.R_c2d, depth_t_m);
                         estimator.feedImage(pending->gray, fcu_us);
@@ -987,24 +1087,35 @@ int main(int argc, char** argv) {
                             // 【失效保护】LOST 期间 / 重建估计器期间一律不发。
                             // 飞控侧（PX4 EKF2_EV_TIMEOUT / ArduPilot EK3 源超时）会自己
                             // 退回姿态+气压，这就是"切姿态模式"的落地方式。
-                            if (!estimator.publishable()) {
+                            // 链路断开 / 时间基重建期间一律不发（sendVisionPose 也挡，
+                            // 但在这里挡住才能统计和打日志）
+                            // --no-send 模式下不拿链路状态做门（没有飞控只是演示），
+                            // 但健康门限照旧生效。
+                            const bool gate_ok =
+                                !send || (link.connected() && !timebase_recovering);
+                            if (!estimator.publishable() || !gate_ok) {
                                 stats_blocked.fetch_add(1);
                                 if (!was_blocked) {
                                     was_blocked = true;
-                                    const auto h = estimator.healthReport();
-                                    std::printf("[VIO] ⛔ 视觉失效（%s）：特征 %d，距上次更新 %.2fs"
-                                                " → 停止发送位姿\n",
-                                                pure_uav::toString(h.state), h.features,
-                                                h.since_update_s);
+                                    if (!estimator.publishable()) {
+                                        const auto h = estimator.healthReport();
+                                        std::printf("[VIO] ⛔ 视觉失效（%s）：特征 %d，距上次更新 %.2fs"
+                                                    " → 停止发送位姿\n",
+                                                    pure_uav::toString(h.state), h.features,
+                                                    h.since_update_s);
+                                    } else {
+                                        std::printf("[VIO] ⏸ 暂停发送位姿：%s\n",
+                                                    !link.connected() ? "飞控链路未连接"
+                                                                      : "飞控时间基重建中");
+                                    }
                                     std::fflush(stdout);
                                 }
                             } else {
                                 if (was_blocked) {
                                     was_blocked = false;
                                     const auto h = estimator.healthReport();
-                                    std::printf("[VIO] ✅ 视觉恢复（特征 %d，重初始化 %d 次）"
-                                                " → 重新发送位姿\n",
-                                                h.features, h.recoveries);
+                                    std::printf("[VIO] ✅ 恢复发送位姿（健康 %s，特征 %d，重建 %d 次）\n",
+                                                pure_uav::toString(h.state), h.features, h.recoveries);
                                     std::fflush(stdout);
                                 }
                                 safe_logger.log(pose);   // 只记"健康门限通过"的位姿，给 RViz 看实际输出
@@ -1025,6 +1136,14 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
+            }
+
+            // 【2026-10-29】时间基重建完成：估计器重新初始化 + 时钟恢复 → 解除暂停
+            if (timebase_recovering && estimator.initialized() && clock.valid()) {
+                timebase_recovering = false;
+                std::printf("[VIO] ✅ 已按新时间基重新初始化（时钟样本 %zu）→ 恢复发送位姿\n",
+                            clock.sampleCount());
+                std::fflush(stdout);
             }
 
             // 5.4 状态打印
@@ -1113,15 +1232,23 @@ int main(int argc, char** argv) {
                 } else {
                     std::snprintf(depBuf, sizeof(depBuf), "-");
                 }
+                // 【2026-10-28】把"实际发出去的 ODOMETRY 元数据"也打出来：
+                // 联调时它就是飞控 VISP 日志里应该看到的那两个数（质量、重置计数），
+                // 两边对不上就说明链路里有人在改字段。
+                const int qual_now =
+                    (estimator.healthState() == pure_uav::VioHealthState::OK) ? 90 : 50;
+                const int rc_now =
+                    static_cast<int>(std::min<long long>(estimator.rebuildCount(), 255));
                 std::printf(
                     "[VIO] init=%d img=%d pose=%lld sent=%lld blocked=%lld health=%s "
-                    "feat=%d tilt=%s lin=%.2f tri=%.3f depthused=%lld deperr=%s v=%sm/s tsjit=%sms imu=%llu(+%llu/2s) q=%zu clock=%.1fms "
+                    "qual=%d rc=%d feat=%d tilt=%s lin=%.2f tri=%.3f depthused=%lld deperr=%s v=%sm/s tsjit=%sms imu=%llu(+%llu/2s) q=%zu clock=%.1fms "
                     "age=%.0f/%.0fms dvel=%+.0fmm/s\n",
                     estimator.initialized() ? 1 : 0, estimator.imageCount(),
                     static_cast<long long>(stats_poses.load()),
                     static_cast<long long>(stats_sent.load()),
                     static_cast<long long>(stats_blocked.load()),
                     pure_uav::toString(estimator.healthState()),
+                    qual_now, rc_now,
                     estimator.healthReport().features,
                     tiltStr.c_str(),
                     estimator.linAccelDev(),
@@ -1274,6 +1401,9 @@ int main(int argc, char** argv) {
     std::printf("  VisionPose   : %lld\n", static_cast<long long>(stats_poses.load()));
     std::printf("  已发送        : %lld\n", static_cast<long long>(stats_sent.load()));
     std::printf("  丢帧(无时钟)  : %lld\n", static_cast<long long>(stats_drop_no_clock.load()));
+    std::printf("  时间基重置    : %lld（飞控重启/串口重连后重新初始化）\n",
+                static_cast<long long>(stats_timebase_resets.load()));
+    std::printf("  IMU 乱序丢弃  : %lld\n", static_cast<long long>(stats_imu_out_of_order.load()));
     std::printf("  相机队列丢帧  : %llu\n", static_cast<unsigned long long>(dropped_frames));
     std::printf("  IMU 丢帧      : %llu\n", static_cast<unsigned long long>(link.droppedImu()));
     std::printf("  CSV           : %s\n", csv_out.c_str());

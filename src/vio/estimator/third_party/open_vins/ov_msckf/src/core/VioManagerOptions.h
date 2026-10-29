@@ -94,6 +94,21 @@ struct VioManagerOptions {
   /// If we should only use the zupt at the very beginning static initialization phase
   bool zupt_only_at_beginning = false;
 
+  /// 【2026-10-25】IMU 静止判据：窗口内平均角速度上限（deg/s）。999 = 不用这条。
+  double zupt_max_omega_deg = 999.0;
+
+  /// 【2026-10-25】IMU 静止判据：平均 |‖a‖ − g| 上限（m/s²）。999 = 不用这条。
+  double zupt_max_acc_dev = 999.0;
+
+  /// 【2026-10-25】显式零速残差 σ（m/s）。<=0 = 不加（等价上游行为）。
+  double zupt_sigma_v = 0.0;
+
+  /// 【2026-10-25】静止条件需连续满足的帧数（去抖），0 = 不要求。
+  int zupt_min_still_frames = 0;
+
+  /// 【2026-10-25】只做 v=0（不动 q/bg/ba），见 UpdaterZeroVelocity.h 的说明。
+  bool zupt_v_only = false;
+
   /// If we should record the timing performance to file
   bool record_timing_information = false;
 
@@ -117,6 +132,11 @@ struct VioManagerOptions {
       parser->parse_config("zupt_noise_multiplier", zupt_noise_multiplier);
       parser->parse_config("zupt_max_disparity", zupt_max_disparity);
       parser->parse_config("zupt_only_at_beginning", zupt_only_at_beginning);
+      parser->parse_config("zupt_max_omega_deg", zupt_max_omega_deg);
+      parser->parse_config("zupt_max_acc_dev", zupt_max_acc_dev);
+      parser->parse_config("zupt_sigma_v", zupt_sigma_v);
+      parser->parse_config("zupt_min_still_frames", zupt_min_still_frames);
+      parser->parse_config("zupt_v_only", zupt_v_only);
       parser->parse_config("record_timing_information", record_timing_information);
       parser->parse_config("record_timing_filepath", record_timing_filepath);
     }
@@ -126,6 +146,11 @@ struct VioManagerOptions {
     PRINT_DEBUG("  - zupt_noise_multiplier: %.2f\n", zupt_noise_multiplier);
     PRINT_DEBUG("  - zupt_max_disparity: %.4f\n", zupt_max_disparity);
     PRINT_DEBUG("  - zupt_only_at_beginning?: %d\n", zupt_only_at_beginning);
+    PRINT_DEBUG("  - zupt_max_omega_deg: %.2f\n", zupt_max_omega_deg);
+    PRINT_DEBUG("  - zupt_max_acc_dev: %.2f\n", zupt_max_acc_dev);
+    PRINT_DEBUG("  - zupt_sigma_v: %.3f\n", zupt_sigma_v);
+    PRINT_DEBUG("  - zupt_min_still_frames: %d\n", zupt_min_still_frames);
+    PRINT_DEBUG("  - zupt_v_only: %d\n", (int)zupt_v_only);
     PRINT_DEBUG("  - record timing?: %d\n", (int)record_timing_information);
     PRINT_DEBUG("  - record timing filepath: %s\n", record_timing_filepath.c_str());
   }

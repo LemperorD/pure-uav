@@ -71,6 +71,10 @@ struct VioEstimator::Impl {
     double lost_since = -1.0;             // LOST 起点
     double last_rebuild_time = -1.0;      // 上次重建时间
     double last_still_remind = -1e9;      // "先停稳再恢复"提示的节流
+    // 近 2 s 深度一致性直方图队列（用于稳健中位数）
+    std::deque<std::pair<double, std::array<long long, 6>>> deperr_hist_q;
+    std::array<long long, 6> deperr_hist_prev{};
+    long long deperr_n_prev = 0; double deperr_sum_prev = 0.0; double deperr_recent_prev = -1.0;
     int rebuildCount = 0;
     struct Anchor {
         bool set = false;
@@ -264,6 +268,11 @@ VioEstimator::TiltCheck VioEstimator::tiltCheck() const {
 }
 
 
+void VioEstimator::setZuptEnabled(bool enable) {
+    if (!impl_ || !impl_->ok || !impl_->vio) return;
+    impl_->vio->set_zupt_enabled(enable);
+}
+
 void VioEstimator::setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx,
                                  double fy, double cx, double cy, const double R_c2d[9],
                                  const double t_c2d_m[3]) {
@@ -351,7 +360,16 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     // 拿它当"失效"会开门就误报。
     if (impl_->vio->initialized()) {
         const auto fh = impl_->vio->get_frame_health();
-        impl_->health.update(ts, fh.features, fh.any_visual_update);
+        // 【2026-10-25】近 2 s 的深度一致性——用**中位数**而不是均值。
+        // 教训：均值被少数离群点（最大 296 px）拉到 17–23 px，而同一份数据的中位数只有
+        // 3.1 px；据此我一度把一趟好数据判成"特征全程错配"。门限必须建立在稳健统计上。
+        // 实现：维护近 2 s 的 6 档直方图增量，取累计计数过半的那一档作为中位数。
+        double deperr_recent = recentDepthErrMedianPx(ts);
+        // 【2026-10-25】准静止时刻的重力泄漏也进健康判定：姿态错 θ 度 → 漏掉 g·sinθ。
+        // 实测 turn4 静止 13 s、倾角差 10.8°、泄漏 1.84 m/s²，速度一路涨到 5.92 m/s。
+        VioEstimator::TiltCheck tc = tiltCheck();
+        impl_->health.update(ts, fh.features, fh.any_visual_update, deperr_recent,
+                             tc.valid ? tc.deg : -1.0);
 
         const VioHealthState st = impl_->health.state();
         if (st == VioHealthState::LOST) {
@@ -601,6 +619,35 @@ void VioEstimator::depthErrStats(long long& n, double& mean_px, long long hist[6
     mean_px = (n > 0) ? sum / static_cast<double>(n) : 0.0;
 }
 
+double VioEstimator::recentDepthErrMedianPx(double now_s) {
+    if (!impl_ || !impl_->vio) return -1.0;
+    long long n = 0; double sum = 0.0; long long hist[6] = {0};
+    impl_->vio->get_depth_err_hist(n, sum, hist);
+    // 取与上次的差分，压进队列
+    std::array<long long, 6> d{};
+    for (int i = 0; i < 6; ++i) d[i] = hist[i] - impl_->deperr_hist_prev[i];
+    impl_->deperr_hist_prev = {hist[0], hist[1], hist[2], hist[3], hist[4], hist[5]};
+    long long dsum = 0;
+    for (int i = 0; i < 6; ++i) { if (d[i] > 0) dsum += d[i]; }
+    if (dsum > 0) impl_->deperr_hist_q.emplace_back(now_s, d);
+    while (!impl_->deperr_hist_q.empty() && now_s - impl_->deperr_hist_q.front().first > 2.0)
+        impl_->deperr_hist_q.pop_front();
+    if (impl_->deperr_hist_q.empty()) return -1.0;
+    long long acc[6] = {0};
+    long long total = 0;
+    for (const auto& kv : impl_->deperr_hist_q)
+        for (int i = 0; i < 6; ++i) { acc[i] += kv.second[i]; total += kv.second[i]; }
+    if (total <= 0) return -1.0;
+    // 各档代表值（px）：<1 ->0.5, <2 ->1.5, <5 ->3.5, <10 ->7.5, <25 ->17.5, >=25 ->30
+    static const double rep[6] = {0.5, 1.5, 3.5, 7.5, 17.5, 30.0};
+    long long run = 0;
+    for (int i = 0; i < 6; ++i) {
+        run += acc[i];
+        if (run * 2 >= total) return rep[i];
+    }
+    return rep[5];
+}
+
 long long VioEstimator::rebuildCount() const {
     return impl_ ? impl_->rebuildCount : 0;
 }
@@ -628,6 +675,67 @@ bool VioEstimator::publishable() const {
     if (!impl_ || !impl_->ok) return false;
     // 重建估计器期间（latched 掉了）也一律不发
     return impl_->health.publishable() && impl_->latched;
+}
+
+// 【2026-10-29】飞控时间基变化：把估计器整个换掉，按新时间基重新初始化。
+//
+// 为什么不能只调 clock.reset()：估计器内部（OpenVINS 状态、IMU 缓冲、相机帧时间）
+// 还停留在旧时间基上。只重置时钟映射的话，下一帧相机时间会突然从 303 s 掉到 1 s，
+// OpenVINS 会试图在 302 秒的间隔上做传播 —— 直接发散。
+//
+// 这里刻意不复用 LOST 重建那条路径：那条路要求静止、受 reinit_on_recover 开关约束，
+// 而飞控重启是外部事件，飞机可能还在动；等"停稳"会让程序卡在旧时间基上一直不发。
+void VioEstimator::resetForNewTimebase(const char* reason) {
+    if (!impl_ || !impl_->ok || !impl_->vio) return;
+
+    impl_->rebuildCount++;
+    ++impl_->segment_id;
+
+    // 新轨迹从原点开始。飞控通过 reset_counter 的变化知道这是一次重置并重新锚定。
+    impl_->anchor.set = false;
+    impl_->anchor.yaw = 0.0;
+    impl_->anchor.t = Eigen::Vector3d::Zero();
+    impl_->has_last_published = false;
+    impl_->last_published = VisionPose{};
+
+    // 换一个全新的 OpenVINS 实例：旧实例里的状态/时间戳/IMU 缓冲全部丢弃。
+    impl_->vio = std::make_unique<ov_msckf::VioManager>(impl_->params);
+    impl_->vio->set_use_depth_init(impl_->opt.use_depth_init);
+    impl_->vio->set_init_zero_velocity(impl_->opt.init_vel_zero);
+
+    impl_->latched = false;
+    impl_->launched = false;
+    impl_->init_time = -1.0;
+    impl_->last_cam_time = -1.0;
+    impl_->recovery_armed = false;
+    impl_->lost_since = -1.0;
+    impl_->overspeed_since = -1.0;
+    impl_->inflate_count = 0;
+    impl_->last_inflate_time = -1e9;
+    impl_->last_rebuild_time = -1.0;
+    impl_->last_still_remind = -1e9;
+    impl_->health.reset();
+
+    // 旧时间基的统计窗口全部清掉，否则重新初始化后会被旧样本污染
+    impl_->acc_norm_hist.clear();
+    impl_->gyr_norm_hist.clear();
+    impl_->deperr_hist_q.clear();
+    impl_->deperr_hist_prev = {};
+    impl_->deperr_n_prev = 0;
+    impl_->deperr_sum_prev = 0.0;
+    impl_->deperr_recent_prev = -1.0;
+
+    {
+        std::lock_guard<std::mutex> lk(impl_->pose_mutex);
+        impl_->latest = VisionPose{};
+        impl_->has_latest = false;
+        impl_->raw = RawState{};
+        impl_->has_raw = false;
+    }
+
+    impl_->logAlways("[VIO] 飞控时间基变化（%s）：丢弃旧估计，按新时间基重新初始化"
+                     "（第 %d 次重建，segment %d）\n",
+                     reason != nullptr ? reason : "未知", impl_->rebuildCount, impl_->segment_id);
 }
 
 HealthReport VioEstimator::healthReport() const {

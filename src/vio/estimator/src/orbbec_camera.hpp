@@ -62,7 +62,10 @@ public:
         double tune_focal_px = 1367.5;        // 与 kalibr_imucam_chain.yaml 的 fx 一致
         double tune_max_exposure_ms = 15.0;   // 绝对上限（帧周期以外再兜一层）
         int tune_max_gain = 40;               // 增益上限：100 的噪声会把 KLT 拖死
-        bool tune_allow_blur = false;         // 明知会糊也继续（只用于排查）
+        bool tune_allow_blur = false;
+        // 【2026-10-25】禁止"光不够就把曝光放到现场光上限"。开了就严守模糊预算，
+        // 画面会偏暗但更锐。用来做"锐 vs 亮"的 A/B。
+        bool tune_strict_blur = false;         // 明知会糊也继续（只用于排查）
         bool tune_allow_dark = false;         // 测光不达标也硬飞（只用于排查）
 
         // 【2026-10-21】是否打开深度流（对齐到彩色）。深度给米制尺度，

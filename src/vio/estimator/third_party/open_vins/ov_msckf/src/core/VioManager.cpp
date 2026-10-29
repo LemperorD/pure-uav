@@ -160,10 +160,12 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   updaterSLAM = std::make_shared<UpdaterSLAM>(params.slam_options, params.aruco_options, params.featinit_options);
 
   // If we are using zero velocity updates, then create the updater
+  zupt_runtime_on_ = params.try_zupt;
   if (params.try_zupt) {
     updaterZUPT = std::make_shared<UpdaterZeroVelocity>(params.zupt_options, params.imu_noises, trackFEATS->get_feature_database(),
                                                         propagator, params.gravity_mag, params.zupt_max_velocity,
-                                                        params.zupt_noise_multiplier, params.zupt_max_disparity);
+                                                        params.zupt_noise_multiplier, params.zupt_max_disparity,
+                                                        params.zupt_max_omega_deg, params.zupt_max_acc_dev, params.zupt_sigma_v, params.zupt_min_still_frames, params.zupt_v_only);
   }
 }
 
@@ -198,7 +200,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // Push back to the zero velocity updater if it is enabled
   // No need to push back if we are just doing the zv-update at the begining and we have moved
-  if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
+  if (is_initialized_vio && updaterZUPT != nullptr && zupt_runtime_on_ && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     updaterZUPT->feed_imu(message, oldest_time);
   }
 }
@@ -221,7 +223,8 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
     if (params.try_zupt) {
       updaterZUPT = std::make_shared<UpdaterZeroVelocity>(params.zupt_options, params.imu_noises, trackFEATS->get_feature_database(),
                                                           propagator, params.gravity_mag, params.zupt_max_velocity,
-                                                          params.zupt_noise_multiplier, params.zupt_max_disparity);
+                                                          params.zupt_noise_multiplier, params.zupt_max_disparity,
+                                                          params.zupt_max_omega_deg, params.zupt_max_acc_dev, params.zupt_sigma_v, params.zupt_min_still_frames, params.zupt_v_only);
     }
     PRINT_WARNING(RED "[SIM]: casting our tracker to a TrackSIM object!\n" RESET);
   }
@@ -233,7 +236,7 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
   // If we have since moved, then we should never try to do a zero velocity update!
-  if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
+  if (is_initialized_vio && updaterZUPT != nullptr && zupt_runtime_on_ && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     // If the same state time, use the previous timestep decision
     if (state->_timestamp != timestamp) {
       did_zupt_update = updaterZUPT->try_update(state, timestamp);
@@ -537,13 +540,19 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   // Check if we should do zero-velocity, if so update the state with it
   // Note that in the case that we only use in the beginning initialization phase
   // If we have since moved, then we should never try to do a zero velocity update!
-  if (is_initialized_vio && updaterZUPT != nullptr && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
+  if (is_initialized_vio && updaterZUPT != nullptr && zupt_runtime_on_ && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     // If the same state time, use the previous timestep decision
     if (state->_timestamp != message.timestamp) {
       did_zupt_update = updaterZUPT->try_update(state, message.timestamp);
     }
     if (did_zupt_update) {
       assert(state->_timestamp == message.timestamp);
+      // 【2026-10-25】零速更新也是有效观测（约束 q/bg/ba/v），必须回报给上层健康判据。
+      // 否则"静止 3 秒"会被判成"视觉 3 秒没更新"→ 误报 LOST → 触发无谓重建。
+      frame_health.zupt = true;
+      frame_health.any_visual_update = true;
+      frame_health.msckf_updated = false;
+      frame_health.msckf_rows = 0;
       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       updaterZUPT->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       propagator->invalidate_cache();

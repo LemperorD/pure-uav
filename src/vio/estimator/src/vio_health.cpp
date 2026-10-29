@@ -49,12 +49,14 @@ void HealthMonitor::reset() {
     state_ = VioHealthState::UNKNOWN;
     start_time_ = last_time_ = last_update_time_ = -1.0;
     bad_since_ = good_since_ = state_changed_at_ = -1.0;
+    bad_dep_since_ = -1.0;
+    bad_tilt_since_ = -1.0;
     features_ = 0;
     updated_ = false;
     need_recover_ = false;
 }
 
-void HealthMonitor::update(double time_s, int features, bool visual_updated) {
+void HealthMonitor::update(double time_s, int features, bool visual_updated, double deperr_px, double tilt_deg) {
     if (!cfg_.enabled) {
         state_ = VioHealthState::OK;
         features_ = features;
@@ -95,10 +97,31 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated) {
     }
     const double bad_for = (bad_since_ < 0.0) ? 0.0 : (time_s - bad_since_);
 
+    // 【2026-10-25】深度一致性（近 2 s）也进健康判定
+    const bool bad_dep = (deperr_px >= 0.0) && (deperr_px > cfg_.deperr_degrade_px);
+    const bool bad_dep_hard = (deperr_px >= 0.0) && (deperr_px > cfg_.deperr_lost_px);
+    if (bad_dep_hard) {
+        if (bad_dep_since_ < 0.0) bad_dep_since_ = time_s;
+    } else {
+        bad_dep_since_ = -1.0;
+    }
+    const double bad_dep_for = (bad_dep_since_ < 0.0) ? 0.0 : (time_s - bad_dep_since_);
+
+    // 【2026-10-25】重力泄漏（倾角差）
+    const bool tilt_bad = (tilt_deg >= 0.0) && (tilt_deg > cfg_.tilt_lost_deg);
+    if (tilt_bad) {
+        if (bad_tilt_since_ < 0.0) bad_tilt_since_ = time_s;
+    } else {
+        bad_tilt_since_ = -1.0;
+    }
+    const double bad_tilt_for = (bad_tilt_since_ < 0.0) ? 0.0 : (time_s - bad_tilt_since_);
+    const bool tilt_degrade = (tilt_deg >= 0.0) && (tilt_deg > cfg_.tilt_degrade_deg);
+
     const bool should_be_lost =
-        low_rate || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s);
+        low_rate || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s) ||
+        (bad_dep_for > cfg_.deperr_lost_s) || (bad_tilt_for > cfg_.tilt_lost_s);
     const bool should_be_degraded =
-        few_features || low_rate || (since_update > cfg_.degrade_after_s);
+        few_features || low_rate || (since_update > cfg_.degrade_after_s) || bad_dep || tilt_degrade;
 
     switch (state_) {
         case VioHealthState::UNKNOWN:
@@ -134,9 +157,11 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated) {
 
         case VioHealthState::LOST: {
             // 恢复候选：特征回到 min_features_recover 以上，且近期有更新
+            // 【2026-10-25】还要确认"把我们判死的那个条件"已经消失，否则 1 s 后刚恢复又立刻
+            // 再判 LOST，状态在 OK/LOST 之间以 1 Hz 抖动，上层重建也跟着抖。
             const bool healthy = (features >= cfg_.min_features_recover) &&
                                  (!(rate >= 0.0) || rate >= cfg_.min_update_rate_recover) &&
-                                 (since_update <= cfg_.lost_after_s);
+                                 (since_update <= cfg_.lost_after_s) && !should_be_lost;
             if (!healthy) {
                 good_since_ = -1.0;
                 break;

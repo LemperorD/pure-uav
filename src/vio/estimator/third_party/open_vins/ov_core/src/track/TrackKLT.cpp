@@ -885,6 +885,55 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, 0.01);
   cv::calcOpticalFlowPyrLK(img0pyr, img1pyr, pts0, pts1, mask_klt, error, win_size, pyr_levels, term_crit, cv::OPTFLOW_USE_INITIAL_FLOW);
 
+  //===========================================================================
+  // 【2026-10-25】正反向光流一致性检查（针对条形格栅天花板这类**重复纹理**）
+  //
+  // 重复结构下 KLT 会把一根条错配到相邻那根，正向看不出来（残差照样很小），
+  // 反向跟回来却回不到原点。判据：|p0 - FB(p1)| > thresh 就丢。
+  // thresh 默认 1.5 px，可用环境变量 OV_FB_THRESH 覆盖以便 A/B。
+  //===========================================================================
+  {
+    static const double fb_thresh =
+        std::getenv("OV_FB_THRESH") ? std::atof(std::getenv("OV_FB_THRESH")) : 1.5;
+    if (fb_thresh > 0.0) {
+      std::vector<cv::Point2f> pts1_back;
+      std::vector<uchar> mask_back;
+      std::vector<float> err_back;
+      cv::calcOpticalFlowPyrLK(img1pyr, img0pyr, pts1, pts1_back, mask_back, err_back,
+                               win_size, pyr_levels, term_crit);
+      int n_rej = 0;
+      // 阈值要**相对位移**，不能是绝对像素：高速时真光流大，KLT 金字塔来回收敛本来就有
+      // 几个像素的往返误差，用死 1.5 px 会把合法轨迹全砍掉（实测 dev2 高速那趟
+      // 从 0% LOST 变成 67%）。判据改成 thresh = max(fb_thresh, k·|flow|)。
+      static const double fb_k =
+          std::getenv("OV_FB_K") ? std::atof(std::getenv("OV_FB_K")) : 0.15;
+      for (size_t i = 0; i < mask_klt.size(); i++) {
+        if (!mask_klt[i]) continue;
+        const double dx = static_cast<double>(pts1_back[i].x) - static_cast<double>(pts0[i].x);
+        const double dy = static_cast<double>(pts1_back[i].y) - static_cast<double>(pts0[i].y);
+        const double fx = static_cast<double>(pts1[i].x) - static_cast<double>(pts0[i].x);
+        const double fy = static_cast<double>(pts1[i].y) - static_cast<double>(pts0[i].y);
+        const double flow = std::sqrt(fx * fx + fy * fy);
+        const double thr = std::max(fb_thresh, fb_k * flow);
+        if (!mask_back[i] || std::sqrt(dx * dx + dy * dy) > thr) {
+          mask_klt[i] = 0;
+          ++n_rej;
+        }
+      }
+      static long long fb_total = 0, fb_rej = 0;
+      fb_total += static_cast<long long>(mask_klt.size());
+      fb_rej += n_rej;
+      static int fb_print_tick = 0;
+      if (++fb_print_tick >= 300) {
+        fb_print_tick = 0;
+        std::printf("[KLT] 正反向检查：累计丢 %lld / %lld (%.1f%%), thresh=%.1fpx\n",
+                    fb_rej, fb_total, fb_total ? 100.0 * static_cast<double>(fb_rej) / static_cast<double>(fb_total) : 0.0,
+                    fb_thresh);
+        std::fflush(stdout);
+      }
+    }
+  }
+
   // Normalize these points, so we can then do ransac
   // We don't want to do ransac on distorted image uvs since the mapping is nonlinear
   std::vector<cv::Point2f> pts0_n, pts1_n;
