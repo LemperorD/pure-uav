@@ -1,0 +1,2 @@
+飞控UART4(PX4 TELEM2)接香橙派UART2(PB0   PB1)
+ttyS2   波特率115200
