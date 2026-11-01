@@ -1,31 +1,11 @@
 #pragma once
 // =============================================================================
-//  guidance_loop.hpp —— 机载主循环外壳 + 内存黑匣子（合并后）
+//  guidance_loop.hpp —— 飞行外壳：主循环 + 内存黑匣子
 //
-//  合并自：
-//    · guidance_loop.hpp   主循环、统计、延迟打点
-//    · ring_log.hpp        RingRecord / RingLog（最近 512 拍）
-//  配置类型（CameraModel / LoopConfig）已移到 flight_types.hpp。
-//
-//  【架构：函数式内核 + 面向对象外壳】
-//      外壳（本类）   ：取数据 → 换算 → 调核 → 体检 → 发指令 → 统计
-//      内核（纯函数） ：adapter::to_guidance_state() → guidance_step() → cmd_accel_to_ned()
-//    内核**一行不改**（铁律 §1.5）。
-//
-//  【一拍做什么（run_once 的顺序，不允许颠倒）】
-//      ① poll 两个数据源（拿“最近一帧”；没有新帧就复用上一帧 —— 零阶保持）
-//      ② 目标：像素 (u,v) → 相机系 → 机体 → 世界（用本帧 q；内参与 LoopConfig::cam）
-//      ③ 组装 adapter::RawFrame（外部口径 → 内部口径的唯一换算点）
-//      ④ quick_check()（几 ns、零分配）—— 不健康就按 on_unhealthy 降级
-//      ⑤ guidance_step()（纯函数）
-//      ⑥ adapter::cmd_accel_to_ned()（唯一一次出口换算）
-//      ⑦ sink->send()（PX4 需要“持续到达”⇒ 每拍都发）
-//      ⑧ 统计（计数、延迟、饱和率）
-//
-//  【实时性约束】
-//    · 循环内零分配、零 printf、零 std::string；
-//    · 节拍用绝对时间睡眠（sleep_until），不累积漂移；
-//    · 不用异常：init() 返回 bool，run_once() 返回 LoopStatus。
+//  一拍：poll → 像素反投影 → adapter → quick_check → guidance_step → NED → send → 统计。
+//  实时性：循环内零分配、零 I/O；节拍用绝对时间睡眠。
+//  设计/时间基准见 assets/docs/decisions/0003-los-rate-source.md，
+//  整体说明见 assets/docs/guidance/README.md 与 assets/docs/app/README.md。
 // =============================================================================
 
 #include <atomic>

@@ -60,18 +60,8 @@ struct GuidanceState {
 //  二、输出：制导指令
 // ============================================================
 //
-// ★ 2026-10-20 改名（`GuidanceCmd/GuidanceMode` → `PureGuidanceCmd/PureGuidanceMode`）：
-//   同仓库的通信模块（`src/driver/communicate/include/communicator.hpp`、
-//   `communication` 分支的 `src/common/msg.hpp`）在**同一个 `pure_uav` 命名空间**里
-//   也定义了 `GuidanceCmd` / `GuidanceMode`（内容是"期望位置/速度/加速度"的 setpoint，
-//   与本模块的"导引律输出"不是同一个东西）。同名同命名空间 ⇒ 任何 TU 同时 include
-//   两者都会报重定义。
-//   ⇒ 本模块统一加 **`Pure` 前缀**（与 `libpure_guidance.so` 的命名一致），
-//     机载主循环里两者可以并存：
-//        · `PureGuidanceCmd`  ← 我们算出来的指令（ENU 加速度 + 调试量）
-//        · `GuidanceCmd`      ← 通信模块的 setpoint（NED 位置/速度/加速度）
-//     接线方式：`cmd_accel_to_ned()` → `GuidanceCmd{mode=ACCELERATION, afx,afy,afz}`。
-//   ⚠ 将来若通信模块也改名，本前缀可以保留（不影响语义，只是多一层保险）。
+// ★ Pure 前缀：避免与通信模块同名 `GuidanceCmd/GuidanceMode` 冲突。
+//   背景与语义对照见 assets/docs/decisions/0002-pure-prefix.md。
 
 // 制导模式
 enum class PureGuidanceMode {

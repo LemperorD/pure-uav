@@ -1,18 +1,8 @@
 // =============================================================================
-//  guidance_loop.cpp —— 主循环 + 内存黑匣子实现（合并后）
+//  guidance_loop.cpp —— 主循环 + 内存黑匣子实现
 //
-//  设计要点见 guidance_loop.hpp 的头注释。这里只强调三个实现层面的关键决定：
-//
-//   ① **只在“目标帧更新”时才重算制导**
-//      `FROM_LOS_DIFFERENCE` 用 `state.t - memory.t_prev` 当 dt，而 û 只在目标帧更新。
-//      所以 `state.t` 必须取**目标帧的采样时刻**、且只在目标帧到达时调用 guidance_step；
-//      其余拍子只重发上一拍指令（PX4 offboard 要求 setpoint 持续到达）。
-//
-//   ② **像素 → 相机系 → 机体(FRD) → 世界** 全部在本文件完成
-//      视觉只给像素，内参/外参来自 LoopConfig::cam，姿态 q 来自 InsSample。
-//
-//   ③ **降级不停流**：不健康时按 `on_unhealthy` 发“安全 setpoint”
-//      （保持上一条限时 → 零速度悬停），而不是断流——断流会让 PX4 掉出 offboard。
+//  只在目标帧更新时重算；state.t 取目标帧时间（ω 的 dt 必须对应 û 更新间隔）。
+//  设计原因见 assets/docs/decisions/0003-los-rate-source.md。
 // =============================================================================
 
 #include "guidance_loop.hpp"

@@ -1,20 +1,10 @@
 #pragma once
 // =============================================================================
-//  flight_types.hpp —— 制导飞行外壳的类型 / 契约 / 配置（合并后的“公共词典”）
+//  flight_types.hpp —— 飞行外壳的类型 / 契约 / 配置
 //
-//  合并自：
-//    · sample.hpp          InsSample / TargetSample
-//    · output.hpp          InputHealth / ControlMode / GuidanceOutput / LoopStatus
-//    · sensor_source.hpp   IInsSource / ITargetSource
-//    · command_sink.hpp    ICommandSink / NullSink
-//    · guidance_loop.hpp   CameraModel / LoopConfig
-//  另加 AppParams（原 params.hpp）。
-//
-//  【设计原则】
-//    · 本文件是 app 的**叶子头**：不 include 任何 app 文件；
-//    · 只定义“东西长什么样”，不含逻辑；
-//    · 具体数据源/出口的实现（Mavlink/Ros2/SimTruth）只在这里**声明**，
-//      实现落地前不要实例化；真机胶水以后放 app/glue/，不把 driver 拖进来。
+//  本文件是 guidance/flight 的叶子头：不 include 任何 app/ 文件。
+//  数据源/出口的具体实现只在此声明；真机胶水放 src/app/glue/，不把 driver 拖进来。
+//  命名空间暂用 pure_uav::app（历史命名，待统一）。
 // =============================================================================
 
 #include <cstdint>

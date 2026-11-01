@@ -2,18 +2,9 @@
 // =============================================================================
 //  tools.hpp —— 地面工具箱（CSV 录制/回放 + 合成世界 + 两种跑法）
 //
-//  合并自：
-//    · csv_io.hpp          CsvRow / InputRecorder / CsvReader / CsvReplaySource /
-//                          CsvAccelSink / TeeSink
-//    · synthetic_world.hpp demo_camera / SceneConfig / SyntheticWorld / 闭环驱动
-//    · main.cpp 的 run_synthetic / run_replay 声明（SimOptions）
-//
-//  【定位】只在**地面/开发机**使用：
-//    · 录制真实输入 → 回放重算（调参 / 复盘 / 回归）；
-//    · 零依赖合成世界（演示 / 端到端测试）。
-//  机载二进制不需要链接本文件（target 可拆开）。
-//
-//  【依赖方向】tools → flight_types + guidance_loop；不反向依赖 application。
+//  定位：只在**地面/开发机**使用；机载二进制不需要链接本文件。
+//  依赖：tools → flight_types + guidance_loop；不反向依赖 application。
+//  格式/回放边界见 assets/docs/app/csv-format.md。
 // =============================================================================
 
 #include <cstdint>
