@@ -4,10 +4,10 @@
 
 namespace pure_uav {
 
-GuidanceCmd guidance_step(const GuidanceState &state,
+PureGuidanceCmd guidance_step(const GuidanceState &state,
                           const GuidanceParams &params,
                           GuidanceMemory &memory) {
-    GuidanceCmd cmd;
+    PureGuidanceCmd cmd;
     cmd.t     = state.t;
     cmd.valid = state.valid;
     cmd.N     = params.N;
@@ -17,7 +17,7 @@ GuidanceCmd guidance_step(const GuidanceState &state,
     // ---- 1) 有效性检查 ----
     // 目标丢失 → SEARCH，输出零指令，并清掉历史（重新捕获时从零开始）
     if (!state.valid) {
-        cmd.mode = GuidanceMode::SEARCH;
+        cmd.mode = PureGuidanceMode::SEARCH;
         memory.has_prev = false;
         return cmd;
     }
@@ -61,15 +61,15 @@ GuidanceCmd guidance_step(const GuidanceState &state,
     switch (params.law) {
         case GuidanceLaw::PPN:
             cmd.a_cmd_unsat = pn_ppn(omega, state.v_M, params.N);
-            cmd.mode = GuidanceMode::PN;
+            cmd.mode = PureGuidanceMode::PN;
             break;
         case GuidanceLaw::TPN:
             cmd.a_cmd_unsat = pn_tpn(omega, state.los_hat, Vc, params.N);
-            cmd.mode = GuidanceMode::PN;
+            cmd.mode = PureGuidanceMode::PN;
             break;
         case GuidanceLaw::APN:
             cmd.a_cmd_unsat = pn_apn(omega, state.los_hat, Vc, params.N, state.a_T_perp);
-            cmd.mode = GuidanceMode::APN;
+            cmd.mode = PureGuidanceMode::APN;
             break;
     }
 
@@ -97,7 +97,7 @@ GuidanceCmd guidance_step(const GuidanceState &state,
             break;
     }
     if (freeze) {
-        cmd.mode  = GuidanceMode::HOLD;
+        cmd.mode  = PureGuidanceMode::HOLD;
         cmd.a_cmd = memory.a_cmd_prev;
     }
 
@@ -107,7 +107,9 @@ GuidanceCmd guidance_step(const GuidanceState &state,
         cmd.a_cmd = cmd.a_cmd * (params.a_max / a_norm);   // 方向不变，只缩模长
         cmd.sat = true;
     }
-    cmd.a_cmd_norm = norm(cmd.a_cmd);
+    // 限幅后的模长只可能是 a_max 或原值 ⇒ 直接复用已算出的 a_norm，省一次 sqrt。
+    // （原写法 norm(cmd.a_cmd) 会重复开方；两者差值在 1 ulp 量级，远小于 kCmdTol=1e-9）
+    cmd.a_cmd_norm = cmd.sat ? params.a_max : a_norm;
 
     // 保存本周期指令，供下一周期末端冻结使用
     memory.a_cmd_prev = cmd.a_cmd;

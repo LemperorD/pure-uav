@@ -1,0 +1,75 @@
+--- a/src/driver/communicate/include/communicator.hpp
++++ b/src/driver/communicate/include/communicator.hpp
+@@ -3,6 +3,7 @@
+ #include <atomic>
+ #include <chrono>
+ #include <cstdint>
++#include <functional>
+ #include <mutex>
+ #include <string>
+ #include <thread>
+@@ -184,7 +185,11 @@
+     bool getAttitude(Attitude& out) const;   //姿态
+     bool getBattery(Battery& out) const;     //电量
+     bool getLocalPosition(LocalPosition& out) const;   //位置和速度
+-    bool getImu(ImuData& out) const;                 //IMU数据
++    bool getImu(ImuData& out) const;                 //IMU数据（最新一帧，轮询用）
++
++    // VIO 需要每一帧 IMU（HIGHRES_IMU 到达时回调）。回调在接收线程执行，
++    // 不要在里面做耗时操作；VIO 侧应只做入队。
++    void setImuCallback(std::function<void(const ImuData&)> cb);
+     bool getSystemTime(SystemTime& out) const;      //时间戳
+     bool isConnected() const { return connected_.load(); }  //连接是否成功
+     uint32_t getCustomMode() const { return custom_mode_.load(); } //飞行模式（完整 custom_mode 值）
+@@ -224,6 +229,7 @@
+     std::atomic<uint16_t> last_ack_command_{0};  //最近一次 ACK 对应的命令号
+     std::atomic<uint8_t> last_ack_result_{UINT8_MAX};   //最近一次 ACK 结果（UINT8_MAX=未收到）
+ 
++    std::function<void(const ImuData&)> imu_callback_;  // VIO 等模块的 IMU 回调
+     std::mutex send_mutex_;  // 串口写锁
+ };
+ 
+--- a/src/driver/communicate/src/communicator.cpp
++++ b/src/driver/communicate/src/communicator.cpp
+@@ -152,14 +152,21 @@
+                         case MAVLINK_MSG_ID_HIGHRES_IMU: {    //IMU原数数据
+                             mavlink_highres_imu_t imu;
+                             mavlink_msg_highres_imu_decode(&msg, &imu);
+-                            std::lock_guard<std::mutex> lk(data_mutex_);
+-                            imu_.timestamp_us = imu.time_usec; 
+-                            imu_.gx = imu.xgyro;
+-                            imu_.gy = imu.ygyro;
+-                            imu_.gz = imu.zgyro;
+-                            imu_.ax = imu.xacc;
+-                            imu_.ay = imu.yacc;
+-                            imu_.az = imu.zacc;
++                            ImuData sample;
++                            sample.timestamp_us = imu.time_usec;
++                            sample.gx = imu.xgyro;
++                            sample.gy = imu.ygyro;
++                            sample.gz = imu.zgyro;
++                            sample.ax = imu.xacc;
++                            sample.ay = imu.yacc;
++                            sample.az = imu.zacc;
++                            std::function<void(const ImuData&)> cb;
++                            {
++                                std::lock_guard<std::mutex> lk(data_mutex_);
++                                imu_ = sample;
++                                cb = imu_callback_;
++                            }
++                            if (cb) cb(sample);  // 在锁外调用，避免 VIO 入队时死锁
+                             break;
+                         }
+                         default:
+@@ -461,6 +468,11 @@
+     return true;
+ }
+ 
++void Communicator::setImuCallback(std::function<void(const ImuData&)> cb) {
++    std::lock_guard<std::mutex> lk(data_mutex_);
++    imu_callback_ = std::move(cb);
++}
++
+ bool Communicator::getSystemTime(SystemTime& out) const {
+     std::lock_guard<std::mutex> lk(data_mutex_);
+     out = system_time_;

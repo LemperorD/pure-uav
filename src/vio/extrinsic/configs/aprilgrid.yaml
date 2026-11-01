@@ -2,6 +2,11 @@
 target_type: aprilgrid
 tagRows: 6
 tagCols: 6
-tagSize: 0.04  # 单个 tag 黑色外框边长，米，必须实测
-tagSpacing: 0.30  # tag 间白色间隙 / tagSize，无量纲
+tagSize: 0.088  # 单个 tag 黑色外框边长，米，必须卡尺实测（不是整板尺寸，不是白格）
+tagSpacing: 0.56  # tag 间白色间隙 / tagSize，无量纲；卡尺量白隙再除以 tagSize
 first_id: 0
+# Kalibr 的 kalibr_create_target_pdf 画 tag 时写死 rotation=2，
+# 所以 Kalibr PDF 打出来的板子，每张 tag 在板面坐标里转了 180°，这里必须是 180。
+# 用 cv2.aruco.generateImageMarker 自己拼的板子填 0。
+# 填错的后果：检测照样成功，但 PnP 残差会到 100 px 以上，标定必失败。
+tag_rotation_deg: 180
