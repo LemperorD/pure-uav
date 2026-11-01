@@ -117,7 +117,8 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/driver/communicate/include/communicator.hpp")
     # 用宏把它关掉，避免为一个诊断字段去改别人的公开头文件。
     target_compile_definitions(pure_vio_core PUBLIC PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT)
     target_include_directories(pure_vio_core PUBLIC
-        "${CMAKE_SOURCE_DIR}/src/driver/communicate/include")
+        "${CMAKE_SOURCE_DIR}/src/driver/communicate/include"
+        "${CMAKE_SOURCE_DIR}/src/common")
     message(STATUS "VisionPose: 复用 src/driver/communicate/include/communicator.hpp")
 endif()
 target_link_libraries(pure_vio_core PUBLIC
