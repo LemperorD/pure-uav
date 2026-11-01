@@ -2,6 +2,10 @@
 
 比例导引（PN）制导律与 3D 拦截仿真。
 
+> 文档位置：`assets/docs/guidance/`
+> 代码位置：`src/guidance/`
+> 相关文档：[任务书](任务书.md) · [后续注意问题](后续注意问题.md)
+
 ## 目录结构
 
 ```text
@@ -61,7 +65,7 @@ src/guidance/
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
 
-单元测试在 `src/test/test_guidance/test_guidance.cpp`（15 组 126 条断言，产物 `bin/test/`）。
+单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 304 条断言，产物 `bin/test/`）。
 > ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
 > 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
 > 只链接 `state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
@@ -160,7 +164,7 @@ v = 18 m/s 时  a_drag ≈ 0.70 m/s² ≈ 7% g
 
 **结论**：打"受恒定重力"的飞镖，APN 的控制代价比 PPN 低一个数量级
 （1.40 vs 22.20 m/s²），因为重力是可预测的常值加速度，补偿它几乎是免费的。
-弹道曲线见 `sim/target_model_plot.png`（`python sim/plot_target.py`）。
+弹道曲线见 `src/guidance/sim/target_model_plot.png`（`python src/guidance/sim/plot_target.py`）。
 
 ## 末端冻结判据（t_go / R）与"加速度的影响"
 
@@ -282,10 +286,10 @@ CIRCLE / SNAKE / 查表连续性）· 末端冻结判据（**t_go 基准 ≡ R �
 画图（需要 matplotlib）：
 
 ```bash
-python sim/plot_sim.py pn_sim_log.csv    # 单场景 4 子图：3D 轨迹 / R(t) / λ̇(t) / |a|(t)
-python sim/plot_compare.py               # 多律对比：λ̇(t) 与 |a|(t)，展示 N_eff 判据
-python sim/plot_sensor.py                # 传感器墙对比：λ̇ / |a| / 测距误差 / 制导模式
-python sim/plot_target.py                # 目标模型：弹道 / 速率衰减 / 加速度
+python src/guidance/sim/plot_sim.py pn_sim_log.csv    # 单场景 4 子图：3D 轨迹 / R(t) / λ̇(t) / |a|(t)
+python src/guidance/sim/plot_compare.py               # 多律对比：λ̇(t) 与 |a|(t)，展示 N_eff 判据
+python src/guidance/sim/plot_sensor.py                # 传感器墙对比：λ̇ / |a| / 测距误差 / 制导模式
+python src/guidance/sim/plot_target.py                # 目标模型：弹道 / 速率衰减 / 加速度
 ```
 
 ## 传感器墙（M4）：三级逼真度
@@ -328,7 +332,7 @@ python sim/plot_target.py                # 目标模型：弹道 / 速率衰减 
 失效模式是**过载饱和**（撞上 `a_max = 30 m/s²`），不是制导发散。拐点在 **~2 px**。
 → 下一步该做的是 **λ̇ 滤波 / 估计器**（M5），或放宽过载上限。
 
-曲线见 `sim/sensor_compare_plot.png`（`python sim/plot_sensor.py`）。
+曲线见 `src/guidance/sim/sensor_compare_plot.png`（`python src/guidance/sim/plot_sensor.py`）。
 
 ## 仿真发现：PPN 的有效导航比
 
@@ -355,7 +359,7 @@ N 扫描实测（最近距离 m）：
 30 m/s² —— 命中纯属临界侥幸，加噪声即脱靶。**所以本仿真默认取 N=6。**
 
 **结论**：PPN 的 N 不能照搬 TPN 的"2~4"，要按 `V_M/V_c` 折算；迎头（`V_c` 大）时
-尤其要放大 N。对比曲线见 `sim/pn_compare_plot.png`（`python sim/plot_compare.py`）。
+尤其要放大 N。对比曲线见 `src/guidance/sim/pn_compare_plot.png`（`python src/guidance/sim/plot_compare.py`）。
 这条已同步进讲义。
 
 ## 参考文档

@@ -1,5 +1,9 @@
 # `src/app/` —— 机载主循环（外壳层）
 
+> 文档位置：`assets/docs/app/`
+> 代码位置：`src/app/`
+> 运行命令均从**仓库根目录**执行。
+
 > 面向对象的那一层：**取数 → 换算 → 调核 → 体检 → 发指令 → 统计**。
 > 内核（`src/guidance/`）一行不改，仍是纯函数 `guidance_step()`。
 
@@ -175,4 +179,4 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | 环形缓冲黑匣子（循环内零 I/O） | ✅ 已完成（§21） |
 | EKF 重置监控（`kEstimatorReset`） | 通信侧给标志 |
 
-详见 `src/guidance/后续注意问题.md` §1（阻塞项）与 §9（缺口）。
+详见 `assets/docs/guidance/后续注意问题.md` §1（阻塞项）与 §9（缺口）。
