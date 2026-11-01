@@ -1,12 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 project(pure_uav_vio_online LANGUAGES CXX)
 
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 # ==============================================================================
 # pure-uav VIO online module
 #
 # 目标：把 IMU + 相机数据变成 pure_uav::VisionPose（给飞控通信模块）
 #
-# 依赖：Eigen3 / OpenCV4 / Boost(system,filesystem,thread,date_time) / Ceres
+# 依赖：Eigen3 / OpenCV4 / Boost(filesystem,thread,date_time) / Ceres
 #       OpenVINS 核心（ov_core + ov_init + ov_msckf，ROS-free，已裁到本项目
 #       third_party/open_vins）
 #
@@ -38,7 +42,7 @@ set(OPENVINS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/open_vins)
 # ------------------------------------------------------------------------------
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
-find_package(Boost 1.65 REQUIRED COMPONENTS system filesystem thread date_time)
+find_package(Boost 1.65 REQUIRED COMPONENTS filesystem thread date_time)
 find_package(Ceres REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -88,7 +92,6 @@ if(PURE_VIO_BUILD_OPENVINS)
     target_link_libraries(openvins_core PUBLIC
         Eigen3::Eigen
         ${OpenCV_LIBS}
-        Boost::system
         Boost::filesystem
         Boost::thread
         Boost::date_time
