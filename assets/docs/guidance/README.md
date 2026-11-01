@@ -5,6 +5,7 @@
 > 文档位置：`assets/docs/guidance/`
 > 代码位置：`src/guidance/`
 > 相关文档：[任务书](任务书.md) · [后续注意问题](后续注意问题.md)
+> 文档索引：[../README.md](../README.md)
 
 ## 目录结构
 
