@@ -1,38 +1,9 @@
 #pragma once
 // =============================================================================
-//  数据对齐适配层（外部口径 → 内部口径的**唯一**换算点）
+//  state_adapter.hpp —— 外部口径 → GuidanceState 的唯一换算点
 //
-//  【存在理由】外部（飞控通信 / 视觉 / VIO / 惯导）与制导模块的内部口径不一致：
-//    · 坐标系  外部常给 NED，制导核内部一律 ENU
-//    · 姿态系  外部给 FRD（x 前 / y 右 / z 下），制导核的"机体"是**光轴系**
-//              （x 右 / y 下 / z 前 —— 相机约定，见《待决问题.md》Q8）
-//    · 单位    外部可能给 mm / cm/s / degE7 / cdeg / ms，制导核一律 SI + rad + s
-//    · 时间    外部基准可能是"开机以来"或 Unix epoch，单位可能是 ms / µs
-//    · 哨兵    MAVLink 有 invalid 约定（UINT16_MAX 等），必须判，不能当合法值
-//
-//  【设计原则】"边界只转一次"（《数据对齐-自决项详解.md》④ 坑 1）：
-//      外部数据 ──►【本文件】──► GuidanceState（内部口径，全程不再转）
-//    一旦进入 GuidanceState，全链路（制导律 / 仿真 / 日志）都**不再做任何换算**。
-//    若在别处再转一次，就会出现"z 翻回去"这类静默 bug。
-//
-//  【分工】单位换算（mm/cm/degE7/cdeg/回绕/哨兵）在 `mavlink_units`；
-//    本文件只做**坐标 / 姿态 / 时间对齐**，单位换算一律转调 `mavlink_units`。
-//    不变量自检见 `state_check.hpp`。
-//
-//  【不依赖任何外部协议库】参数是"裸数值"（不是 MAVLink 结构体），
-//    因此解析侧、仿真侧、机载侧都能链接，不引入 mavros / px4_msgs 依赖。
-//
-//  【内部口径（冻结）】
-//    ┌──────────┬──────────────────────────────────────────────┐
-//    │ 惯性系   │ ENU：x 东 / y 北 / z 上                      │
-//    │ 姿态     │ q = [w,x,y,z]，机体→世界（ENU），|q| = 1     │
-//    │ 时间     │ 秒（double），只取差值；基准由调用方给        │
-//    │ 长度/速度│ m / (m/s)                                    │
-//    │ 加速度   │ m/s²                                         │
-//    │ 角度     │ rad                                          │
-//    │ 视线     │ los_hat = 机→目标单位矢量；r = los_hat · R   │
-//    │ 相对量   │ v_rel = v_T − v_M；r = r_T − r_M             │
-//    └──────────┴──────────────────────────────────────────────┘
+//  坐标/姿态/时间/单位约定与换算公式见 assets/docs/interfaces.md。
+//  本文件只做换算；输入体检见 state_check.hpp。
 // =============================================================================
 
 #include "guidance_types.hpp"      // GuidanceState / PureGuidanceCmd / Vec3
@@ -45,47 +16,15 @@ namespace adapter {
 //  §0  口径枚举
 // ============================================================================
 
-// 惯性坐标系（世界系）
-//
-// ⚠ 约定：**只描述坐标轴的物理指向**，不描述自转/椭球。
-//    · NED：x 北 / y 东 / z 下 —— PX4 uORB、MAVLink 的惯例
-//    · ENU：x 东 / y 北 / z 上 —— ROS、制导核内部（**内部口径**）
-//
-// ★ 2026-10-20 补充（本项目实测约束）：**本机飞控没有 GPS**，飞控给出的 local 局部系
-//   没有真北参考 ⇒ 其航向零点就是 EKF 初始化（上电/起飞）那一刻的**机头方向**：
-//       x = 初始机头方向（不是北）· y = 初始机头右侧（不是东）· z = 下（PX4 惯例不变）
-//   这与"真 NED"只差一个**固定偏航角 θ₀**。本模块照旧按 NED 处理（即 kNed 代表
-//   "以初始机头为 x 轴、z 朝下"的局部系），换算公式与能力完全相同 —— 因为
-//   比例导引全是矢量运算、对惯性系的整体刚性旋转不敏感（交叉/点积在正交变换下不变）。
-//   ⇒ **制导算法不需要任何改动**；真正要注意的是"目标数据必须与 p/v 同系"
-//     （推荐视觉直接给相对量：机体系视线 + 距离，再用 q 转到本系）。
-//
-// 换算（自逆，两行）：`ENU = (N.y, N.x, −N.z)`
+// 惯性系：NED（外部）/ ENU（内部）。无 GPS 时 NED 实为“初始机头对齐 + z 下”，
+// 与真 NED 只差固定偏航角；详见 assets/docs/interfaces.md §2。
 enum class Frame {
-    kNed = 0,   // 北-东-下（★ 无 GPS 时实为"初始机头对齐 + z 下"的局部系）
+    kNed = 0,   // 北-东-下（无 GPS 时实为“初始机头对齐 + z 下”的局部系）
     kEnu = 1,   // 东-北-上（内部口径）
 };
 
-// 机体系（姿态四元数所在的机体轴定义）
-//
-// ⚠⚠ 这是本项目**尚未与飞控通信定案**的一项（《待决问题.md》Q8）：
-//    对方给的是 FRD 还是别的，需要一次对话确认。但在那之前**不阻塞** ——
-//    本文件把"到底哪个系"变成一个**入参**，定案后只改调用处的一个值。
-//
-// 各系的三轴物理指向（前/右/下）：
-//   · kFrd       : x=前    y=右     z=下     ← PX4 / MAVLink 惯例（x 前）
-//   · kFlu       : x=前    y=左     z=上     ← ROS / 航空 FLU
-//   · kCamFrd    : 光轴系，**在 FRD 语义下**给出（相机约定 x 右 / y 下 / z 前）
-//                  —— 与 kFrd 的关系是循环置换 (x,y,z)_cam = (y,z,x)_frd，det=+1
-//   · kCamFlu    : 光轴系，**在 FLU 语义下**给出
-//                  —— 与 kFlu 的关系同样是循环置换，det=+1
-//   · kOpticalPassthrough : 对方已经按"光轴系"给了 q ⇒ **直通不转**
-//                  （制导核的 `quat_from_forward` 产生的就是这种 q：
-//                   它把机体 +z 对齐前向，且 +z = 光轴 ⇒ 与制导核自洽）
-//
-//   ⇒ 制导核期望的是 **kCamFrd / kCamFlu / kOpticalPassthrough** 三者之一；
-//     飞控/MAVLink 直接给的通常是 **kFrd**。默认值取 kFrd（最常见的外部来源），
-//     但**真实值必须由对方确认**，不要凭默认值上线。
+// 外部机体系 → 光轴系。默认 kFrd；真实值必须由通信/视觉确认（Q8）。
+// 各系定义与换算见 assets/docs/interfaces.md §3。
 enum class AttitudeFrame {
     kFrd = 0,               // x 前 / y 右 / z 下
     kFlu = 1,               // x 前 / y 左 / z 上
@@ -101,12 +40,8 @@ enum class TimeUnit {
     kMicros  = 2,   // µs（PX4 uORB `timestamp`：uint64，实际不回绕）
 };
 
-// 时间戳基准
-//
-// ⚠ 本枚举**不参与数值运算**，只用于记录/断言"两端是否同源"。
-//   原因：制导只消费**同源差值**（t_rel = t − t_ref），
-//   只要两端来自同一时钟，基准本身无所谓（见《坐标系与时间基准.md》）。
-//   真正会出事的是**跨源相减**：把"开机以来"与"Unix epoch"两个数相减 = 垃圾。
+// 时间基准：只用于记录/断言“两端是否同源”；跨源相减会静默给出垃圾。
+// 详见 assets/docs/interfaces.md §4。
 enum class TimeBase {
     kSameSource = 0,    // 与参考时标同源（唯一安全的情况）
     kSinceBoot  = 1,    // 开机以来（MAVLink time_boot_ms）
@@ -114,7 +49,7 @@ enum class TimeBase {
     kUnknown    = 3,    // 未知 → 使用前后应警觉
 };
 
-// ⚠ 关键不变量：**同一帧数据的所有时间戳必须同源**。
+// 关键不变量：**同一帧数据的所有时间戳必须同源**。
 //    跨源相减不会报错，只会静默给出垃圾差值。
 inline bool is_safe_to_difference(TimeBase a, TimeBase b) noexcept {
     return a == TimeBase::kSameSource && b == TimeBase::kSameSource;
@@ -209,19 +144,8 @@ double timestamp_u32_ms_to_s(uint32_t raw_ms, uint32_t t_ref_ms = 0u) noexcept;
 // uint64 版本（PX4 uORB `timestamp`，µs）。
 double timestamp_u64_us_to_s(uint64_t raw_us, uint64_t t_ref_us = 0u) noexcept;
 
-// 时间轴跟踪器：把外部时标序列**累加**成单调不减的内部秒。
-//
-// 为什么不让调用方自己写 `(now − first) * 1e-6`：那样有两个坑 ——
-//   ① uint32 ms 回绕（约 49.7 天）会让差值变成巨大负数；
-//   ② uint64 µs 的**绝对差**在 uptime 很大时会超过 2^53，double 转换丢精度
-//      （本机 SITL 实测 timestamp ≈ Unix epoch µs ≈ 1.79e15 < 2^53 ≈ 9.0e15，
-//       目前安全，但"先相减再转 double"是不必要的风险）。
-// 本类改为**累加每帧差值**（差值总是小量，恒定精度），并天然容纳回绕。
-//
-// 用法：
-//   StateTimeTracker tr;                       // 或 tr.set_reference_us(t_launch_us)
-//   tr.push_u64_us(px4_timestamp_us);
-//   st.t = tr.t_s();                           // 内部秒
+// 时间轴跟踪器：累加每帧差值，天然容纳 uint32 回绕、避免 2^53 精度问题。
+// 接口/用法见 assets/docs/interfaces.md §4.4。
 class StateTimeTracker {
 public:
     // ---- 输入：每帧推一个原始时间戳 ----

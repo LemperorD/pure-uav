@@ -48,6 +48,12 @@
 - `guidance_loop` 的时间戳/ω → [decisions/0003-los-rate-source.md](decisions/0003-los-rate-source.md)；
 - CSV 格式 → [app/csv-format.md](app/csv-format.md)。
 
+### 接口/架构/测试文档（本次）
+
+- `state_adapter` / `state_check` 的坐标/时间/体检长注释 → [interfaces.md](interfaces.md)；
+- `guidance_loop` 的完整一拍流程 → [architecture.md](architecture.md)；
+- 三个测试文件的覆盖矩阵 → [testing.md](testing.md)。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

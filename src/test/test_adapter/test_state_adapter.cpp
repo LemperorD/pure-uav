@@ -1,23 +1,10 @@
-// 数据对齐适配层单元测试 —— 王乙芃
+// 数据对齐适配层单元测试
 //
-// 风格：无外部测试框架，纯 main() + 轻量断言（与仓库 test_math / test_guidance /
-//       test_mavlink_units 一致）。
+// 覆盖：NED↔ENU / 时间对齐与回绕 / 姿态（外部机体系→光轴系）/ 四元数交叉验证
+//       / 组装 GuidanceState / 上游模拟 / 不变量自检 / quick_check。
+// 测试矩阵与基线见 assets/docs/testing.md。
 //
-// 覆盖：
-//    1. 坐标系换算 NED↔ENU（自逆、往返、轴向映射）
-//    2. 时间对齐：单位换算、uint32 回绕、StateTimeTracker（含"先相减再转 double"陷阱）
-//    3. ★★ 姿态换算：外部机体系 → 光轴系（5 种外部口径 × 2 种世界系），用
-//       "光轴系三轴在世界系下的指向"做**独立参考实现**逐例比对
-//    4. ★ 与 guidance_libs 的 quat_rotate_vec 交叉验证（两份实现必须一致）
-//    5. 组装 GuidanceState（fill_ins / fill_target / to_guidance_state）
-//       + 输出换算 accel_enu → cmd_accel_ned
-//    6. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
-//       GuidanceState —— 这是本模块存在意义的直接证明
-//    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
-//    8. ★ 廉价体检 quick_check（飞行回路专用）：逐条用例 + 与完整体检的
-//       **error 级判定完全等价**（两套判据最怕漂移，故钉在一起）
-//
-// 运行：./bin/test/test_state_adapter   （退出码 0=全过，1=有失败）
+// 运行：./bin/test/test_state_adapter（退出码 0=全过，1=有失败）
 
 #include <cmath>
 #include <cstdint>

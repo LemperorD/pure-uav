@@ -1,21 +1,9 @@
-// MAVLink 单位换算模块单元测试 —— 王乙芃
+// MAVLink 单位换算模块单元测试
 //
-// 风格：无外部测试框架，纯 main() + 轻量断言（与仓库 test_math / test_guidance 一致）。
+// 覆盖：长度/速度/角度/角速度/时间、uint32 回绕、取整/饱和、哨兵、往返精度。
+// 测试矩阵与基线见 assets/docs/testing.md。
 //
-// 覆盖：
-//    1. 长度 / 速度（mm·cm·m、cm/s·m/s）
-//    2. 角度：deg ↔ rad
-//    3. 角度：cdeg（MAVLink 的 degrees*100）
-//    4. 角度：degE7（MAVLink 的 lat/lon）
-//    5. 角速度：deg/s ↔ rad/s
-//    6. ★ 角度归一化与角差（±π 边界、358° 假跳变）
-//    7. 时间：s / ms / us
-//    8. ★★ uint32 毫秒回绕（约 49.7 天）—— 本模块最容易被忽略的边界
-//    9. ★ 取整 / 饱和 / 环绕（写回 MAVLink 整型字段）
-//   10. ★ 哨兵值（MAVLink 的 invalid 约定）
-//   11. 精度：往返一致性
-//
-// 运行：./bin/test/test_mavlink_units   （退出码 0=全过，1=有失败）
+// 运行：./bin/test/test_mavlink_units（退出码 0=全过，1=有失败）
 
 #include <cmath>
 #include <cstdint>
