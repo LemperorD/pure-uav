@@ -3,3 +3,7 @@ __pycache__/
 data/
 *.bag
 *.log
+
+# 根 .gitignore 的 `core`（本意是 core dump）会误伤 OpenVINS 的 ov_msckf/src/core/ 目录，
+# 那里是 VioManager 等核心文件，必须提交。
+!estimator/third_party/open_vins/ov_msckf/src/core/

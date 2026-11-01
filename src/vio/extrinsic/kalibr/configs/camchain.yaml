@@ -1,0 +1,18 @@
+# 合并 session12/13/14 共 120 张图，最终用 70 张，RMS 0.4398 px
+cam0:
+  camera_model: pinhole
+  intrinsics:
+  - 1367.4658173342903
+  - 1367.6341554321696
+  - 971.4601685499954
+  - 550.6220367628755
+  distortion_model: radtan
+  distortion_coeffs:
+  - 0.08964473650496996
+  - -0.14841847706148828
+  - -0.0008931590312782545
+  - 0.0007876099113566921
+  resolution:
+  - 1920
+  - 1080
+  rostopic: /cam0/image_raw
