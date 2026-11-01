@@ -112,7 +112,27 @@ bin/detect_rt
 env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 ```
 
-### 4.1 远程实时查看带框画面（mjpg-streamer）
+### 4.1 远程实时查看带框画面
+
+依赖`mjpg-streamer`，需要先在`../`中执行`git clone https://github.com/jacksonliam/mjpg-streamer.git`并编译安装。
+
+> `mjpg-streamer`的使用方式：
+>
+> ```bash
+> # ubuntu系统
+> sudo apt-get install -y cmake libjpeg8-dev
+> # debian系统
+> sudo apt-get install -y cmake libjpeg62-turbo-dev
+> git clone https://github.com/jacksonliam/mjpg-streamer.git
+> cd mjpg-streamer/mjpg-streamer-experimental
+> make -j4
+> sudo make install
+> export LD_LIBRARY_PATH=.
+> # video0按实际设备序号修改(使用v4l2-ctl --list-devices查看)
+> sudo ./mjpg_streamer -i "./input_uvc.so -d /dev/video0 -u -f 30" -o "./output_http.so -w ./www"
+> ```
+>
+> 在浏览器中输入 `http://192.168.3.163:8080/` 查看实时画面。
 
 相机只能被一个进程采集：`detect_rt` 用 Orbbec SDK 打开相机时，原来的
 `input_uvc` 版 mjpg-streamer 必须停掉。推荐用仓库脚本一键启动：
@@ -141,7 +161,7 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 `detect_rt` 先把带框图写成 `frame_tmp.bin`，再原子 `rename` 成 `frame.jpg`；
 临时文件故意不用 `.jpg` 扩展名，`input_file --existing` 扫描目录时不会把它当成视频帧。
 
-⚠ 不要用 `input_file` 的 inotify 模式（`-r -n frame.jpg`）：写入速率一高，
+不要用 `input_file` 的 inotify 模式（`-r -n frame.jpg`）：写入速率一高，
 inotify 事件会堆积，而该插件每次 `read` 只处理第一个事件，实测输出会掉到约 1 FPS。
 `--existing` 模式按 `-d` 固定延迟轮询 `frame.jpg`，实测稳定在约 20 FPS。
 
@@ -160,9 +180,12 @@ $MJPG/mjpg_streamer \
   -o "$MJPG/output_http.so -p 8080 -w $MJPG/www"
 ```
 
-实测：640×480@60 采集、约 45 FPS 处理、11.5 ms 推理时，
-`http://<板子IP>:8080/?action=stream` 返回 `multipart/x-mixed-replace` 带框视频流，
-稳态约 19.8 FPS。
+停止当前推流：
+
+```bash
+pkill -x detect_rt
+pkill -f "output_http.so -p 8080"
+```
 
 ## 5. 库接口
 
