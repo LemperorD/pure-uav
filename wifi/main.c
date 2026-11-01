@@ -24,6 +24,7 @@
   #include <netinet/in.h>
   #include <arpa/inet.h>
   #include <unistd.h>
+  #include <time.h>
   #define CLOSE_SOCK close
   #define SOCKET_T   int
   #define INVALID_SOCKET (-1)
