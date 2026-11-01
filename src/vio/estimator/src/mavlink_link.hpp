@@ -35,6 +35,8 @@ public:
         int system_time_interval_us = 1000000; // 1 Hz
         int heartbeat_interval_ms = 1000;      // 本机心跳
         bool send_heartbeat = true;
+        int send_timeout_ms = 200;            // 总写入期限，避免串口背压卡死停机
+        int heartbeat_timeout_ms = 3000;
         size_t max_imu_queue = 2000;           // 200Hz 下约 10 秒
         // 【2026-10-29】目标飞控身份。0 = 自动锁定（首个"像飞控"的心跳）。
         // 锁定后只接受该 sysid/compid 的心跳；地面站/机载计算机/其他飞行器的心跳一律忽略。
@@ -46,6 +48,7 @@ public:
     struct TimedImu {
         ImuSample imu;
         int64_t host_ns = 0;  // 收到该帧时的主机单调时钟
+        uint64_t session = 0; // 接收时的会话代数，防止消费跨会话队列
     };
 
     MavlinkLink() = default;
@@ -65,7 +68,7 @@ public:
     // 没收到过心跳时返回 false（= 当成"地面"），这样纯手持/无飞控的场景行为不变。
     bool armed() const { return armed_.load(); }
     uint8_t fcuSysId() const { return fcu_sysid_.load(); }
-    // 【2026-10-29】串口重连次数。每次"设备掉线后重新打开成功" +1。
+    // 【2026-10-29】串口重连次数。每次设备重开成功或心跳超时 +1。
     // vio_live 用它判定"新会话，时间基要重来"。
     uint64_t reconnectCount() const { return reconnects_.load(); }
     bool targetLocked() const { return locked_sysid_.load() != 0; }
@@ -86,7 +89,7 @@ public:
     /// reset_counter=0 —— 飞控完全不知道数据可信度和"我们重置过"。
     /// 重建后位姿会跳变，不告诉飞控重置会导致它把跳变当成真实运动。
     /// @param quality        0-100 可信度（0 = 未知；本函数把越界值夹到 0..100）
-    /// @param reset_counter  估计器重建次数（必须单调增长，飞控据此处理重锚定跳变）
+    /// @param reset_counter  估计器重建次数（每次重建递增，按 uint8 回绕，飞控据此处理重锚定跳变）
     /// @param pos_sigma_m    位置标准差估计（米，<=0 表示未知 → 协方差填 NaN）
     /// @param vel_sigma_mps  速度标准差估计（m/s，<=0 表示未知 → 协方差填 NaN）
     /// 【2026-10-28】修掉字段顺序 bug。MAVLink 的 pack 签名最后三个参数是
@@ -129,11 +132,12 @@ public:
 private:
     void recvLoop();
     void requestStreams();
-    bool sendBytes(const uint8_t* buf, uint16_t len);
+    bool sendBytes(const uint8_t* buf, uint16_t len, bool require_connected = false);
     bool writeAll(int fd, const uint8_t* buf, size_t len);
     void pushImu(const TimedImu& item);
     // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
     bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
+    void invalidateSession();
     void handleLinkLoss(const char* why);   // 关闭 fd、清状态/队列，等重连
     bool tryReopen(std::string* error);     // 尝试重新打开串口
 

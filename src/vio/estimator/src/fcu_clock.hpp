@@ -33,7 +33,7 @@ public:
     enum class AddResult {
         kOk,             // 正常样本，已纳入偏移估计
         kOutOfOrder,     // 重复或轻微回退（< kRollbackUs），丢弃，不影响估计
-        kTimebaseReset,  // 飞控时间戳大幅回退 = 飞控重启/换了时间基；旧样本已清空
+        kTimebaseReset,  // 飞控时间戳大幅回退/向前跳变；旧样本已清空
     };
 
     FcuClock() = default;

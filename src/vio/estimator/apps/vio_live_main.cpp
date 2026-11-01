@@ -38,6 +38,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "fcu_clock.hpp"
+#include "live_timing.hpp"
 #include "live_view.hpp"
 #include "mavlink_link.hpp"
 #include "orbbec_camera.hpp"
@@ -59,6 +60,7 @@ int64_t steadyNowNs() {
 struct FrameItem {
     cv::Mat gray;
     int64_t host_ns = 0;
+    uint64_t mapped_fcu_us = 0; // 等待 IMU 时固定本帧时间，不重复加入相机平滑窗口
     int64_t device_us = 0;   // 【2026-10-23】相机自己的时间戳（稳定，不含主机调度抖动）
     int64_t depth_dev_us = 0; // 【2026-10-25】深度帧自己的设备时间戳（和彩色同源时钟）
     cv::Mat depth;   // 对齐到彩色的深度（毫米，CV_16UC1）；没开深度时空
@@ -76,7 +78,7 @@ void printUsage(const char* argv0) {
         "  --fps N             彩色帧率（默认 30）\n"
         "  --csv-out PATH      VisionPose CSV 输出（默认 out/live_pose.csv）\n"
         "  --tum-out PATH      TUM 轨迹输出（默认 out/live_traj.tum，含所有估计位姿）\n"
-        "  --safe-tum-out PATH 只写「实际发出」的位姿（健康门限通过的），给 RViz 看用\n"
+        "  --safe-tum-out PATH 只写串口发送成功的位姿（--no-send 时为空），给 RViz 看用\n"
         "  --imu-log PATH      把原始 IMU 存成 CSV（t_us,ax,ay,az,gx,gy,gz）\n"
         "  --imu-ts MODE       IMU 时间戳处理：uniform(默认，去抖) | raw(原样喂)\n"
         "  --max-exposure-ms M  曝光硬上限（默认 15）。模糊预算更大时可以抬高换亮度；\n"
@@ -750,9 +752,9 @@ int main(int argc, char** argv) {
     std::thread vio_thread([&]() {
         pure_uav::FcuClock clock;
         std::optional<FrameItem> pending;
-        double imu_ts_uni_us = -1.0;   // IMU 时间戳去抖状态（见 --imu-ts）
-        uint64_t imu_prev_raw_us = 0;  // 上一个原始 IMU 时间戳，用来检测时间基跳变
-        int64_t imu_prev_host_ns = 0;  // 上一个 IMU 的主机到达时刻（单调，不会跳）
+        pure_uav::ImuTimestampFilter imu_timestamp_filter;
+        uint64_t last_raw_imu_us = 0;
+        uint64_t last_fed_imu_us = 0;
         bool imu_stream_ok = false;    // IMU 时间戳流是否已稳定（预热闸门）
         int imu_warmup_left = 150;     // 预热窗口：丢掉启动后前 150 个 IMU 样本
         long long imu_skipped = 0;     // 被跳过的跳变/丢包样本数
@@ -812,9 +814,8 @@ int main(int argc, char** argv) {
             last_sent_ts = 0;              // 恢复后第一帧必须发出去
             pose_age_ms.clear();
             vio_vs_ekf3_ms.clear();
-            imu_prev_raw_us = 0;           // IMU 去抖 + PLL 状态
-            imu_prev_host_ns = 0;
-            imu_ts_uni_us = -1.0;
+            imu_timestamp_filter.reset();
+            last_raw_imu_us = last_fed_imu_us = 0;
             was_blocked = true;            // 让恢复时打印"恢复发送"
             estimator.resetForNewTimebase(why);
             stats_timebase_resets.fetch_add(1);
@@ -853,6 +854,8 @@ int main(int argc, char** argv) {
             // 5.1 把队列里的 IMU 全部喂进去，同时更新主机↔飞控时钟
             pure_uav::MavlinkLink::TimedImu imu_item;
             while (link.popImu(imu_item)) {
+                // 超时/重连可能发生在出队同时，旧会话样本不再进入估计器。
+                if (imu_item.session != link.reconnectCount()) continue;
                 //=======================================================================
                 // 【2026-10-21】IMU 流预热：等时间戳稳定了再开始喂
                 // 实测启动后前 53 个样本带着上一轮的时间基，然后跳到真实 FCU 时钟（跳 249.6 秒）。
@@ -865,24 +868,25 @@ int main(int argc, char** argv) {
                     // 实测旧时间基块最多到第 53 个样本，丢 150 个确保跨过去；
                     // 不能用"连续 40 个 dt 都在 3–8 ms"做判据——真实流是 2.5/7.5 ms 交替，
                     // 那样永远凑不满（上一版就是这么把 IMU 全丢光的）。
-                    imu_prev_raw_us = imu_item.imu.timestamp_us;
-                    imu_prev_host_ns = imu_item.host_ns;
                     if (--imu_warmup_left > 0) { ++imu_warmup_total; continue; }
                     imu_stream_ok = true;
-                    imu_ts_uni_us = static_cast<double>(imu_item.imu.timestamp_us);
                     std::printf("[imu] 预热完成（丢弃 %lld 个样本），开始喂 IMU\n", imu_warmup_total);
                     std::fflush(stdout);
                 }
                 // 串口重连也算一次时间基变化（新会话的 boot 时间很可能重新开始）
-                if (link.reconnectCount() != last_reconnect_count) {
-                    last_reconnect_count = link.reconnectCount();
-                    onFcuTimebaseReset("串口重连");
+                if (imu_item.session != last_reconnect_count) {
+                    last_reconnect_count = imu_item.session;
+                    onFcuTimebaseReset("连接会话变化");
                 }
+                const bool imu_gap = last_raw_imu_us != 0 &&
+                    imu_item.imu.timestamp_us > last_raw_imu_us &&
+                    imu_item.imu.timestamp_us - last_raw_imu_us > 100000;
                 const auto clock_res =
                     clock.addSample(imu_item.host_ns, imu_item.imu.timestamp_us);
-                if (clock_res == pure_uav::FcuClock::AddResult::kTimebaseReset) {
+                if (clock_res == pure_uav::FcuClock::AddResult::kTimebaseReset || imu_gap) {
                     // FcuClock 已清空旧样本；本帧作为新时间基的第一帧继续往下喂。
-                    onFcuTimebaseReset("飞控重启/时间戳回退");
+                    onFcuTimebaseReset(imu_gap ? "IMU 中断超过 100ms" : "飞控时间戳跳变");
+                    clock.addSample(imu_item.host_ns, imu_item.imu.timestamp_us);
                 } else if (clock_res == pure_uav::FcuClock::AddResult::kOutOfOrder) {
                     stats_imu_out_of_order.fetch_add(1);   // 乱序帧不喂 OpenVINS（会破坏时间递增）
                     continue;
@@ -915,39 +919,15 @@ int main(int argc, char** argv) {
                             std::fflush(stdout);
                         }
                     }
-                    const double dt_nom_us = 1e6 / eff_hz;
-                    const double raw = static_cast<double>(imu_item.imu.timestamp_us);
-                    if (imu_ts_uni_us < 0.0 || imu_prev_raw_us == 0) {
-                        // 首个样本：直接锚定
-                        imu_ts_uni_us = raw;
-                        imu_prev_raw_us = imu_item.imu.timestamp_us;
-                        imu_prev_host_ns = imu_item.host_ns;
-                    } else {
-                        const double d_raw = raw - static_cast<double>(imu_prev_raw_us);
-                        // 用**主机单调时钟**做跳变判据：host_ns 不会跳，FCU 的 time_usec 会跳
-                        // （实测启动后第 9–53 个样本会跳 126–250 秒，而且那段旧时间基内部间隔
-                        //   也是正常的 5 ms，只看 dt 抓不到）。两者不一致超过 50 ms 就是跳变。
-                        const double d_host_us =
-                            static_cast<double>(imu_item.host_ns - imu_prev_host_ns) * 1e-3;
-                        const bool clock_jump = std::abs(d_host_us - d_raw) > 50000.0;
-                        if (clock_jump || d_raw < 0.3 * dt_nom_us || d_raw > 3.0 * dt_nom_us) {
-                            // 时间基跳变或丢包：**丢掉这一帧，但输出网格保持连续**（不跟着跳），
-                            // 否则 OpenVINS 会试图在两帧之间传播几百秒，直接发散。
-                            imu_prev_raw_us = imu_item.imu.timestamp_us;
-                            imu_prev_host_ns = imu_item.host_ns;
-                            ++imu_skipped;
-                            continue;
-                        }
-                        imu_prev_raw_us = imu_item.imu.timestamp_us;
-                        imu_prev_host_ns = imu_item.host_ns;
-                        imu_ts_uni_us += dt_nom_us;                       // 均匀网格
-                        imu_ts_uni_us += 0.03 * (raw - imu_ts_uni_us);    // 慢速 PLL 拉回，跟踪长期速率
+                    if (!imu_timestamp_filter.filter(imu_item.imu.timestamp_us, 1e6 / eff_hz,
+                                                     imu_feed.timestamp_us)) {
+                        ++imu_skipped;
+                        continue;
                     }
-                    imu_feed.timestamp_us = static_cast<uint64_t>(std::llround(imu_ts_uni_us));
-                } else {
-                    imu_prev_raw_us = imu_item.imu.timestamp_us;
                 }
+                last_raw_imu_us = imu_item.imu.timestamp_us;
                 estimator.feedImu(imu_feed);
+                last_fed_imu_us = imu_feed.timestamp_us;
                 if (rec_imu_csv) {
                     // 录"实际喂给估计器的时间戳"（= 去抖后的），这样回放能 1:1 复现实时行为。
                     std::fprintf(rec_imu_csv, "%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n",
@@ -995,7 +975,9 @@ int main(int argc, char** argv) {
                     // 偏移里只剩"链路+排队延迟"（慢变），取近 2 s 中位数压掉抖动。
                     // 设备时钟与 FCU 时钟的晶振漂移由这个滑动中位数跟踪。
                     //=================================================================
-                    if (cam_ts_device && pending->device_us > 0) {
+                    if (pending->mapped_fcu_us != 0) {
+                        fcu_us = pending->mapped_fcu_us;
+                    } else if (cam_ts_device && pending->device_us > 0) {
                         const int64_t off_i = static_cast<int64_t>(fcu_us) - pending->device_us;
                         cam_off_us.push_back(off_i);
                         while (cam_off_us.size() > 90) cam_off_us.pop_front();
@@ -1013,7 +995,7 @@ int main(int argc, char** argv) {
                         }
                         // 记录喂给 VIO 的时间戳间隔，用于和主机侧抖动对比
                         if (prev_fed_us > 0) {
-                            const double d = static_cast<double>(fcu_us - prev_fed_us);
+                            const double d = static_cast<double>(fcu_us) - static_cast<double>(prev_fed_us);
                             if (d > 0 && d < 200000) {
                                 fed_dt_ms.push_back(d * 1e-3);
                                 if (fed_dt_ms.size() > 400) fed_dt_ms.pop_front();
@@ -1021,10 +1003,15 @@ int main(int argc, char** argv) {
                         }
                         prev_fed_us = fcu_us;
                     }
-                    const uint64_t last_imu_us = link.lastImuTimestampUs();
+                    pending->mapped_fcu_us = fcu_us;
                     const int64_t waited_ns = steadyNowNs() - pending_since_ns;
-                    // 等一个时间戳晚于图像的 IMU（保证传播能覆盖到图像时刻），最多等 100ms
-                    if (last_imu_us > fcu_us || waited_ns > 100000000LL) {
+                    // 以实际喂给估计器的 IMU 和标定时间偏移判断覆盖。超时丢图，不能强行传播。
+                    const bool covered = pure_uav::imuCoversImage(
+                        last_fed_imu_us, fcu_us, estimator.cameraTimeOffsetSec());
+                    if (!covered && waited_ns > 100000000LL) {
+                        pending.reset();
+                        stats_drop_no_clock.fetch_add(1);
+                    } else if (covered) {
                         // 【2026-10-25】深度用它自己的时间戳，不再冒充彩色时间戳。
                         // 两个设备时间戳同源，所以(color_fcu - color_dev) 的偏移对深度同样成立。
                         uint64_t depth_fcu_us = fcu_us;
@@ -1092,7 +1079,8 @@ int main(int argc, char** argv) {
                             // --no-send 模式下不拿链路状态做门（没有飞控只是演示），
                             // 但健康门限照旧生效。
                             const bool gate_ok =
-                                !send || (link.connected() && !timebase_recovering);
+                                !send || (link.connected() && !timebase_recovering &&
+                                          link.reconnectCount() == last_reconnect_count);
                             if (!estimator.publishable() || !gate_ok) {
                                 stats_blocked.fetch_add(1);
                                 if (!was_blocked) {
@@ -1118,7 +1106,6 @@ int main(int argc, char** argv) {
                                                 pure_uav::toString(h.state), h.features, h.recoveries);
                                     std::fflush(stdout);
                                 }
-                                safe_logger.log(pose);   // 只记"健康门限通过"的位姿，给 RViz 看实际输出
                                 // 【2026-10-22】把可信度、重建次数、协方差一起发出去：
                                 //   OK -> 质量 90 / 位置 σ 0.15 m / 速度 σ 0.25 m/s
                                 //   DEGRADED -> 质量 50 / 位置 σ 0.5 m / 速度 σ 0.8 m/s
@@ -1128,8 +1115,9 @@ int main(int argc, char** argv) {
                                 const float ps = (hs == pure_uav::VioHealthState::OK) ? 0.15f : 0.5f;
                                 const float vs = (hs == pure_uav::VioHealthState::OK) ? 0.25f : 0.8f;
                                 const uint8_t rc =
-                                    static_cast<uint8_t>(std::min<long long>(estimator.rebuildCount(), 255));
+                                    pure_uav::odometryResetCounter(estimator.rebuildCount());
                                 if (send && link.sendVisionPose(pose, q, rc, ps, vs)) {
+                                    safe_logger.log(pose);
                                     stats_sent.fetch_add(1);
                                 }
                             }

@@ -4,8 +4,8 @@
 // 不接相机、不跑估计器，只按 scripts 里的轨迹以 30 Hz 发 ODOMETRY。
 //
 // 前提：串口另一头是飞控（会发 HEARTBEAT + HIGHRES_IMU）。时间戳必须落在飞控
-// boot 时间域，所以这里用第一帧 HIGHRES_IMU 的 time_usec 做锚点，再用主机单调
-// 时钟外推——和 vio_live 用的是同一套时间基准。
+// boot 时间域，持续用 FcuClock 跟踪 IMU。重启、时钟跳变或失联时中止本轮测试，
+// 防止继续发送旧时间基准的数据；重新运行会重新建立映射。
 //
 // 用法：
 //   ./bin/odometry_sender --serial /dev/ttyACM0 --baud 921600
@@ -28,6 +28,7 @@
 #include "common/mavlink.h"
 
 #include "mavlink_link.hpp"
+#include "fcu_clock.hpp"
 #include "odom_tool_core.hpp"
 
 namespace {
@@ -104,6 +105,11 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+    if (!std::isfinite(rate_hz) || !std::isfinite(wait_s) || !std::isfinite(run_s) ||
+        wait_s <= 0.0 || run_s < 0.0) {
+        std::fprintf(stderr, "频率/等待时间必须有限且为正，时长必须非负\n");
+        return 2;
+    }
     if (rate_hz < 4.0) {
         std::fprintf(stderr, "发送频率至少要 4 Hz（ArduPilot 外部定位要求），当前 %.1f\n", rate_hz);
         return 2;
@@ -138,21 +144,43 @@ int main(int argc, char** argv) {
     std::printf("[sender] 飞控已连接 sysid=%u，等待 HIGHRES_IMU 建立时间基准…\n",
                 static_cast<unsigned>(link.fcuSysId()));
 
-    while (link.lastImuTimestampUs() == 0 && !g_stop.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    pure_uav::FcuClock clock;
+    const uint64_t session = link.reconnectCount();
+    int64_t last_imu_host_ns = 0;
+    bool timebase_changed = false;
+    auto collectImu = [&]() {
+        pure_uav::MavlinkLink::TimedImu item;
+        while (link.popImu(item)) {
+            if (item.session != session) {
+                timebase_changed = true;
+                break;
+            }
+            const auto result = clock.addSample(item.host_ns, item.imu.timestamp_us);
+            if (result == pure_uav::FcuClock::AddResult::kTimebaseReset) {
+                timebase_changed = true;
+                break;
+            }
+            if (result == pure_uav::FcuClock::AddResult::kOk)
+                last_imu_host_ns = item.host_ns;
+        }
+    };
+    const int64_t imu_deadline = steadyNowNs() + static_cast<int64_t>(wait_s * 1e9);
+    while (!clock.valid() && !g_stop.load() && steadyNowNs() < imu_deadline &&
+           link.connected() && link.reconnectCount() == session && !timebase_changed) {
+        collectImu();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    if (link.lastImuTimestampUs() == 0) {
-        std::fprintf(stderr, "[sender] 没收到 HIGHRES_IMU，拿不到飞控 boot 时间，无法发 ODOMETRY。\n"
-                             "         确认飞控在推 IMU（或先用 vio_live --dump-params 检查链路）。\n");
+    if (!clock.valid() || timebase_changed || !link.connected() ||
+        link.reconnectCount() != session || g_stop.load()) {
+        std::fprintf(stderr, "[sender] 未在 %.2f s 内建立稳定 IMU 时间基准，或等待期间会话变化，退出。\n",
+                     wait_s);
         link.stop();
         return 1;
     }
 
     const int64_t t0_host_ns = steadyNowNs();
-    const uint64_t t0_fcu_us = link.lastImuTimestampUs();
-    std::printf("[sender] 时间基准：飞控 %llu us / 主机 %lld ns。开始脚本（约 %.0f s）\n",
-                static_cast<unsigned long long>(t0_fcu_us),
-                static_cast<long long>(t0_host_ns), pure_uav::odom_tool::scriptDuration());
+    std::printf("[sender] 时间基准已建立（%zu 个 IMU 样本）。开始脚本（约 %.0f s）\n",
+                clock.sampleCount(), pure_uav::odom_tool::scriptDuration());
     std::fflush(stdout);
 
     const double period_s = 1.0 / rate_hz;
@@ -161,7 +189,15 @@ int main(int argc, char** argv) {
     uint64_t sent = 0, failed = 0;
     int64_t last_report_ns = t0_host_ns;
 
+    bool aborted = false;
     while (!g_stop.load()) {
+        collectImu();
+        if (timebase_changed || link.reconnectCount() != session || !link.connected() ||
+            steadyNowNs() - last_imu_host_ns > 500000000LL) {
+            std::fprintf(stderr, "[sender] 飞控会话/时间基准变化或 IMU 超过 500ms 未更新，停止发送；请重新运行测试。\n");
+            aborted = true;
+            break;
+        }
         const int64_t now_ns = steadyNowNs();
         double t_s = static_cast<double>(now_ns - t0_host_ns) * 1e-9;
         const double duration = pure_uav::odom_tool::scriptDuration();
@@ -190,7 +226,10 @@ int main(int argc, char** argv) {
 
         const auto sample = pure_uav::odom_tool::sampleScript(t_s);
         pure_uav::VisionPose pose;
-        pose.timestamp_us = t0_fcu_us + static_cast<uint64_t>((now_ns - t0_host_ns) / 1000);
+        if (!clock.hostToFcuUs(now_ns, pose.timestamp_us)) {
+            aborted = true;
+            break;
+        }
         pose.frame_id = pure_uav::VisionFrame::LOCAL_FRD;
         pose.child_frame_id = pure_uav::VisionFrame::BODY_FRD;
         pose.x = sample.x;
@@ -231,5 +270,5 @@ int main(int argc, char** argv) {
         std::printf("[sender] 有失败帧：优先检查串口是否被别的程序占用/线是否松。\n");
     }
     link.stop();
-    return failed == 0 ? 0 : 1;
+    return !aborted && failed == 0 ? 0 : 1;
 }

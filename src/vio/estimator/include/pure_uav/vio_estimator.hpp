@@ -142,6 +142,8 @@ public:
     int imageCount() const;
     int poseCount() const;
     uint64_t lastPoseTimestampUs() const;
+    // 估计器所属线程读取；图像需要 IMU 覆盖到 t_camera + 此偏移。
+    double cameraTimeOffsetSec() const;
     double initializedTimeSec() const;  // OpenVINS 初始化时刻（输入时钟的秒）
     const VisionPoseConvert& converter() const;
 

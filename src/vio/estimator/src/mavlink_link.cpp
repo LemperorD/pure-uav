@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <utility>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,13 @@
 namespace pure_uav {
 
 namespace {
+std::mutex pack_mutex;
+template <typename F, typename... Args>
+auto packMessage(F pack, Args&&... args) {
+    std::lock_guard<std::mutex> lk(pack_mutex);
+    return pack(std::forward<Args>(args)...);
+}
+
 
 
 int64_t steadyNowNs() {
@@ -90,6 +98,10 @@ MavlinkLink::~MavlinkLink() { stop(); }
 
 bool MavlinkLink::start(const Config& cfg, std::string* error) {
     if (running_.load()) return true;
+    if (cfg.max_imu_queue == 0 || cfg.send_timeout_ms <= 0 || cfg.heartbeat_timeout_ms <= 0) {
+        if (error) *error = "队列容量和超时必须大于零";
+        return false;
+    }
     cfg_ = cfg;
 
     std::lock_guard<std::mutex> lk(fd_mtx_);
@@ -133,16 +145,18 @@ void MavlinkLink::clearImuQueue() {
     imu_q_.clear();
 }
 
-bool MavlinkLink::sendBytes(const uint8_t* buf, uint16_t len) {
+bool MavlinkLink::sendBytes(const uint8_t* buf, uint16_t len, bool require_connected) {
     std::lock_guard<std::mutex> lk(send_mtx_);
     std::lock_guard<std::mutex> fdlk(fd_mtx_);
-    if (fd_ < 0) return false;
+    if (!running_.load() || fd_ < 0 || (require_connected && !connected_.load())) return false;
     return writeAll(fd_, buf, len);
 }
 
 bool MavlinkLink::writeAll(int fd, const uint8_t* buf, size_t len) {
+    const int64_t deadline = steadyNowNs() + cfg_.send_timeout_ms * 1000000LL;
     size_t off = 0;
     while (off < len) {
+        if (!running_.load() || steadyNowNs() >= deadline) return false;
         const ssize_t n = ::write(fd, buf + off, len - off);
         if (n > 0) {
             off += static_cast<size_t>(n);
@@ -153,7 +167,9 @@ bool MavlinkLink::writeAll(int fd, const uint8_t* buf, size_t len) {
             struct pollfd pfd{};
             pfd.fd = fd;
             pfd.events = POLLOUT;
-            ::poll(&pfd, 1, 100);
+            const int pr = ::poll(&pfd, 1, 10);
+            if (pr < 0 && errno != EINTR) return false;
+            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) return false;
             continue;
         }
         return false;
@@ -187,7 +203,7 @@ void MavlinkLink::requestStreams() {
     auto request = [&](uint32_t msg_id, int32_t interval_us) {
         mavlink_message_t msg;
         uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-        mavlink_msg_command_long_pack(
+        packMessage(mavlink_msg_command_long_pack,
             sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
             MAV_CMD_SET_MESSAGE_INTERVAL, 0,
             static_cast<float>(msg_id), static_cast<float>(interval_us),
@@ -219,6 +235,12 @@ void MavlinkLink::requestStreams() {
 bool MavlinkLink::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
     // 自己的心跳（某些路由会回环）不能当成飞控
     if (sysid == sysid_) return false;
+
+    // 即使配置了 sysid，也不能把同一飞机上的 GCS/外设认成自动驾驶组件。
+    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS ||
+        type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
+    if (locked_sysid_.load() != 0)
+        return sysid == locked_sysid_.load() && compid == locked_compid_.load();
 
     // 1) 显式配置优先
     if (cfg_.target_sysid != 0) {
@@ -252,6 +274,25 @@ bool MavlinkLink::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopil
     return true;
 }
 
+void MavlinkLink::invalidateSession() {
+    connected_.store(false);
+    streams_requested_ = false;
+    locked_sysid_.store(0);
+    locked_compid_.store(0);
+    last_heartbeat_recv_ns_ = 0;
+    last_stream_request_ns_ = 0;
+    clearImuQueue();
+    last_imu_us_.store(0);
+    {
+        std::lock_guard<std::mutex> lk(ekf3_mtx_);
+        ekf3_valid_ = false;
+    }
+    {
+        std::lock_guard<std::mutex> lk(param_mtx_);
+        params_.clear();
+    }
+}
+
 void MavlinkLink::handleLinkLoss(const char* why) {
     int old = -1;
     {
@@ -263,11 +304,7 @@ void MavlinkLink::handleLinkLoss(const char* why) {
 
     // 注意：**不清 armed_**。链路断开时若把"已解锁"误判成"地面"，VIO 会打开零速更新；
     // 空中丢链路是可能的，这时宁可保持最后一次已知状态（发送已经被 connected() 挡住）。
-    connected_.store(false);
-    streams_requested_ = false;
-    last_heartbeat_recv_ns_ = 0;
-    last_stream_request_ns_ = 0;
-    clearImuQueue();
+    invalidateSession();
     std::printf("[MAVLink] 链路断开（%s）：停止发送位姿，等待串口重连…\n", why);
     std::fflush(stdout);
 }
@@ -292,12 +329,21 @@ bool MavlinkLink::tryReopen(std::string* error) {
 void MavlinkLink::recvLoop() {
     mavlink_message_t msg{};
     mavlink_status_t status{};
+    mavlink_message_t rx_message{};
+    mavlink_status_t rx_status{};
     uint8_t buf[512];
     int64_t last_imu_recv_ns = 0;
     long long ignored_heartbeats = 0;
     int reopen_failures = 0;
 
     while (running_.load()) {
+        if (connected_.load() && last_heartbeat_recv_ns_ > 0 &&
+            steadyNowNs() - last_heartbeat_recv_ns_ > cfg_.heartbeat_timeout_ms * 1000000LL) {
+            invalidateSession();
+            reconnects_.fetch_add(1);
+            last_imu_recv_ns = 0;
+            std::printf("[MAVLink] 心跳超时，旧会话作废，等待目标心跳…\n");
+        }
         int fd = -1;
         {
             std::lock_guard<std::mutex> lk(fd_mtx_);
@@ -310,6 +356,9 @@ void MavlinkLink::recvLoop() {
             if (!running_.load()) break;
             std::string err;
             if (tryReopen(&err)) {
+                rx_message = {};
+                rx_status = {};
+                status = {};
                 reopen_failures = 0;
                 last_imu_recv_ns = 0;
                 last_stream_request_ns_ = 0;
@@ -342,14 +391,15 @@ void MavlinkLink::recvLoop() {
             }
             if (n > 0) {
                 for (ssize_t i = 0; i < n; ++i) {
-                    if (!mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
+                    if (mavlink_frame_char_buffer(&rx_message, &rx_status, buf[i], &msg, &status) != MAVLINK_FRAMING_OK) {
                         continue;
                     }
                     // 锁定飞控后，只接受该 sysid 的数据流。否则同链路如果路由转发了
                     // 别的飞行器/地面站的 ODOMETRY/LOCAL_POSITION，会把状态搅乱。
                     const uint8_t locked = locked_sysid_.load();
-                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT && locked != 0 &&
-                        msg.sysid != locked) {
+                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT &&
+                        (!connected_.load() || locked == 0 || msg.sysid != locked ||
+                         msg.compid != locked_compid_.load())) {
                         continue;
                     }
                     switch (msg.msgid) {
@@ -392,6 +442,7 @@ void MavlinkLink::recvLoop() {
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
                             TimedImu item;
+                            item.session = reconnects_.load();
                             item.host_ns = steadyNowNs();
                             item.imu.timestamp_us = imu.time_usec;
                             item.imu.gx = imu.xgyro;
@@ -462,17 +513,6 @@ void MavlinkLink::recvLoop() {
 
         const int64_t now = steadyNowNs();
 
-        // 心跳超时：断开连接态；同时清掉身份锁定，允许飞控重启后重新锁定。
-        if (connected_.load() && last_heartbeat_recv_ns_ > 0 &&
-            now - last_heartbeat_recv_ns_ > 3000000000LL) {
-            connected_.store(false);
-            streams_requested_ = false;
-            locked_sysid_.store(0);
-            locked_compid_.store(0);
-            std::printf("[MAVLink] 心跳超时，等待重连…\n");
-            std::fflush(stdout);
-        }
-
         // 请求了 IMU 但 2 秒没收到：重发请求（部分固件/端口会丢 SET_MESSAGE_INTERVAL）
         if (connected_.load() && last_stream_request_ns_ > 0 &&
             now - last_stream_request_ns_ > 2000000000LL &&
@@ -485,7 +525,7 @@ void MavlinkLink::recvLoop() {
             now - last_heartbeat_send_ns_ > cfg_.heartbeat_interval_ms * 1000000LL) {
             mavlink_message_t hb_msg;
             uint8_t hb_buf[MAVLINK_MAX_PACKET_LEN];
-            mavlink_msg_heartbeat_pack(sysid_, compid_, &hb_msg, MAV_TYPE_ONBOARD_CONTROLLER,
+            packMessage(mavlink_msg_heartbeat_pack, sysid_, compid_, &hb_msg, MAV_TYPE_ONBOARD_CONTROLLER,
                                        MAV_AUTOPILOT_INVALID, 0, 0, MAV_STATE_ACTIVE);
             const uint16_t len = mavlink_msg_to_send_buffer(hb_buf, &hb_msg);
             sendBytes(hb_buf, len);
@@ -496,15 +536,12 @@ void MavlinkLink::recvLoop() {
 
 void MavlinkLink::requestParamByName(const std::string& name) {
     mavlink_message_t msg;
-    mavlink_msg_param_request_read_pack(static_cast<uint8_t>(sysid_), static_cast<uint8_t>(compid_),
+    packMessage(mavlink_msg_param_request_read_pack, static_cast<uint8_t>(sysid_), static_cast<uint8_t>(compid_),
                                         &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                         name.c_str(), -1);
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    std::lock_guard<std::mutex> lk(send_mtx_);
-    std::lock_guard<std::mutex> fdlk(fd_mtx_);
-    if (fd_ < 0) return;
-    writeAll(fd_, buf, len);
+    sendBytes(buf, len, true);
 }
 
 MavlinkLink::Ekf3Velocity MavlinkLink::ekf3Velocity() const {
@@ -566,7 +603,7 @@ uint16_t MavlinkLink::encodeVisionPose(const VisionPose& pose, int quality, uint
     // ⚠️ 最后三个参数的顺序是 (reset_counter, estimator_type, quality)，这是
     //    MAVLink 生成的函数签名，**不是** (quality, estimator_type, reset_counter)。
     //    2026-10-28 之前这里传反了，见 mavlink_link.hpp 的说明。
-    mavlink_msg_odometry_pack(
+    packMessage(mavlink_msg_odometry_pack,
         sysid, compid, &msg,
         pose.timestamp_us,
         static_cast<uint8_t>(pose.frame_id),
@@ -584,13 +621,13 @@ uint16_t MavlinkLink::encodeVisionPose(const VisionPose& pose, int quality, uint
 
 bool MavlinkLink::sendVisionPose(const VisionPose& pose, int quality, uint8_t reset_counter,
                                  float pos_sigma_m, float vel_sigma_mps) {
-    if (!running_.load() || fd_ < 0) return false;
+    if (!running_.load() || !connected_.load()) return false;
 
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = encodeVisionPose(pose, quality, reset_counter, pos_sigma_m, vel_sigma_mps,
                                           sysid_, compid_, buf, sizeof(buf));
     if (len == 0) return false;
-    return sendBytes(buf, len);
+    return sendBytes(buf, len, true);
 }
 
 }  // namespace pure_uav

@@ -59,7 +59,7 @@ def pick_python():
     """挑一个能 import numpy 的解释器（drift_report 依赖 numpy）。"""
     cands = [
         sys.executable,
-        "/home/kxy/miniforge3/envs/vins/bin/python",
+        str(Path.home() / "miniforge3/envs/vins/bin/python"),
         shutil.which("python3"),
         shutil.which("python"),
     ]
@@ -355,7 +355,7 @@ def main():
     py = pick_python()
     if not py:
         print("\n❌ 没找到能 import numpy 的 python 解释器，")
-        print("   试试显式指定：/home/kxy/miniforge3/envs/vins/bin/python "
+        print("   试试显式指定：~/miniforge3/envs/vins/bin/python "
               "src/vio/estimator/scripts/run_vio_offline.py")
         return 2
     print(f"  Python      {py}")

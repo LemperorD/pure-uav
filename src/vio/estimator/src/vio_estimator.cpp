@@ -772,6 +772,10 @@ uint64_t VioEstimator::lastPoseTimestampUs() const {
     return impl_->has_latest ? impl_->latest.timestamp_us : 0;
 }
 
+double VioEstimator::cameraTimeOffsetSec() const {
+    return impl_ && impl_->vio ? impl_->vio->get_camera_timeoffset() : 0.0;
+}
+
 double VioEstimator::initializedTimeSec() const { return impl_->init_time; }
 
 const VisionPoseConvert& VioEstimator::converter() const { return *impl_->converter; }
