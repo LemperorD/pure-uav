@@ -5,7 +5,7 @@
 //  合并自：
 //    · guidance_loop.hpp   主循环、统计、延迟打点
 //    · ring_log.hpp        RingRecord / RingLog（最近 512 拍）
-//  配置类型（CameraModel / LoopConfig）已移到 app_types.hpp。
+//  配置类型（CameraModel / LoopConfig）已移到 flight_types.hpp。
 //
 //  【架构：函数式内核 + 面向对象外壳】
 //      外壳（本类）   ：取数据 → 换算 → 调核 → 体检 → 发指令 → 统计
@@ -32,7 +32,7 @@
 #include <chrono>
 #include <cstdint>
 
-#include "app_types.hpp"       // InsSample / TargetSample / 接口 / LoopConfig
+#include "flight_types.hpp"    // InsSample / TargetSample / 接口 / LoopConfig
 #include "guidance_types.hpp"  // GuidanceParams / GuidanceMemory
 #include "state_adapter.hpp"   // adapter::StateTimeTracker
 

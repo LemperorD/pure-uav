@@ -19,7 +19,8 @@
 #                      和 TargetModel（弹丸动力学）装进飞机。
 #
 #    state_adapter : 适配层（外部口径 → GuidanceState），2026-10-20 从 src/interface 迁入
-#    guidance_flight : **机载聚合名** = guidance_core + state_adapter + mavlink_units
+#    guidance_shell : 飞行外壳（主循环 + RingLog），2026-11-01 从 app 迁入
+#    guidance_flight : **机载聚合名** = guidance_core + state_adapter + mavlink_units + guidance_shell
 #                    ⇒ 飞机上只 link 这一个名字（不含任何仿真代码）
 #
 #    依赖方向（2026-10-20 复核，无反向依赖）：
@@ -101,8 +102,25 @@ install(TARGETS state_adapter
 )
 
 # ------------------------------------------------------------
+#  guidance_shell：飞行外壳（主循环 + 内存黑匣子）
+#    只依赖 core + state_adapter；由 guidance_flight 聚合给机载使用。
+#    ⚠ 不含仿真；test_state_adapter 仍只链 core + adapter。
+# ------------------------------------------------------------
+add_library(guidance_shell STATIC
+    flight/guidance_loop.cpp
+)
+target_include_directories(guidance_shell PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/flight
+)
+target_link_libraries(guidance_shell
+    guidance_core
+    state_adapter
+)
+
+# ------------------------------------------------------------
 #  guidance_flight：**机载最小足迹**的聚合名（INTERFACE，不产生库文件）
-#    = guidance_core（制导算法）+ state_adapter（数据入口）+ mavlink_units（单位换算）
+#    = guidance_core（制导算法）+ state_adapter（数据入口）+ guidance_shell（飞行外壳）
+#      + mavlink_units（单位换算）
 #    飞机上只需 `target_link_libraries(xxx guidance_flight)` 一行。
 #  ⚠ 不含 guidance_sim（仿真专用：<random> 噪声发生器 + 弹丸动力学）。
 # ------------------------------------------------------------
@@ -111,6 +129,7 @@ target_link_libraries(guidance_flight INTERFACE
     guidance_core
     state_adapter
     mavlink_units
+    guidance_shell
 )
 
 # 数值仿真可执行文件（离线验证用，**不进机载**）

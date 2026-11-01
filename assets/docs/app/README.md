@@ -12,18 +12,20 @@
 ## 1 分层与文件
 
 ```
-src/app/（2026-11-01 方案 A 合并后）
-  app_types.hpp            类型 / 契约 / CameraModel / LoopConfig / AppParams
-  guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog（一拍做什么，顺序不可颠倒）
-  tools.{hpp,cpp}          合成世界 + 闭环驱动 + CSV 录制/回放 + run_synthetic/run_replay
-  application.{hpp,cpp}    CLI + 参数加载/校验/打印 + 模式分发（总控台）
+src/guidance/flight/（飞行外壳）
+  flight_types.hpp         类型 / 契约 / CameraModel / LoopConfig / AppParams
+  guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog
+
+src/app/（组装与入口）
   main.cpp                 入口：只创建 Application 并调用 run(argc, argv)
+  startup/application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
+  tools/tools.{hpp,cpp}     合成世界 + 闭环驱动 + CSV 录制/回放 + run_synthetic/run_replay
 ```
 
-依赖方向：`main → application → tools → guidance_loop → app_types`，
-底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units`）。
+依赖方向：`main → application → tools → guidance_loop → flight_types`，
+底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
-`app_types.hpp` 保持零外部协议依赖。
+`flight_types.hpp` 保持零外部协议依赖。
 
 ---
 
@@ -106,7 +108,7 @@ present, has_range, range_m, has_vT, vTn,vTe,vTd
 - `#` 开头是注释（表头即注释，读取自动跳过）；浮点写 `%.17g` ⇒ 读回**逐位一致**。
 - `ins_new / tgt_new`：该拍是否真有新帧。★ **必须原样保留** —— 回放时
   「没有新目标帧 ⇒ 只重发不重算」的行为全靠它，丢了 ω 会被系统性改变。
-- `boot_us`：飞控 boot 时钟 µs（见 `app_types.hpp` 的时间戳约定）。
+- `boot_us`：飞控 boot 时钟 µs（见 `src/guidance/flight/flight_types.hpp` 的时间戳约定）。
 - 指令落盘 CSV：`boot_us, ctrl, mode, valid, sat, a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health`。
 
 ### 用法（接线时一行不用改主循环）

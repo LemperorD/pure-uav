@@ -10,7 +10,7 @@
 
 ```text
 src/guidance/
-├── CMakeLists.txt                  # target 一览见下节（core / sim / state_adapter / 两个聚合名）
+├── CMakeLists.txt                  # target 一览见下节（core / sim / adapter / shell / 聚合名）
 ├── guidance_libs/                  # 制导算法库（源码目录）
 │   ├── include/
 │   │   ├── guidance_types.hpp      # 数据结构：输入 state / 输出 cmd      ← 核心
@@ -32,6 +32,9 @@ src/guidance/
 │   └── src/
 │       ├── state_adapter.cpp
 │       └── state_check.cpp
+├── flight/                         # 飞行外壳（2026-11-01 从 app 迁入）
+│   ├── flight_types.hpp            # 类型 / 契约 / CameraModel / LoopConfig / AppParams
+│   └── guidance_loop.{hpp,cpp}     # 主循环 + 内存黑匣子
 └── sim/
     ├── pn_sim.cpp                  # 3D 拦截数值仿真（输出 CSV）
     ├── plot_sim.py                 # 单场景画图（3D 轨迹 / R / λ̇ / |a|）
@@ -53,14 +56,15 @@ src/guidance/
 | **`guidance_core`** | `guidance.cpp` + `pn_law.cpp` + `quat.cpp`（+ 纯头文件） | ★ 真机主循环的**算法**部分 |
 | **`guidance_sim`** | `sensor.cpp` + `target.cpp`（依赖 core，单向） | 只在仿真 / 离线测试里 link |
 | **`state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
-| **`guidance_flight`** | **机载聚合名**（= core + state_adapter + mavlink_units） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
+| **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + RingLog） | 机载外壳；由 `guidance_flight` 聚合 |
+| **`guidance_flight`** | **机载聚合名**（= core + state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
 | `guidance_libs` | **聚合名**（= core + sim，INTERFACE 目标） | 仅为向后兼容旧脚本；⚠ **机载不要 link** |
 
 **验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，
 而 `guidance_step` / `quat_rotate_vec` 齐全 ⇒ 核心库**不含任何仿真符号**。
 
-> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `state_adapter` + `mavlink_units`）。
-> 源码位置：`src/guidance/`（核心）+ `src/guidance/adapter/`（适配层）+ `src/common/common_libs/`（单位换算 / `Vec3`）。
+> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
+> 源码位置：`src/guidance/`（核心）+ `src/guidance/adapter/`（适配层）+ `src/guidance/flight/`（外壳）+ `src/common/common_libs/`（单位换算 / `Vec3`）。
 > 真机的数据入口是 `state_adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。

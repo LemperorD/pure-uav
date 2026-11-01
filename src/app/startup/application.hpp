@@ -3,7 +3,7 @@
 //  application.hpp —— 启动层：参数加载 / 校验 + Application 总控台
 //
 //  合并自：
-//    · params.hpp    AppParams 的加载/校验/打印（AppParams 本体已移到 app_types.hpp）
+//    · params.hpp    AppParams 的加载/校验/打印（AppParams 本体已移到 flight_types.hpp）
 //    · main.cpp 的 CLI 解析、模式分发
 //
 //  【职责】
@@ -16,7 +16,7 @@
 #include <string>
 #include <utility>
 
-#include "app_types.hpp"   // AppParams
+#include "flight_types.hpp"   // AppParams
 
 namespace pure_uav {
 namespace app {

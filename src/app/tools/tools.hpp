@@ -13,13 +13,13 @@
 //    · 零依赖合成世界（演示 / 端到端测试）。
 //  机载二进制不需要链接本文件（target 可拆开）。
 //
-//  【依赖方向】tools → app_types + guidance_loop；不反向依赖 application。
+//  【依赖方向】tools → flight_types + guidance_loop；不反向依赖 application。
 // =============================================================================
 
 #include <cstdint>
 #include <cstdio>
 
-#include "app_types.hpp"   // InsSample / TargetSample / GuidanceOutput / CameraModel
+#include "flight_types.hpp"   // InsSample / TargetSample / GuidanceOutput / CameraModel
 
 namespace pure_uav {
 namespace app {

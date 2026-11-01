@@ -1,43 +1,39 @@
 # ============================================================
-#  机载主循环（app）—— 方案 A 合并后
+#  机载主循环（app）
 #
-#  文件：
-#    app_types.hpp      类型 / 契约 / CameraModel / LoopConfig / AppParams
-#    guidance_loop.*    主循环 + 内存黑匣子
-#    tools.*            CSV 录制/回放 + 合成世界 + run_synthetic/run_replay
-#    application.*      CLI + 参数加载/校验 + 模式分发
-#    main.cpp           入口（只调 Application）
+#  文件布局（2026-11-01 讨论后）：
+#    src/guidance/flight/    flight_types.hpp / guidance_loop.{hpp,cpp}
+#    src/app/
+#      main.cpp              入口
+#      startup/              application.{hpp,cpp}（CLI + 参数 + 分发）
+#      tools/                tools.{hpp,cpp}（CSV 录制/回放 + 合成世界）
 #
 #  target：
-#    app_core     机载运行时（guidance_loop.cpp）
-#    app_tools    地面工具（tools.cpp）—— 可不上机
-#    app_startup  启动层（application.cpp）
-#    app_guidance 向后兼容的聚合名（= app_startup），test_guidance 继续链接它
+#    app_tools     地面工具（tools.cpp）—— 可不上机
+#    app_startup   启动层（application.cpp）
+#    app_guidance  向后兼容聚合名（= app_startup），test_guidance 继续链接它
+#    main          可执行入口
 # ============================================================
 
-add_library(app_core STATIC
-    guidance_loop.cpp
+add_library(app_tools STATIC
+    tools/tools.cpp
 )
-target_include_directories(app_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+target_include_directories(app_tools PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools
 )
-target_link_libraries(app_core
+target_link_libraries(app_tools PUBLIC
     guidance_flight
 )
 
-add_library(app_tools STATIC
-    tools.cpp
-)
-target_link_libraries(app_tools
-    app_core
-)
-
 add_library(app_startup STATIC
-    application.cpp
+    startup/application.cpp
 )
-target_link_libraries(app_startup
-    app_core
+target_include_directories(app_startup PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup
+)
+target_link_libraries(app_startup PUBLIC
     app_tools
+    guidance_flight
 )
 
 # 向后兼容：旧 CMake / 测试里写 app_guidance 的地方不用改。
