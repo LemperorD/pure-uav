@@ -3032,6 +3032,49 @@ def main():
     check("有效帧率" not in _txt2, "撞板模式不再打『有效帧率 0.0 Hz』噪音")
     n_pl.close()
 
+    # ⑥ ★ 2026-10-25：HIT 后判定尾窗 —— 真穿越发生在 GUIDED→BRAKE 之间也必须报 THROUGH
+    #   实测数据：板 (-20,-6,4) yaw45 pitch30，GUIDED 最后一帧还在板前 0.43 m，
+    #   下一拍（BRAKE）已到板后 0.51 m，穿点 Δu/Δv 只有 +0.007/+0.001 m。
+    _pk2 = dict(PILOT_KW)
+    _pk2.update(armor_plate=True, plate_center=(-20.0, -6.0, 4.0),
+                plate_size="0.60,0.60,0.05", plate_yaw=45.0, plate_pitch=30.0)
+    n_tail = new_node(lib, **_pk2)
+    _tail_logs = []
+    n_tail.log = _tail_logs.append
+    n_tail.warn = _tail_logs.append
+    n_tail.plate_hit = True
+    n_tail.plate_verdict_rec = {"kind": "HIT", "dist": 0.327,
+                                "du": -0.206, "dv": -0.195}
+    n_tail.plate_min_dist = 0.327
+    n_tail.plate_tail_until = _time.monotonic() + 1.0
+    n_tail.plate_tail_prev = (-19.4665, -5.8316, 4.0084)       # GUIDED 最后一帧（板前）
+    # PX4 NED：x=北、y=东、z=下；ENU=(x,y,z) ⇒ NED=(y, x, -z)
+    n_tail.pos = types.SimpleNamespace(x=-6.1871, y=-20.6367, z=-3.9929,
+                                       vx=0.0, vy=0.0, vz=0.0, timestamp=0)
+    n_tail.plate_tail_step(_time.monotonic())                   # 这一拍跨过板面
+    check(n_tail.plate_verdict_rec.get("kind") == "THROUGH",
+          f"尾窗内跨面 ⇒ 升级为 THROUGH（实际 {n_tail.plate_verdict_rec.get('kind')}）")
+    check(n_tail.plate_tail_confirmed is True, "尾窗确认标志置位")
+    check(any("尾窗确认" in s for s in _tail_logs), "日志出现『尾窗确认』")
+    check("真穿板" in n_tail.plate_kind_text(),
+          f"尾窗确认后措辞变成『真穿板』（{n_tail.plate_kind_text()}）")
+    n_tail.close()
+
+    # 负例：尾窗超时且没有跨面 ⇒ 维持 HIT，不许"自动升级"
+    n_tail2 = new_node(lib, **_pk2)
+    _tail_logs2 = []
+    n_tail2.log = _tail_logs2.append
+    n_tail2.warn = _tail_logs2.append
+    n_tail2.plate_verdict_rec = {"kind": "HIT", "dist": 0.33}
+    n_tail2.plate_tail_until = _time.monotonic() - 1.0        # 已过期
+    n_tail2.plate_tail_prev = (-19.0, -5.0, 4.0)
+    n_tail2.plate_tail_step(_time.monotonic())
+    check(n_tail2.plate_verdict_rec.get("kind") == "HIT",
+          f"尾窗超时未穿面 ⇒ 维持 HIT（实际 {n_tail2.plate_verdict_rec.get('kind')}）")
+    check(any("维持 HIT" in s for s in _tail_logs2), "日志说明『维持 HIT』")
+    check(n_tail2.plate_tail_until is None, "尾窗过期后清空截止时间")
+    n_tail2.close()
+
     # ---------------------------------------------------------------- 用例 28
     print()
     print("=" * 74)

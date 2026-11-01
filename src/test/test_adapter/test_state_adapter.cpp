@@ -10,10 +10,12 @@
 //       "光轴系三轴在世界系下的指向"做**独立参考实现**逐例比对
 //    4. ★ 与 guidance_libs 的 quat_rotate_vec 交叉验证（两份实现必须一致）
 //    5. 组装 GuidanceState（fill_ins / fill_target / to_guidance_state）
-//    6. 输出换算 accel_enu → cmd_accel_ned
-//    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
-//    8. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
+//       + 输出换算 accel_enu → cmd_accel_ned
+//    6. ★ 上游模拟器：同一场景用"不同外部口径"描述，适配后必须得到**同一个**
 //       GuidanceState —— 这是本模块存在意义的直接证明
+//    7. ★ 不变量自检（state_check）：正常帧全过、各类脏数据必须被抓出来
+//    8. ★ 廉价体检 quick_check（飞行回路专用）：逐条用例 + 与完整体检的
+//       **error 级判定完全等价**（两套判据最怕漂移，故钉在一起）
 //
 // 运行：./bin/test/test_state_adapter   （退出码 0=全过，1=有失败）
 
@@ -532,7 +534,11 @@ static void test_attitude() {
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
         near_q(q_wrap, q_direct, 1e-15, "attitude_from_ned_frd = convert_attitude(NED, FRD)");
         // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
-        near_q(q_wrap, (const double[4]){-0.5, 0.5, -0.5, 0.5}, 1e-15,
+        // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
+        //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
+        //    "taking address of temporary array"。（2026-10-20 WSL 实测）
+        const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
+        near_q(q_wrap, q_expect, 1e-15,
                "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
     }
 }
@@ -630,7 +636,9 @@ static void test_quat_cross_check() {
         // 共轭
         double qc[4];
         quat_conjugate(q, qc);
-        near_q(qc, (const double[4]){q[0], -q[1], -q[2], -q[3]}, 0.0, "共轭定义");
+        // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+        const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+        near_q(qc, q_conj, 0.0, "共轭定义");
     }
 }
 
@@ -754,7 +762,7 @@ static void test_fill_state() {
 
     // ---- 5.5 输出换算 ----
     {
-        GuidanceCmd cmd;
+        PureGuidanceCmd cmd;
         cmd.a_cmd = Vec3(1.0, 2.0, -3.0);        // ENU
         double xyz[3];
         cmd_accel_to_ned(cmd, xyz);
@@ -815,7 +823,7 @@ static void test_upstream_simulator() {
         near_vec(st.los_hat, ref.los_hat, 1e-12, "口径A(NED+FRD)：视线");
         near(st.range, ref.range, 1e-12, "口径A(NED+FRD)：距离");
         near_q(st.q, ref.q, 1e-12, "口径A(NED+FRD)：姿态");
-        ok(invariants_hold(st, GuidanceCmd{}), "口径A：不变量全部成立");
+        ok(invariants_hold(st, PureGuidanceCmd{}), "口径A：不变量全部成立");
     }
 
     // 口径 B：ENU + 光轴系（对方已经按我们的口径给 —— 理想情况）
@@ -835,7 +843,7 @@ static void test_upstream_simulator() {
         near_vec(st.v_M, ref.v_M, 1e-12, "口径B(ENU+光轴)：速度");
         near_vec(st.los_hat, ref.los_hat, 1e-12, "口径B(ENU+光轴)：视线");
         near_q(st.q, ref.q, 1e-15, "口径B(ENU+光轴)：姿态（原样透传）");
-        ok(invariants_hold(st, GuidanceCmd{}), "口径B：不变量全部成立");
+        ok(invariants_hold(st, PureGuidanceCmd{}), "口径B：不变量全部成立");
     }
 
     // 口径 C：NED + FLU（ROS 惯例）
@@ -975,15 +983,15 @@ static void test_checks() {
 
     // ---- 7.7 cmd 检查：限幅自洽 ----
     {
-        GuidanceCmd cmd;
+        PureGuidanceCmd cmd;
         cmd.a_cmd = Vec3(10.0, 0.0, 0.0);
         cmd.a_cmd_norm = 10.0;
         cmd.a_cmd_unsat = Vec3(10.0, 0.0, 0.0);
-        cmd.mode = GuidanceMode::PN;
+        cmd.mode = PureGuidanceMode::PN;
         cmd.valid = true;
         ok(check_guidance_cmd(cmd, 10.0, true).ok(), "恰好饱和的 cmd 自洽");
 
-        GuidanceCmd over = cmd;
+        PureGuidanceCmd over = cmd;
         over.a_cmd = Vec3(20.0, 0.0, 0.0);
         over.a_cmd_norm = 20.0;
         over.a_cmd_unsat = Vec3(20.0, 0.0, 0.0);
@@ -992,22 +1000,22 @@ static void test_checks() {
         ok(!rep.ok(), "限幅后仍超限被判不通过");
         ok(rep.has(CheckCode::kCmdOverLimit), "  code = kCmdOverLimit");
 
-        GuidanceCmd mismatch = cmd;
+        PureGuidanceCmd mismatch = cmd;
         mismatch.a_cmd_norm = 99.0;
         ok(check_guidance_cmd(mismatch).has(CheckCode::kCmdNormMismatch),
            "|a_cmd| 与 a_cmd_norm 不一致被抓");
 
-        GuidanceCmd fake_sat = cmd;
+        PureGuidanceCmd fake_sat = cmd;
         fake_sat.sat = true;                    // 声称饱和，实际没超限
         ok(!check_guidance_cmd(fake_sat, 10.0, true).ok(),
            "sat=true 但限幅前未超限被抓");
 
-        GuidanceCmd search;
-        search.mode = GuidanceMode::SEARCH;
+        PureGuidanceCmd search;
+        search.mode = PureGuidanceMode::SEARCH;
         search.valid = false;
         ok(check_guidance_cmd(search).ok(), "SEARCH + 零指令 + valid=false 自洽");
-        GuidanceCmd bad_search;
-        bad_search.mode = GuidanceMode::SEARCH;
+        PureGuidanceCmd bad_search;
+        bad_search.mode = PureGuidanceMode::SEARCH;
         bad_search.a_cmd = Vec3(1, 0, 0);
         bad_search.a_cmd_norm = 1.0;
         ok(!check_guidance_cmd(bad_search).ok(), "SEARCH 却输出非零指令被抓");
@@ -1029,9 +1037,9 @@ static void test_checks() {
         pp.N = 4.0;
         pp.a_max = 30.0;
         GuidanceMemory mem;
-        const GuidanceCmd cmd = guidance_step(st, pp, mem);
+        const PureGuidanceCmd cmd = guidance_step(st, pp, mem);
 
-        ok(cmd.mode == GuidanceMode::PN, "PPN 闭环：mode = PN");
+        ok(cmd.mode == PureGuidanceMode::PN, "PPN 闭环：mode = PN");
         ok(norm(cmd.a_cmd) > 0.0, "PPN 闭环：有非零指令");
         const Report rep = check_frame(st, cmd, pp.a_max, true);
         if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
@@ -1043,7 +1051,7 @@ static void test_checks() {
         GuidanceParams pp2 = pp;
         pp2.a_max = 0.5;                        // 强行把上限压到很小 ⇒ 必然饱和
         GuidanceMemory mem2;
-        const GuidanceCmd cmd2 = guidance_step(st2, pp2, mem2);
+        const PureGuidanceCmd cmd2 = guidance_step(st2, pp2, mem2);
         ok(cmd2.sat, "  小 a_max 触发饱和");
         ok(invariants_hold(st2, cmd2, pp2.a_max, true), "  饱和后不变量仍成立（矢量等比缩放）");
 
@@ -1051,10 +1059,105 @@ static void test_checks() {
         GuidanceState st3 = st;
         st3.valid = false;
         GuidanceMemory mem3;
-        const GuidanceCmd cmd3 = guidance_step(st3, pp, mem3);
-        ok(cmd3.mode == GuidanceMode::SEARCH, "valid=false ⇒ SEARCH");
+        const PureGuidanceCmd cmd3 = guidance_step(st3, pp, mem3);
+        ok(cmd3.mode == PureGuidanceMode::SEARCH, "valid=false ⇒ SEARCH");
         ok(norm(cmd3.a_cmd) == 0.0, "  SEARCH 输出零指令");
         ok(invariants_hold(st3, cmd3, pp.a_max, true), "  SEARCH 帧不变量成立");
+    }
+}
+
+// ============================================================
+//  9. ★ 廉价体检 quick_check（飞行回路专用）
+// ============================================================
+// 它和 check_guidance_state 是**两套判据**，最怕两边慢慢漂移 ⇒ 除了逐条用例外，
+// 最后再用"同一批脏数据两边判定必须完全一致"把它们钉死。
+static void test_quick_check() {
+    section("8. 廉价体检 quick_check");
+
+    GuidanceState good;
+    good.t = 0.5;
+    good.los_hat = Vec3(1, 0, 0);
+    good.lam_dot = 0.01;
+    good.range = 12.3;
+    good.valid = true;
+    good.p_M = Vec3(0, 0, 10);
+    good.v_M = Vec3(20, 0, 0);
+    good.q[0] = 1.0;
+
+    // ---- 9.1 正常帧通过，且不写 first_bad ----
+    {
+        CheckCode code = CheckCode::kRangeNegative;   // 故意先填一个错的值
+        ok(quick_check(good, &code), "正常帧通过");
+        ok(code == CheckCode::kRangeNegative, "  通过时不动 first_bad");
+        ok(quick_check(good), "不传 first_bad 也能用");
+    }
+
+    // ---- 9.2 各类脏数据：必须 false 且 code 正确 ----
+    {
+        GuidanceState st = good;
+        st.los_hat = Vec3(3, 0, 0);                   // 上游没单位化
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "|los_hat|=3 不通过");
+        ok(c == CheckCode::kLosNotUnit, "  code = kLosNotUnit");
+    }
+    {
+        GuidanceState st = good;
+        st.q[0] = 2.0;                                // |q| = 2
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "|q|=2 不通过");
+        ok(c == CheckCode::kQuatNotUnit, "  code = kQuatNotUnit");
+    }
+    {
+        GuidanceState st = good;
+        st.range = -1.0;
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "range<0 不通过");
+        ok(c == CheckCode::kRangeNegative, "  code = kRangeNegative");
+    }
+    {
+        GuidanceState st = good;
+        st.los_hat = Vec3{};                          // 零矢量：没有方向可言
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "零矢量视线不通过");
+        ok(c == CheckCode::kLosZero, "  code = kLosZero");
+    }
+    {
+        GuidanceState st = good;
+        st.v_M = Vec3(std::numeric_limits<double>::quiet_NaN(), 0, 0);
+        CheckCode c = CheckCode::kOk;
+        ok(!quick_check(st, &c), "v_M 含 NaN 不通过");
+        ok(c == CheckCode::kNotFinite, "  code = kNotFinite");
+    }
+    {
+        GuidanceState st = good;
+        st.range = 0.0;                               // range≈0 只是 warning
+        ok(quick_check(st), "range=0 仍通过（warning 不算硬条件）");
+    }
+
+    // ---- 9.3 ★ 与完整体检的一致性：error 级判定必须**完全等价** ----
+    {
+        GuidanceState f[7];
+        for (int i = 0; i < 7; ++i) f[i] = good;
+        f[1].los_hat = Vec3(3, 0, 0);                 // 未单位化
+        f[2].q[0] = 2.0;                              // |q| 错
+        f[3].range = -1.0;                            // 负距离
+        f[4].los_hat = Vec3{};                        // 零视线
+        f[5].v_M = Vec3(0, std::numeric_limits<double>::infinity(), 0);
+        f[6].t = -1.0;                                // 负时间 —— 只是 warning！
+
+        bool same = true;
+        for (int i = 0; i < 7; ++i) {
+            const bool quick = quick_check(f[i]);
+            const bool full = check_guidance_state(f[i]).n_error == 0;
+            if (quick != full) {
+                same = false;
+                std::printf("  第 %d 帧不一致：quick=%d full=%d\n", i, (int)quick,
+                            (int)full);
+            }
+        }
+        ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
+        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
+           "  负时间（warning 级）两边都放行");
     }
 }
 
@@ -1072,6 +1175,7 @@ int main() {
     test_fill_state();
     test_upstream_simulator();
     test_checks();
+    test_quick_check();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);

@@ -413,7 +413,7 @@ void fill_target_accel(GuidanceState &st, const Vec3 &a_T_raw, Frame from,
     st.a_T_perp = has_ata ? world_to_world(a_T_raw, from, Frame::kEnu) : Vec3{};
 }
 
-void cmd_accel_to_ned(const GuidanceCmd &cmd, double out_xyz[3]) noexcept {
+void cmd_accel_to_ned(const PureGuidanceCmd &cmd, double out_xyz[3]) noexcept {
     const Vec3 a_ned = world_to_world(cmd.a_cmd, Frame::kEnu, Frame::kNed);
     out_xyz[0] = a_ned.x;
     out_xyz[1] = a_ned.y;
