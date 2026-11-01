@@ -2,6 +2,7 @@
 //  application.cpp —— 启动层实现（YAML 子集 + CLI + 模式分发）
 //
 //  只在启动阶段调用；不用异常；不引入 yaml-cpp。
+//  CLI/YAML/跑法见 assets/docs/app/usage.md。
 // =============================================================================
 
 #include "application.hpp"

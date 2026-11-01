@@ -3,7 +3,7 @@
 > 文档位置：`assets/docs/app/`
 > 代码位置：`src/app/`
 > 运行命令均从**仓库根目录**执行。
-> 文档索引：[../README.md](../README.md) · CSV 格式：[csv-format.md](csv-format.md)
+> 文档索引：[../README.md](../README.md) · 用法：[usage.md](usage.md) · CSV 格式：[csv-format.md](csv-format.md) · 黑匣子：[blackbox.md](blackbox.md)
 
 > 面向对象的那一层：**取数 → 换算 → 调核 → 体检 → 发指令 → 统计**。
 > 内核（`src/guidance/`）一行不改，仍是纯函数 `guidance_step()`。

@@ -4,7 +4,7 @@
 //
 //  定位：只在**地面/开发机**使用；机载二进制不需要链接本文件。
 //  依赖：tools → flight_types + guidance_loop；不反向依赖 application。
-//  格式/回放边界见 assets/docs/app/csv-format.md。
+//  格式/回放边界见 assets/docs/app/csv-format.md；黑匣子见 assets/docs/app/blackbox.md。
 // =============================================================================
 
 #include <cstdint>

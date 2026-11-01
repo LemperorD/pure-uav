@@ -4,6 +4,7 @@
 //
 //  职责：默认值 / YAML / CLI 合成 AppParams → 校验 → 分发。
 //  本层是组合根；guidance 模块不依赖它。
+//  CLI/YAML/跑法见 assets/docs/app/usage.md。
 // =============================================================================
 
 #include <string>

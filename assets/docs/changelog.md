@@ -54,6 +54,12 @@
 - `guidance_loop` 的完整一拍流程 → [architecture.md](architecture.md)；
 - 三个测试文件的覆盖矩阵 → [testing.md](testing.md)。
 
+### 文档补齐（本次）
+
+- 新增 [comment-style.md](comment-style.md)、[app/usage.md](app/usage.md)、[app/blackbox.md](app/blackbox.md)；
+- 新增 [decisions/0004-freeze-criterion.md](decisions/0004-freeze-criterion.md)、[0005-time-base.md](decisions/0005-time-base.md)、[0006-camera-vio.md](decisions/0006-camera-vio.md)、[0007-target-models.md](decisions/0007-target-models.md)、[0008-sensor-wall.md](decisions/0008-sensor-wall.md)；
+- `guidance_types` / `target` / `sensor` / `application` / `tools` / `guidance_loop` 文件头补文档链接。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

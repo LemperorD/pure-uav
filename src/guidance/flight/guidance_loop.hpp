@@ -116,7 +116,7 @@ public:
     const RingRecord &newest() const noexcept;
 
     // 最近 seconds 秒（按 boot_us）写成 CSV；<=0 表示全部；返回行数，失败 -1。
-    // ⚠ 唯一 I/O 入口，绝不能在循环里调用。
+    // 说明见 assets/docs/app/blackbox.md；唯一 I/O 入口，绝不能在循环里调用。
     long dump_csv(const char *path, double seconds) const;
 
 private:

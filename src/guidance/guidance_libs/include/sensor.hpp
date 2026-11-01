@@ -7,29 +7,11 @@
 #include "guidance_types.hpp"
 #include "vec3.hpp"
 
-// 姿态 / 四元数工具已移到**核心**（`quat.hpp`）—— 它们语义上是通用刚体数学，
-// 不是仿真。这里保留 include 只为**向后兼容**（老代码 `#include "sensor.hpp"`
-// 仍能用到 quat_*）。⚠ 新代码建议直接 include "quat.hpp"。
+// 姿态/四元数工具已移到 quat.hpp；这里保留 include 只为向后兼容。
 #include "quat.hpp"
 
-// ============================================================
-//  传感器墙（设计文档 M4）—— 仿真侧的"虚拟视觉"
-//
-//  作用：把仿真真值 TruthState 变成"看起来像视觉系统给的" GuidanceState。
-//  接口固定：切换 fidelity（逼真度）**不改制导律一行代码**。
-//
-//  真机上这一层由 detection / vio 组实现，制导只消费 GuidanceState。
-//  设计见《仿真代码设计思路.md》M4（三级逼真度）。
-//
-//  三级逼真度：
-//    IDEAL     真值透传（无噪、无延迟、无丢帧）—— 基线
-//    SEMI_REAL 相机投影 + 像素噪声 + size 反推测距（λ̇ 走视线差分）
-//    FULL_REAL 在 SEMI_REAL 基础上再加 链路延迟 + 丢帧
-//
-//  ⚠ 配对约定：非 IDEAL 时传感器拿不到目标速度 v_T，制导必须改用
-//     LosRateSource::FROM_LOS_DIFFERENCE（真机唯一可行的 ω 来源）。
-//     仿真里这一配对由 pn_sim 负责设置。
-// ============================================================
+// 传感器墙（仿真虚拟视觉）：真值 → 带噪声/延迟/丢帧的 GuidanceState。
+// 三级逼真度与配对约定见 assets/docs/decisions/0008-sensor-wall.md。
 
 namespace pure_uav {
 

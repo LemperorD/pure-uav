@@ -2,7 +2,7 @@
 //  tools.cpp —— 地面工具箱实现（CSV 录放 + 合成世界 + 两种跑法）
 //
 //  CSV 用 C stdio：不抛异常、失败用 ok()/返回值表达。
-//  格式与回放边界见 assets/docs/app/csv-format.md。
+//  格式与回放边界见 assets/docs/app/csv-format.md；黑匣子见 assets/docs/app/blackbox.md。
 // =============================================================================
 
 #include "tools.hpp"

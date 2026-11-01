@@ -41,7 +41,7 @@ enum class TimeUnit {
 };
 
 // 时间基准：只用于记录/断言“两端是否同源”；跨源相减会静默给出垃圾。
-// 详见 assets/docs/interfaces.md §4。
+// 详见 assets/docs/interfaces.md §4 与 assets/docs/decisions/0005-time-base.md。
 enum class TimeBase {
     kSameSource = 0,    // 与参考时标同源（唯一安全的情况）
     kSinceBoot  = 1,    // 开机以来（MAVLink time_boot_ms）

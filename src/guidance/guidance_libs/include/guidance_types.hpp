@@ -125,19 +125,7 @@ enum class LosRateSource {
     FROM_LOS_DIFFERENCE
 };
 
-// 末端冻结的判据 —— 用 GuidanceParams::freeze_criterion 切换。
-//
-// 目的：末端 R→0 时，ω=(r×v_rel)/R²（或 û 差分）里的 1/R 会把噪声放大成大指令，
-//       故"提前锁定"最后一帧指令（HOLD），防止制导发散。
-//
-// 两种基准在 Vc 近似常数时**完全等价**：R_freeze ≈ Vc · t_go_freeze。
-// 但系统存在交会加速度时二者会分道扬镳（见《比例导引讲义》"加速度的影响"一节）：
-//   · BY_TGO  ：以**剩余飞行时间**为基准。可修正量 ∝ ½·a·t_go²，
-//               时间才是物理根本量 → 随接近速度自动缩放，作默认。
-//   · BY_RANGE：以**剩余距离**为基准。R 可直接测（size 反推/深度），
-//               真机无需估计 Vc，实现最简；但固定 R 阈值在 Vc 变化时会过早/过晚冻结。
-//   · BY_TGO_OR_RANGE：两者取"或"，用 R 兜底 —— 防 Vc→0（尾追/远离）时
-//               t_go = R/max(Vc,ε) 发散导致**永不冻结**。
+// 末端冻结判据；公式/等价关系/默认值见 assets/docs/decisions/0004-freeze-criterion.md。
 enum class FreezeCriterion {
     BY_TGO,          // 剩余时间 t_go < t_go_freeze（默认）
     BY_RANGE,        // 剩余距离 R < R_freeze
@@ -156,8 +144,7 @@ struct GuidanceParams {
                                //   那时 λ̇ 尚未收敛 → 等于提前锁定一条脱靶弹道。
     double R_freeze    = 5.0;  // BY_RANGE 阈值(m)。建议 ≈ Vc · t_go_freeze。
 
-    // ↓↓↓ 两套 ω 算法的切换点 ↓↓↓
-    // 仿真阶段用 A（真值，最准）；上真机改成 B（只靠视线方向）。其余代码不动。
+    // ω 来源：仿真用真值法，真机用差分法；见 assets/docs/decisions/0003-los-rate-source.md。
     LosRateSource los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 };
 
