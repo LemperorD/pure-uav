@@ -3,7 +3,7 @@
 # ===============================
 # 配置工作空间根目录和代理
 # ===============================
-WORKSPACE_DIR=~/pure_uav
+WORKSPACE_DIR=~/pure-uav
 HTTPS_PROXY=http://127.0.0.1:7897
 HTTP_PROXY=http://127.0.0.1:7897
 ALL_PROXY=socks5://127.0.0.1:7897
