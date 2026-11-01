@@ -9,6 +9,7 @@ add_library(communicate SHARED
 
 target_include_directories(communicate PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src/common
 )
 target_include_directories(communicate SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mavlink

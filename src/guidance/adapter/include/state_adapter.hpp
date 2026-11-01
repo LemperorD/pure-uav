@@ -35,7 +35,7 @@
 //    └──────────┴──────────────────────────────────────────────┘
 // =============================================================================
 
-#include "guidance_types.hpp"      // GuidanceState / GuidanceCmd / Vec3
+#include "guidance_types.hpp"      // GuidanceState / PureGuidanceCmd / Vec3
 #include "mavlink_units.hpp"       // 单位换算与哨兵（本文件全部转调它）
 
 namespace pure_uav {
@@ -51,9 +51,18 @@ namespace adapter {
 //    · NED：x 北 / y 东 / z 下 —— PX4 uORB、MAVLink 的惯例
 //    · ENU：x 东 / y 北 / z 上 —— ROS、制导核内部（**内部口径**）
 //
+// ★ 2026-10-20 补充（本项目实测约束）：**本机飞控没有 GPS**，飞控给出的 local 局部系
+//   没有真北参考 ⇒ 其航向零点就是 EKF 初始化（上电/起飞）那一刻的**机头方向**：
+//       x = 初始机头方向（不是北）· y = 初始机头右侧（不是东）· z = 下（PX4 惯例不变）
+//   这与"真 NED"只差一个**固定偏航角 θ₀**。本模块照旧按 NED 处理（即 kNed 代表
+//   "以初始机头为 x 轴、z 朝下"的局部系），换算公式与能力完全相同 —— 因为
+//   比例导引全是矢量运算、对惯性系的整体刚性旋转不敏感（交叉/点积在正交变换下不变）。
+//   ⇒ **制导算法不需要任何改动**；真正要注意的是"目标数据必须与 p/v 同系"
+//     （推荐视觉直接给相对量：机体系视线 + 距离，再用 q 转到本系）。
+//
 // 换算（自逆，两行）：`ENU = (N.y, N.x, −N.z)`
 enum class Frame {
-    kNed = 0,   // 北-东-下
+    kNed = 0,   // 北-东-下（★ 无 GPS 时实为"初始机头对齐 + z 下"的局部系）
     kEnu = 1,   // 东-北-上（内部口径）
 };
 
@@ -315,7 +324,7 @@ void fill_target_accel(GuidanceState &st, const Vec3 &a_T_raw, Frame from,
 //
 // `a_cmd`（内部 ENU, m/s²）→ NED 三分量，可直接写进
 // `cmd_accel_ned` 的 linear.x/y/z 或 MAVLink `SET_POSITION_TARGET_LOCAL_NED`。
-void cmd_accel_to_ned(const GuidanceCmd &cmd, double out_xyz[3]) noexcept;
+void cmd_accel_to_ned(const PureGuidanceCmd &cmd, double out_xyz[3]) noexcept;
 
 // 只转矢量（不想带整个 cmd 结构时用）
 inline Vec3 accel_cmd_ned(const Vec3 &a_cmd_enu) noexcept { return enu_to_ned(a_cmd_enu); }

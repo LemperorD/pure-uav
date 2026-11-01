@@ -486,13 +486,16 @@ bash build_guidance_shim.sh     # 编译 .so 并自动跑自检（应打印“�
 
 ---
 
-## 3.8 阶段 B：制导闭环（PPN + 真 DART 目标）
+## 3.8 阶段 B：制导闭环（撞击**固定装甲板**）
 
 **阶段 A 验证了"指令能写下去"；阶段 B 验证"制导律真的能飞"。**
 
-链路变了：不再是发常值脉冲，而是
+> **2026-10-20 更新：任务已定案为「撞击固定装甲板」，本节原「追飞镖（真 DART 目标）」内容已删除。**
+> 飞镖弹道模型只保留在离线工具里作历史对照，仿真主线一律走装甲板。
 
-```
+链路（没变）：
+
+```text
 PX4/Gazebo 真值（无人机，真动力学）
       ↓  NED → ENU
   真 guidance_step（仓库的 C++ 制导核，经 .so 调用）
@@ -502,124 +505,149 @@ PX4/Gazebo 真值（无人机，真动力学）
 
 ### 两个关键设计
 
-**① 目标是数学模型，不是 Gazebo 实体。**
-目标轨迹由仓库的 `TargetModel`（真 C++，含 DART 气动）按时间推进——它只依赖 `t`，
-确定性、可复现。**无人机则是真的在 PX4 里飞**（真姿态环、真限幅）。
-⇒ 制导闭环是真的，只是"目标"是虚拟的；命中判定用数学距离 `R_true`。
-好处：不用写 Gazebo 插件、飞镖动力学直接复用仓库代码、跑一次就复现。
-**阶段 C 引入相机后，目标才会变成 Gazebo 里的真实体。**
+**① 装甲板是「几何 + 判据」，不是动力学模型。**
+板在 Gazebo 里是一个 amber 盒子（看得见），但**命中判定完全由几何算**、不依赖碰撞引擎：
+每帧取"上一时刻位置 → 本时刻位置"这条线段，判断它是否穿过板面。
+好处是判定确定、可复现、与渲染帧率无关。
 
-**② 必须先"预加速"（CRUISE 段），不能从悬停直接开制导。**
-PPN 的指令是 `a = N·(ω × v_M)`——**`v_M = 0` 时恒为零**（零速死区）。
-而且悬停起步时无人机没有横向速度可用于修正，交会时间又只有零点几秒 → 必脱靶。
-所以像真实比赛一样：先飞起来迎击，有速度后再交给制导。
-（`--no-cruise` 可关掉，用来复现这个失败案例——离线测试里已验证：悬停起步最近 1.07 m，脱靶。）
+**② 必须先「预加速」（CRUISE 段），不能从悬停直接开制导。**
+PPN 的指令是 `a = N·(ω × v_M)` —— **`v_M = 0` 时恒为零**（零速死区）。
+悬停起步时没有横向速度可用于修正，交会时间又只有零点几秒 → 必脱靶。
+（`--no-cruise` 可关掉，用来复现这个失败案例。）
 
-### 默认场景
+### ★ 装甲板特性（本节核心）
 
-全在 **y=0 走廊**里（`walls` 世界的墙都在 y=±5/±10，此走廊净空；朝 −x 迎击）：
+| 项 | 值 / 含义 |
+| --- | --- |
+| 尺寸 | 宽 `W=0.60 m`（沿板面 u）· 高 `H=0.60 m`（沿 v）· 厚 `T=0.05 m`（法向 n） |
+| 位置 | `--plate-center=X,Y,Z`（ENU，m），默认 `(-14, 0, 5)` |
+| 姿态 | `--plate-yaw=角度`（绕 z 轴转，默认 0）· `--plate-pitch=角度`（板法向抬头，默认 0） |
+| 板体三轴 | `n = (cos p·cos y, cos p·sin y, sin p)` 法向 · `u = (−sin y, cos y, 0)` 板面水平 · `v = n × u` 板面竖直 |
+| 实体名 | `armor_plate`（amber 色方板） |
 
+**命中判据是三态，务必区分**：
+
+| 判据 | 条件 | 含义 |
+| --- | --- | --- |
+| **THROUGH** | 本帧线段与板面**相交**且交点在板面内 | ★ **真穿板** —— 只有它代表"真的撞穿了" |
+| **HIT** | 最近距离 ≤ `--plate-hit-tol`(0.15) + `--plate-body-radius`(0.20) = **0.35 m** | 容差命中：**可能是擦边/近失**，不等于撞上 |
+| MISS | 以上都不满足 | 未命中 |
+
+> ⚠ 实测过一例：`HIT` 最近距离 0.318 m，而机身等效半径 0.20 m ⇒ 机心距板面还有 0.118 m，
+> 属于**近失**而非接触。所以报告里会同时给 `Δu / Δv`（沿板面两个方向的偏差），
+> 并明确打印 `HIT（容差命中，未穿板）` 或 `THROUGH（真穿板）`，**不要把 HIT 当成撞上**。
+
+> ★ **2026-10-25 修正：HIT 后增加 0.3 s「判定尾窗」**。实测板 `(-20,-6,4)` yaw45/pitch30 那组，
+> 报告判 `HIT 0.327 m`，但真穿越发生在**最后一个 GUIDED 拍与第一个 BRAKE 拍之间**
+> （离线复算 s=0.46，穿点 `Δu=+0.007 / Δv=+0.001 m`，用户目视也确认撞上）——
+> 原逻辑在 HIT 就 `finish("撞板")` 结束 GUIDED，之后不再喂 `plate.verdict`，于是把
+> **THROUGH 误报成 HIT**。现在 HIT 后会开 0.3 s 尾窗继续检测穿越：若确认，报告升级为
+> `THROUGH（真穿板）`；尾窗只做**判定**，不改变任何飞行指令。**2026-10-25 复跑已确认**
+> （HIT 后 56 ms 尾窗给出 THROUGH，Δu/Δv=+0.014/+0.003 m）。
+> ⚠ 因此 2026-10-19 那行 `HIT 0.318 m` 也可能受同一问题影响（当时未复算）。
+
+**板模式下节点自动固化的设置**（不用你再传）：
+
+- 目标起始点 = 板中心（覆盖 `--p0`）
+- 目标静止：`target_type = STRAIGHT` 且 `speed = 0`
+- **跳过自动瞄准**（不再把弹丸轨迹对准塔）
+- 隐藏弹丸球并停止推进它（板模式没有"弹丸"这个概念）
+
+### ⚠ 改板姿态必须重启 Gazebo
+
+板实体是**幂等复用**的：已存在时只校正**位置**、**不校正朝向**。所以：
+
+- 只挪位置 ⇒ 直接重跑即可；
+- 改了 `--plate-yaw` / `--plate-pitch` ⇒ **必须重启 Gazebo**，或先手动删实体：
+
+```bash
+gz service -s /world/walls/remove --reqtype gz.msgs.Entity --reptype gz.msgs.Boolean \
+  --timeout 300 --req 'name: "armor_plate", type: MODEL'
 ```
-无人机: 从 (0,0,10) 起飞，朝 −x 预加速到 5 m/s
-飞镖  : 从 (−12,0,11) 以 15 m/s、仰角 5° 朝 +x 发射
-制导  : PPN  N=6  a_max=10 m/s²（x500 真实水平过载量级）  t_go_freeze=0.10
-命中判定: R_true < 0.5 m
-```
-
-> **这套参数是离线扫出来的**，而且扫参暴露了一条硬约束，务必记住：
->
-> ⚠ **飞镖的飞行距离必须在 10 m 量级。** 飞镖同时受重力+气动阻力，弹道持续下坠。
-> 若把发射点放到 22 m 外，飞镖要飞 1.5 s 以上，期间**下坠十几米**——
-> 那时无论 PN 怎么调都够不着（实测最近距离 0.8~3.9 m，全部脱靶）。
-> 真实 RM 里飞镖只需飞 5~10 m，**10 m 级才是对的尺度**。
->
-> ⚠ 无人机的横向机动能力 = `½ · a_max · t_go²`。`t_go=0.4 s`、`a_max=10` 时**只能修 0.8 m**
-> ⇒ 交班时的初始偏差必须控制在 ~1 m 量级，这靠**场景几何**（共线迎头）保证，不是靠算法。
 
 ### 状态机
 
-```
-ARM → CONFIRM_ARM → TAKEOFF → WAIT_HEIGHT
-    → OFFBOARD → CONFIRM_OFFBOARD → SETTLE
-    → CRUISE（预加速）→ GUIDED（目标发射，PPN 闭环）
-    → [命中 / 脱靶 / 超时 / 安全中止] → LAND → DISARM → DONE（退出）
+```text
+ARM → CONFIRM_ARM → TAKEOFF（XTDrone2，默认 10 m）
+                        └─ 或 --self-takeoff：OFFBOARD → CLIMB（我们自己的速度爬升）
+     → OFFBOARD → CONFIRM_OFFBOARD → SETTLE
+     → CRUISE（预加速）→ GUIDED（制导闭环）
+     → [THROUGH / HIT / MISS / 超时 / 安全中止] → BRAKE → LAND → DISARM → DONE
 ```
 
-与阶段 A 同源的四条铁律（都在阶段 A 踩过坑）：
-服务 success ≠ 生效（一律订阅 `vehicle_status` 确认）／回调里不许 spin／
-降落阶段改发 `cmd_vel_ned`（坑 8）／`SignalHandlerOptions` 成员名动态探测（坑 7）。
+- `--self-takeoff --climb-rate=1.5`：不再等 XTDrone2 写死的 10 m，自己用 `cmd_vel_ned` 爬到
+  `--target-height`（5 m 级即可），省十几秒。
+- 与阶段 A 同源的四条铁律：`服务 success ≠ 生效`（一律订阅 `vehicle_status` 确认）／
+  回调里不许 spin／降落阶段改发 `cmd_vel_ned`（坑 8）／`SignalHandlerOptions` 成员名动态探测（坑 7）。
 
 ### 跑起来
 
 ```bash
 cd ~/rm_guidance_sim
-bash build_guidance_shim.sh          # 若还没编译制导核（只需一次）
-bash run_phase_b.sh --namespace x500_0
+bash build_guidance_shim.sh          # 编译制导核（改过 C++ 才需要重跑）
+bash preflight.sh --wait             # 预检 + 等仿真就绪
+
+# 撞击固定装甲板（推荐起点）
+python3 phase_b_guidance.py \
+    --armor-plate --plate-center=-14,0,5 --target-height=5 \
+    --law=1 --N=3
 ```
+
+常用参数（⚠ **一律写 `--opt=value`**；写成 `--plate-center -14,0,5` 时 argparse 会把 `-14` 当选项名）：
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--armor-plate` | 关 | 打开装甲板目标（固定靶） |
+| `--plate-center` | `-14,0,5` | 板中心（ENU，m） |
+| `--plate-size` | `0.60,0.60,0.05` | `W,H,T`（宽/高/厚） |
+| `--plate-yaw` / `--plate-pitch` | `0` / `0` | 板姿态（改了就重启 Gazebo） |
+| `--plate-hit-tol` | `0.15` | 容差命中阈值（m） |
+| `--plate-body-radius` | `0.20` | 机身等效半径（m） |
+| `--target-height` | `10.0` | 起飞/巡航高度（m）—— **程序不会自动对齐板高** |
+| `--self-takeoff` | 关 | 用自己的速度爬升代替 XTDrone2 的 10 m 起飞 |
+| `--climb-rate` | `1.5` | 自写起飞爬升速度（m/s） |
+| `--law` | `0` | `0`=PPN `1`=TPN `2`=APN |
+| `--N` | `6.0` | 导航比（工程取 3~5；静止靶 TPN 用 2~4 更省） |
+| `--a-boost` / `--v-boost-min` | `6.0` / `5.0` | 预加速档位（>~9.8 m/s² 受 PX4 倾角限 ~45° 限制，加不上去） |
+
+> ⚠ **`--target-height` 不会自动对齐装甲板高度** —— 这是刻意保留的测试变量
+> （真实比赛里板高本来就与巡航高度不同）。把板放到 z=5 而巡航在 10 m，
+> 就是一次真实的「高度差攻击」测试。
 
 预期关键日志：
 
-```
+```text
 [1/6] ✓ 已解锁（arming_state=ARMED）
-[4/6] ✓ PX4 已确认进入 OFFBOARD（nav_state=14，耗时 x.xxs）
-[5/6] 稳定完毕 → 进入预加速
-  ── CRUISE 完成：|v|=5.1x m/s（耗时 1.xx s） @ (x, y, z)
-[6/6] ── 目标发射！进入 GUIDED（PPN 闭环）
-★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-★ 命中！R_true=0.xxx m（阈值 0.5 m） @ t_rel=0.xxx s
-★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-✓ 已落地：alt=0.2x m → 停桨 DISARM
-✓ 已停桨（arming_state=DISARMED）。
-收尾完成：已落地并停桨。节点退出。
+[4/6] ✓ PX4 已确认进入 OFFBOARD（nav_state=14）
+  ── CRUISE 完成：|v|=x.xx m/s
+[6/6] ── 目标发射！进入 GUIDED
+★ HIT（容差命中，未穿板） 最近距离 0.318 m  Δu=-0.213 Δv=-0.184
+   （真穿板时会打印 ★★ THROUGH（真穿板））
+✓ 已落地：alt=0.xx m → 停桨 DISARM → 节点退出
 ```
 
-### ★★ 实跑验收通过（2026-10-16）
+### 验收记录
 
-在 WSL 里实跑 `bash run_phase_b.sh --namespace x500_0`，**一次命中、全流程无人工干预**：
-
-```
-[1/6] ✓ 已解锁（arming_state=ARMED）
-[2/6] TAKEOFF …（目标 10.0 m）              → 爬升到 9.63 m
-[3/6] 起飞到位 → 请求 OFFBOARD …
-[4/6] ✓ PX4 已确认进入 OFFBOARD（nav_state=14，耗时 0.56s）
-[5/6] 稳定完毕 → 进入预加速
-  ── CRUISE 完成：|v|=5.05 m/s（耗时 1.10s） @ (-2.23, 0.08, 10.19)
-[6/6] ── 目标发射！进入 GUIDED（PPN 闭环）
-★ 命中！R_true=0.318 m（阈值 0.5 m） @ t_rel=0.456s，命中时 |v_M|=6.02 m/s
-  最近距离 0.318 m / 峰值指令 10.00 m/s² / 饱和 1÷23 步（4.3%）/ mode: PN=18, HOLD=5
-✓ 已落地：alt=0.13 m, 下降率=+0.009 m/s → DISARM（第 2 次接受）→ 节点退出
-```
-
-⇒ **阶段 B（制导闭环）验收通过**：真 PX4 动力学 + 真 C++ 制导核 + 真 DART 弹丸模型，
-从起飞到自动收尾全程自动。
-
-> ⚠ **符号约定（极易踩）**：PX4 的 `vehicle_local_position` 是 **NED**（z 轴朝下），
-> 所以 **`vz > 0` = 下降、`vz < 0` = 上升** —— **爬升时 `vz` 为负是正常的**，不是 bug。
-> 节点日志现已统一成"上为正"打印（`alt` / `上升率` / `下降率`），启动横幅里也标了约定；
-> CSV 里则同时给 `px4_*`（NED）与 `enu_*`（ENU）两套，避免歧义。
+| 日期 | 场景 | 结果 |
+| --- | --- | --- |
+| 2026-10-16 | PPN N=6 · 追飞镖（**已废弃**） | 命中 0.318 m（历史记录，仅供参考） |
+| 2026-10-19 | TPN N=4 · 板 (-20,-6,4) yaw45 pitch30 · a_boost=11 | **HIT 0.318 m**（Δu −0.213 / Δv −0.184），峰值 1.72 m/s²、饱和 0/80 |
+| 2026-10-19 | 同上 · 高速档（a_boost=20、v_min=15） | 脱靶 1.43 m —— **预算不足**（t_go 0.456 s 只够修 1.04 m，需 1.91 m），换律无解 |
+| 2026-10-25 | TPN N=4 · 板 (-20,-6,4) yaw45 pitch30 · 自写起飞 4 m · a_boost=9 v_min=7 | 首次原判 HIT 0.327 m（判定窗口截断）；离线复算 + 目视 = THROUGH。修 0.3 s 尾窗后**复跑确认 THROUGH**：HIT 后 56 ms 尾窗确认 Δu +0.014 / Δv +0.003 m、距板最小 0.042 m；峰值 3.32 m/s²、饱和 0/114、归位 0.25 m、着陆漂移 0.07 m |
 
 ### 离线工具（不需要 ROS / 仿真 / Gazebo，Windows 侧也能跑）
 
 | 命令 | 作用 |
 | --- | --- |
-| `python3 test_phase_b_states.py` | **状态机 + 真制导核**的离线回归（桩替 ROS、假 PX4 质点）。6 用例 22 断言 |
-| `python3 sim_phase_b_offline.py` | **纯离线弹道仿真**：扫场景参数、看轨迹（`--csv` 导出） |
-
-```bash
-# 例：试试不同场景（离线先验证，再进仿真）
-python3 sim_phase_b_offline.py --p0 "-12,0,11" --target-speed 15 --target-elev 5
-python3 sim_phase_b_offline.py --no-cruise          # 复现零速死区
-```
-
-**本机已验证（2026-10-14）**：6 用例 22 断言全过；完整闭环**命中 0.272 m**、
-峰值指令 10.00 m/s²（未超 a_max）、末端 `HOLD` 冻结正常；
-并做了**反向验证**——把 ENU→NED 换算故意写反，测试立刻 FAIL（证明该测点有效）。
+| `python3 test_phase_b_states.py` | **状态机 + 真制导核**离线回归（桩替 ROS、假 PX4 质点），含装甲板接线 / 自写起飞用例：**379 断言 / 29 用例** |
+| `python3 test_armor_plate.py` | **装甲板几何 + 命中判据**单测（俯仰/四元数交叉验证/场景序列化）：**45 断言** |
+| `python3 sim_phase_b_offline.py` | 纯离线弹道仿真（扫场景参数、看轨迹、`--csv` 导出） |
 
 ### 安全
 
-- 只发制导量级的加速度（≤ `a_max`，默认 10 m/s²，比阶段 A 的脉冲更温和）
+- 只发制导量级的加速度（≤ `a_max`，默认 10 m/s²）
 - 安全围栏：离地 < 3 m、水平位移 > 25 m、预加速超时 → 立刻中止并转入降落
-- 跑完/中止/Ctrl-C（一次）→ 自动 LAND → 停桨 → 退出；Ctrl-C 两次 = 强制退出
+- 跑完 / 中止 / Ctrl-C（一次）→ 自动 LAND → 停桨 → 退出；Ctrl-C 两次 = 强制退出
 
 ---
 
@@ -2148,13 +2176,15 @@ PASS  Vc>0 时 t_go 正常输出（0.3856）
 | --- | --- |
 | `phase_a_accel_path.py` | 阶段 A 验证节点（**本目录是权威副本**） |
 | `test_phase_a_states.py` | 阶段 A 状态机离线回归（桩替 rclpy，**不需要 ROS/仿真**） |
-| `phase_b_guidance.py` | **阶段 B 制导闭环节点**（见 §3.8；§3.11 加了两阶段巡航 + `--cruise-x`） |
+| `phase_b_guidance.py` | **阶段 B 制导闭环节点**（见 §3.8；支持 `--armor-plate` 固定装甲板、`--self-takeoff` 自写起飞；§3.11 加了两阶段巡航 + `--cruise-x`） |
+| `armor_plate.py` | **装甲板几何 + 命中判据**：尺寸/偏航/俯仰 → 板体三轴、线段穿面判定、`THROUGH/HIT/MISS` 三态 |
+| `test_armor_plate.py` | 装甲板单测（平面/俯仰/四元数交叉验证/场景序列化）：**45 断言** |
 | `run_phase_b.sh` | 阶段 B 一键 source + 运行 |
 | `run_pilot_compare.sh` | **pilot 守备场景 PPN/APN 对比**（一键跑多个 law；见 §3.11） |
-| `gz_scene_sync.py` | **在 Gazebo 里显示塔 / 弹丸 / 轨迹**（零侵入；见 §3.12） |
+| `gz_scene_sync.py` | **在 Gazebo 里显示塔 / 弹丸 / 装甲板 / 轨迹**（零侵入；见 §3.12） |
 | `verify_gz_msgs.py` | **校验 gz-msgs 字段/枚举名**是否与本机版本一致（见 §3.12） |
 | `audit_landing.py` | **着陆段数值审计**：逐帧打印着陆过程 + 判定停桨前状态是否合理（见 §3.11） |
-| `test_phase_b_states.py` | 阶段 B 离线回归（桩替 ROS + **真制导核** + 假 PX4 质点；用例 1~16，含起飞前自检/安全门限） |
+| `test_phase_b_states.py` | 阶段 B 离线回归（桩替 ROS + **真制导核** + 假 PX4 质点；含装甲板接线 / 自写起飞用例）：**379 断言 / 29 用例** |
 | `sample_csv_pose_0p1s.csv` | **CSV 列格式参照**：离线跑一遍（真制导核 + 假 PX4），0.1 s 采样、带姿态列（见 §3.13） |
 | `sim_phase_b_offline.py` | 纯离线弹道仿真（三种模式：cruise / hot / **pilot**；见 §3.8、§3.9） |
 | `scene_model.py` | **场景实体模型**：塔 / 发射场 / 弹丸 / 无人机 / 场地（含 walls.sdf 真实墙体；见 §3.9、§3.10） |
@@ -2194,3 +2224,96 @@ PASS  Vc>0 时 t_go 正常输出（0.3856）
 > ```
 >
 > **同步前建议先 Ctrl-C 停掉节点**，能省掉这一整套麻烦。
+
+---
+
+## 6. 主函数如何调用制导模块（C++ 封装后的接口契约）
+
+> ⚠ **本节是"契约先行"**：C++ 侧封装尚未落地（`src/app/main.cpp` 目前还是 99 字节空壳，
+> `guidance_step` 只被仿真 shim 与离线 `pn_sim` 调用）。这里先约定**主函数 ↔ 制导模块**的
+> 输入/输出与注意事项，**封装完成后按真实签名补全**（见 §6.6）。
+
+### 6.1 一帧一进一出
+
+```text
+main                                      guidance 模块
+ │  ① InsSample    飞控/惯导：位置/速度/姿态
+ │  ② TargetSample 视觉/真值：视线/距离/目标在否
+ ├──────────────────────────────────────────────► update()
+ │                                              │  to_guidance_state()   ← 唯一入口换算
+ │                                              │  guidance_step()       ← 纯函数，一行不改
+ │                                              │  quick_check()          ← 廉价体检（~7 ns）
+ │  ③ GuidanceOutput  NED 指令 + 模式/有效性 + 调试量 + 健康
+ │◄──────────────────────────────────────────────┤  cmd_accel_to_ned()    ← 唯一出口换算
+```
+
+### 6.2 输入：每帧必须提供什么
+
+| 字段 | 单位 / 坐标系 | 必需性 |
+| --- | --- | --- |
+| 自身位置 `p` | m · NED | **必需**（返航 / 安全围栏 / 日志） |
+| 自身速度 `v` | m/s · NED | **必需**（PPN 直接用它） |
+| 自身姿态 `q`（`[w,x,y,z]`） | FRD → 世界 | **必需**（Q8 定案后确认口径） |
+| 帧时间戳 `t` | s · **单调** | **必需**（`t_go` / 差分法） |
+| 视线 `los` | 不必单位化 · NED | **必需**（内部自动归一；零矢量 ⇒ SEARCH） |
+| 距离 `range` | m | **强烈建议**（TPN/APN 的 `Vc` 与 `t_go` 需要） |
+| 目标速度 `v_T` | m/s · NED | 真机**拿不到** ⇒ 置"无" |
+| 目标在否 `present` | bool | **必需**（false ⇒ SEARCH，零指令） |
+| 目标加速度 `a_T_perp` | m/s² · NED | 仅 APN 需要 |
+
+**缺失时的降级（主函数必须知道）**：
+
+| 缺什么 | 后果 | 必须怎么配 |
+| --- | --- | --- |
+| 无 `v_T`（真机常态） | 真值法算 ω 不可用 | `los_rate_source = FROM_LOS_DIFFERENCE` |
+| 无 `range` | `t_go`、TPN/APN 的 `Vc` 全部失准 | 只能用 PPN；实际上**必须有测距** |
+| 视觉帧率 < 制导帧率 | —— | 用"最近一帧"（各自保留时间戳），**不要每帧等新数据** |
+
+### 6.3 输出：每帧必须交回什么
+
+| 组 | 字段 | 上层怎么用 |
+| --- | --- | --- |
+| **指令** | `a_cmd_ned[3]`（NED, m/s²） | 直接写 `cmd_accel_ned` 三分量 |
+| **模式** | `mode` = `PN` / `APN` / `HOLD` / `SEARCH` | **必须判**：`SEARCH` = 没指令，不是"零加速度指令"；`HOLD` = 冻结上一条 |
+| **有效性** | `valid` | false ⇒ 上层接管（悬停 / 返航） |
+| **饱和** | `sat` | 告警 / 记录："要的加速度给不出" |
+| **可用性** | `t_go` | 判定终端机动 / 是否已交会 |
+| **调试量** | `R` / `Vc` / `lam_dot` / `N` / `a_cmd_unsat` | 日志与在线监控（答辩时非常有用） |
+| **健康** | `quick_check` 结果 / `Report` | 上位机告警、黑匣子、降级决策 |
+
+### 6.4 五条不可违反的约定
+
+1. **时钟**：全部用 `steady_clock`（单调）、**同一时钟源**；输入时间戳统一由 `StateTimeTracker`
+   产生，绝不混用"开机以来"与"Unix epoch"（跨源相减不报错，只会静默给出垃圾 `dt`）。
+2. **换算只在两处**：进 `to_guidance_state()`、出 `cmd_accel_to_ned()`；其它地方一句都不许转，
+   否则会出现"z 翻回去"这类静默 bug。
+3. **循环内零分配**：不 `printf`、不 `std::string`、不 `new`；日志写预分配环形缓冲，循环外落盘。
+4. **周期节拍**：建议 250 Hz（200~500 均可），用绝对时间睡眠
+   （`clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`），不要 `sleep_for` 累积漂移。
+5. **体检两级**：回路内用 `quick_check()`（≈7 ns、零分配）；完整 `check_guidance_state()`
+   （≈69 ns，失败时才构造字符串）只在异常或降频（1~5 Hz）时跑。
+
+### 6.5 主函数该长得像什么
+
+```cpp
+// 组装 → 初始化 → 循环 → 收尾；算法细节一律不在 main 里
+VisionSource source(cfg);          // 或 SimTruthSource / CsvReplaySource（接口注入）
+MavlinkSink  sink(serial_cfg);     // 或 Ros2Sink / CsvSink
+GuidanceParams p = load_params(argc, argv);
+
+GuidanceLoop loop(p, source, sink);
+if (!loop.init()) return 1;        // 构造即有效：失败给错误码 + 人话
+loop.run();                        // read → adapt → step → check → send → log
+```
+
+> 架构叫 **"函数式内核 + 面向对象外壳"**：`guidance_step` 保持纯函数（可被 C++ 侧
+> **1439 条断言**逐例验证 = 120 + 1193 + 126），数据源 / 执行器 / 状态机 / 安全闸门用
+> 接口 + 组合封装 ⇒ **同一套制导代码在仿真与真机上零改动**。
+
+### 6.6 待补（封装完成后逐条填空）
+
+- [ ] `src/app/main.cpp` 的真实实现（当前 99 字节空壳）
+- [ ] §6.2 / §6.3 的字段与真实头文件（`RawFrame` / `PureGuidanceCmd` / `GuidanceOutput`）逐条对齐
+- [ ] `GuidanceLoop` 的真实签名（`init` / `update` / `reset`）与错误码表
+- [ ] 机载构建口径：核心改 **STATIC + LTO**（实测 `guidance_step` 跨 TU 30 ns → LTO 6.7 ns）
+- [ ] 端到端打点：`t0` 收到数据 → `t3` 指令发出，四段耗时 P50/P95/max

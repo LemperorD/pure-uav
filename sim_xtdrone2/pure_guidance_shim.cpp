@@ -267,7 +267,7 @@ PGU_API void pgu_step(void* h, double t_rel, double target_present,
         st.valid = false;
         st.p_M   = tr.p_M;
         st.v_M   = tr.v_M;
-        const GuidanceCmd cmd = guidance_step(st, c->gp, c->mem);
+        const PureGuidanceCmd cmd = guidance_step(st, c->gp, c->mem);
         fill_search_cmd(cmd.t, cmd_out);
         fill_dbg(Vec3{}, Vec3{}, Vec3{}, tr.p_M, tr.v_M, -1.0, false, dbg_out);
         return;
@@ -279,7 +279,7 @@ PGU_API void pgu_step(void* h, double t_rel, double target_present,
     tr.a_T = tgt.a;
 
     const GuidanceState st  = c->sensor->observe(tr, t_rel);
-    const GuidanceCmd  cmd  = guidance_step(st, c->gp, c->mem);
+    const PureGuidanceCmd  cmd  = guidance_step(st, c->gp, c->mem);
 
     cmd_out[0]  = cmd.t;
     cmd_out[1]  = cmd.a_cmd.x;

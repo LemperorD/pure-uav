@@ -11,7 +11,7 @@ namespace pure_uav {
 // 一次制导周期。
 // 内部流程：有效性检查 → 几何量 → 选导引律 → 末端冻结 → 过载限幅。
 // memory 由调用方持有并跨周期传回（制导本身无全局状态）。
-GuidanceCmd guidance_step(const GuidanceState &state,
+PureGuidanceCmd guidance_step(const GuidanceState &state,
                           const GuidanceParams &params,
                           GuidanceMemory &memory);
 

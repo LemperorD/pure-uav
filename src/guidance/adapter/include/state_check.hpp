@@ -101,6 +101,37 @@ struct Report {
 void add_check(Report &rep, bool ok_cond, Severity sev_if_fail,
                CheckCode code, const char *field, const char *detail) noexcept;
 
+// 惰性版本：`make_detail()` **只在检查失败时**才被调用。
+//
+// 【为什么需要它】普通版本的 detail 实参常写成 `fmt(...).c_str()`，而实参先于调用求值
+// ⇒ 即使检查通过也会**构造 std::string**（一次 snprintf + 一次堆分配）。
+// 实测一次 check_guidance_state ≈ 960 ns，绝大部分花在这十几次"通过时也照建"的字符串上。
+// 惰性版本在通过路径上**完全不分配**（lambda 不被求值）。
+//
+// 用法：add_check_lazy(rep, cond, sev, code, "field", [&] { return fmt("…", v); });
+//      add_check_lazy(rep, cond, sev, code, "field", [] { return std::string("…"); });
+template <class MakeDetail>
+inline void add_check_lazy(Report &rep, bool ok_cond, Severity sev_if_fail,
+                           CheckCode code, const char *field,
+                           MakeDetail &&make_detail) {
+    if (ok_cond) {
+        ++rep.n_ok;
+        return;
+    }
+    if (sev_if_fail == Severity::kWarn) {
+        ++rep.n_warn;
+    } else {
+        ++rep.n_error;
+    }
+    if (rep.n_issues < static_cast<int>(sizeof(rep.issues) / sizeof(rep.issues[0]))) {
+        Issue &is = rep.issues[rep.n_issues++];
+        is.severity = sev_if_fail;
+        is.code = code;
+        is.field = field;
+        is.detail = make_detail();
+    }
+}
+
 // ============================================================================
 //  §1  检查阈值（显式列出，便于按实测放宽/收紧）
 // ============================================================================
@@ -123,16 +154,36 @@ inline constexpr double kCmdTol        = 1e-9;   // 指令量的比较容差(m/s
 Report check_guidance_state(const GuidanceState &st,
                             bool expected_los_units = true);
 
-// 体检一个 GuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
-Report check_guidance_cmd(const GuidanceCmd &cmd,
+// 体检一个 PureGuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
+Report check_guidance_cmd(const PureGuidanceCmd &cmd,
                           double a_max_mps2 = 0.0,
                           bool has_a_max = false,
                           double expect_t = 0.0,
                           bool has_expect_t = false);
 
 // 一次性体检 state + cmd（联调现场最常用）。
-Report check_frame(const GuidanceState &st, const GuidanceCmd &cmd,
+Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
                    double a_max_mps2 = 0.0, bool has_a_max = false);
+
+// ============================================================================
+//  §2.5  廉价体检（**飞行回路专用**）
+// ============================================================================
+//
+// 与 check_guidance_state 的区别：
+//   · **不分配内存、不构造字符串、无 Report**，只有几个分支 ⇒ 实测 ~10 ns 量级
+//     （完整版 ≈960 ns，因为它要填 Report 并把每条 detail 变成 std::string）；
+//   · 只覆盖"会让制导出错"的**硬条件**（完整版里 error 级的那些），忽略 warning
+//     —— 因为飞行中真正要拦的是"这帧能不能用"，不是"值不值得提醒"。
+//
+// 覆盖：t / los_hat / range / v_M / q 全有限 · |los_hat| > 0 · |los_hat| ≈ 1 ·
+//       |q| ≈ 1 · range ≥ 0。（容差沿用 §1 的 kQuatNormTol / kLosNormTol）
+//
+// 返回 true = 通过。`first_bad`（可空）给出第一条失败项的 code，
+// 便于"廉价体检失败时再跑一次完整体检并入黑匣子"这种两级用法。
+//
+// ⚠ 它**不检查** cmd，也不判断数据口径（NED/ENU、时间戳是否同源）——
+//    那些靠单元测试与联调时的完整体检。
+bool quick_check(const GuidanceState &st, CheckCode *first_bad = nullptr) noexcept;
 
 // ============================================================================
 //  §3  不变量总闸（单测用）
@@ -142,7 +193,7 @@ Report check_frame(const GuidanceState &st, const GuidanceCmd &cmd,
 //   · |q| = 1                · |los_hat| = 1            · range ≥ 0
 //   · 所有量有限             · cmd 限幅自洽（给了 a_max 时）
 // 与 check_frame 的区别：本函数**忽略 warning**，只看硬不变量。
-bool invariants_hold(const GuidanceState &st, const GuidanceCmd &cmd,
+bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
                      double a_max_mps2 = 0.0, bool has_a_max = false);
 
 }  // namespace adapter
