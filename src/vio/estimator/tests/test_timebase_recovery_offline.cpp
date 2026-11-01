@@ -112,6 +112,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // 模拟已解锁：实际重初始化和后续输出期间都必须保持零速更新关闭。
+    est.setZuptEnabled(false);
+    CHECK(!est.zuptEnabled());
     size_t imu_idx = 0;
     bool reset_done = false;
     int64_t ts_offset_us = 0;
@@ -137,6 +140,7 @@ int main(int argc, char** argv) {
                 reset_frame = static_cast<int>(k);
                 ts_offset_us = static_cast<int64_t>(img.timestamp_us) - 1000000;
                 est.resetForNewTimebase("offline simulate FC reboot");
+                CHECK(!est.zuptEnabled());
                 CHECK(!est.initialized());
                 CHECK(!est.publishable());
                 std::printf("[reset] 第 %zu 帧：模拟飞控重启，后续时间戳平移 %lld us\n", k,
@@ -173,6 +177,7 @@ int main(int argc, char** argv) {
                             static_cast<unsigned long long>(first_new_base_ts),
                             static_cast<double>(img.timestamp_us) * 1e-6);
                 CHECK(est.publishable());
+                CHECK(!est.zuptEnabled());
             }
             ++frames_after_reinit;
             pure_uav::VisionPose p;

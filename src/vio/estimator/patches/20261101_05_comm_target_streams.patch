@@ -1,0 +1,136 @@
+--- a/src/driver/communicate/src/communicator.cpp
++++ b/src/driver/communicate/src/communicator.cpp
+@@ -69,8 +69,7 @@
+     // 先"打招呼"：飞控（ArduPilot/PX4）要看到地面站发过数据才开始推流，
+     // 只读不写会双方互等，所以这里立刻发心跳并请求一次消息流。
+     sendGcsHeartbeat();
+-    requestDefaultStreams();
+-    streams_requested_.store(true);
++    // 数据流请求由首个匹配心跳触发；此时目标 sysid/compid 尚未确认。
+ 
+     running_.store(true);
+     recv_thread_ = std::thread(&Communicator::recvLoop, this);    //开启接收线程
+@@ -206,8 +205,7 @@
+                 last_gcs_heartbeat = steady_clock::now();
+                 // 新会话主动打招呼，否则飞控可能不推流
+                 sendGcsHeartbeat();
+-                requestDefaultStreams();
+-                streams_requested_.store(true);
++                // 新会话等待目标心跳后重新订阅，不能沿用上次连接的飞控地址。
+                 printf("[COMM] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n",
+                        cfg_.device.c_str(),
+                        static_cast<unsigned long long>(reconnects_.load()));
+@@ -683,7 +681,7 @@
+     mavlink_message_t msg;
+     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+     // MAV_CMD_SET_MESSAGE_INTERVAL(511)：param1=消息ID，param2=间隔(微秒，-1禁用，0默认)
+-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
++    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
+                                   MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                                   static_cast<float>(msgid),
+                                   static_cast<float>(interval_us),
+--- a/src/test/test_driver/test_vision_pose_wire.cpp
++++ b/src/test/test_driver/test_vision_pose_wire.cpp
+@@ -115,6 +115,53 @@
+         }
+     }
+ };
++
++// 未确认目标飞控时只发本机心跳，不能向默认/上次地址提前订阅。
++bool noStreamRequests(MsgReader& reader, int timeout_ms = 120) {
++    const int64_t deadline = nowMs() + timeout_ms;
++    mavlink_message_t msg{};
++    while (nowMs() < deadline && reader.next(msg, static_cast<int>(deadline - nowMs()))) {
++        if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) continue;
++        mavlink_command_long_t cmd{};
++        mavlink_msg_command_long_decode(&msg, &cmd);
++        if (cmd.command == MAV_CMD_SET_MESSAGE_INTERVAL) return false;
++    }
++    return true;
++}
++
++// 按线上字节检查全部五种订阅，包含目标组件和请求间隔。
++bool readStreamRequests(MsgReader& reader, uint8_t sysid, uint8_t compid,
++                        const pure_uav::CommConfig& cfg) {
++    const uint32_t ids[] = {MAVLINK_MSG_ID_ATTITUDE, MAVLINK_MSG_ID_LOCAL_POSITION_NED,
++                           MAVLINK_MSG_ID_HIGHRES_IMU, MAVLINK_MSG_ID_BATTERY_STATUS,
++                           MAVLINK_MSG_ID_SYSTEM_TIME};
++    const int intervals[] = {cfg.attitude_interval_us, cfg.local_position_interval_us,
++                             cfg.highres_imu_interval_us, cfg.battery_interval_us,
++                             cfg.system_time_interval_us};
++    bool seen[5] = {};
++    size_t count = 0;
++    const int64_t deadline = nowMs() + 1200;
++    while (count < 5 && nowMs() < deadline) {
++        mavlink_message_t msg{};
++        if (!reader.next(msg, static_cast<int>(deadline - nowMs()))) break;
++        if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) continue;
++        mavlink_command_long_t cmd{};
++        mavlink_msg_command_long_decode(&msg, &cmd);
++        if (cmd.command != MAV_CMD_SET_MESSAGE_INTERVAL) continue;
++        if (cmd.target_system != sysid || cmd.target_component != compid) return false;
++        bool matched = false;
++        for (size_t i = 0; i < 5; ++i) {
++            if (cmd.param1 != static_cast<float>(ids[i])) continue;
++            if (seen[i] || cmd.param2 != static_cast<float>(intervals[i])) return false;
++            seen[i] = true;
++            ++count;
++            matched = true;
++            break;
++        }
++        if (!matched) return false;
++    }
++    return count == 5;
++}
+ 
+ // 等 master 端出现第一条 ODOMETRY（中间可能夹着本机心跳 / 消息流请求）
+ bool readOdometry(MsgReader& reader, mavlink_odometry_t& odo, int timeout_ms) {
+@@ -414,11 +461,16 @@
+         CHECK(waitMs([&] { return comm2.reconnectCount() >= 1; }, 6000));
+         CHECK(comm2.imuQueueSize() == 0);       // 旧时间基的帧必须清掉
+ 
+-        // 重连后重新学习身份：故意换 sysid=9
++        MsgReader reconnect_reader;
++        reconnect_reader.fd = master_b;
++        CHECK(noStreamRequests(reconnect_reader));
++
++        // 重连后重新学习身份：故意换 sysid=9，必须重新向它订阅数据流。
+         CHECK(sendHeartbeat(master_b, 9, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
+                             MAV_MODE_FLAG_SAFETY_ARMED));
+         CHECK(waitMs([&] { return comm2.isConnected() && comm2.isArmed(); }, 3000));
+         CHECK(comm2.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);
++        CHECK(readStreamRequests(reconnect_reader, 9, 1, pure_uav::CommConfig{}));
+         const uint32_t cnt2 = comm2.getCountImu();
+         CHECK(sendHighresImu(master_b, 9, 600000ULL, 2.0f));
+         CHECK(waitMs([&] { return comm2.getCountImu() > cnt2; }, 2000));
+@@ -432,6 +484,30 @@
+         ::close(master_b);
+     }
+ 
++    // ---- 8) 首次连接非默认飞控/组件：请求目标和间隔必须来自已确认身份 ----
++    {
++        int target_master = -1;
++        std::string target_slave;
++        if (!makePty(target_master, target_slave)) return 1;
++        MsgReader target_reader;
++        target_reader.fd = target_master;
++        pure_uav::CommConfig cfg;
++        cfg.device = target_slave;
++        cfg.fcu_sysid = 9;
++        cfg.fcu_compid = 42;
++        cfg.highres_imu_interval_us = 5000;
++        pure_uav::Communicator target;
++        if (!target.start(cfg)) return 1;
++        CHECK(noStreamRequests(target_reader));
++        CHECK(sendHeartbeat(target_master, 9, 42, MAV_TYPE_QUADROTOR,
++                            MAV_AUTOPILOT_ARDUPILOTMEGA, 0));
++        CHECK(waitMs([&] { return target.isConnected(); }, 2000));
++        CHECK(readStreamRequests(target_reader, 9, 42, cfg));
++        std::printf("[8] 首次连接非默认飞控 OK（订阅目标 9/42，IMU 间隔 5000 us）\n");
++        target.stop();
++        ::close(target_master);
++    }
++
+     comm.stop();
+     ::close(master);
+ 

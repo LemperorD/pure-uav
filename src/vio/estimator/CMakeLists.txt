@@ -222,6 +222,11 @@ endif()
 add_executable(test_pose_convert tests/test_pose_convert.cpp)
 target_link_libraries(test_pose_convert PRIVATE pure_vio_core)
 
+# 无硬件回归：估计器重建后保留零速更新的运行期开关。
+add_executable(test_zupt_rebuild tests/test_zupt_rebuild.cpp src/offline_dataset.cpp)
+target_include_directories(test_zupt_rebuild PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_zupt_rebuild PRIVATE pure_vio_core)
+
 # 离线"飞控时间基变化"恢复测试：需要已录数据集，没给 --dataset 时返回 77（ctest=skip）。
 # 手动跑：
 #   ./bin/test_timebase_recovery --dataset datasets/loop5 --config-dir config/gemini_1920x1080
@@ -299,6 +304,8 @@ endif()
 
 enable_testing()
 add_test(NAME pose_convert COMMAND test_pose_convert)
+add_test(NAME zupt_rebuild COMMAND test_zupt_rebuild
+         ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080)
 add_test(NAME fcu_clock COMMAND test_fcu_clock)
 if(TARGET test_odometry_pack)
     add_test(NAME odometry_pack COMMAND test_odometry_pack)
@@ -320,4 +327,8 @@ if(PURE_VIO_TEST_DATASET AND TARGET test_timebase_recovery)
              --max-after 200
              --quiet)
     set_tests_properties(timebase_recovery PROPERTIES TIMEOUT 900)
+    add_test(NAME zupt_lost_rebuild COMMAND test_zupt_rebuild
+             ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080
+             ${PURE_VIO_TEST_DATASET})
+    set_tests_properties(zupt_lost_rebuild PROPERTIES TIMEOUT 900)
 endif()
