@@ -126,6 +126,22 @@ target_link_libraries(test_multithread
     communicate
 )
 
+# 【2026-10-28】无飞控联调回归：PTY 模拟飞控，验证
+#   · 心跳解锁位 → isArmed()
+#   · HIGHRES_IMU → 逐帧队列 popImu()（顺序/主机时钟/溢出计数）
+#   · pushVisionPose() → ODOMETRY 的 quality / reset_counter / 协方差
+# 不需要真机、不需要摄像头。VIO↔通信交接时先跑它。
+add_executable(test_vision_pose_wire
+    test_driver/test_vision_pose_wire.cpp
+)
+target_include_directories(test_vision_pose_wire PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/../driver/communicate/include
+    ${CMAKE_SOURCE_DIR}/src/common
+)
+target_link_libraries(test_vision_pose_wire
+    communicate
+)
+
 set_target_properties(
     shm_write
     shm_read
@@ -138,6 +154,13 @@ set_target_properties(
     test_communicate
     test_frequency
     test_multithread
+    test_vision_pose_wire
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR}
 )
+
+# 无硬件测试纳入根目录 ctest；串口/相机实机程序仍由操作者显式运行。
+foreach(_test IN ITEMS math guidance mavlink_units state_adapter vision_pose_wire)
+    add_test(NAME ${_test} COMMAND test_${_test})
+    set_tests_properties(${_test} PROPERTIES TIMEOUT 120)
+endforeach()

@@ -1,10 +1,12 @@
 #include "communicator.hpp"
 
 #include <chrono>
+#include <utility>
 #include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <poll.h>
 #include <unistd.h>
 
 // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
@@ -17,13 +19,26 @@
 namespace pure_uav {
 
 namespace {
-constexpr uint8_t kFcuCompId = 1;
+std::mutex pack_mutex;
+template <typename F, typename... Args>
+auto packMessage(F pack, Args&&... args) {
+    std::lock_guard<std::mutex> lk(pack_mutex);
+    return pack(std::forward<Args>(args)...);
+}
+
+
 
 // 单调时钟毫秒
 uint32_t timeBootMs() {
     using namespace std::chrono;
     return static_cast<uint32_t>(
         duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+}
+
+// 单调时钟纳秒（IMU 到达时刻用，FcuClock 做主机↔飞控时钟映射）
+int64_t steadyNowNs() {
+    using namespace std::chrono;
+    return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
 //欧拉角 → 四元数 wxyz
@@ -46,17 +61,23 @@ bool Communicator::start(const std::string& device, int baud) {   //打开串口
     if (running_.load()) {
         return true;
     }
+    // 记录设备参数：串口掉线后 recvLoop 要用同一个路径重新打开
+    cfg_.device = device;
+    cfg_.baudrate = baud;
     if (!port_.open(device, baud)) {
         printf("打开串口失败: %s\n", device.c_str());
         return false;
     }
     port_.flush();   //清空缓冲
 
+    // 【2026-10-29】每次 start() 都是新会话：清掉上一次连接的 IMU 队列、
+    // 缓存数据、解锁状态和身份锁定，避免把旧会话的数据混进新连接。
+    resetSessionState();
+
     // 先"打招呼"：飞控（ArduPilot/PX4）要看到地面站发过数据才开始推流，
     // 只读不写会双方互等，所以这里立刻发心跳并请求一次消息流。
     sendGcsHeartbeat();
-    requestDefaultStreams();
-    streams_requested_.store(true);
+    // 数据流请求由首个匹配心跳触发；此时目标 sysid/compid 尚未确认。
 
     running_.store(true);
     recv_thread_ = std::thread(&Communicator::recvLoop, this);    //开启接收线程
@@ -69,9 +90,99 @@ void Communicator::stop() {    //关闭接收线程
         recv_thread_.join();
     }
     port_.close();
-    connected_.store(false);
+    // 会话结束：队列里的数据不能再被 popImu() 取到；解锁/心跳/缓存全部失效
+    resetSessionState();
 }
 
+
+// 【2026-10-29】心跳来源筛选：只认目标飞控。
+bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
+    if (sysid == sysid_) return false;   // 自己的心跳（回环）
+
+    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS ||
+        type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
+    if (locked_sysid_.load() != 0)
+        return sysid == locked_sysid_.load() && compid == locked_compid_.load();
+
+    if (cfg_.fcu_sysid != 0) {           // 显式配置优先
+        if (sysid != cfg_.fcu_sysid) return false;
+        if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
+        locked_sysid_.store(sysid);
+        locked_compid_.store(compid);
+        return true;
+    }
+
+    const uint8_t locked = locked_sysid_.load();
+    if (locked != 0) {
+        return sysid == locked && compid == locked_compid_.load();
+    }
+
+    // 自动锁定第一个"像飞控"的心跳：排除地面站、机载计算机和无自动驾驶类型的组件。
+    if (autopilot == MAV_AUTOPILOT_INVALID) return false;
+    if (type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
+    if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
+
+    locked_sysid_.store(sysid);
+    locked_compid_.store(compid);
+    printf("[COMM] 锁定目标飞控心跳 sysid=%u compid=%u autopilot=%u\n",
+           static_cast<unsigned>(sysid), static_cast<unsigned>(compid),
+           static_cast<unsigned>(autopilot));
+    return true;
+}
+
+// 【2026-10-29】会话级复位：start()/stop() 都调用。
+// 目的：停止后再启动时，popImu() 绝不能返回上一次连接留下的帧；
+// 旧心跳、解锁状态、固件类型、缓存数据也都必须失效。
+void Communicator::resetSessionState() {
+    {
+        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+        imu_queue_.clear();
+    }
+    dropped_imu_.store(0);
+    {
+        std::lock_guard<std::mutex> lk(imu_mutex_);
+        imu_ = ImuData{};
+    }
+    {
+        std::lock_guard<std::mutex> lk(attitude_mutex_);
+        attitude_ = Attitude{};
+    }
+    {
+        std::lock_guard<std::mutex> lk(battery_mutex_);
+        battery_ = Battery{};
+    }
+    {
+        std::lock_guard<std::mutex> lk(local_position_mutex_);
+        local_pos_ = LocalPosition{};
+    }
+    {
+        std::lock_guard<std::mutex> lk(system_time_mutex_);
+        system_time_ = SystemTime{};
+    }
+    connected_.store(false);
+    armed_.store(false);
+    streams_requested_.store(false);
+    last_heartbeat_ns_.store(0);
+    locked_sysid_.store(0);
+    locked_compid_.store(0);
+    reconnects_.store(0);
+    fcu_sysid_.store(1);
+    fcu_compid_.store(1);
+    autopilot_.store(0);
+    custom_mode_.store(0);
+    count_attitude_.store(0);
+    count_local_position_.store(0);
+    count_highres_imu_.store(0);
+    count_battery_.store(0);
+    count_system_time_.store(0);
+    last_ack_command_.store(0);
+    last_ack_result_.store(UINT8_MAX);
+}
+
+void Communicator::clearImuQueue() {
+    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+    imu_queue_.clear();
+}
 
 // 接收线程
 void Communicator::recvLoop() {
@@ -79,24 +190,141 @@ void Communicator::recvLoop() {
     const auto heartbeat_timeout = milliseconds(cfg_.heartbeat_timeout_ms);
 
     mavlink_message_t msg{};
-    mavlink_status_t status{}; 
+    mavlink_status_t status{};
+    mavlink_message_t rx_message{};
+    mavlink_status_t rx_status{};
     uint8_t buf[1024];
+    long long ignored_heartbeats = 0;
     auto last_heartbeat = steady_clock::now();
     auto last_gcs_heartbeat = steady_clock::now();
+    int read_errors = 0;       // 连续读错误计数（掉线判定）
+    int reopen_failures = 0;   // 打印节流
 
     while (running_.load()) {
+        // 心跳超时 → 判定断开
+        if (connected_.load() &&
+            steady_clock::now() - last_heartbeat > heartbeat_timeout) {
+            connected_.store(false);
+            clearImuQueue();
+            {
+                std::lock_guard<std::mutex> lk(imu_mutex_);
+                imu_ = ImuData{};
+            }
+            last_ack_command_.store(0);
+            last_ack_result_.store(UINT8_MAX);
+            reconnects_.fetch_add(1);
+            streams_requested_.store(false);  // 掉线重置，飞控恢复后重新请求消息流
+            // 清身份锁定，允许飞控重启后重新锁定（sysid 理论上可能变）
+            locked_sysid_.store(0);
+            locked_compid_.store(0);
+        }
+
+        // ---- 串口已关闭：每 500ms 用同一路径尝试重开（飞控重启会重新枚举 USB）----
+        if (!port_.isOpen()) {
+            std::this_thread::sleep_for(milliseconds(500));
+            if (!running_.load()) break;
+            if (port_.open(cfg_.device, cfg_.baudrate)) {
+                rx_message = {};
+                rx_status = {};
+                status = {};
+                port_.flush();
+                reopen_failures = 0;
+                read_errors = 0;
+                connected_.store(false);
+                streams_requested_.store(false);
+                locked_sysid_.store(0);
+                locked_compid_.store(0);
+                last_heartbeat_ns_.store(0);
+                clearImuQueue();
+                reconnects_.fetch_add(1);
+                last_heartbeat = steady_clock::now();
+                last_gcs_heartbeat = steady_clock::now();
+                // 新会话主动打招呼，否则飞控可能不推流
+                sendGcsHeartbeat();
+                // 新会话等待目标心跳后重新订阅，不能沿用上次连接的飞控地址。
+                printf("[COMM] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n",
+                       cfg_.device.c_str(),
+                       static_cast<unsigned long long>(reconnects_.load()));
+                fflush(stdout);
+            } else if (++reopen_failures % 10 == 1) {
+                printf("[COMM] 串口重连失败（%s），继续尝试…\n", cfg_.device.c_str());
+                fflush(stdout);
+            }
+            continue;
+        }
+
+        // 先用 poll 看设备是否还在：USB 拔出/飞控重启时 master 端关闭，
+        // 读会一直返回 0/错误，光靠心跳超时无法触发"重新打开串口"。
+        short revents = 0;
+        const int pr = port_.pollIn(1, &revents);
+        if (pr > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            printf("[COMM] 串口挂断（poll revents=0x%x）：设备掉线，等待重连…\n",
+                   static_cast<unsigned>(revents));
+            fflush(stdout);
+            port_.close();
+            connected_.store(false);
+            streams_requested_.store(false);
+            locked_sysid_.store(0);
+            locked_compid_.store(0);
+            clearImuQueue();
+            read_errors = 0;
+            continue;
+        }
         ssize_t n = port_.read(buf, sizeof(buf));
+        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            if (++read_errors >= 5) {
+                printf("[COMM] 串口读错误（%s）：设备掉线，停止解析，等待重连…\n",
+                       std::strerror(errno));
+                fflush(stdout);
+                port_.close();
+                connected_.store(false);
+                streams_requested_.store(false);
+                locked_sysid_.store(0);
+                locked_compid_.store(0);
+                clearImuQueue();
+                read_errors = 0;
+            }
+        } else if (n >= 0) {
+            read_errors = 0;
+        }
 
         if (n > 0) {
             for (ssize_t i = 0; i < n; ++i) {
-                if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
+                if (mavlink_frame_char_buffer(&rx_message, &rx_status, buf[i], &msg, &status) == MAVLINK_FRAMING_OK) {
+                    // 锁定飞控后只接受该 sysid 的数据；同链路路由转发过来的其他
+                    // 飞行器/地面站消息不能污染姿态、位置、IMU 缓存。
+                    const uint8_t locked_sysid = locked_sysid_.load();
+                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT &&
+                        (!connected_.load() || locked_sysid == 0 || msg.sysid != locked_sysid ||
+                         msg.compid != locked_compid_.load())) {
+                        continue;
+                    }
                     switch (msg.msgid) {
                         case MAVLINK_MSG_ID_HEARTBEAT: {     //心跳和飞行模式
                             mavlink_heartbeat_t hb;
                             mavlink_msg_heartbeat_decode(&msg, &hb);
+                            // 【2026-10-29】只认目标飞控的心跳。地面站/机载计算机/
+                            // 其他飞行器的心跳不能覆盖飞控身份、解锁状态和固件类型。
+                            if (!acceptHeartbeat(msg.sysid, msg.compid, hb.autopilot, hb.type)) {
+                                ++ignored_heartbeats;
+                                if (ignored_heartbeats <= 3 || ignored_heartbeats % 200 == 0) {
+                                    printf("[COMM] 忽略非目标心跳 sysid=%u compid=%u type=%u"
+                                           " autopilot=%u（累计 %lld）\n",
+                                           static_cast<unsigned>(msg.sysid),
+                                           static_cast<unsigned>(msg.compid),
+                                           static_cast<unsigned>(hb.type),
+                                           static_cast<unsigned>(hb.autopilot),
+                                           ignored_heartbeats);
+                                }
+                                break;
+                            }
                             fcu_sysid_.store(msg.sysid);   // 学习飞控 sysid
+                            fcu_compid_.store(msg.compid);
                             autopilot_.store(hb.autopilot);   // 学习飞控固件类型
                             custom_mode_.store(hb.custom_mode);
+                            // 【2026-10-28】解锁状态：VIO 地面开零速更新、空中必须关
+                            armed_.store((hb.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0);
+                            last_heartbeat_ns_.store(steadyNowNs());
                             connected_.store(true);
                             last_heartbeat = steady_clock::now();
                             // 首次连上飞控，请求需要的消息流
@@ -167,14 +395,35 @@ void Communicator::recvLoop() {
                             count_highres_imu_.fetch_add(1);
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
-                            std::lock_guard<std::mutex> lk(imu_mutex_);
-                            imu_.timestamp_us = imu.time_usec; 
-                            imu_.gx = imu.xgyro;
-                            imu_.gy = imu.ygyro;
-                            imu_.gz = imu.zgyro;
-                            imu_.ax = imu.xacc;
-                            imu_.ay = imu.yacc;
-                            imu_.az = imu.zacc;
+                            const int64_t host_ns = steadyNowNs();
+
+                            ImuData sample;
+                            sample.timestamp_us = imu.time_usec;
+                            sample.gx = imu.xgyro;
+                            sample.gy = imu.ygyro;
+                            sample.gz = imu.zgyro;
+                            sample.ax = imu.xacc;
+                            sample.ay = imu.yacc;
+                            sample.az = imu.zacc;
+                            {
+                                std::lock_guard<std::mutex> lk(imu_mutex_);
+                                imu_ = sample;   // 兼容旧接口：最新一帧
+                            }
+                            // 【2026-10-28】逐帧入队给 VIO。接收线程只做入队，
+                            // 保持这里短小；VIO 的运算在它自己的线程里做。
+                            const size_t cap = imu_queue_capacity_.load();
+                            if (cap > 0) {
+                                TimedImu item;
+                                item.session = reconnects_.load();
+                                item.imu = sample;
+                                item.host_ns = host_ns;
+                                std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+                                while (imu_queue_.size() >= cap) {
+                                    imu_queue_.pop_front();
+                                    dropped_imu_.fetch_add(1);
+                                }
+                                imu_queue_.push_back(item);
+                            }
                             break;
                         }
                         default:
@@ -190,13 +439,6 @@ void Communicator::recvLoop() {
             last_gcs_heartbeat = steady_clock::now();
         }
 
-        // 心跳超时 → 判定断开
-        if (connected_.load() &&
-            steady_clock::now() - last_heartbeat > heartbeat_timeout) {
-            connected_.store(false);
-            streams_requested_.store(false);  // 掉线重置，飞控恢复后重新请求消息流
-        }
-
         if (n <= 0) {
             std::this_thread::sleep_for(milliseconds(1));
         }
@@ -205,8 +447,9 @@ void Communicator::recvLoop() {
 
 
 // 发送底层
-bool Communicator::sendMessage(const uint8_t* buf, uint16_t len) {
+bool Communicator::sendMessage(const uint8_t* buf, uint16_t len, bool require_connected) {
     std::lock_guard<std::mutex> lk(send_mutex_);
+    if (require_connected && (!running_.load() || !connected_.load())) return false;
     size_t off = 0;
     while (off < len) {
         ssize_t n = port_.write(buf + off, len - off);
@@ -223,7 +466,7 @@ bool Communicator::sendMessage(const uint8_t* buf, uint16_t len) {
 void Communicator::sendGcsHeartbeat() {
     mavlink_message_t msg{};
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_heartbeat_pack(sysid_, compid_, &msg,
+    packMessage(mavlink_msg_heartbeat_pack, sysid_, compid_, &msg,
                                MAV_TYPE_GCS,           // 地面站
                                MAV_AUTOPILOT_INVALID,  // 不是飞控
                                0,                      // base_mode
@@ -299,23 +542,53 @@ const char* Communicator::ackResultNameCn(uint8_t result) const {
 bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+
+    //=======================================================================
+    // 【2026-10-28】把质量/重置/协方差一起发出去（原来是写死的 0 和 NaN）。
+    //
+    // 为什么必须真的发：
+    //   · ArduPilot 的 AP_VisualOdom 用 quality 和 VISO_QUAL_MIN 比较，
+    //     低于门限的帧直接丢（不进 EKF），VISP 日志里能看到 reject 标志；
+    //   · reset_counter 变化时飞控会重锚定位置/速度/姿态。VIO 重建后位姿
+    //     会跳变，不告诉飞控"我重置了"，它会把跳变当成真实运动。
+    //
+    // 协方差布局：6x6 上三角逐行，对角线下标 0/6/11/15/18/20。
+    // 只填位置/速度对角；姿态没有估计值就保持 0（飞控会 constrain 到
+    // VISO_YAW_M_NSE 之类的配置下限）。没给 sigma → NaN（MAVLink 约定 = 未知）。
+    //=======================================================================
     float pose_cov[21] = {0.0f};
-    pose_cov[0] = std::nanf(""); 
     float vel_cov[21] = {0.0f};
-    vel_cov[0] = std::nanf("");  
-    mavlink_msg_odometry_pack(sysid_, compid_, &msg,
+    if (p.pos_sigma_m > 0.0f) {
+        pose_cov[0] = pose_cov[6] = pose_cov[11] = p.pos_sigma_m * p.pos_sigma_m;
+    } else {
+        // 未知：三个对角都标 NaN（只标 [0] 会让另外两个 0 被当成"完美已知"）
+        pose_cov[0] = pose_cov[6] = pose_cov[11] = std::nanf("");
+    }
+    if (p.vel_sigma_mps > 0.0f) {
+        vel_cov[0] = vel_cov[6] = vel_cov[11] = p.vel_sigma_mps * p.vel_sigma_mps;
+    } else {
+        vel_cov[0] = vel_cov[6] = vel_cov[11] = std::nanf("");
+    }
+
+    int quality = p.quality;
+    if (quality < 0) quality = 0;
+    if (quality > 100) quality = 100;
+
+    // ⚠️ 最后三个参数的顺序是 (reset_counter, estimator_type, quality)，
+    //    这是 MAVLink 生成函数的签名。写反了编译器不会报错（都是整数）。
+    packMessage(mavlink_msg_odometry_pack, sysid_, compid_, &msg,
                               p.timestamp_us,
-                              static_cast<uint8_t>(p.frame_id),       
-                              static_cast<uint8_t>(p.child_frame_id),  
+                              static_cast<uint8_t>(p.frame_id),
+                              static_cast<uint8_t>(p.child_frame_id),
                               p.x, p.y, p.z, p.q,
                               p.vx, p.vy, p.vz,
-                              0.0f, 0.0f, 0.0f,        
+                              0.0f, 0.0f, 0.0f,
                               pose_cov, vel_cov,
-                              0,                      
-                              MAV_ESTIMATOR_TYPE_VIO,  
-                              0);                     
+                              p.reset_counter,                 // 1) 重置计数
+                              MAV_ESTIMATOR_TYPE_VIO,          // 2) 估计器类型
+                              static_cast<int8_t>(quality));   // 3) 质量 0-100
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    return sendMessage(buf, len, true);
 }
 
 bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
@@ -360,11 +633,11 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
     } else {
         return false;  // 未知 mode，拒绝发送
     }
-    mavlink_msg_set_position_target_local_ned_pack(
-        sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), kFcuCompId, MAV_FRAME_LOCAL_NED,
+    packMessage(mavlink_msg_set_position_target_local_ned_pack,
+        sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED,
         type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    return sendMessage(buf, len, true);
 }
 
 bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result) {    //命令PX4起飞到目标高度
@@ -372,11 +645,11 @@ bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                   MAV_CMD_NAV_TAKEOFF, 0,
                                   0, 0, 0, 0, 0, 0, altitude_m);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len)) return false;
+    if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_NAV_TAKEOFF, timeout_ms, result);
 }
 
@@ -385,11 +658,11 @@ bool Communicator::sendLand(int timeout_ms, uint8_t* result) {   //命令PX4自�
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                   MAV_CMD_NAV_LAND, 0,
                                   0, 0, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len)) return false;
+    if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_NAV_LAND, timeout_ms, result);
 }
 
@@ -400,7 +673,7 @@ bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* re
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     if (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) {
         // ArduPilot：param2 直接填模式数字，param3 不用
-        mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                       MAV_CMD_DO_SET_MODE, 0,
                                       MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode, 0,
                                       0, 0, 0, 0);
@@ -408,28 +681,28 @@ bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* re
         // PX4：拆主/子模式填 param2/param3
         uint8_t main_mode = (custom_mode >> 16) & 0xFF;
         uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
-        mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                       MAV_CMD_DO_SET_MODE, 0,
                                       MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode,
                                       0, 0, 0, 0);
     }
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len)) return false;
+    if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
 }
 
 bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁1/加锁0
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
-    // ArduPilot 解锁需要 force arm 魔法数字 21196；PX4 用 0
-    const float force = (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) ? 21196.0f : 0.0f;
+    // 普通解锁/加锁遵守飞控安全检查，不能默认使用强制解锁或空中强制加锁。
+    const float force = 0.0f;
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                   MAV_CMD_COMPONENT_ARM_DISARM, 0,
                                   arm ? 1.0f : 0.0f, force, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len)) return false;
+    if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_COMPONENT_ARM_DISARM, timeout_ms, result);
 }
 
@@ -437,13 +710,13 @@ bool Communicator::requestMessageInterval(uint32_t msgid, int32_t interval_us) {
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     // MAV_CMD_SET_MESSAGE_INTERVAL(511)：param1=消息ID，param2=间隔(微秒，-1禁用，0默认)
-    mavlink_msg_command_long_pack(sysid_, compid_, &msg, fcu_sysid_.load(), kFcuCompId,
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
                                   MAV_CMD_SET_MESSAGE_INTERVAL, 0,
                                   static_cast<float>(msgid),
                                   static_cast<float>(interval_us),
                                   0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len);
+    return sendMessage(buf, len, true);
 }
 
 // 等某条命令的 COMMAND_ACK（带超时）。必须在 sendMessage 之后调用。
@@ -495,6 +768,38 @@ bool Communicator::getImu(ImuData& out) const {
     std::lock_guard<std::mutex> lk(imu_mutex_);
     out = imu_;
     return true;
+}
+
+// 【2026-10-28】逐帧 IMU 交付给 VIO。
+bool Communicator::popImu(TimedImu& out) {
+    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+    if (imu_queue_.empty()) return false;
+    out = imu_queue_.front();
+    imu_queue_.pop_front();
+    return true;
+}
+
+size_t Communicator::imuQueueSize() const {
+    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+    return imu_queue_.size();
+}
+
+void Communicator::setImuQueueCapacity(size_t cap) {
+    {
+        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+        imu_queue_capacity_.store(cap);
+        // 缩小容量时立刻裁掉多余部分，避免"设置了却还占着内存"
+        while (imu_queue_.size() > cap) {
+            imu_queue_.pop_front();
+            dropped_imu_.fetch_add(1);
+        }
+    }
+}
+
+int64_t Communicator::lastHeartbeatAgeMs() const {
+    const int64_t last = last_heartbeat_ns_.load();
+    if (last == 0) return -1;
+    return (steadyNowNs() - last) / 1000000;
 }
 
 bool Communicator::getSystemTime(SystemTime& out) const {

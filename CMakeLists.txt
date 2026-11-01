@@ -24,6 +24,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
     ${CMAKE_SOURCE_DIR}/lib
 )
 
+enable_testing()
+
 add_subdirectory(src)
 
 # ==================== wifi / PWLink 联通测试 ====================
