@@ -101,6 +101,8 @@ bin/detect_rt
 | `--frames N` | `0` | 实时模式处理 N 帧后退出，`0` = 无限 |
 | `--json` | 关 | 每个处理帧向 stdout 输出一行 JSON，诊断日志走 stderr |
 | `--dump-dir DIR` | 关 | 保存带框 JPG |
+| `--stream-dir DIR` | 关 | 把带框图原子写成 `DIR/frame.jpg`，供 mjpg-streamer 远程推流 |
+| `--stream-fps FPS` | `20` | 推流 JPG 最大写入帧率（1~60） |
 | `--camera WxH@FPS` | `640x480@60` | 彩色流 profile |
 | `--verbose` | 关 | 放开 OrbbecSDK 日志 |
 
@@ -109,6 +111,50 @@ bin/detect_rt
 ```bash
 env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 ```
+
+### 4.1 远程实时查看带框画面（mjpg-streamer）
+
+相机只能被一个进程采集：`detect_rt` 用 Orbbec SDK 打开相机时，原来的
+`input_uvc` 版 mjpg-streamer 必须停掉。推荐用仓库脚本一键启动：
+
+```bash
+./scripts/start_detection_stream.sh --replace
+# 浏览器打开 http://192.168.3.163:8080/ （板子 IP 以实际为准）
+```
+
+- `--replace` 会先执行 `sudo fuser -k 8080/tcp`，停掉占用端口的旧 mjpg-streamer；
+  若已手动停掉可省略。
+- 其余参数会原样传给 `detect_rt`，例如：
+  ```bash
+  ./scripts/start_detection_stream.sh --replace --conf 0.3 --camera 640x480@60
+  ```
+- 按 `Ctrl-C` 会同时停止 `detect_rt` 与脚本启动的 mjpg-streamer。
+
+脚本内部做两件事：
+
+1. 启动 mjpg-streamer
+   `input_file.so -f /dev/shm/pure-uav-detect/ -r -n frame.jpg`
+   + `output_http.so -p 8080`；
+2. 启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`。
+
+`detect_rt` 先把带框图写成 `frame_tmp.jpg`，再原子 `rename` 成 `frame.jpg`；
+`input_file` 用 `-n frame.jpg` 过滤文件名，因此不会读到写了一半的临时文件。
+
+手工等价命令：
+
+```bash
+mkdir -p /dev/shm/pure-uav-detect
+MJPG=/home/orangepi/Documents/mjpg-streamer/mjpg-streamer-experimental
+$MJPG/mjpg_streamer \
+  -i "$MJPG/input_file.so -f /dev/shm/pure-uav-detect/ -r -n frame.jpg" \
+  -o "$MJPG/output_http.so -p 8080 -w $MJPG/www"
+
+# 另一个终端
+./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+```
+
+实测：640×480@60 采集、约 47 FPS 处理、11.4 ms 推理时，
+`http://<板子IP>:8080/?action=stream` 返回 `multipart/x-mixed-replace` 带框视频流。
 
 ## 5. 库接口
 

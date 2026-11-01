@@ -3,10 +3,12 @@
 // 用法：
 //   detect_rt [--model PATH] [--conf 0.25] [--iou 0.45]
 //             [--image FILE] [--frames N] [--json] [--dump-dir DIR]
+//             [--stream-dir DIR] [--stream-fps FPS]
 //             [--camera WxH@FPS] [--verbose]
 //
 // --json 时 stdout 只输出 JSON 行（每处理帧一行），其余诊断走 stderr。
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -18,6 +20,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -131,8 +134,7 @@ void printBoxes(const FrameResult& r, bool json) {
     }
 }
 
-void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& dump_dir,
-                 uint64_t seq) {
+cv::Mat drawAnnotated(const cv::Mat& bgr, const FrameResult& r) {
     cv::Mat vis = bgr.clone();
     for (int i = 0; i < r.count; ++i) {
         const DetectionBox& b = r.boxes[i];
@@ -144,6 +146,35 @@ void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& du
         cv::putText(vis, text, cv::Point(static_cast<int>(b.x1), static_cast<int>(b.y1) - 4),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
     }
+    return vis;
+}
+
+// 给 mjpg-streamer 的 input_file 插件提供最新一帧带框图。
+// 先写 frame_tmp.jpg 再原子 rename 成 frame.jpg：input_file 用 -n frame.jpg
+// 过滤文件名，既不会读到写了一半的文件，也不会看到临时文件。
+bool writeStreamFrame(const cv::Mat& bgr, const FrameResult& r, const std::string& stream_dir) {
+    const cv::Mat vis = drawAnnotated(bgr, r);
+    const auto dir = std::filesystem::path(stream_dir);
+    const std::string tmp = (dir / "frame_tmp.jpg").string();
+    const std::string dst = (dir / "frame.jpg").string();
+    const std::vector<int> params{cv::IMWRITE_JPEG_QUALITY, 80};
+    if (!cv::imwrite(tmp, vis, params)) {
+        std::fprintf(stderr, "[warn] 写入流帧失败: %s\n", tmp.c_str());
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, dst, ec);
+    if (ec) {
+        std::fprintf(stderr, "[warn] 流帧 rename 失败: %s\n", ec.message().c_str());
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
+void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& dump_dir,
+                 uint64_t seq) {
+    const cv::Mat vis = drawAnnotated(bgr, r);
     char name[128];
     std::snprintf(name, sizeof(name), "detect_%06llu.jpg", static_cast<unsigned long long>(seq));
     const std::string path = (std::filesystem::path(dump_dir) / name).string();
@@ -153,7 +184,7 @@ void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& du
 }
 
 int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json,
-             const std::string& dump_dir) {
+             const std::string& dump_dir, const std::string& stream_dir) {
     cv::Mat bgr = cv::imread(image_path, cv::IMREAD_COLOR);
     if (bgr.empty()) {
         std::fprintf(stderr, "[error] 无法读取图片: %s\n", image_path.c_str());
@@ -194,6 +225,7 @@ int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json
 
     printBoxes(r, json);
     if (!dump_dir.empty()) drawAndSave(bgr, r, dump_dir, r.seq);
+    if (!stream_dir.empty()) writeStreamFrame(bgr, r, stream_dir);
     if (!json) {
         std::printf("summary: infer_ms=%.3f count=%d present=%s\n",
                     static_cast<double>(r.infer_ms), r.count, r.present ? "true" : "false");
@@ -201,7 +233,8 @@ int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json
     return 0;
 }
 
-int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::string& dump_dir) {
+int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::string& dump_dir,
+              const std::string& stream_dir, double stream_fps) {
     Detector det;
     std::string error;
     if (!det.start(cfg, error)) {
@@ -219,6 +252,10 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
     const auto t_start = std::chrono::steady_clock::now();
     auto last_report = t_start;
 
+    // 推流限速：JPEG 编码只在需要时做，默认最多 20 帧/秒。
+    const std::chrono::duration<double> stream_period(1.0 / std::max(1.0, stream_fps));
+    std::chrono::steady_clock::time_point last_stream{};
+
     while (!g_sigint.load()) {
         FrameResult r;
         bool got = det.poll(r);
@@ -230,6 +267,17 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
             if (!dump_dir.empty()) {
                 cv::Mat frame;
                 if (det.latest_frame(frame)) drawAndSave(frame, r, dump_dir, r.seq);
+            }
+            if (!stream_dir.empty()) {
+                const auto now = std::chrono::steady_clock::now();
+                if (last_stream.time_since_epoch().count() == 0 ||
+                    now - last_stream >= stream_period) {
+                    cv::Mat frame;
+                    if (det.latest_frame(frame)) {
+                        writeStreamFrame(frame, r, stream_dir);
+                        last_stream = now;
+                    }
+                }
             }
         }
         if (frames > 0 && processed >= frames) break;
@@ -268,6 +316,7 @@ void usage() {
     std::fprintf(stderr,
                  "用法: detect_rt [--model PATH] [--conf 0.25] [--iou 0.45]\n"
                  "                [--image FILE] [--frames N] [--json] [--dump-dir DIR]\n"
+                 "                [--stream-dir DIR] [--stream-fps FPS]\n"
                  "                [--camera WxH@FPS] [--verbose]\n");
 }
 
@@ -280,8 +329,10 @@ int main(int argc, char** argv) {
     std::string model;
     std::string image_path;
     std::string dump_dir;
+    std::string stream_dir;
     std::string camera_arg;
     long frames = 0;
+    double stream_fps = 20.0;
     bool json = false;
     bool verbose = false;
 
@@ -310,6 +361,10 @@ int main(int argc, char** argv) {
             json = true;
         } else if (arg == "--dump-dir") {
             dump_dir = requireValue("--dump-dir");
+        } else if (arg == "--stream-dir") {
+            stream_dir = requireValue("--stream-dir");
+        } else if (arg == "--stream-fps") {
+            stream_fps = std::atof(requireValue("--stream-fps").c_str());
         } else if (arg == "--camera") {
             camera_arg = requireValue("--camera");
         } else if (arg == "--verbose") {
@@ -345,6 +400,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[error] --conf/--iou 必须在 (0,1] 内\n");
         return 2;
     }
+    if (stream_fps < 1.0 || stream_fps > 60.0) {
+        std::fprintf(stderr, "[error] --stream-fps 必须在 [1,60] 内\n");
+        return 2;
+    }
 
     if (!camera_arg.empty()) {
         int w = 0, h = 0, fps = 0;
@@ -366,17 +425,18 @@ int main(int argc, char** argv) {
     cfg.camera.verbose = verbose;
     cfg.verbose = verbose;
 
-    if (!dump_dir.empty()) {
+    for (const auto& dir : {dump_dir, stream_dir}) {
+        if (dir.empty()) continue;
         std::error_code ec;
-        std::filesystem::create_directories(dump_dir, ec);
+        std::filesystem::create_directories(dir, ec);
         if (ec) {
-            std::fprintf(stderr, "[error] 无法创建 --dump-dir: %s\n", dump_dir.c_str());
+            std::fprintf(stderr, "[error] 无法创建输出目录: %s\n", dir.c_str());
             return 2;
         }
     }
 
     if (!image_path.empty()) {
-        return runImage(image_path, cfg, json, dump_dir);
+        return runImage(image_path, cfg, json, dump_dir, stream_dir);
     }
-    return runCamera(cfg, frames, json, dump_dir);
+    return runCamera(cfg, frames, json, dump_dir, stream_dir, stream_fps);
 }
