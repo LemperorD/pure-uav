@@ -1,21 +1,18 @@
 // =============================================================================
-//  GuidanceLoop 实现 —— 机载主循环的外壳（函数式内核 + 面向对象外壳）
+//  guidance_loop.cpp —— 主循环 + 内存黑匣子实现（合并后）
 //
 //  设计要点见 guidance_loop.hpp 的头注释。这里只强调三个实现层面的关键决定：
 //
-//   ① **只在"目标帧更新"时才重算制导**
+//   ① **只在“目标帧更新”时才重算制导**
 //      `FROM_LOS_DIFFERENCE` 用 `state.t - memory.t_prev` 当 dt，而 û 只在目标帧更新。
 //      所以 `state.t` 必须取**目标帧的采样时刻**、且只在目标帧到达时调用 guidance_step；
 //      其余拍子只重发上一拍指令（PX4 offboard 要求 setpoint 持续到达）。
-//      反例（必须避免）：用飞控帧时间喂 tracker，却按目标帧更新 û
-//        ⇒ dt=20 ms 而 û 实际跨了 33 ms ⇒ ω 被少算约 40% ⇒ 制导偏软。
 //
 //   ② **像素 → 相机系 → 机体(FRD) → 世界** 全部在本文件完成
-//      视觉只给像素（《视觉制导接口约定》§6），内参/外参来自 LoopConfig::cam，
-//      姿态 q 来自 InsSample。三步之后得到**世界系单位视线**，再交给 adapter。
+//      视觉只给像素，内参/外参来自 LoopConfig::cam，姿态 q 来自 InsSample。
 //
-//   ③ **降级不停流**：不健康时按 `on_unhealthy` 发"安全 setpoint"
-//      （保持上一条限定 0.2 s → 零速度悬停），而不是断流——断流会让 PX4 掉出 offboard。
+//   ③ **降级不停流**：不健康时按 `on_unhealthy` 发“安全 setpoint”
+//      （保持上一条限时 → 零速度悬停），而不是断流——断流会让 PX4 掉出 offboard。
 // =============================================================================
 
 #include "guidance_loop.hpp"
@@ -23,10 +20,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <thread>
 
 #include "guidance.hpp"        // guidance_step()
-#include "quat.hpp"            // quat_rotate_vec()（相机→机体→世界 的最后一步）
+#include "quat.hpp"            // quat_rotate_vec()
 #include "state_adapter.hpp"   // to_guidance_state() / cmd_accel_to_ned()
 #include "state_check.hpp"     // quick_check()
 
@@ -68,6 +66,99 @@ std::uint64_t LatencyStats::max_ns(Stage s) const {
     return mx;
 }
 
+// ============================================================================
+//  RingLog 实现（push 零 I/O；dump 才碰磁盘）
+// ============================================================================
+
+void RingLog::push(const GuidanceOutput &o) noexcept {
+    RingRecord &r = r_[head_];
+    r = RingRecord{};                       // 清零（避免上一圈残留）
+
+    r.boot_us = o.boot_us;
+    r.ctrl    = static_cast<std::uint8_t>(o.ctrl);
+    r.mode    = static_cast<std::uint8_t>(o.mode);
+    r.health  = static_cast<std::uint8_t>(o.health);
+
+    unsigned f = 0;
+    if (o.valid)    f |= 1u;
+    if (o.sat)      f |= 2u;
+    if (o.hold_yaw) f |= 4u;
+    if (o.ctrl == ControlMode::kVelocity) f |= 8u;
+    r.flags = static_cast<std::uint8_t>(f);
+
+    r.a_ned[0] = o.a_cmd_ned.x;
+    r.a_ned[1] = o.a_cmd_ned.y;
+    r.a_ned[2] = o.a_cmd_ned.z;
+    r.v_ned[0] = o.v_cmd_ned.x;
+    r.v_ned[1] = o.v_cmd_ned.y;
+    r.v_ned[2] = o.v_cmd_ned.z;
+    r.a_norm   = o.a_cmd_norm;
+    r.t_go     = o.t_go;
+    r.Vc       = o.Vc;
+    r.R        = o.R;
+    r.lam_dot  = o.lam_dot;
+
+    head_ = (head_ + 1) % kCap;
+    ++n_;
+}
+
+const RingRecord &RingLog::at(int i) const noexcept {
+    static const RingRecord kZero{};
+    const int m = size();
+    if (m <= 0) return kZero;
+    if (i < 0) i = 0;
+    if (i >= m) i = m - 1;
+    const int start = (n_ < static_cast<std::uint64_t>(kCap)) ? 0 : head_;
+    return r_[(start + i) % kCap];
+}
+
+const RingRecord &RingLog::newest() const noexcept { return at(size() - 1); }
+
+long RingLog::dump_csv(const char *path, double seconds) const {
+    if (path == nullptr) return -1;
+    std::FILE *f = std::fopen(path, "wb");
+    if (f == nullptr) return -1;
+
+    std::fprintf(f,
+                 "boot_us,ctrl,mode,health,valid,sat,hold_yaw,"
+                 "a_n,a_e,a_d,v_n,v_e,v_d,anorm,t_go,Vc,R,lam_dot\n");
+
+    const int m = size();
+    if (m <= 0) {
+        return (std::fclose(f) == 0) ? 0 : -1;
+    }
+
+    const std::uint64_t newest_us = at(m - 1).boot_us;
+    const bool use_thresh = (seconds > 0.0);
+    std::uint64_t thresh = 0;
+    if (use_thresh) {
+        const double span_us = seconds * 1e6;
+        thresh = (span_us >= static_cast<double>(newest_us))
+                     ? 0
+                     : newest_us - static_cast<std::uint64_t>(span_us);
+    }
+
+    long rows = 0;
+    for (int i = 0; i < m; ++i) {
+        const RingRecord &r = at(i);
+        if (use_thresh && r.boot_us < thresh) continue;
+        std::fprintf(f,
+                     "%llu,%u,%u,%u,%d,%d,%d,"
+                     "%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
+                     static_cast<unsigned long long>(r.boot_us),
+                     static_cast<unsigned>(r.ctrl), static_cast<unsigned>(r.mode),
+                     static_cast<unsigned>(r.health),
+                     (r.flags & 1u) ? 1 : 0, (r.flags & 2u) ? 1 : 0,
+                     (r.flags & 4u) ? 1 : 0,
+                     r.a_ned[0], r.a_ned[1], r.a_ned[2],
+                     r.v_ned[0], r.v_ned[1], r.v_ned[2],
+                     r.a_norm, r.t_go, r.Vc, r.R, r.lam_dot);
+        ++rows;
+    }
+
+    return (std::fclose(f) == 0) ? rows : -1;
+}
+
 namespace {
 
 // ---------------------------------------------------------------- 小工具
@@ -81,14 +172,9 @@ inline Vec3 mat3_mul(const double R[9], const Vec3 &v) noexcept {
 
 // 像素 → 世界系单位视线
 //
-//   第 1 步（本函数）：(u,v) → 相机系射线 d_cam = ((u−cx)/fx, (v−cy)/fy, 1)
-//                       —— 相机约定：x 右 / y 下 / z 前（光轴）
-//   第 2 步（本函数）：d_body = R_body_cam · d_cam   ← 外参（LoopConfig::cam）
-//                       `R_body_cam` 的目标系是 **PX4 FRD**（x 前 / y 右 / z 下），
-//                       与 InsSample.q 的机体定义一致。
-//   第 3 步（本函数）：d_world = R(q) · d_body        ← 姿态（机体 → 世界）
-//
-// 返回 false = 参数/输入退化（相机无效、分母为 0、结果零矢量）。
+//   第 1 步：(u,v) → 相机系射线 d_cam = ((u−cx)/fx, (v−cy)/fy, 1)
+//   第 2 步：d_body = R_body_cam · d_cam
+//   第 3 步：d_world = R(q) · d_body
 bool pixel_to_world_los(const CameraModel &cam, const TargetSample &t,
                         const double q_frd_world[4], Vec3 &los_world) noexcept {
     if (!cam.valid()) return false;
@@ -120,14 +206,14 @@ InputHealth to_health(adapter::CheckCode code) noexcept {
     }
 }
 
-// 安全悬停输出（零速度；走 PX4 速度环闭环，而不是"零加速度"那种纯前馈）
+// 安全悬停输出（零速度；走 PX4 速度环闭环）
 inline GuidanceOutput make_safe_hover(std::uint64_t boot_us, InputHealth health) noexcept {
     GuidanceOutput o;
     o.boot_us    = boot_us;
     o.ctrl       = ControlMode::kVelocity;
     o.a_cmd_ned  = Vec3{};
-    o.v_cmd_ned  = Vec3{};                 // 零速度
-    o.hold_yaw   = true;                   // 航向不干预（VELOCITY 模式将忽略 yaw）
+    o.v_cmd_ned  = Vec3{};
+    o.hold_yaw   = true;
     o.a_cmd_norm = 0.0;
     o.sat        = false;
     o.mode       = PureGuidanceMode::SEARCH;
@@ -136,8 +222,7 @@ inline GuidanceOutput make_safe_hover(std::uint64_t boot_us, InputHealth health)
     return o;
 }
 
-// 打点用 RAII：所有 return 路径都会落一条样本（包括超时/无帧/降级）。
-// 只读时钟 + 写固定数组 ⇒ 循环内零分配；不改变任何控制流。
+// 打点用 RAII：所有 return 路径都会落一条样本。
 struct LatencyTrace {
     LatencyStats *dst = nullptr;
     std::chrono::steady_clock::time_point t0{}, t1{}, t2{}, t3{};
@@ -168,7 +253,6 @@ GuidanceLoop::GuidanceLoop(const GuidanceParams &params, const LoopConfig &cfg,
 bool GuidanceLoop::init() {
     if (inited_) return true;
 
-    // ---- 参数校验（构造即有效：失败就给 false，不抛异常）----
     if (!(params_.a_max > 0.0) || !(params_.N > 0.0)) return false;
     if (cfg_.loop_hz <= 0 || cfg_.loop_hz > 2000) return false;
     if (!(cfg_.max_sample_age_s > 0.0) || !(cfg_.sensor_timeout_s > 0.0)) return false;
@@ -185,7 +269,7 @@ bool GuidanceLoop::init() {
     last_out_      = GuidanceOutput{};
     last_ins_s_    = -1.0;
     last_tgt_s_    = -1.0;
-    last_good_s_       = -1.0;
+    last_good_s_   = -1.0;
     t_start_       = std::chrono::steady_clock::now();
 
     inited_ = true;
@@ -210,7 +294,6 @@ LoopStatus GuidanceLoop::emit(const GuidanceOutput &o, GuidanceOutput *out) {
     }
     ++stats_.sent;
 
-    // 延迟：采样时刻 → 现在（"现在"用最新飞控帧的 boot 时间戳，同一时基）
     const std::uint64_t now_us = ins_now_.boot_us;
     if (now_us >= o.boot_us) {
         const std::uint64_t lat = now_us - o.boot_us;
@@ -228,7 +311,6 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
     if (!inited_) return LoopStatus::kNotInitialized;
     if (stop_requested_.load(std::memory_order_relaxed)) return LoopStatus::kStopped;
 
-    // ---- 端到端打点（RAII：任何 return 都落一条样本）----
     LatencyTrace trace;
     trace.dst   = &stats_.latency;
     trace.t0    = std::chrono::steady_clock::now();
@@ -238,7 +320,7 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
     ++stats_.ticks;
     const double t_local = local_now_s();
 
-    // ---- ① 取数（拉模型：拿不到新帧就复用上一帧）----
+    // ---- ① 取数 ----
     const bool new_ins = ins_.poll(ins_now_);
     if (new_ins) {
         ++stats_.ins_frames;
@@ -252,10 +334,10 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
         if (tgt_now_.present) ++stats_.tgt_frames;
     }
 
-    trace.t1 = std::chrono::steady_clock::now();       // 取数完成
-    trace.t2 = trace.t3 = trace.t1;                    // 未走反投影/制导时这两段为 0
+    trace.t1 = std::chrono::steady_clock::now();
+    trace.t2 = trace.t3 = trace.t1;
 
-    // ---- ② 掉线判定（本地单调时钟；数据时间戳只用于"新鲜度"）----
+    // ---- ② 掉线判定 ----
     if (have_ins_ && (t_local - last_ins_s_) > cfg_.sensor_timeout_s) {
         return LoopStatus::kSensorTimeout;
     }
@@ -263,10 +345,10 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
         return LoopStatus::kSensorTimeout;
     }
 
-    // ---- ③ 首帧还没凑齐：本拍不产出（返回 ok，避免启动即退出）----
+    // ---- ③ 首帧还没凑齐 ----
     if (!have_ins_ || !have_tgt_) return LoopStatus::kOk;
 
-    // ---- ④ 新鲜度（同一时基：都用 boot_us）----
+    // ---- ④ 新鲜度 ----
     const std::uint64_t now_us =
         (ins_now_.boot_us != 0) ? ins_now_.boot_us : tgt_now_.boot_us;
     const double age_s = (now_us >= tgt_now_.boot_us)
@@ -278,7 +360,6 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
 
     // ---- ⑤ 有新的目标帧 && 数据新鲜 → 重算制导 ----
     if (health == InputHealth::kOk && new_tgt) {
-        // 5.1 像素 → 世界系单位视线
         Vec3 los_world;
         bool los_ok = false;
         if (tgt_now_.present) {
@@ -287,17 +368,16 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
         }
 
         if (health == InputHealth::kOk) {
-            // 5.2 组装外部口径帧（唯一换算入口）
             adapter::RawFrame raw;
-            raw.world = adapter::Frame::kNed;              // 外部口径：飞控 local 系（z 朝下）
-            raw.att   = adapter::AttitudeFrame::kFrd;      // 我们的 q 是 FRD → 世界
+            raw.world = adapter::Frame::kNed;
+            raw.att   = adapter::AttitudeFrame::kFrd;
             raw.ins.p = ins_now_.p;
             raw.ins.v = ins_now_.v;
             for (int i = 0; i < 4; ++i) raw.ins.q[i] = ins_now_.q[i];
             raw.ins.has_position = ins_now_.has_position;
             raw.ins.has_attitude = ins_now_.has_attitude;
 
-            raw.target.los        = los_world;             // 已转到世界系
+            raw.target.los        = los_world;
             raw.target.has_range  = tgt_now_.has_range;
             raw.target.range_m    = tgt_now_.range_m;
             raw.target.has_vT     = tgt_now_.has_v_T;
@@ -306,24 +386,21 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
 
             GuidanceState st = adapter::to_guidance_state(raw);
 
-            // 5.3 时间：用**目标帧采样时刻**（ω 的 dt 必须对应 û 的更新间隔）
             tracker_.push_u64_us(tgt_now_.boot_us);
             st.t = tracker_.t_s();
 
-            // 5.4 廉价体检（几 ns、零分配）；目标丢失时不查（valid=false 会走 SEARCH）
             if (tgt_now_.present) {
                 adapter::CheckCode code = adapter::CheckCode::kOk;
                 if (!adapter::quick_check(st, &code)) health = to_health(code);
             }
 
-            // 5.5 调核（纯函数）→ 出口换算（唯一一次 ENU→NED）
             if (health == InputHealth::kOk) {
-                trace.t2 = std::chrono::steady_clock::now();   // 反投影+适配+体检完成
+                trace.t2 = std::chrono::steady_clock::now();
                 const PureGuidanceCmd cmd = guidance_step(st, params_, memory_);
 
                 double ned[3];
                 adapter::cmd_accel_to_ned(cmd, ned);
-                trace.t3 = std::chrono::steady_clock::now();   // 制导 + 出口换算完成
+                trace.t3 = std::chrono::steady_clock::now();
 
                 GuidanceOutput o;
                 o.boot_us    = tgt_now_.boot_us;
@@ -347,29 +424,27 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
 
                 computed_          = true;
                 last_out_          = o;
-                last_good_s_       = t_local;   // 保持窗口的起算点：最后一次成功算出指令
+                last_good_s_       = t_local;
                 return emit(o, out);
             }
         }
     }
 
-    // ---- ⑥ 没有新的目标帧：重发上一拍（offboard 需要持续到达）----
+    // ---- ⑥ 没有新的目标帧：重发上一拍 ----
     if (health == InputHealth::kOk && !new_tgt) {
         if (!computed_ || !cfg_.send_on_every_tick) return LoopStatus::kOk;
         GuidanceOutput o = last_out_;
-        o.boot_us = tgt_now_.boot_us;                  // 沿用最新采样时刻做延迟统计
+        o.boot_us = tgt_now_.boot_us;
         return emit(o, out);
     }
 
-    // ---- ⑦ 不健康：按策略降级（**不停流**）----
+    // ---- ⑦ 不健康：按策略降级（不停流）----
     ++stats_.unhealthy;
-    // 从"最后一次成功算出指令"起算：一条旧指令最多再飞 hold_last_max_s
     const double stale_cmd_age_s = (last_good_s_ >= 0.0) ? (t_local - last_good_s_) : 1e9;
 
     GuidanceOutput o;
     switch (cfg_.on_unhealthy) {
         case LoopConfig::OnUnhealthy::kHoldLastCommand:
-            // 先保持上一条（限时），超时后转零速度悬停，避免"抱着错指令一直推"
             if (computed_ && stale_cmd_age_s <= cfg_.hold_last_max_s) {
                 o = last_out_;
                 o.health = health;
@@ -385,7 +460,6 @@ LoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
             break;
 
         case LoopConfig::OnUnhealthy::kStop:
-            // 不发（把主动权交给飞控 offboard 失联 failsafe），但要留下黑匣子证据
             blackbox_.push(o);
             return LoopStatus::kUnhealthyInput;
     }
@@ -405,8 +479,6 @@ LoopStatus GuidanceLoop::run() {
     const auto period = std::chrono::nanoseconds(
         static_cast<long long>(1e9 / static_cast<double>(hz)));
 
-    // 绝对时间节拍：每拍把 next 往前推一个周期（不累积漂移）。
-    // （Linux 上等价于 clock_nanosleep(TIMER_ABSTIME)；std::this_thread::sleep_until 是标准写法）
     auto next = std::chrono::steady_clock::now();
     while (!stop_requested_.load(std::memory_order_relaxed)) {
         const LoopStatus s = run_once(nullptr);

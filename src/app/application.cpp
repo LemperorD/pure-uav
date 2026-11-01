@@ -1,13 +1,17 @@
 // =============================================================================
-//  params.cpp —— 参数加载 / 校验（实现）
+//  application.cpp —— 启动层实现（参数 + CLI + 模式分发）
 //
-//  设计约束（与 guidance_loop.hpp 的实时性规矩一致）：
-//    · 只在本进程**启动阶段**调用，不参与飞行回路；
-//    · 不用异常；所有失败通过 ParamResult 返回（带来源/行号）；
+//  合并自：
+//    · params.cpp  YAML 子集解析 / 校验 / 打印
+//    · main.cpp    Args / usage / 模式分发
+//
+//  设计约束：
+//    · 只在启动阶段调用，不参与飞行回路；
+//    · 不用异常：所有失败通过 ParamResult / 返回码表达；
 //    · 不引入 yaml-cpp（机载与 Windows 构建都不必为几个标量装库）。
 // =============================================================================
 
-#include "params.hpp"
+#include "application.hpp"
 
 #include <cctype>
 #include <cerrno>
@@ -15,12 +19,15 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "tools.hpp"   // run_synthetic / run_replay / demo_camera / SimOptions
 
 namespace pure_uav {
 namespace app {
@@ -199,7 +206,6 @@ bool set_camera_matrix(const std::string &raw, double out[9]) {
     return true;
 }
 
-// 应用一个键；成功返回 true；失败写 *why（不含来源/行号）。
 bool apply_key(const std::string &key, const std::string &raw, AppParams *p, std::string *why) {
     const std::string val = trim(raw);
     auto bad = [&](const char *expect) {
@@ -266,7 +272,6 @@ bool apply_key(const std::string &key, const std::string &raw, AppParams *p, std
     return false;
 }
 
-// ---------------------------------------------------------------- 校验
 std::string check_range(const char *key, double v, double lo, double hi, bool lo_open,
                         bool hi_open) {
     const bool bad_lo = lo_open ? (v <= lo) : (v < lo);
@@ -278,35 +283,150 @@ std::string check_range(const char *key, double v, double lo, double hi, bool lo
     return std::string(buf);
 }
 
+// ---------------------------------------------------------------- CLI
+struct Args {
+    int    hz    = 50;
+    int    law   = 0;        // 0=PPN 1=TPN 2=APN
+    double N     = 4.0;
+    double a_max = 10.0;
+    int    ticks = 300;
+    bool   verbose = true;
+    bool   realtime = false;
+    const char *record = nullptr;
+    const char *out    = nullptr;
+    const char *replay = nullptr;
+    const char *config = nullptr;
+    bool   print_params = false;
+    const char *blackbox = nullptr;
+    double blackbox_sec = 5.0;
+    bool   help = false;
+    bool   law_given = false;
+    bool   n_given = false;
+    bool   a_max_given = false;
+    bool   hz_given = false;
+};
+
+bool cli_parse_int(const char *s, int &out) {
+    char *end = nullptr;
+    const long v = std::strtol(s, &end, 10);
+    if (!end || *end != '\0' || v < 0) return false;
+    out = static_cast<int>(v);
+    return true;
+}
+
+bool cli_parse_double(const char *s, double &out) {
+    char *end = nullptr;
+    const double v = std::strtod(s, &end);
+    if (!end || *end != '\0') return false;
+    out = v;
+    return true;
+}
+
+GuidanceLaw law_from_int(int v) {
+    return (v == 1) ? GuidanceLaw::TPN : (v == 2) ? GuidanceLaw::APN : GuidanceLaw::PPN;
+}
+
+void usage(const char *prog) {
+    std::printf(
+        "用法: %s [选项]\n"
+        "  --hz=N        主循环频率（默认 50）\n"
+        "  --law=N       0=PPN 1=TPN 2=APN（默认 0）\n"
+        "  --n=X         导航比（默认 4）\n"
+        "  --a-max=X     过载上限 m/s²（默认 10）\n"
+        "  --ticks=N     总拍数（默认 300）\n"
+        "  --realtime    按真实节拍跑（默认全速）\n"
+        "  --quiet       只打汇总\n"
+        "  --record=F    把每拍输入录成 CSV（合成世界里也能录，便于试格式）\n"
+        "  --out=F       把每拍指令落盘成 CSV\n"
+        "  --replay=F    回放录制好的 CSV（不跑合成世界）\n"
+        "  --config=F    YAML 参数文件（默认值 < 文件 < 命令行）\n"
+        "  --print-params 打印最终参数后退出\n"
+        "  --blackbox=F  跑完把黑匣子（最近 --blackbox-sec 秒）写成 CSV\n"
+        "  --blackbox-sec=S  黑匣子窗口秒数（默认 5；<=0 = 全部）\n"
+        "  --help        本帮助\n",
+        prog);
+}
+
+bool parse_args(int argc, char **argv, Args *a) {
+    for (int i = 1; i < argc; ++i) {
+        const char *s = argv[i];
+        auto eq = [s](const char *key) { return std::strncmp(s, key, std::strlen(key)) == 0; };
+        if (eq("--hz=")) {
+            if (!cli_parse_int(s + 5, a->hz)) { std::printf("!! --hz 解析失败：%s\n", s); return false; }
+            a->hz_given = true;
+        } else if (eq("--law=")) {
+            if (!cli_parse_int(s + 6, a->law)) { std::printf("!! --law 解析失败：%s\n", s); return false; }
+            a->law_given = true;
+        } else if (eq("--n=")) {
+            if (!cli_parse_double(s + 4, a->N)) { std::printf("!! --n 解析失败：%s\n", s); return false; }
+            a->n_given = true;
+        } else if (eq("--a-max=")) {
+            if (!cli_parse_double(s + 8, a->a_max)) {
+                std::printf("!! --a-max 解析失败：%s\n", s);
+                return false;
+            }
+            a->a_max_given = true;
+        } else if (eq("--ticks=")) {
+            if (!cli_parse_int(s + 8, a->ticks)) { std::printf("!! --ticks 解析失败：%s\n", s); return false; }
+        } else if (eq("--record=")) {
+            a->record = s + 9;
+        } else if (eq("--out=")) {
+            a->out = s + 6;
+        } else if (eq("--replay=")) {
+            a->replay = s + 9;
+        } else if (eq("--config=")) {
+            a->config = s + 9;
+        } else if (eq("--blackbox=")) {
+            a->blackbox = s + 11;
+        } else if (eq("--blackbox-sec=")) {
+            if (!cli_parse_double(s + 15, a->blackbox_sec)) {
+                std::printf("!! --blackbox-sec 解析失败：%s\n", s);
+                return false;
+            }
+        } else if (std::strcmp(s, "--print-params") == 0) {
+            a->print_params = true;
+        } else if (std::strcmp(s, "--realtime") == 0) {
+            a->realtime = true;
+        } else if (std::strcmp(s, "--quiet") == 0) {
+            a->verbose = false;
+        } else if (std::strcmp(s, "--help") == 0 || std::strcmp(s, "-h") == 0) {
+            usage(argv[0]);
+            a->help = true;
+            return true;
+        } else {
+            std::printf("未知参数：%s（--help 看用法）\n", s);
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
-// ============================================================
+// ============================================================================
+//  参数实现（原 params.cpp）
+// ============================================================================
+
 AppParams default_params() {
     AppParams p;
-    // 制导：与 main.cpp 2026-10-25 之前的硬编码一致
     p.guidance.law = GuidanceLaw::PPN;
     p.guidance.N = 4.0;
     p.guidance.a_max = 10.0;
     p.guidance.freeze_criterion = FreezeCriterion::BY_TGO;
-    p.guidance.t_go_freeze = 0.15;   // GuidanceParams 默认值
-    p.guidance.R_freeze = 5.0;       // GuidanceParams 默认值
-    // 合成世界给的是真值 ⇒ 默认真值法；真机配置里必须改 FROM_LOS_DIFFERENCE
+    p.guidance.t_go_freeze = 0.15;
+    p.guidance.R_freeze = 5.0;
     p.guidance.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
-    // 主循环：与 main.cpp 的 make_config() 一致
     p.loop.loop_hz = 50;
-    p.loop.max_sample_age_s = 0.2;   // 合成世界每拍更新，放宽一点防边界误判
-    // 其余 LoopConfig 字段保留默认（sensor_timeout 0.5 / hold 0.2 / full_check 2 Hz ...）
-    // 相机留空：必须由配置给出；仅合成世界 demo 才回退 demo_camera()
+    p.loop.max_sample_age_s = 0.2;
     return p;
 }
 
-// ============================================================
 ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *source) {
     if (out == nullptr) return ParamResult::fail("内部错误：out 为空");
 
-    AppParams p = *out;   // 在现有值上覆盖（默认值 → 文件 → CLI）
-    std::vector<std::pair<int, std::string>> stack;   // (indent, section)
+    AppParams p = *out;
+    std::vector<std::pair<int, std::string>> stack;
     std::set<std::string> seen;
     std::istringstream in(text);
     std::string raw;
@@ -316,7 +436,6 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
         ++line_no;
         if (!raw.empty() && raw.back() == '\r') raw.pop_back();
 
-        // 缩进（只允许空格；tab 明确报错，避免"看起来对齐、实际没对齐"）
         std::size_t first = 0;
         while (first < raw.size() && raw[first] == ' ') ++first;
         if (first < raw.size() && raw[first] == '\t') {
@@ -324,7 +443,6 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
         }
         const int indent = static_cast<int>(first);
 
-        // 去注释（引号外的 #）
         std::string line = raw;
         bool sq = false;
         bool dq = false;
@@ -342,10 +460,8 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
         line = trim(line);
         if (line.empty()) continue;
 
-        // 退栈：遇到不深于当前层的缩进
         while (!stack.empty() && indent <= stack.back().first) stack.pop_back();
 
-        // 找冒号（引号外）
         sq = false;
         dq = false;
         std::size_t colon = std::string::npos;
@@ -376,19 +492,16 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
             }
         }
 
-        // 去掉值两端成对的引号
         if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'') &&
             val.back() == val.front()) {
             val = val.substr(1, val.size() - 2);
         }
 
-        // 空值 = 段（缩进嵌套）
         if (val.empty()) {
             stack.emplace_back(indent, key);
             continue;
         }
 
-        // 拼完整键
         std::string full = key;
         for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
             full = it->second + "." + full;
@@ -407,7 +520,6 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
     return ParamResult::success();
 }
 
-// ============================================================
 ParamResult load_yaml_file(const std::string &path, AppParams *out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return ParamResult::fail("打不开配置文件：" + path);
@@ -417,9 +529,7 @@ ParamResult load_yaml_file(const std::string &path, AppParams *out) {
     return load_yaml_text(os.str(), out, path.c_str());
 }
 
-// ============================================================
 ParamResult validate(const AppParams &p) {
-    // --- 枚举合法性（防止有人把整数强转成非法枚举）---
     const int law = static_cast<int>(p.guidance.law);
     if (law < 0 || law > 2) return ParamResult::fail("guidance.law 非法");
     const int freeze = static_cast<int>(p.guidance.freeze_criterion);
@@ -429,7 +539,6 @@ ParamResult validate(const AppParams &p) {
     const int unh = static_cast<int>(p.loop.on_unhealthy);
     if (unh < 0 || unh > 2) return ParamResult::fail("loop.on_unhealthy 非法");
 
-    // --- 制导 ---
     std::string e = check_range("guidance.N", p.guidance.N, 0.5, 20.0, true, false);
     if (!e.empty()) return ParamResult::fail(e);
     e = check_range("guidance.a_max", p.guidance.a_max, 0.0, 100.0, true, false);
@@ -439,7 +548,6 @@ ParamResult validate(const AppParams &p) {
     e = check_range("guidance.R_freeze", p.guidance.R_freeze, 0.0, 100.0, false, false);
     if (!e.empty()) return ParamResult::fail(e);
 
-    // --- 主循环 ---
     if (p.loop.loop_hz < 1 || p.loop.loop_hz > 1000) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "loop.loop_hz 超出范围：%d（要求 [1, 1000]）",
@@ -460,7 +568,6 @@ ParamResult validate(const AppParams &p) {
     e = check_range("loop.full_check_hz", p.loop.full_check_hz, 0.0, 1000.0, false, false);
     if (!e.empty()) return ParamResult::fail(e);
 
-    // --- 相机：允许整块不配（合成世界 demo 会回退），但配了就必须成对且有限 ---
     const CameraModel &c = p.loop.cam;
     if ((c.fx > 0.0) != (c.fy > 0.0)) {
         return ParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
@@ -480,7 +587,6 @@ ParamResult validate(const AppParams &p) {
     return ParamResult::success();
 }
 
-// ============================================================
 std::string to_string(const AppParams &p) {
     std::ostringstream os;
     os << "guidance.law: " << law_name(p.guidance.law) << "\n";
@@ -508,6 +614,66 @@ std::string to_string(const AppParams &p) {
     }
     os << "\n";
     return os.str();
+}
+
+// ============================================================================
+//  Application
+// ============================================================================
+
+int Application::run(int argc, char **argv) {
+    Args a;
+    if (!parse_args(argc, argv, &a)) return 2;
+    if (a.help) return 0;
+
+    if (a.ticks <= 0) {
+        std::printf("参数非法：--ticks 必须 > 0\n");
+        return 2;
+    }
+    if (a.law_given && (a.law < 0 || a.law > 2)) {
+        std::printf("参数非法：--law 只能是 0/1/2\n");
+        return 2;
+    }
+
+    // 默认值 → YAML → 命令行（只覆盖显式给出的项）
+    AppParams ap = default_params();
+    if (a.config != nullptr) {
+        const ParamResult r = load_yaml_file(a.config, &ap);
+        if (!r.ok) {
+            std::printf("!! 配置加载失败：%s\n", r.error.c_str());
+            return 2;
+        }
+    }
+    if (a.law_given) ap.guidance.law = law_from_int(a.law);
+    if (a.n_given) ap.guidance.N = a.N;
+    if (a.a_max_given) ap.guidance.a_max = a.a_max;
+    if (a.hz_given) ap.loop.loop_hz = a.hz;
+
+    const ParamResult vr = validate(ap);
+    if (!vr.ok) {
+        std::printf("!! 参数校验失败：%s\n", vr.error.c_str());
+        return 2;
+    }
+
+    // 合成世界 demo：配置里没给相机时回退演示相机。
+    // ⚠ 真机必须在 YAML 里给 cam.fx/fy/cx/cy/R_body_cam。
+    if (!ap.loop.cam.valid()) ap.loop.cam = demo_camera();
+
+    if (a.print_params) {
+        std::printf("%s", to_string(ap).c_str());
+        return 0;
+    }
+
+    SimOptions opt;
+    opt.ticks        = a.ticks;
+    opt.verbose      = a.verbose;
+    opt.realtime     = a.realtime;
+    opt.record       = a.record;
+    opt.out          = a.out;
+    opt.blackbox     = a.blackbox;
+    opt.blackbox_sec = a.blackbox_sec;
+
+    if (a.replay != nullptr) return run_replay(a.replay, opt, ap);
+    return run_synthetic(opt, ap);
 }
 
 }  // namespace app

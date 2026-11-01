@@ -59,10 +59,9 @@
 #include "guidance.hpp"
 #include "sensor.hpp"
 #include "target.hpp"
-#include "guidance_loop.hpp"     // 机载主循环外壳（§16）
-#include "synthetic_world.hpp"   // 合成世界 + 闭环驱动（§17）
-#include "csv_io.hpp"            // 录制 / 回放（§18）
-#include "params.hpp"            // 参数加载 / 校验（§19）
+#include "guidance_loop.hpp"     // 机载主循环外壳 + 黑匣子（§16/§20/§21）
+#include "tools.hpp"             // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
+#include "application.hpp"       // 参数加载 / 校验（§19）
 
 using namespace pure_uav;
 

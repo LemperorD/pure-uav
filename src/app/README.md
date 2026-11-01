@@ -8,22 +8,18 @@
 ## 1 分层与文件
 
 ```
-src/app/
-  sample.hpp           一次采样的数据载体（InsSample / TargetSample，★ 目标是像素）
-  output.hpp           对外输出契约（GuidanceOutput / ControlMode / InputHealth / LoopStatus）
-  sensor_source.hpp    数据源接口 IInsSource / ITargetSource（拉模型）
-  command_sink.hpp     指令出口接口 ICommandSink（★ 契约 + 通信侧翻译对照表）
-  guidance_loop.{hpp,cpp}   主循环本体（一拍做什么，顺序不可颠倒）
-  synthetic_world.{hpp,cpp} 合成世界（零依赖闭环）+ 闭环驱动（测试复用）
-  csv_io.{hpp,cpp}          录制 / 回放 / 指令落盘 / NullSink
-  params.{hpp,cpp}          参数加载 / 校验（YAML 子集 + CLI 覆盖，零第三方依赖）
-  ring_log.{hpp,cpp}        黑匣子（固定环形缓冲，循环内零 I/O）
-  main.cpp                  薄壳：命令行解析 + 打印
+src/app/（2026-11-01 方案 A 合并后）
+  app_types.hpp            类型 / 契约 / CameraModel / LoopConfig / AppParams
+  guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog（一拍做什么，顺序不可颠倒）
+  tools.{hpp,cpp}          合成世界 + 闭环驱动 + CSV 录制/回放 + run_synthetic/run_replay
+  application.{hpp,cpp}    CLI + 参数加载/校验/打印 + 模式分发（总控台）
+  main.cpp                 入口：只创建 Application 并调用 run(argc, argv)
 ```
 
-依赖方向：`app → guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units`）。
+依赖方向：`main → application → tools → guidance_loop → app_types`，
+底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
-契约头文件（`output.hpp` / `command_sink.hpp`）**零外部依赖**。
+`app_types.hpp` 保持零外部协议依赖。
 
 ---
 
@@ -57,7 +53,7 @@ src/app/
 | 发送 | 300 拍全部发出（`sent == ticks`） |
 | 目标帧 | 250（后 50 拍目标出画 ⇒ 只重发、不重算） |
 
-### 2.1 参数加载（`params.{hpp,cpp}`）
+### 2.1 参数加载（`application.{hpp,cpp}`）
 
 - **优先级**：默认值 < `--config=FILE` < **显式给出的**命令行项
   （`--law/--n/--a-max/--hz`；没给的不会覆盖 YAML）。
@@ -91,7 +87,7 @@ src/app/
 - 循环内**零 I/O、零分配**；只有 `dump_csv()` 才碰磁盘；
 - `GuidanceLoop::blackbox()` 暴露只读视图：跑完 / 异常现场 / 手动触发都能 dump；
 - `main --blackbox=F --blackbox-sec=S` 跑完写最近 S 秒（`<=0` = 全部）；
-- 与 `csv_io` 互补：CSV 是**持续录制/复盘**，RingLog 是常驻内存的"最后一口气"。
+- 与 `tools` 互补：CSV 是**持续录制/复盘**，RingLog 是常驻内存的"最后一口气"。
 
 ---
 
@@ -106,7 +102,7 @@ present, has_range, range_m, has_vT, vTn,vTe,vTd
 - `#` 开头是注释（表头即注释，读取自动跳过）；浮点写 `%.17g` ⇒ 读回**逐位一致**。
 - `ins_new / tgt_new`：该拍是否真有新帧。★ **必须原样保留** —— 回放时
   「没有新目标帧 ⇒ 只重发不重算」的行为全靠它，丢了 ω 会被系统性改变。
-- `boot_us`：飞控 boot 时钟 µs（见 `sample.hpp` 的时间戳约定）。
+- `boot_us`：飞控 boot 时钟 µs（见 `app_types.hpp` 的时间戳约定）。
 - 指令落盘 CSV：`boot_us, ctrl, mode, valid, sat, a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health`。
 
 ### 用法（接线时一行不用改主循环）
@@ -151,7 +147,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 `new / delete / malloc / free / strdup` 出现次数 = **0**。所有容器（`std::vector` /
 `std::string`）都是 RAII，随作用域释放。
 
-唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `csv_io.{hpp,cpp}` 三个类：
+唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `tools.{hpp,cpp}` 三个类：
 
 | 类 | 释放点 | 重复 `open()` | `close()` 幂等 | 拷贝 |
 | --- | --- | --- | --- | --- |
