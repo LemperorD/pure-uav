@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -150,17 +151,35 @@ cv::Mat drawAnnotated(const cv::Mat& bgr, const FrameResult& r) {
 }
 
 // 给 mjpg-streamer 的 input_file 插件提供最新一帧带框图。
-// 先写 frame_tmp.jpg 再原子 rename 成 frame.jpg：input_file 用 -n frame.jpg
-// 过滤文件名，既不会读到写了一半的文件，也不会看到临时文件。
+// 先写 frame_tmp.bin 再原子 rename 成 frame.jpg：
+//   · 临时文件故意不用 .jpg 扩展名，input_file 的 --existing 模式扫描目录时
+//     不会把它当成视频帧；
+//   · rename 是原子的，读端要么看到上一帧、要么看到完整的新帧。
 bool writeStreamFrame(const cv::Mat& bgr, const FrameResult& r, const std::string& stream_dir) {
     const cv::Mat vis = drawAnnotated(bgr, r);
     const auto dir = std::filesystem::path(stream_dir);
-    const std::string tmp = (dir / "frame_tmp.jpg").string();
+    const std::string tmp = (dir / "frame_tmp.bin").string();
     const std::string dst = (dir / "frame.jpg").string();
     const std::vector<int> params{cv::IMWRITE_JPEG_QUALITY, 80};
-    if (!cv::imwrite(tmp, vis, params)) {
-        std::fprintf(stderr, "[warn] 写入流帧失败: %s\n", tmp.c_str());
+
+    std::vector<unsigned char> jpg;
+    if (!cv::imencode(".jpg", vis, jpg, params)) {
+        std::fprintf(stderr, "[warn] JPEG 编码失败\n");
         return false;
+    }
+    {
+        std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
+        if (!ofs) {
+            std::fprintf(stderr, "[warn] 打开流帧临时文件失败: %s\n", tmp.c_str());
+            return false;
+        }
+        ofs.write(reinterpret_cast<const char*>(jpg.data()),
+                 static_cast<std::streamsize>(jpg.size()));
+        if (!ofs) {
+            std::fprintf(stderr, "[warn] 写入流帧失败: %s\n", tmp.c_str());
+            std::filesystem::remove(tmp);
+            return false;
+        }
     }
     std::error_code ec;
     std::filesystem::rename(tmp, dst, ec);

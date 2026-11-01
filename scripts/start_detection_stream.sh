@@ -91,11 +91,27 @@ if port_in_use; then
     exit 1
 fi
 
+if ! awk -v f="${STREAM_FPS}" 'BEGIN { exit !(f >= 1 && f <= 60) }'; then
+    echo "[error] STREAM_FPS 必须在 [1,60] 内，当前: ${STREAM_FPS}" >&2
+    exit 1
+fi
+
 mkdir -p "${STREAM_DIR}"
-rm -f "${STREAM_DIR}/frame.jpg" "${STREAM_DIR}/frame_tmp.jpg"
+rm -f "${STREAM_DIR}/frame.jpg" "${STREAM_DIR}/frame_tmp.jpg" "${STREAM_DIR}/frame_tmp.bin"
+
+# input_file 的 --existing 模式按固定延迟轮询 frame.jpg。
+# 不能用 inotify + --remove 模式：写入速率一高，inotify 事件会堆积，
+# 插件每次 read 只处理第一个事件，实际输出会掉到 1 FPS 左右。
+DELAY="$(awk -v f="${STREAM_FPS}" 'BEGIN { printf "%.3f", 1.0 / f }')"
 
 MJPG_PID=""
+DETECT_PID=""
 cleanup() {
+    if [[ -n "${DETECT_PID}" ]]; then
+        kill "${DETECT_PID}" 2>/dev/null || true
+        wait "${DETECT_PID}" 2>/dev/null || true
+        DETECT_PID=""
+    fi
     if [[ -n "${MJPG_PID}" ]]; then
         kill "${MJPG_PID}" 2>/dev/null || true
         wait "${MJPG_PID}" 2>/dev/null || true
@@ -104,10 +120,34 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[info] 启动 mjpg-streamer (input_file → output_http ${PORT})..."
+# 先启动 detect_rt，等它写出第一帧后再启动 mjpg-streamer：
+# --existing 模式只在启动时扫描一次目录，目录为空会导致插件直接退出。
+echo "[info] 启动 detect_rt..."
+env -u LD_LIBRARY_PATH -u LD_PRELOAD "${DETECT_BIN}" \
+    "${DETECT_ARGS[@]}" \
+    --stream-dir "${STREAM_DIR}" \
+    --stream-fps "${STREAM_FPS}" &
+DETECT_PID=$!
+
+for _ in $(seq 1 50); do
+    if ! kill -0 "${DETECT_PID}" 2>/dev/null; then
+        echo "[error] detect_rt 启动失败（相机被占用或模型错误），请查看上面的日志。" >&2
+        wait "${DETECT_PID}" 2>/dev/null || true
+        DETECT_PID=""
+        exit 1
+    fi
+    [[ -f "${STREAM_DIR}/frame.jpg" ]] && break
+    sleep 0.1
+done
+if [[ ! -f "${STREAM_DIR}/frame.jpg" ]]; then
+    echo "[error] 等待 detect_rt 首帧超时（${STREAM_DIR}/frame.jpg 未出现）。" >&2
+    exit 1
+fi
+
+echo "[info] 启动 mjpg-streamer (input_file --existing, ${DELAY}s/帧 → output_http ${PORT})..."
 env -u LD_LIBRARY_PATH -u LD_PRELOAD \
     "${MJPG_ROOT}/mjpg_streamer" \
-    -i "${MJPG_ROOT}/input_file.so -f ${STREAM_DIR}/ -r -n frame.jpg" \
+    -i "${MJPG_ROOT}/input_file.so -f ${STREAM_DIR}/ -e -d ${DELAY}" \
     -o "${MJPG_ROOT}/output_http.so -p ${PORT} -w ${MJPG_ROOT}/www" &
 MJPG_PID=$!
 
@@ -130,7 +170,4 @@ echo "  按 Ctrl-C 同时停止 detect_rt 与 mjpg-streamer"
 echo "======================================================"
 echo
 
-env -u LD_LIBRARY_PATH -u LD_PRELOAD "${DETECT_BIN}" \
-    "${DETECT_ARGS[@]}" \
-    --stream-dir "${STREAM_DIR}" \
-    --stream-fps "${STREAM_FPS}"
+wait "${DETECT_PID}"

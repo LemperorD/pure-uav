@@ -132,29 +132,37 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 
 脚本内部做两件事：
 
-1. 启动 mjpg-streamer
-   `input_file.so -f /dev/shm/pure-uav-detect/ -r -n frame.jpg`
-   + `output_http.so -p 8080`；
-2. 启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`。
+1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，
+   等它写出第一帧；
+2. 再启动 mjpg-streamer
+   `input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
+   + `output_http.so -p 8080`。
 
-`detect_rt` 先把带框图写成 `frame_tmp.jpg`，再原子 `rename` 成 `frame.jpg`；
-`input_file` 用 `-n frame.jpg` 过滤文件名，因此不会读到写了一半的临时文件。
+`detect_rt` 先把带框图写成 `frame_tmp.bin`，再原子 `rename` 成 `frame.jpg`；
+临时文件故意不用 `.jpg` 扩展名，`input_file --existing` 扫描目录时不会把它当成视频帧。
+
+⚠ 不要用 `input_file` 的 inotify 模式（`-r -n frame.jpg`）：写入速率一高，
+inotify 事件会堆积，而该插件每次 `read` 只处理第一个事件，实测输出会掉到约 1 FPS。
+`--existing` 模式按 `-d` 固定延迟轮询 `frame.jpg`，实测稳定在约 20 FPS。
 
 手工等价命令：
 
 ```bash
 mkdir -p /dev/shm/pure-uav-detect
 MJPG=/home/orangepi/Documents/mjpg-streamer/mjpg-streamer-experimental
-$MJPG/mjpg_streamer \
-  -i "$MJPG/input_file.so -f /dev/shm/pure-uav-detect/ -r -n frame.jpg" \
-  -o "$MJPG/output_http.so -p 8080 -w $MJPG/www"
 
-# 另一个终端
+# 终端 1：先启动检测，等 /dev/shm/pure-uav-detect/frame.jpg 出现
 ./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+
+# 终端 2：再启动 mjpg-streamer
+$MJPG/mjpg_streamer \
+  -i "$MJPG/input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05" \
+  -o "$MJPG/output_http.so -p 8080 -w $MJPG/www"
 ```
 
-实测：640×480@60 采集、约 47 FPS 处理、11.4 ms 推理时，
-`http://<板子IP>:8080/?action=stream` 返回 `multipart/x-mixed-replace` 带框视频流。
+实测：640×480@60 采集、约 45 FPS 处理、11.5 ms 推理时，
+`http://<板子IP>:8080/?action=stream` 返回 `multipart/x-mixed-replace` 带框视频流，
+稳态约 19.8 FPS。
 
 ## 5. 库接口
 
