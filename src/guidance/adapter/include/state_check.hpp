@@ -165,7 +165,7 @@ Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
 // 返回 true = 通过。`first_bad`（可空）给出第一条失败项的 code，
 // 便于"廉价体检失败时再跑一次完整体检并入黑匣子"这种两级用法。
 //
-// ⚠ 它**不检查** cmd，也不判断数据口径（NED/ENU、时间戳是否同源）——
+// 注意：它**不检查** cmd，也不判断数据口径（NED/ENU、时间戳是否同源）——
 //    那些靠单元测试与联调时的完整体检。
 bool quick_check(const GuidanceState &st, CheckCode *first_bad = nullptr) noexcept;
 

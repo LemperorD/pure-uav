@@ -121,4 +121,5 @@ assets/docs/
 ## 6 当前状态
 
 - 已拆分：quat、Pure 前缀、ω、CSV、接口/时间、架构、测试、冻结判据、目标模型、传感器墙；
-- 仍待清理：测试段标题里的日期/emoji、部分 `★/⚠`、公开 API 的 Doxygen。
+- 日期/emoji：`src/app`、`src/guidance`、`src/test` 已清理；`src/common` 等团队文件未动；
+- 公开 API Doxygen：`IInsSource` / `ITargetSource` / `ICommandSink` / `GuidanceLoop` / `Application` / `guidance_step` 已补。

@@ -237,7 +237,7 @@ static void test_time() {
 
     // ---- uint64 µs ----
     near(timestamp_u64_us_to_s(2500000ull, 0ull), 2.5, 0.0, "u64 µs → s");
-    // ★ 关键：本机 SITL 实测 timestamp ≈ Unix epoch µs（1.79e15）。先相减再转 double 才安全。
+    //  关键：本机 SITL 实测 timestamp ≈ Unix epoch µs（1.79e15）。先相减再转 double 才安全。
     {
         const uint64_t t0 = 1792136351209102ull;
         const uint64_t t1 = t0 + 456789ull;                 // +0.456789 s
@@ -322,7 +322,7 @@ static void test_time() {
 }
 
 // ============================================================
-//  3. ★★ 姿态换算（外部机体系 → 光轴系）
+//  3.  姿态换算（外部机体系 → 光轴系）
 // ============================================================
 static void test_attitude() {
     section("3. 姿态换算（外部机体系 → 光轴系）");
@@ -338,7 +338,7 @@ static void test_attitude() {
         ok(wout == Frame::kEnu, "透传：输出世界系 = ENU");
     }
 
-    // ---- 3.2 ★ 手工算例：无人机水平、机头朝正东（ENU）----
+    // ---- 3.2  手工算例：无人机水平、机头朝正东（ENU）----
     // 机头朝东 ⇒ 光轴系 +z(光轴) = 东；+x(机右) = 南；+y(机下) = 下
     //
     // 手工推导（逐轴走一遍"机体系 → 外部世界系 → ENU"，不依赖矩阵记忆）：
@@ -364,7 +364,7 @@ static void test_attitude() {
         near_vec(ref_axis_in_world(qout, 2), Vec3(1, 0, 0), 1e-15, "  光轴系+z(光轴) = 东");
     }
 
-    // ---- 3.3 ★★ 随机姿态 × 5 种外部口径 × 2 种世界系，与独立参考实现逐例比对 ----
+    // ---- 3.3  随机姿态 × 5 种外部口径 × 2 种世界系，与独立参考实现逐例比对 ----
     {
         const Frame worlds[2] = {Frame::kNed, Frame::kEnu};
         const AttitudeFrame frames[5] = {AttitudeFrame::kFrd, AttitudeFrame::kFlu,
@@ -404,7 +404,7 @@ static void test_attitude() {
         std::printf("  （随机姿态交叉比对 %d 例，最大偏差 %.3g）\n", cases, worst);
     }
 
-    // ---- 3.4 ★ 三种"已是光轴系"的口径必须给出同一个结果 ----
+    // ---- 3.4  三种"已是光轴系"的口径必须给出同一个结果 ----
     // CamFrd / CamFlu / OpticalPassthrough 的 ① 都是单位基 ⇒ 结果应完全相同；
     // 差别只在调用方如何**解释** q，而 q 是原样传入的。
     {
@@ -419,7 +419,7 @@ static void test_attitude() {
         near_q(q_a, q_c, 1e-15, "CamFrd 与透传结果一致");
     }
 
-    // ---- 3.5 ★ 已知姿态：外部只做世界系换算时，机体轴关系可预测 ----
+    // ---- 3.5  已知姿态：外部只做世界系换算时，机体轴关系可预测 ----
     // NED + FRD 的恒等姿态（机体与 NED 对齐：x=北 y=东 z=下）
     // ⇒ 光轴系 +z(光轴=机头) 应指向北 ⇒ ENU 的 +y
     {
@@ -444,7 +444,7 @@ static void test_attitude() {
                  "恒等 FLU：光轴指向东(ENU +x)");
     }
 
-    // ---- 3.6 ★ 手性检查：所有口径都必须是正规旋转（det = +1），不能是镜像 ----
+    // ---- 3.6  手性检查：所有口径都必须是正规旋转（det = +1），不能是镜像 ----
     {
         const AttitudeFrame frames[4] = {AttitudeFrame::kFrd, AttitudeFrame::kFlu,
                                          AttitudeFrame::kCamFrd, AttitudeFrame::kCamFlu};
@@ -475,7 +475,7 @@ static void test_attitude() {
         ok(!convert_attitude(q_huge, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
            "量级离谱（|q|=1e9）被判为非四元数并拒绝");
 
-        // ★ 未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
+        //  未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
         const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5};   // |q| = 0.7071
         ok(convert_attitude(q_scaled, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
            "未归一化（|q|=0.707）被接受");
@@ -499,7 +499,7 @@ static void test_attitude() {
         double q[4] = {0, 0, 0, 5};
         const double n = normalize_quat(q);
         near(n, 5.0, 0.0, "normalize_quat 返回归一化前模长");
-        // ⚠ normalize_quat 是**原地**归一化 ⇒ 不能拿 q 与单位四元数比"是否没变"
+        // 注意：normalize_quat 是**原地**归一化 ⇒ 不能拿 q 与单位四元数比"是否没变"
         near_vec(Vec3(q[0], q[1], q[2]), Vec3(0, 0, 0), 1e-15, "  归一化后矢量部分为 0");
         near(q[3], 1.0, 1e-15, "  归一化后 q[3] = 1（原地写回）");
         double z[4] = {0, 0, 0, 0};
@@ -521,9 +521,9 @@ static void test_attitude() {
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
         near_q(q_wrap, q_direct, 1e-15, "attitude_from_ned_frd = convert_attitude(NED, FRD)");
         // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
-        // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
+        // 注意：不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
         //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
-        //    "taking address of temporary array"。（2026-10-20 WSL 实测）
+        //    "taking address of temporary array"。（WSL 实测）
         const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
         near_q(q_wrap, q_expect, 1e-15,
                "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
@@ -531,7 +531,7 @@ static void test_attitude() {
 }
 
 // ============================================================
-//  4. ★ 与 guidance_libs 交叉验证（两份四元数实现必须一致）
+//  4.  与 guidance_libs 交叉验证（两份四元数实现必须一致）
 // ============================================================
 static void test_quat_cross_check() {
     section("4. 四元数旋转：与 guidance_libs 交叉验证 + 语义差异锁定");
@@ -555,7 +555,7 @@ static void test_quat_cross_check() {
         std::printf("  （%d 例，rotate_vec_by_quat vs 矩阵参考 最大偏差 %.3g）\n", n, worst);
     }
 
-    // ---- 4.2 ★★ 锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
+    // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
     //
     // 这一节原本是为了排查一个"看似是转置"的怀疑，最终用完整矩阵对比证明：
     //   **仓库的 quat_rotate_vec 是标准 R(q)·v，不是转置。**
@@ -623,7 +623,7 @@ static void test_quat_cross_check() {
         // 共轭
         double qc[4];
         quat_conjugate(q, qc);
-        // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+        // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
         const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
         near_q(qc, q_conj, 0.0, "共轭定义");
     }
@@ -681,7 +681,7 @@ static void test_fill_state() {
         near(st.range, 300.0, 0.0, "range 原样");
         ok(st.valid, "目标存在 ⇒ valid");
 
-        // ★ 未单位化的视线（模长 300）必须被自动单位化
+        //  未单位化的视线（模长 300）必须被自动单位化
         GuidanceState st2;
         fill_target(st2, Vec3(0.0, 300.0, 0.0), Frame::kNed, true, 300.0, false, Vec3{});
         near(norm(st2.los_hat), 1.0, 1e-15, "未单位化输入被自动单位化");
@@ -761,7 +761,7 @@ static void test_fill_state() {
 }
 
 // ============================================================
-//  6. ★ 上游模拟器：不同口径描述同一场景 → 必须得到同一个内部状态
+//  6.  上游模拟器：不同口径描述同一场景 → 必须得到同一个内部状态
 // ============================================================
 static void test_upstream_simulator() {
     section("6. 上游模拟器（同一场景 × 多口径 → 同一个 GuidanceState）");
@@ -769,7 +769,7 @@ static void test_upstream_simulator() {
     // 场景：无人机在 ENU (东 0, 北 0, 上 100)，速度朝东 20 m/s，**机头朝东**、水平
     //       目标在 ENU (东 300, 北 0, 上 100)。
     //
-    // ★ 三个口径必须描述**同一个物理姿态**，适配后得到同一个 GuidanceState。
+    //  三个口径必须描述**同一个物理姿态**，适配后得到同一个 GuidanceState。
     //   本条测试是本模块存在意义的直接证明（"外部口径差异被适配层吃掉了"）。
     //   三种输入四元数（都用程序反解 + 回代验证过，适配层输出完全一致）：
     //     A) NED + FRD : 绕 NED z(下) +90°（北→东）   → [√2/2, 0, 0, √2/2]
@@ -879,7 +879,7 @@ static void test_upstream_simulator() {
 }
 
 // ============================================================
-//  7. ★ 不变量自检（state_check）
+//  7.  不变量自检（state_check）
 // ============================================================
 static void test_checks() {
     section("7. 不变量自检");
@@ -1008,7 +1008,7 @@ static void test_checks() {
         ok(!check_guidance_cmd(bad_search).ok(), "SEARCH 却输出非零指令被抓");
     }
 
-    // ---- 7.8 ★ 真闭环：用手工几何跑 guidance_step，再体检指令 ----
+    // ---- 7.8  真闭环：用手工几何跑 guidance_step，再体检指令 ----
     {
         GuidanceState st;
         st.t = 1.0;
@@ -1054,7 +1054,7 @@ static void test_checks() {
 }
 
 // ============================================================
-//  9. ★ 廉价体检 quick_check（飞行回路专用）
+//  9.  廉价体检 quick_check（飞行回路专用）
 // ============================================================
 // 它和 check_guidance_state 是**两套判据**，最怕两边慢慢漂移 ⇒ 除了逐条用例外，
 // 最后再用"同一批脏数据两边判定必须完全一致"把它们钉死。
@@ -1121,7 +1121,7 @@ static void test_quick_check() {
         ok(quick_check(st), "range=0 仍通过（warning 不算硬条件）");
     }
 
-    // ---- 9.3 ★ 与完整体检的一致性：error 级判定必须**完全等价** ----
+    // ---- 9.3  与完整体检的一致性：error 级判定必须**完全等价** ----
     {
         GuidanceState f[7];
         for (int i = 0; i < 7; ++i) f[i] = good;

@@ -88,7 +88,7 @@ inline Vec3 accel_from(const Vec3 &a, Frame from, Frame to) noexcept { return co
 //   ① 零链接依赖：只用纯头文件的 vec3.hpp + mavlink_units，
 //      解析侧 / 机载侧单独编译本层时不必拖上整个制导库；
 //   ② 语义明确：跨模块口径换算必须用**数学定义** R(q)·v 的那一个。
-// 2026-10-16 用三条独立路径实测（各 200 例随机姿态、最大偏差 2.7e-15）：
+// 用三条独立路径实测（各 200 例随机姿态、最大偏差 2.7e-15）：
 //   仓库 `quat_rotate_vec` ≡ 本层 `rotate_vec_by_quat` ≡ 标准旋转矩阵
 // ⇒ 三者语义一致，可放心混用；一致性由 test_state_adapter.cpp §4 钉住。
 
@@ -114,7 +114,7 @@ void quat_conjugate(const double q[4], double q_out[4]) noexcept;
 // 返回 false = `frame_in == kOpticalPassthrough` 之外的输入不构成正规旋转
 //       （|q_in| 偏离 1 过多 / 出现 NaN）。此时 `q_out` 被置为单位四元数。
 //
-// ⚠ kOpticalPassthrough 只做**世界系**换算（NED→ENU），机体轴不动。
+// 注意：kOpticalPassthrough 只做**世界系**换算（NED→ENU），机体轴不动。
 bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_in,
                       double q_out[4], Frame &world_out) noexcept;
 
@@ -134,11 +134,11 @@ double normalize_quat(double q[4]) noexcept;
 // ============================================================================
 
 // 外部时间戳 → 内部秒（double）。`t_ref` 是同源的参考时标（可为 0）。
-// ⚠ 若两端基准不同源，相减会得到垃圾 —— 用 is_safe_to_difference() 先自检。
+// 注意：若两端基准不同源，相减会得到垃圾 —— 用 is_safe_to_difference() 先自检。
 double timestamp_to_s(double raw, TimeUnit unit, double t_ref = 0.0) noexcept;
 
 // uint32 版本（MAVLink `time_boot_ms`）。`t_ref` 与返回值同单位 raw。
-// ⚠ 没有单位参数：uint32 时间戳的既有约定就是 ms，写死可避免调用方传错。
+// 注意：没有单位参数：uint32 时间戳的既有约定就是 ms，写死可避免调用方传错。
 double timestamp_u32_ms_to_s(uint32_t raw_ms, uint32_t t_ref_ms = 0u) noexcept;
 
 // uint64 版本（PX4 uORB `timestamp`，µs）。
@@ -214,7 +214,7 @@ inline void fill_time(GuidanceState &st, const StateTimeTracker &tr) noexcept { 
 // `p_raw` / `v_raw` 在 `world_in` 系（通常 NED）；单位 m / (m/s)。
 // `q_raw` 为 [w,x,y,z]，机体（`att_in`）→ 世界（`world_in`）。
 //
-// ⚠ 只填 p_M / v_M / q，**不碰** los_hat / range（那是视觉的事）。
+// 注意：只填 p_M / v_M / q，**不碰** los_hat / range（那是视觉的事）。
 //   `st.valid` 不由本函数设置（有效性是"目标是否可观测"的语义，见 4.3）。
 void fill_ins(GuidanceState &st,
               const Vec3 &p_raw, const Vec3 &v_raw,
@@ -228,7 +228,7 @@ void fill_ins(GuidanceState &st,
 // 零矢量 ⇒ `valid = false`（视作目标丢失，制导进 SEARCH）。
 //
 // `opt_range_m`：有直接测距（深度相机 / 激光 / size 反推）时填，`has_range = true`。
-//   ⚠ 没有 range 时制导仍可跑（PPN 不含距离项），但 TPN/APN 与 t_go 会失准。
+//   注意：没有 range 时制导仍可跑（PPN 不含距离项），但 TPN/APN 与 t_go 会失准。
 //
 // `opt_vT_raw`：仅"真值法"（FROM_RELATIVE_VELOCITY，仿真）可得；真机置 false。
 //

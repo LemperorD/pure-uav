@@ -649,7 +649,7 @@ int Application::run(int argc, char **argv) {
     }
 
     // 合成世界 demo：配置里没给相机时回退演示相机。
-    // ⚠ 真机必须在 YAML 里给 cam.fx/fy/cx/cy/R_body_cam。
+    // 注意：真机必须在 YAML 里给 cam.fx/fy/cx/cy/R_body_cam。
     if (!ap.loop.cam.valid()) ap.loop.cam = demo_camera();
 
     if (a.print_params) {

@@ -35,7 +35,7 @@ struct Detection {
 struct GuidanceState {
     double t = 0.0;        // 时间戳(s)
     Vec3   los_hat;        // 视线方向单位矢量 û
-    // ⚠ λ̇ **不是制导的输入** —— `guidance.cpp` **从不读取本字段**。
+    // 注意：λ̇ **不是制导的输入** —— `guidance.cpp` **从不读取本字段**。
     //   制导核自己算 ω：按 `GuidanceParams::los_rate_source` 二选一
     //     · FROM_RELATIVE_VELOCITY：ω = (r × v_rel)/R²  （仿真，需 v_T）
     //     · FROM_LOS_DIFFERENCE   ：ω = û × (dû/dt)     （真机，只需 û 历史）
@@ -47,7 +47,7 @@ struct GuidanceState {
 
     // --- 惯导 ---
     // 姿态四元数，**分量顺序 [w, x, y, z]**（单位四元数 = [1,0,0,0]）。
-    // ⚠ 顺序与 PX4 uORB / MAVLink（ATTITUDE_QUATERNION、ODOMETRY.q）一致，
+    // 注意：顺序与 PX4 uORB / MAVLink（ATTITUDE_QUATERNION、ODOMETRY.q）一致，
     //   上游（飞控 / 通信）可以原样填入，不需要重排。
     double q[4] = {1.0, 0.0, 0.0, 0.0};
     Vec3   p_M;                          // 自身位置(可选)
@@ -60,7 +60,7 @@ struct GuidanceState {
 //  二、输出：制导指令
 // ============================================================
 //
-// ★ Pure 前缀：避免与通信模块同名 `GuidanceCmd/GuidanceMode` 冲突。
+//  Pure 前缀：避免与通信模块同名 `GuidanceCmd/GuidanceMode` 冲突。
 //   背景与语义对照见 assets/docs/decisions/0002-pure-prefix.md。
 
 // 制导模式

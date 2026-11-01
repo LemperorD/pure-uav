@@ -1,6 +1,6 @@
 // 四元数工具实现（见 quat.hpp 的说明：通用数学，属于核心，不属于仿真）
 //
-// 本文件内容原在 `sensor.cpp`，2026-10-16 为"制导核心 / 仿真"解耦而移出。
+// 本文件内容原在 `sensor.cpp`，为"制导核心 / 仿真"解耦而移出。
 // 移动**只改文件归属，不改一行算法**（回归：三个单测全绿 + 结果逐位不变）。
 
 #include "quat.hpp"
@@ -11,7 +11,7 @@
 namespace pure_uav {
 
 // v' = R(q)·v（q = [w,x,y,z]，机体→世界）
-// ⚠ 分量顺序 [w,x,y,z]：q[0]=w（标量），q[1..3]=(x,y,z)。与 PX4 / MAVLink 一致。
+// 注意：分量顺序 [w,x,y,z]：q[0]=w（标量），q[1..3]=(x,y,z)。与 PX4 / MAVLink 一致。
 Vec3 quat_rotate_vec(const double q[4], const Vec3 &v) {
     const Vec3   u(q[1], q[2], q[3]);
     const double w = q[0];

@@ -8,9 +8,11 @@
 
 namespace pure_uav {
 
-// 一次制导周期。
-// 内部流程：有效性检查 → 几何量 → 选导引律 → 末端冻结 → 过载限幅。
-// memory 由调用方持有并跨周期传回（制导本身无全局状态）。
+/// 一次制导周期（纯函数）。
+/// @param state 外部口径已转成内部 ENU 的输入。
+/// @param params 制导参数。
+/// @param memory 跨周期记忆，由调用方持有并传回。
+/// @return 本周期指令（含 t_go/Vc/R/lam_dot 等调试量）。
 PureGuidanceCmd guidance_step(const GuidanceState &state,
                           const GuidanceParams &params,
                           GuidanceMemory &memory);

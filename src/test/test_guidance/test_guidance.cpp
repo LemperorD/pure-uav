@@ -387,7 +387,7 @@ static void test_quat() {
     quat_from_forward(Vec3(0, 0, 1), q);
     near(q[0], 1.0, 1e-12, "forward = +z → 单位四元数（q[0]=w=1）");
 
-    // ★★ 分量顺序锁定 [w,x,y,z]（与 PX4 / MAVLink 一致）★★
+    //  分量顺序锁定 [w,x,y,z]（与 PX4 / MAVLink 一致）
     //    绕世界 +z(上) 转 +90° 的四元数 = [cos45, 0, 0, sin45]。
     //    若有人把顺序改回 [x,y,z,w]，下面两条会立刻 FAIL。
     {
@@ -527,7 +527,7 @@ static void test_target_model() {
         ok(m.hits_ground(), "BALLISTIC 标记为落地");
     }
 
-    // --- 13.4 ★ 交叉验证：DART 且 Cd=0 应当 ≡ BALLISTIC ---
+    // --- 13.4  交叉验证：DART 且 Cd=0 应当 ≡ BALLISTIC ---
     {
         TargetConfig cd;
         cd.type = TargetType::DART;
@@ -741,7 +741,7 @@ static void test_freeze_criterion() {
 }
 
 // ============================================================
-//  15. ★ 不变量（invariant）—— 内部口径冻结
+//  15.  不变量（invariant）—— 内部口径冻结
 // ============================================================
 //
 // 《数据对齐-自决项详解.md》④「内部口径冻结」要求的四类不变量：
@@ -873,7 +873,7 @@ static void test_invariants() {
 }
 
 // ============================================================
-//  16. ★ 机载主循环外壳 GuidanceLoop
+//  16.  机载主循环外壳 GuidanceLoop
 // ============================================================
 //
 // 它把"纯函数内核"包成有状态、可替换数据源的外壳。本组验证五件事：
@@ -1061,7 +1061,7 @@ static void test_guidance_loop() {
         ok(loop.stats().unhealthy == 1, "unhealthy 计数 +1");
     }
 
-    // --- 16.6 脏数据持续超时 → 零速度悬停（★ 保持窗口从"最后一条好指令"起算）---
+    // --- 16.6 脏数据持续超时 → 零速度悬停（ 保持窗口从"最后一条好指令"起算）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
         app::LoopConfig cfg; cfg.cam = loop_cam();
@@ -1163,11 +1163,11 @@ static void test_guidance_loop() {
 }
 
 // ============================================================
-//  17. ★ 端到端闭环回归（合成世界）
+//  17.  端到端闭环回归（合成世界）
 // ============================================================
 //
 // 为什么需要这一组：§1~§16 都是**分段**验证（每个函数各自拿桩数据测）。
-// 分段全绿 ≠ 整条链没坏 —— 2026-10-20 就踩过：HOLD 保持窗口的起算点写错，
+// 分段全绿 ≠ 整条链没坏 —— 曾就踩过：HOLD 保持窗口的起算点写错，
 // 分段测试全过，是行为测试才抓到的。
 //
 // 本组把"像素 → 反投影 → 制导核 → 出口换算 → 点质量积分 → 再拍成像素"整条链
@@ -1225,7 +1225,7 @@ static void test_closed_loop_regression() {
 
     // ---- 闭环结果 ----
     ok(rep.ticks > 200, "跑够拍数（> 200 拍）");
-    ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；2026-10-20 实测 0.033）");
+    ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；历史实测 0.033）");
     ok(rep.min_r > 0.0, "最近距离 > 0（不是退化成一出发就在靶点）");
     ok(rep.min_r_tick > 100, "最近距离出现在交会后段（> 100 拍）");
     ok(rep.stop == app::LoopStatus::kOk, "跑满拍数、没被异常状态打断");
@@ -1236,8 +1236,8 @@ static void test_closed_loop_regression() {
     ok(ctx.n > 200, "每拍都产出了指令（hook 被回调）");
     ok(ctx.first.mode == PureGuidanceMode::PN, "首拍 mode = PN");
     ok(ctx.first.a_cmd_ned.y > 0.3, "首拍加速度指向靶侧（+y）");
-    // ★ PPN 的加速度**垂直于速度**（不是垂直于视线）：速度沿 NED +x ⇒ 沿 x 的分量必须为 0。
-    //   2026-10-21 实测 a_ned=(0.000000, 0.481135, 0.000000)：
+    //  PPN 的加速度**垂直于速度**（不是垂直于视线）：速度沿 NED +x ⇒ 沿 x 的分量必须为 0。
+    //   历史实测 a_ned=(0.000000, 0.481135, 0.000000)：
     //   4 × |v_M|(8) × |ω|(0.015035) = 0.4811 ⇒ 与被测实现逐位吻合。
     near(ctx.first.a_cmd_ned.x, 0.0, 1e-12, "首拍沿速度方向的分量为 0（PPN 垂直于速度）");
     near(ctx.first.a_cmd_ned.z, 0.0, 1e-12, "首拍 z = 0（共面，不出纵向加速度）");
@@ -1251,7 +1251,7 @@ static void test_closed_loop_regression() {
 }
 
 // ============================================================
-//  18. ★ CSV 录制 → 回放（黑匣子）
+//  18.  CSV 录制 → 回放（黑匣子）
 // ============================================================
 //
 // 验证三件事：
@@ -1330,7 +1330,7 @@ static void test_csv_roundtrip() {
         }
         ok(rec.rows() == static_cast<std::uint64_t>(n), "录制行数 = 拍数");
         ok(rec_outs.outs.size() == static_cast<std::size_t>(n), "收集到 n 条指令");
-        rec.close();   // ★ 必须 close 才会 flush，回读才看得到内容
+        rec.close();   //  必须 close 才会 flush，回读才看得到内容
         ok(rec.ok(), "录制无写错误");
     }
 
@@ -1477,7 +1477,7 @@ static void test_csv_roundtrip() {
     //
     // 上面 ④ 只能证明"行为对"，证明不了"没泄漏"。这里直接量：
     // 反复 open/write/read/close 200 轮，进程句柄数必须回到原地。
-    // 2026-10-23 实测：修 CsvReader::open（原来重复 open 会漏句柄）之后，
+    // 历史实测：修 CsvReader::open（原来重复 open 会漏句柄）之后，
     // 200 轮前后句柄数**完全相同**；修复前每轮 +1。
     {
         // 预热 5 轮，把 CRT/运行时的惰性句柄（stdio 缓冲等）先建立起来
@@ -1502,7 +1502,7 @@ static void test_csv_roundtrip() {
         for (int i = 0; i < kRounds; ++i) {
             app::InputRecorder rec;                    // 析构自动 close
             if (!rec.open(kCmdCsv)) { ++failures; continue; }
-            // ★ 重复 open：正是"重启/换文件"时最容易漏句柄的地方
+            //  重复 open：正是"重启/换文件"时最容易漏句柄的地方
             //   （修复前 CsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
             if (!rec.open(kCmdCsv)) { ++failures; continue; }
             app::InsSample ins;
@@ -1512,7 +1512,7 @@ static void test_csv_roundtrip() {
 
             app::CsvReader rd;                          // 析构自动 close
             if (!rd.open(kCmdCsv)) { ++failures; continue; }
-            if (!rd.open(kCmdCsv)) { ++failures; continue; }   // ★ 重复 open
+            if (!rd.open(kCmdCsv)) { ++failures; continue; }   //  重复 open
             app::CsvRow row;
             while (rd.next(row)) {}
         }

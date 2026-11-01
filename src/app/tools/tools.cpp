@@ -547,9 +547,9 @@ void print_banner(const SimOptions &opt, const AppParams &ap) {
                 law_name(ap.guidance.law), ap.guidance.N, ap.guidance.a_max,
                 ap.loop.loop_hz, opt.ticks);
     std::printf("  起点 (0,0,-5) NED，初速 (8,0,0)，靶 (40,3,-5)\n");
-    std::printf("  ⚠ 理想点质量积分（无姿态环/重力），目的在验证制导链路\n");
+    std::printf("  注意：理想点质量积分（无姿态环/重力），目的在验证制导链路\n");
     if (!opt.realtime) {
-        std::printf("  ⚠ 全速模式：降级计时按**墙钟**计（hold_last_max_s / sensor_timeout），\n");
+        std::printf("  注意：全速模式：降级计时按**墙钟**计（hold_last_max_s / sensor_timeout），\n");
         std::printf("     全速下不会走完 ⇒ 只能看链路是否跑通；要看降级行为请加 --realtime\n");
     }
     std::printf("\n");
@@ -653,7 +653,7 @@ int run_synthetic(const SimOptions &opt, const AppParams &ap) {
     }
 
     if (rep.min_r < 1.0)
-        std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 ✅\n");
+        std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 \n");
     else
         std::printf("  ⇒ 最近距离仍 > 1 m：检查初速方向 / a_max / N\n");
 
@@ -684,7 +684,7 @@ int run_replay(const char *replay, const SimOptions &opt, const AppParams &ap) {
     }
 
     std::printf("=== 回放 %s ===\n", replay);
-    std::printf("  ⚠ 回放全速跑：超时/保持窗口用的是本机时钟，几乎不前进 ⇒\n");
+    std::printf("  注意：回放全速跑：超时/保持窗口用的是本机时钟，几乎不前进 ⇒\n");
     std::printf("     这里只验「算得对不对」，降级时机要用 --realtime 或单测 §16\n");
     std::printf("\n");
 

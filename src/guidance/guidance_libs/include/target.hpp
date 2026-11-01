@@ -38,7 +38,7 @@ struct TargetConfig {
     Vec3 gravity{0, 0, -9.81};   // 重力加速度（ENU：z 向上，故 −z）
     Vec3 wind{0, 0, 0};          // 风矢量 (m/s)（相对速度用，0 = 无风）
 
-    // ---- 气动（仅 DART 用）——  ⚠ 估计值，待飞镖组确认 ----
+    // ---- 气动（仅 DART 用）——  注意：估计值，待飞镖组确认 ----
     double mass      = 0.40;     // 质量 (kg)
     double drag_cd   = 0.50;     // 阻力系数 Cd
     double drag_area = 2.83e-3;  // 迎风面积 (m²)（≈ φ60mm 圆截面）

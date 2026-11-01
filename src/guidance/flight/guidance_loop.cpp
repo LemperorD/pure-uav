@@ -277,7 +277,7 @@ double GuidanceLoop::local_now_s() const {
 // ============================================================================
 
 LoopStatus GuidanceLoop::emit(const GuidanceOutput &o, GuidanceOutput *out) {
-    blackbox_.push(o);                 // ★ 先记黑匣子（即使发送失败也要留下证据）
+    blackbox_.push(o);                 //  先记黑匣子（即使发送失败也要留下证据）
     if (!sink_.send(o)) {
         ++stats_.sink_errors;
         return LoopStatus::kSinkError;

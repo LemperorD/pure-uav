@@ -129,9 +129,11 @@ private:
 //  §4  主循环
 // ============================================================================
 
+/// 机载主循环：取数 → 反投影 → adapter → guidance_step → NED → 发送。
+/// 只持有外部引用，不接管生命周期；循环内零分配、零 I/O。
 class GuidanceLoop {
 public:
-    // 依赖注入：只持有引用，不接管生命周期。
+    /// 构造：注入参数、配置、两个数据源、一个出口。
     GuidanceLoop(const GuidanceParams &params, const LoopConfig &cfg,
                  IInsSource &ins, ITargetSource &tgt, ICommandSink &sink);
     ~GuidanceLoop() = default;
@@ -139,15 +141,19 @@ public:
     GuidanceLoop(const GuidanceLoop &) = delete;
     GuidanceLoop &operator=(const GuidanceLoop &) = delete;
 
-    // 构造即有效：校验参数与相机、复位时基、清统计。失败返回 false。
+    /// @brief 校验参数/相机并复位状态。
+    /// @return false = 参数或相机无效。
     bool init();
 
-    // 跑一拍；out 可空。
+    /// @brief 跑一拍。
+    /// @param[out] out 可空；非空时写入本拍输出。
+    /// @return kOk / kSensorTimeout / kUnhealthyInput / kSinkError / kStopped。
     LoopStatus run_once(GuidanceOutput *out = nullptr);
 
-    // 阻塞跑主循环（绝对时间睡眠）。
+    /// @brief 按 cfg.loop_hz 阻塞运行，直到 request_stop 或错误。
     LoopStatus run();
 
+    /// @brief 请求停止；下一次 run/run_once 返回 kStopped。
     void request_stop();
 
     const LoopStats &stats() const { return stats_; }

@@ -108,7 +108,7 @@ inline double quat_norm(const double q[4]) noexcept {
 //  §1  GuidanceState
 // ============================================================================
 //
-// ⚠ 所有检查都用 add_check_lazy：detail 只在**失败时**才生成。
+// 注意：所有检查都用 add_check_lazy：detail 只在**失败时**才生成。
 //   完整版一次约 960 ns，其中十几次 std::string 构造占绝大部分，而它们在通过路径上
 //   全是白造的。换成惰性后通过路径零分配（见 state_check.hpp 的说明）。
 
@@ -164,7 +164,7 @@ Report check_guidance_state(const GuidanceState &st, bool expected_los_units) {
                    "range", [] { return std::string("距离≈0：ω 的 R² 分母会放大噪声（末端应已冻结）"); });
 
     // ---- 时间：不许为负 ----
-    // ⚠ 只查"负"是能查的；"倒退"和"跳变"是跨帧性质，本函数查不了
+    // 注意：只查"负"是能查的；"倒退"和"跳变"是跨帧性质，本函数查不了
     //   —— 序列层面的单调性由 StateTimeTracker 负责（out_of_order()）。
     add_check_lazy(rep, st.t >= 0.0, Severity::kWarn, CheckCode::kTimeNegative,
                    "t", [&] { return fmt("时间为负（可能是跨源相减或回绕未处理）", st.t); });

@@ -97,29 +97,44 @@ enum class LoopStatus : std::uint8_t {
 //  §3  端口（拉模型）
 // ============================================================================
 
+/// 飞控/仿真惯导数据源（拉模型）。
 class IInsSource {
 public:
     virtual ~IInsSource() = default;
+    /// @brief 取最近一帧惯导。
+    /// @param[out] out 仅在返回 true 时写入。
+    /// @return 有新帧为 true；false 表示沿用上一帧。
+    /// @note 非阻塞、零分配、可每拍调用。
     virtual bool poll(InsSample &out) = 0;
+    /// @return 数据源是否仍可用。
     virtual bool alive() const = 0;
 };
 
+/// 视觉/检测/仿真目标数据源（拉模型）。
 class ITargetSource {
 public:
     virtual ~ITargetSource() = default;
+    /// @brief 取最近一帧目标（像素 + 距离 + 时间戳）。
+    /// @param[out] out 仅在返回 true 时写入。
+    /// @return 有新帧为 true；false 表示沿用上一帧。
     virtual bool poll(TargetSample &out) = 0;
+    /// @return 数据源是否仍可用。
     virtual bool alive() const = 0;
 };
 
+/// 指令出口（MAVLink / ROS2 / 仿真）。
 class ICommandSink {
 public:
     virtual ~ICommandSink() = default;
+    /// @brief 发送一条指令。
+    /// @param out 本拍输出（NED 加速度或速度）。
+    /// @return 发送成功为 true。
     virtual bool send(const GuidanceOutput &out) = 0;
+    /// @return 出口是否仍可用。
     virtual bool alive() const = 0;
 };
 
-// 空出口：调试“只看算得对不对、不发指令”时用。
-// 直接 inline，避免 app_core 反向依赖 tools。
+/// 空出口：调试“只看算得对不对、不发指令”时用。
 class NullSink final : public ICommandSink {
 public:
     bool send(const GuidanceOutput &) override { return true; }

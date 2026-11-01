@@ -17,7 +17,7 @@ namespace adapter {
 //      解析侧 / 机载侧单独编译本层时不必拖上整个 guidance_libs；
 //   ② 语义明确：跨模块口径换算必须用**数学定义**的那一个。
 //
-// 【与 guidance_libs::quat_rotate_vec 的关系（2026-10-16 三条路径实测）】
+// 【与 guidance_libs::quat_rotate_vec 的关系（三条路径实测）】
 //   仓库的 `quat_rotate_vec` 与本文实现、与"标准旋转矩阵"三者**完全一致**
 //   （各 200 例随机姿态，最大偏差 2.7e-15），即它确实是 R(q)·v，不是转置。
 //   三个实现互相钉住：见 test_state_adapter.cpp §4。
@@ -64,7 +64,7 @@ enum class OpticalAxis { kRight, kDown, kForward };
 //
 //   ⇒ 光轴系 ↔ FRD 是**循环置换** (x,y,z)_cam = (y,z,x)_frd，det = +1（不是镜像）；
 //     光轴系 ↔ FLU 同样是循环置换，只是"下"的符号随 FLU 的 z 向上而翻转。
-//   ⚠ 三根轴的正交性/手性由构造保证：(x̂_cam × ŷ_cam = ẑ_cam)
+//   注意：三根轴的正交性/手性由构造保证：(x̂_cam × ŷ_cam = ẑ_cam)
 //     = (机右 × 机下 = 机头方向) —— 自己乘一遍即可确认，无需再做归一化。
 Vec3 optical_axis_in_external_frame(OpticalAxis axis, AttitudeFrame f) noexcept {
     switch (f) {
@@ -162,7 +162,7 @@ bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_
     // |q| 必须"像个四元数"：
     //   · 太接近 0 ⇒ 没有姿态信息（零/退化输入）
     //   · 数量级差太远 ⇒ 大概率不是四元数（把欧拉角或别的结构填进来了）
-    // ⚠ 容差不设成 1e-3：**未归一化的四元数很常见**（外推、插值、整数标定），
+    // 注意：容差不设成 1e-3：**未归一化的四元数很常见**（外推、插值、整数标定），
     //   只要方向对，归一化后就是同一个姿态 ⇒ 应当接受并归一化，不该拒。
     const double n2 = q_in[0] * q_in[0] + q_in[1] * q_in[1] +
                       q_in[2] * q_in[2] + q_in[3] * q_in[3];
