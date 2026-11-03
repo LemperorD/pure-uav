@@ -19,11 +19,27 @@ MODEL = "pinhole"  # 普通镜头用 pinhole；确认鱼眼投影模型后才用
 BACKEND = "auto"  # auto 优先直接 V4L2，失败退回 OpenCV；v4l2 禁止回退。
 EXPOSURE = 100  # 单位 100 微秒，100 = 10 ms；调到清晰、不饱和。
 WHITE_BALANCE = 4600  # 固定白平衡，K；影响彩色转灰度后的亮度。
-GAIN = 0  # 增益；过大增加噪声。
+GAIN = 30  # 增益；过大增加噪声。
+# 【2026-10-20 统一口径】唯一真源是 capture_config.py（100/30）。这里和
+# vio_online/apps/vio_live_main.cpp 都对齐到它，避免同一个相机在不同入口
+# 跑出不同亮度（之前是 30 / 0 / 10 三个值）。
 BRIGHTNESS = 0  # 亮度偏置；一般不改。
 CONTRAST = 32  # 对比度；避免黑白细节截断。
 SHARPNESS = 3  # 锐化；过强会影响角点定位。
 POWER_LINE_FREQUENCY = 1  # 0=关闭，1=50 Hz，2=60 Hz；不保证消除屏幕条纹。
+BACKLIGHT_COMPENSATION = 0  # 【2026-10-20 加】逆光补偿默认是 1，AE 漏网时它会再改
+                            # 一次测光；这里钉死关。固件不支持时只记录、不报错。
+# gamma 不在这里配：数值含义依固件而定，猜一个可能整体改变亮度。
+# 采集脚本的做法是"读出当前值 → 显式写回同一个值"，把它钉住但不改画面。
+SKIP_EXPOSURE_CHECK = False
+# 【2026-10-20 加】进场先测光，再锁定。写死的 EXPOSURE/GAIN 只在关掉它时才生效。
+AUTO_EXPOSE = True
+AUTO_EXPOSE_TARGET = 100.0     # 目标灰度均值（0..255）。100 左右特征很充足
+AUTO_EXPOSE_MIN_MEAN = 45.0    # 最好也只能到这以下 → 拒绝采集（session24=49 可以跑通）
+AUTO_EXPOSE_MAX_EXPOSURE_MS = 18.0   # 曝光上限 = 运动模糊预算；静态标定可以给到 30
+ALLOW_DARK = False  # 【2026-10-20 加】锁定后用"曝光步进测试"从图像本身
+                             # 验证手动曝光真的生效（G_CTRL 读回只证明驱动缓存）。
+                             # True 只在确认是误判时用，跳过就没有亮度可复现的证据了。
 
 # ==================== 采集方式 ====================
 AUTO_INTERVAL = 2.0  # 自动存图间隔，秒；0 表示只按空格存图。

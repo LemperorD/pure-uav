@@ -67,9 +67,13 @@ class Problem:
     def check_visual(self):
         s = self.cfg
         if len(self.obs) < s.min_frames or self.tc[-1]-self.tc[0] < s.min_duration_s:
-            raise CalibrationError("有效帧数或序列长度不足。")
+            raise CalibrationError(f"有效帧数或序列长度不足：{len(self.obs)} 帧 / "
+                                   f"{self.tc[-1]-self.tc[0]:.2f}s，要求 ≥{s.min_frames} 帧、"
+                                   f"≥{s.min_duration_s:g}s。")
         if np.max(np.diff(self.tc)) > s.max_camera_gap_s:
-            raise CalibrationError("成功检测标定板帧之间存在大空洞；请截取连续可见的窗口。")
+            raise CalibrationError("成功检测标定板帧之间存在大空洞；请截取连续可见的窗口"
+                                   "（Settings.auto_window=1 时程序会自动挑最长连续段，"
+                                   "走到这里说明选窗之后仍不连续）。")
 
     def fit_initial_controls(self):
         spline = self.spline

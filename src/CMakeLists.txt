@@ -4,6 +4,10 @@ add_subdirectory(guidance)    # guidance_core / guidance_sim / guidance_state_ad
 # app 放 guidance 之后：宿主启动层（guidance_application）链接 guidance_flight，
 # CMake 的 target_link_libraries 要求被依赖的 target **先定义**。
 add_subdirectory(app)
+
+# VIO 估计器（OpenVINS，ROS-free）
+add_subdirectory(vio/estimator)
+add_subdirectory(detection-rt)
 # test 放最后：test_math 依赖 common、test_guidance 依赖 guidance、
 # test_state_adapter 依赖 guidance 的 guidance_state_adapter —— 确保被依赖的 target 先定义。
 #

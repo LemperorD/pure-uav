@@ -10,6 +10,8 @@ import numpy as np
 import yaml
 from scipy.spatial.transform import Rotation
 
+from .windows import DARK_P90
+
 
 class CalibrationError(RuntimeError):
     pass
@@ -110,6 +112,15 @@ class Target:
             self.cols, self.rows = int(entry["tagCols"]), int(entry["tagRows"])
             self.size, self.spacing = float(entry["tagSize"]), float(entry["tagSpacing"])
             self.first_id = int(entry.get("first_id", 0))
+            # 每个 tag 的"正方向"和整板的 y 轴对不对得上。
+            # Kalibr 的 kalibr_create_target_pdf 画 tag 时写死 rotation=2，
+            # 所以 Kalibr PDF 打出来的板子，每张 tag 在板面坐标里是转了 180° 的
+            # （2026-10-18 真机实测：不填这个，PnP 残差 130 px，怎么标都失败）。
+            # 自己用 cv2.aruco.generateImageMarker 拼的板子填 0。
+            self.tag_rotation = int(entry.get("tag_rotation_deg", 180))
+            if self.tag_rotation % 90:
+                raise CalibrationError("tag_rotation_deg 只能是 0 / 90 / 180 / 270。")
+            self.roll = (self.tag_rotation // 90) % 4
             if min(self.rows, self.cols) < 1 or self.size <= 0 or self.spacing < 0:
                 raise CalibrationError("AprilGrid 行列/尺寸/间距无效。")
             if not hasattr(cv2, "aruco") or not hasattr(cv2.aruco, "DICT_APRILTAG_36h11"):
@@ -118,6 +129,12 @@ class Target:
             if self.first_id < 0 or self.first_id+self.rows*self.cols > len(dictionary.bytesList):
                 raise CalibrationError("AprilGrid tag ID 超出 36h11 字典。")
             params = cv2.aruco.DetectorParameters() if hasattr(cv2.aruco, "DetectorParameters") else cv2.aruco.DetectorParameters_create()
+            # 【2026-10-18 真机踩到】OpenCV 默认的多尺度二值化是 win 3,13,23（min=3, step=10）。
+            # 打印板的黑框/码元和背景对比度不高（tag 黑 ≈25、白 ≈90），窗口 3 太小、步长 10 又太粗，
+            # 结果整块板子一帧只认出 0~1 个 tag。改成 min=5、step=4（win 5,9,13,17,21）后，
+            # 同一批图每帧稳定认出 19~36 个 tag。这两个参数直接决定能不能解出 ID，不要改回默认。
+            params.adaptiveThreshWinSizeMin = 5
+            params.adaptiveThreshWinSizeStep = 4
             params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
             params.cornerRefinementWinSize = int(april_corner_window_px)  # avoid code-bit edges on small tags
             params.cornerRefinementMaxIterations = 40
@@ -134,7 +151,8 @@ class Target:
         x = (idx % self.cols)*self.size*(1+self.spacing)
         y = (idx // self.cols)*self.size*(1+self.spacing)
         s = self.size
-        return np.array([[x, y+s, 0], [x+s, y+s, 0], [x+s, y, 0], [x, y, 0]], float)
+        quad = np.array([[x, y+s, 0], [x+s, y+s, 0], [x+s, y, 0], [x, y, 0]], float)
+        return np.roll(quad, self.roll, axis=0) if self.roll else quad
 
     def detect(self, gray):
         if self.kind in ("checkerboard", "chessboard"):
@@ -262,10 +280,10 @@ def load_dataset(camera, target, settings, output, *, images=None, imu=None, bag
                  image_unit="ns", imu_unit="ns", cam_topic="/cam0/image_raw", imu_topic="/imu0"):
     observations, extraction = [], []
     output = Path(output)
-    origin, last_kept, last_raw = None, None, None
+    origin, last_kept, last_detected, last_raw, sampled = None, None, None, None, 0
 
     def process(stamp, image_getter):
-        nonlocal origin, last_kept, last_raw
+        nonlocal origin, last_kept, last_detected, last_raw, sampled
         if last_raw is not None and stamp <= last_raw:
             raise CalibrationError("图像 header 时间戳重复/乱序。")
         last_raw = stamp
@@ -274,22 +292,40 @@ def load_dataset(camera, target, settings, output, *, images=None, imu=None, bag
         t = (stamp-origin)*1e-9
         if t < settings.start_s or t > settings.start_s+settings.max_duration_s:
             return
-        if last_kept is not None and (stamp-last_kept)*1e-9 < 0.99/settings.camera_rate_hz:
+        # 检测抽样只为了省时间（detect_rate_hz=0 表示每帧都检测）。它绝不参与决定
+        # 窗口边界：先检出、再按 camera_rate_hz 把"已接受"的帧抽稀，否则窗口两端的
+        # 帧会被抽样丢掉，5.4s 的可用段能被抽成 4.7s，直接误判成"没有可用窗口"。
+        if (settings.detect_rate_hz > 0 and last_detected is not None
+                and (stamp-last_detected)*1e-9 < 0.99/settings.detect_rate_hz):
             return
-        last_kept = stamp
+        last_detected = stamp
         gray = image_getter()
         if gray is None:
             raise CalibrationError(f"图像 {stamp} 无法读取。")
         if gray.shape[::-1] != camera.size:
             raise CalibrationError(f"图像分辨率 {gray.shape[::-1]} != 内参 {camera.size}；禁止自动缩放内参。")
+        sampled += 1
+        if settings.verbose and (sampled == 1 or sampled % 100 == 0):
+            print(f"  已检测 {sampled} 帧，可用 {len(observations)}", flush=True)
         result = target.detect(gray)
+        # 拉普拉斯方差：同一台相机同一曝光下，"糊了"和"没糊"差一个量级。
+        # p90 亮度：区分"糊了"和"根本没光照到板子"——两者都会让检出掉到 0，
+        # 但一个要放慢/降曝光，另一个要开灯。都写进 extraction.json 供事后诊断。
+        sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        p90 = float(np.percentile(gray, 90))
         obs = None if result is None else make_observation(
             stamp, *result, camera, observations[-1] if observations else None,
             checker=target.kind in ("checkerboard", "chessboard"), max_points=settings.max_points_per_frame)
+        accepted = obs is not None and obs.pnp_rms <= settings.max_pnp_rms_px
         extraction.append({"timestamp_ns": stamp, "detected": result is not None,
-                           "pnp_rms_px": None if obs is None else obs.pnp_rms})
-        if obs is None or obs.pnp_rms > settings.max_pnp_rms_px:
+                           "accepted": accepted, "kept": False, "sharpness": sharpness,
+                           "p90": p90, "pnp_rms_px": None if obs is None else obs.pnp_rms})
+        if not accepted:
             return
+        if last_kept is not None and (stamp-last_kept)*1e-9 < 0.99/settings.camera_rate_hz:
+            return
+        last_kept = stamp
+        extraction[-1]["kept"] = True
         observations.append(obs)
         if settings.save_detection_every and (len(observations)-1) % settings.save_detection_every == 0:
             vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -332,8 +368,14 @@ def load_dataset(camera, target, settings, output, *, images=None, imu=None, bag
     output.mkdir(parents=True, exist_ok=True)
     (output / "extraction.json").write_text(json.dumps(extraction, indent=2, ensure_ascii=False), encoding="utf-8")
     if len(observations) < settings.min_frames:
-        raise CalibrationError(f"有效标定板帧只有 {len(observations)}，至少 {settings.min_frames}。"
-                               "请检查标定板类型/尺寸/清晰度；普通飞行场景不可用于此目标板算法。")
+        # 这一条是最常见的死法，提示必须指向真正的原因：太暗说"开灯"，别让人去改板子尺寸。
+        p90 = float(np.median([e["p90"] for e in extraction if e.get("p90") is not None])) \
+            if any(e.get("p90") is not None for e in extraction) else None
+        hint = ("整段偏暗（白格 p90 中位 %.0f/255，判据 <%.0f）：先开灯/加补光，"
+                "不要靠降曝光或加 gain 硬撑。" % (p90, DARK_P90)
+                if p90 is not None and p90 < DARK_P90 else
+                "请检查标定板类型/尺寸/清晰度；普通飞行场景不可用于此目标板算法。")
+        raise CalibrationError(f"有效标定板帧只有 {len(observations)}，至少 {settings.min_frames}。{hint}")
     if not np.all(np.isfinite(values)):
         raise CalibrationError("IMU 含 NaN/Inf。")
     # Subtract integer epoch BEFORE float conversion, using a common origin.

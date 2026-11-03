@@ -5,18 +5,24 @@ MAVLink 编解码用 `vendor/mavlink_min.py`（已在真实串口抓包上验证
 
 时间戳策略 —— 这一段决定标定能不能做，别改：
   相机侧记的是宿主机 CLOCK_REALTIME（`time.time_ns()`）。这里必须记同一个钟。
-  若改用飞控的 `time_usec`（开机微秒），两路时间轴差了"开机时长 + 1970 年"这么大的量级，
-  标定程序 ±0.1 s 的搜索窗根本够不着，会直接报"时间重叠不足"。
+  若直接改用飞控的 `time_usec`（开机微秒），两路时间轴差了"开机时长 + 1970 年"这么大
+  的量级，标定程序 ±0.1 s 的搜索窗根本够不着，会直接报"时间重叠不足"。
 
   但串口是批量读的：一次 read 可能拿到好几帧。若给同批帧打同一个时间戳，
   200 Hz 下批内就有 5~15 ms 的人为抖动 —— 而标定要估的时移精度是 1 ms 量级。
-  所以：用飞控自己的 `time_usec` 算出批内的相对间隔，锚定到本次 read 的宿主时间上。
-  剩下的固定 USB 传输延迟是个常数，会被标定的 offset 搜索吸收；
-  抖动则压到亚毫秒级。这就是"批次内插值"那几行的全部意义。
+  所以分两层：
+    1) 批内：用飞控自己的 `time_usec` 算相对间隔，抖动压到亚毫秒级；
+    2) 全段：录完后用 (宿主收到时间 − time_usec) 的**下包络**拟合一条直线，
+       把每批 read 的锚点换成"全段统一映射"（`imu_timebase.py`）。
+       这样"这一批在 OS 缓冲里躺了多久"不再进入时间戳 —— 2026-10-18 实测，
+       旧方案下同一台设备的相机-IMU 时移在 −27…+9 ms 之间跳，变的就是这个积压。
+  剩下的固定传输延迟（线缆 + 飞控输出）是常数，会被标定的 offset 搜索吸收；
+  下包络拟合只保证它**跨录制稳定**，并且把积压量写进统计（`timebase`）。
 """
 from __future__ import annotations
 
 import csv
+import json
 import math
 import os
 import select
@@ -29,6 +35,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vendor"))
 from mavlink_min import MavlinkParser, pack  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import imu_timebase  # noqa: E402  同目录，纯运算模块
 
 MAV_CMD_SET_MESSAGE_INTERVAL = 511
 MSG_HIGHRES_IMU = 105
@@ -130,6 +139,10 @@ class _Sample:
     gx: float
     gy: float
     gz: float
+    # 原始证据：飞控 time_usec（µs）和这一批 read 的宿主时间（ns）。
+    # timestamp_ns 先按"本批 read"打，录完后再用全段下包络重算（见 imu_timebase）。
+    fc_usec: int = 0
+    host_ns: int = 0
 
 
 @dataclass
@@ -149,6 +162,8 @@ class ImuRecorder:
     _stop: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
     _first: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
     _error: str = field(default="", init=False)
+    _timebase: dict = field(default_factory=dict, init=False, repr=False)
+    _anchored: bool = field(default=False, init=False, repr=False)
 
     # ---- 生命周期 ----
     def start(self, wait_first_s=3.0):
@@ -172,8 +187,26 @@ class ImuRecorder:
             except OSError:
                 pass
             self._fd = 0
+        self._anchor_timebase()
         self._finish_stats()
         return self.stats
+
+    def _anchor_timebase(self):
+        """录完后把时间戳从"每批 read 锚点"改成"全段飞控时间锚点"（幂等）。"""
+        if self._anchored:
+            return self._timebase
+        self._anchored = True
+        if not self.samples:
+            self._timebase = {"ok": False, "reason": "没有样本"}
+            return self._timebase
+        stamps, info = imu_timebase.anchor_timestamps(
+            [s.fc_usec for s in self.samples],
+            [s.host_ns for s in self.samples],
+            [s.timestamp_ns for s in self.samples])
+        for s, t in zip(self.samples, stamps):
+            s.timestamp_ns = int(t)
+        self._timebase = info
+        return info
 
     # ---- 线程体 ----
     def _loop(self):
@@ -276,7 +309,8 @@ class ImuRecorder:
                         self.samples.append(_Sample(
                             ts,
                             float(f["xacc"]), float(f["yacc"]), float(f["zacc"]),
-                            float(f["xgyro"]), float(f["ygyro"]), float(f["zgyro"])))
+                            float(f["xgyro"]), float(f["ygyro"]), float(f["zgyro"]),
+                            fc_usec=t_usec or 0, host_ns=t_host))
                     except (KeyError, TypeError, ValueError):
                         decode_fail += 1
                     if not self._first.is_set():
@@ -336,6 +370,8 @@ class ImuRecorder:
             "fields_updated_zero": extra.get("fields_updated_zero", 0),
             "timestamps_interpolated": extra.get("interpolated", 0),
             "timestamps_clamped": extra.get("clamped", 0),
+            "timestamp_anchor": "fc_usec" if self._timebase.get("ok") else "read_time",
+            "timebase": dict(self._timebase),
             "decode_failures": extra.get("decode_fail", 0),
             "parser": extra.get("parser_stats", {}),
             "error": self._error,
@@ -352,6 +388,17 @@ class ImuRecorder:
             writer.writerow(CSV_HEADER)
             for s in self.samples:
                 writer.writerow([s.timestamp_ns, s.ax, s.ay, s.az, s.gx, s.gy, s.gz])
+        # 时间基准的取证记录：这一份 imu.csv 的时间戳到底怎么来的、读线程积压多大。
+        # 标定侧只读 imu.csv，这个文件是给人排查"跨录制时移漂"用的。
+        if self._timebase:
+            info = dict(self._timebase)
+            info["csv"] = str(path)
+            info["samples"] = len(self.samples)
+            if self.stats:
+                info["span_s"] = self.stats.get("span_s")
+                info["timestamp_anchor"] = self.stats.get("timestamp_anchor")
+            (path.parent / "imu_timebase.json").write_text(
+                json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
         return path
 
     # ---- 体检结论 ----
@@ -376,6 +423,11 @@ def verdict(s):
                         f"（占 {100*clamped/s['samples']:.1f}%）。"
                         "集中在开头是正常的积压突发；占比高说明串口读得断续，"
                         "换 USB 口/线，或把 IMU_REQUEST_HZ 降下来")
+    if s.get("timestamp_anchor") == "read_time":
+        reason = (s.get("timebase") or {}).get("reason") or "飞控没发 HIGHRES_IMU.time_usec"
+        return "warn", (f"时间戳只能按串口读时间打（{reason}）：跨录制的相机-IMU 时移"
+                        "会漂 10 ms 量级，标定时会被当成真实时移。查一下飞控固件是否在"
+                        "HIGHRES_IMU 里发 time_usec")
     if s["gaps_over_150ms"]:
         return "warn", (f"有 {s['gaps_over_150ms']} 处超过 150 ms 的空洞。"
                         "用 configs/probe.yaml（max_imu_gap_s=0.15）仍可能被拒，"
@@ -405,6 +457,19 @@ def verdict(s):
     return "pass", f"实测 {s['observed_hz']:.1f} Hz，最大空洞 {s['max_gap_ms']:.1f} ms，干净"
 
 
+def _format_timebase(stats) -> str:
+    tb = stats.get("timebase") or {}
+    if not tb:
+        return "无锚定信息（旧数据）"
+    if stats.get("timestamp_anchor") == "fc_usec" and tb.get("ok"):
+        return (f"飞控 time_usec 下包络锚定（{tb.get('bins', 0)} 个包络箱，"
+                f"漂移 {tb.get('drift_ppm', 0):+.1f} ppm；"
+                f"读延迟中位 {tb.get('delay_median_ms', 0):.1f} ms / P95 {tb.get('delay_p95_ms', 0):.1f} ms；"
+                f"读时间戳被回拨中位 {tb.get('shift_median_ms', 0):.1f} ms、最大 {tb.get('shift_max_ms', 0):.1f} ms）")
+    reason = tb.get("reason") or "无飞控时间"
+    return f"⚠️ 回退到串口读时间（{reason}）—— 跨录制的相机-IMU 时移会漂"
+
+
 def format_stats(stats) -> str:
     return (
         f"  串口            {stats['port']}\n"
@@ -413,6 +478,7 @@ def format_stats(stats) -> str:
         f"  样本 / 时长     {stats['samples']} 个 / {stats['span_s']:.2f} s\n"
         f"  HIGHRES_IMU    收到 {stats['frames_received']} 帧，"
         f"重复丢弃 {stats['duplicates_skipped']}，解码失败 {stats['decode_failures']}\n"
+        f"  时间基准        {_format_timebase(stats)}\n"
         f"  时间戳插值      {stats['timestamps_interpolated']} 个样本用了批内插值"
         f"（其中 {stats['timestamps_clamped']} 个因乱序被强制递增）\n"
         f"  最大空洞        {stats['max_gap_ms']:.1f} ms"

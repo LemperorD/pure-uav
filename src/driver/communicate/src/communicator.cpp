@@ -109,7 +109,8 @@ void Communicator::recvLoop() {
                             count_attitude_.fetch_add(1);
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(attitude_mutex_);
+                            attitude_.time_boot_ms = att.time_boot_ms;
                             attitude_.roll = att.roll;
                             attitude_.pitch = att.pitch;
                             attitude_.yaw = att.yaw;
@@ -120,7 +121,7 @@ void Communicator::recvLoop() {
                             count_battery_.fetch_add(1);
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(battery_mutex_);
                             // 累加所有有效 cell 电压得到总电压（UINT16_MAX = 该 cell 无效）
                             float total_mv = 0.0f;
                             for (int i = 0; i < 10; ++i) {
@@ -143,7 +144,8 @@ void Communicator::recvLoop() {
                             count_local_position_.fetch_add(1);
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(local_position_mutex_);
+                            local_pos_.time_boot_ms = lp.time_boot_ms;
                             local_pos_.x = lp.x;
                             local_pos_.y = lp.y;
                             local_pos_.z = lp.z;
@@ -156,7 +158,7 @@ void Communicator::recvLoop() {
                             count_system_time_.fetch_add(1);
                             mavlink_system_time_t st;
                             mavlink_msg_system_time_decode(&msg, &st);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(system_time_mutex_);
                             system_time_.time_unix_usec = st.time_unix_usec;
                             system_time_.time_boot_ms = st.time_boot_ms;
                             break;
@@ -165,7 +167,7 @@ void Communicator::recvLoop() {
                             count_highres_imu_.fetch_add(1);
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
-                            std::lock_guard<std::mutex> lk(data_mutex_);
+                            std::lock_guard<std::mutex> lk(imu_mutex_);
                             imu_.timestamp_us = imu.time_usec; 
                             imu_.gx = imu.xgyro;
                             imu_.gy = imu.ygyro;
@@ -319,11 +321,13 @@ bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
 bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    //   POSITION：忽略速度 + 加速度 + yaw_rate，只发位置 + yaw
-    //   VELOCITY：忽略位置 + 加速度 + yaw_rate，只发速度 + yaw
-    //   POS_WITH_VEL_FEEDFORWARD：忽略加速度 + yaw_rate，位置 + 速度 + yaw
-    //   ACCELERATION：忽略位置 + 速度 + yaw + yaw_rate，只发加速度
-    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE;
+    //   制导律不输出航向，所有模式都完全忽略 yaw + yaw_rate
+    //   POSITION：忽略速度 + 加速度，只发位置
+    //   VELOCITY：忽略位置 + 加速度，只发速度
+    //   POS_WITH_VEL_FEEDFORWARD：忽略加速度，位置 + 速度
+    //   ACCELERATION：忽略位置 + 速度，只发加速度
+    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE |
+                         POSITION_TARGET_TYPEMASK_YAW_IGNORE;
     if (c.mode == GuidanceMode::POSITION) {
         // 纯位置闭环：忽略速度 + 加速度
         type_mask |= POSITION_TARGET_TYPEMASK_VX_IGNORE |
@@ -346,20 +350,19 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
                      POSITION_TARGET_TYPEMASK_AY_IGNORE |
                      POSITION_TARGET_TYPEMASK_AZ_IGNORE;
     } else if (c.mode == GuidanceMode::ACCELERATION) {
-        // 加速度 setpoint：忽略位置 + 速度 + yaw，只保留加速度
+        // 加速度 setpoint：忽略位置 + 速度，只保留加速度
         type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE |
                      POSITION_TARGET_TYPEMASK_Y_IGNORE |
                      POSITION_TARGET_TYPEMASK_Z_IGNORE |
                      POSITION_TARGET_TYPEMASK_VX_IGNORE |
                      POSITION_TARGET_TYPEMASK_VY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VZ_IGNORE |
-                     POSITION_TARGET_TYPEMASK_YAW_IGNORE;
+                     POSITION_TARGET_TYPEMASK_VZ_IGNORE;
     } else {
         return false;  // 未知 mode，拒绝发送
     }
     mavlink_msg_set_position_target_local_ned_pack(
         sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), kFcuCompId, MAV_FRAME_LOCAL_NED,
-        type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, c.yaw, 0.0f);
+        type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     return sendMessage(buf, len);
 }
@@ -471,31 +474,31 @@ void Communicator::requestDefaultStreams() {
 
 //各模块拿数据
 bool Communicator::getAttitude(Attitude& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(attitude_mutex_);
     out = attitude_;
     return true;
 }
 
 bool Communicator::getBattery(Battery& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(battery_mutex_);
     out = battery_;
     return true;
 }
 
 bool Communicator::getLocalPosition(LocalPosition& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(local_position_mutex_);
     out = local_pos_;
     return true;
 }
 
 bool Communicator::getImu(ImuData& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(imu_mutex_);
     out = imu_;
     return true;
 }
 
 bool Communicator::getSystemTime(SystemTime& out) const {
-    std::lock_guard<std::mutex> lk(data_mutex_);
+    std::lock_guard<std::mutex> lk(system_time_mutex_);
     out = system_time_;
     return true;
 }

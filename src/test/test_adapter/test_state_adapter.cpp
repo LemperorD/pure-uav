@@ -26,53 +26,57 @@ static int g_pass = 0;
 static int g_fail = 0;
 
 static void ok(bool cond, const char *what) {
-    if (cond) {
-        ++g_pass;
-    } else {
-        ++g_fail;
-        std::printf("  [FAIL] %s\n", what);
-    }
+  if (cond) {
+    ++g_pass;
+  } else {
+    ++g_fail;
+    std::printf("  [FAIL] %s\n", what);
+  }
 }
 
 static void near(double got, double want, double tol, const char *what) {
-    if (std::fabs(got - want) <= tol) {
-        ++g_pass;
-    } else {
-        ++g_fail;
-        std::printf("  [FAIL] %s: got %.12g, want %.12g (tol %.2g)\n",
-                    what, got, want, tol);
-    }
+  if (std::fabs(got - want) <= tol) {
+    ++g_pass;
+  } else {
+    ++g_fail;
+    std::printf("  [FAIL] %s: got %.12g, want %.12g (tol %.2g)\n", what, got,
+                want, tol);
+  }
 }
 
-static void near_vec(const Vec3 &got, const Vec3 &want, double tol, const char *what) {
-    const double d = norm(got - want);
-    if (d <= tol) {
-        ++g_pass;
-    } else {
-        ++g_fail;
-        std::printf("  [FAIL] %s: got (%.12g, %.12g, %.12g), want (%.12g, %.12g, %.12g) "
-                    "(|d|=%.3g, tol=%.2g)\n",
-                    what, got.x, got.y, got.z, want.x, want.y, want.z, d, tol);
-    }
+static void near_vec(const Vec3 &got, const Vec3 &want, double tol,
+                     const char *what) {
+  const double d = norm(got - want);
+  if (d <= tol) {
+    ++g_pass;
+  } else {
+    ++g_fail;
+    std::printf(
+        "  [FAIL] %s: got (%.12g, %.12g, %.12g), want (%.12g, %.12g, %.12g) "
+        "(|d|=%.3g, tol=%.2g)\n",
+        what, got.x, got.y, got.z, want.x, want.y, want.z, d, tol);
+  }
 }
 
-static void near_q(const double got[4], const double want[4], double tol, const char *what) {
-    // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
-    double d1 = 0.0, d2 = 0.0;
-    for (int i = 0; i < 4; ++i) {
-        d1 += (got[i] - want[i]) * (got[i] - want[i]);
-        d2 += (got[i] + want[i]) * (got[i] + want[i]);
-    }
-    const double d = std::sqrt(std::fmin(d1, d2));
-    if (d <= tol) {
-        ++g_pass;
-    } else {
-        ++g_fail;
-        std::printf("  [FAIL] %s: got [%.9g,%.9g,%.9g,%.9g], want [%.9g,%.9g,%.9g,%.9g]"
-                    " (|d|=%.3g, tol=%.2g)\n",
-                    what, got[0], got[1], got[2], got[3],
-                    want[0], want[1], want[2], want[3], d, tol);
-    }
+static void near_q(const double got[4], const double want[4], double tol,
+                   const char *what) {
+  // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
+  double d1 = 0.0, d2 = 0.0;
+  for (int i = 0; i < 4; ++i) {
+    d1 += (got[i] - want[i]) * (got[i] - want[i]);
+    d2 += (got[i] + want[i]) * (got[i] + want[i]);
+  }
+  const double d = std::sqrt(std::fmin(d1, d2));
+  if (d <= tol) {
+    ++g_pass;
+  } else {
+    ++g_fail;
+    std::printf(
+        "  [FAIL] %s: got [%.9g,%.9g,%.9g,%.9g], want [%.9g,%.9g,%.9g,%.9g]"
+        " (|d|=%.3g, tol=%.2g)\n",
+        what, got[0], got[1], got[2], got[3], want[0], want[1], want[2],
+        want[3], d, tol);
+  }
 }
 
 static void section(const char *name) { std::printf("\n== %s ==\n", name); }
@@ -85,34 +89,40 @@ static constexpr double PI_REF = 3.14159265358979323846;
 
 // 参考四元数旋转：v' = R(q)·v，q = [w,x,y,z]（机体→世界）
 static Vec3 ref_rotate(const double q[4], const Vec3 &v) {
-    const double w = q[0], x = q[1], y = q[2], z = q[3];
-    const double R[3][3] = {
-        {1 - 2 * (y * y + z * z), 2 * (x * y - z * w),     2 * (x * z + y * w)},
-        {2 * (x * y + z * w),     1 - 2 * (x * x + z * z), 2 * (y * z - x * w)},
-        {2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y)},
-    };
-    return Vec3(R[0][0] * v.x + R[0][1] * v.y + R[0][2] * v.z,
-                R[1][0] * v.x + R[1][1] * v.y + R[1][2] * v.z,
-                R[2][0] * v.x + R[2][1] * v.y + R[2][2] * v.z);
+  const double w = q[0], x = q[1], y = q[2], z = q[3];
+  const double R[3][3] = {
+      {1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
+      {2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)},
+      {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)},
+  };
+  return Vec3(R[0][0] * v.x + R[0][1] * v.y + R[0][2] * v.z,
+              R[1][0] * v.x + R[1][1] * v.y + R[1][2] * v.z,
+              R[2][0] * v.x + R[2][1] * v.y + R[2][2] * v.z);
 }
 
 // 参考旋转矩阵（q 对应的 R，行优先）—— 从矩阵直接读"三列的叉积/行列式"
 static void ref_matrix(const double q[4], double R[3][3]) {
-    const double w = q[0], x = q[1], y = q[2], z = q[3];
-    R[0][0] = 1 - 2 * (y * y + z * z); R[0][1] = 2 * (x * y - z * w);     R[0][2] = 2 * (x * z + y * w);
-    R[1][0] = 2 * (x * y + z * w);     R[1][1] = 1 - 2 * (x * x + z * z); R[1][2] = 2 * (y * z - x * w);
-    R[2][0] = 2 * (x * z - y * w);     R[2][1] = 2 * (y * z + x * w);     R[2][2] = 1 - 2 * (x * x + y * y);
+  const double w = q[0], x = q[1], y = q[2], z = q[3];
+  R[0][0] = 1 - 2 * (y * y + z * z);
+  R[0][1] = 2 * (x * y - z * w);
+  R[0][2] = 2 * (x * z + y * w);
+  R[1][0] = 2 * (x * y + z * w);
+  R[1][1] = 1 - 2 * (x * x + z * z);
+  R[1][2] = 2 * (y * z - x * w);
+  R[2][0] = 2 * (x * z - y * w);
+  R[2][1] = 2 * (y * z + x * w);
+  R[2][2] = 1 - 2 * (x * x + y * y);
 }
 
 // 从四元数取"某机体轴在世界系下的指向"（列向量）
 static Vec3 ref_axis_in_world(const double q[4], int axis) {
-    double R[3][3];
-    ref_matrix(q, R);
-    return Vec3(R[0][axis], R[1][axis], R[2][axis]);
+  double R[3][3];
+  ref_matrix(q, R);
+  return Vec3(R[0][axis], R[1][axis], R[2][axis]);
 }
 
 static double ref_det3(const Vec3 &a, const Vec3 &b, const Vec3 &c) {
-    return dot(a, cross(b, c));
+  return dot(a, cross(b, c));
 }
 
 // NED ↔ ENU 的参考实现（独立写一遍，不复用被测函数）
@@ -146,27 +156,27 @@ static void ref_optical_axes(const double q_in[4], GuidanceFrame world_in, Guida
 // 随机单位四元数（可复现）
 static uint32_t g_seed = 20261016u;
 static double rnd01() {
-    g_seed = g_seed * 1664525u + 1013904223u;
-    return static_cast<double>(g_seed >> 8) / 16777216.0;   // 2^24
+  g_seed = g_seed * 1664525u + 1013904223u;
+  return static_cast<double>(g_seed >> 8) / 16777216.0; // 2^24
 }
 static void random_quat(double q[4]) {
-    // 均匀四元数（Shoemake 法）
-    const double u1 = rnd01(), u2 = rnd01(), u3 = rnd01();
-    const double s1 = std::sqrt(1.0 - u1), s2 = std::sqrt(u1);
-    q[0] = s1 * std::sin(2 * PI_REF * u2);   // w
-    q[1] = s1 * std::cos(2 * PI_REF * u2);   // x
-    q[2] = s2 * std::sin(2 * PI_REF * u3);   // y
-    q[3] = s2 * std::cos(2 * PI_REF * u3);   // z
+  // 均匀四元数（Shoemake 法）
+  const double u1 = rnd01(), u2 = rnd01(), u3 = rnd01();
+  const double s1 = std::sqrt(1.0 - u1), s2 = std::sqrt(u1);
+  q[0] = s1 * std::sin(2 * PI_REF * u2); // w
+  q[1] = s1 * std::cos(2 * PI_REF * u2); // x
+  q[2] = s2 * std::sin(2 * PI_REF * u3); // y
+  q[3] = s2 * std::cos(2 * PI_REF * u3); // z
 }
 
 // 绕单位轴 axis 转 angle 的四元数 [w,x,y,z]
 static void quat_axis_angle(const Vec3 &axis_in, double angle, double q[4]) {
-    const Vec3 a = normalized(axis_in);
-    const double s = std::sin(angle * 0.5);
-    q[0] = std::cos(angle * 0.5);
-    q[1] = a.x * s;
-    q[2] = a.y * s;
-    q[3] = a.z * s;
+  const Vec3 a = normalized(axis_in);
+  const double s = std::sin(angle * 0.5);
+  q[0] = std::cos(angle * 0.5);
+  q[1] = a.x * s;
+  q[2] = a.y * s;
+  q[3] = a.z * s;
 }
 
 // 单位四元数（避免用 C99 复合字面量 —— C++ 不支持）
@@ -400,6 +410,7 @@ static void test_attitude() {
                     }
                 }
             }
+          }
         }
         std::printf("  （随机姿态交叉比对 %d 例，最大偏差 %.3g）\n", cases, worst);
     }
@@ -528,31 +539,109 @@ static void test_attitude() {
         near_q(q_wrap, q_expect, 1e-15,
                "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
     }
+  }
+
+  // ---- 3.7 非法输入必须被拒；"未归一化但方向合理"必须被接受 ----
+  {
+    double qout[4];
+    Frame wout = Frame::kEnu;
+
+    const double q_zero[4] = {0, 0, 0, 0};
+    ok(!convert_attitude(q_zero, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+       "零四元数被拒（没有姿态信息）");
+    near_q(qout, kIdentityQuat, 0.0, "  被拒时输出单位四元数");
+    ok(wout == Frame::kNed, "  被拒时不谎报已转换（world_out 不变）");
+
+    const double q_nan[4] = {1.0, 0.0, std::numeric_limits<double>::quiet_NaN(),
+                             0.0};
+    ok(!convert_attitude(q_nan, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+       "含 NaN 的四元数被拒");
+
+    const double q_huge[4] = {1e9, 0.0, 0.0, 0.0};
+    ok(!convert_attitude(q_huge, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+       "量级离谱（|q|=1e9）被判为非四元数并拒绝");
+
+    // ★ 未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
+    const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5}; // |q| = 0.7071
+    ok(convert_attitude(q_scaled, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+       "未归一化（|q|=0.707）被接受");
+    const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0,
+                              -0.70710678118654752440};
+    double q_ref[4];
+    Frame wr = Frame::kNed;
+    convert_attitude(q_unit, Frame::kNed, AttitudeFrame::kFrd, q_ref, wr);
+    near_q(qout, q_ref, 1e-15, "  归一化后与单位四元数结果完全一致");
+
+    const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
+    ok(convert_attitude(q_slight, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+       "轻微未归一化被接受");
+    near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] + qout[2] * qout[2] +
+                   qout[3] * qout[3]),
+         1.0, 1e-15, "  归一化后 |q| = 1");
+  }
+
+  // ---- 3.8 normalize_quat ----
+  {
+    double q[4] = {0, 0, 0, 5};
+    const double n = normalize_quat(q);
+    near(n, 5.0, 0.0, "normalize_quat 返回归一化前模长");
+    // ⚠ normalize_quat 是**原地**归一化 ⇒ 不能拿 q 与单位四元数比"是否没变"
+    near_vec(Vec3(q[0], q[1], q[2]), Vec3(0, 0, 0), 1e-15,
+             "  归一化后矢量部分为 0");
+    near(q[3], 1.0, 1e-15, "  归一化后 q[3] = 1（原地写回）");
+    double z[4] = {0, 0, 0, 0};
+    near(normalize_quat(z), 0.0, 0.0, "零四元数返回 0");
+    near_q(z, kIdentityQuat, 0.0, "  零四元数 → 单位四元数（不是 NaN）");
+    double nanq[4] = {std::numeric_limits<double>::quiet_NaN(), 0, 0, 0};
+    near(normalize_quat(nanq), 0.0, 0.0, "NaN 四元数返回 0");
+    near_q(nanq, kIdentityQuat, 0.0, "  NaN → 单位四元数");
+  }
+
+  // ---- 3.9 便捷包装 attitude_from_ned_frd ----
+  {
+    // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
+    const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0,
+                             0.70710678118654752440};
+    double q_direct[4], q_wrap[4];
+    Frame w = Frame::kNed;
+    convert_attitude(q_frd, Frame::kNed, AttitudeFrame::kFrd, q_direct, w);
+    ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
+    near_q(q_wrap, q_direct, 1e-15,
+           "attitude_from_ned_frd = convert_attitude(NED, FRD)");
+    // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
+    // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
+    //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
+    //    "taking address of temporary array"。（2026-10-20 WSL 实测）
+    const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
+    near_q(q_wrap, q_expect, 1e-15,
+           "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
+  }
 }
 
 // ============================================================
 //  4.  与 guidance_libs 交叉验证（两份四元数实现必须一致）
 // ============================================================
 static void test_quat_cross_check() {
-    section("4. 四元数旋转：与 guidance_libs 交叉验证 + 语义差异锁定");
+  section("4. 四元数旋转：与 guidance_libs 交叉验证 + 语义差异锁定");
 
-    // ---- 4.1 本层的 R(q)·v 必须与独立参考实现（矩阵写法）一致 ----
-    {
-        double worst = 0.0;
-        int n = 0;
-        for (int trial = 0; trial < 200; ++trial) {
-            double q[4];
-            random_quat(q);
-            const Vec3 v(rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0);
+  // ---- 4.1 本层的 R(q)·v 必须与独立参考实现（矩阵写法）一致 ----
+  {
+    double worst = 0.0;
+    int n = 0;
+    for (int trial = 0; trial < 200; ++trial) {
+      double q[4];
+      random_quat(q);
+      const Vec3 v(rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0,
+                   rnd01() * 10.0 - 5.0);
 
-            const Vec3 a = rotate_vec_by_quat(q, v);   // 被测：本层实现
-            const Vec3 b = ref_rotate(q, v);           // 参考：矩阵写法
-            const double d = norm(a - b);
-            if (d > worst) worst = d;
-            ++n;
-            if (d > 1e-13) ok(false, "rotate_vec_by_quat 与参考实现不一致");
-        }
-        std::printf("  （%d 例，rotate_vec_by_quat vs 矩阵参考 最大偏差 %.3g）\n", n, worst);
+      const Vec3 a = rotate_vec_by_quat(q, v); // 被测：本层实现
+      const Vec3 b = ref_rotate(q, v);         // 参考：矩阵写法
+      const double d = norm(a - b);
+      if (d > worst)
+        worst = d;
+      ++n;
+      if (d > 1e-13)
+        ok(false, "rotate_vec_by_quat 与参考实现不一致");
     }
 
     // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
@@ -627,6 +716,40 @@ static void test_quat_cross_check() {
         const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
         near_q(qc, q_conj, 0.0, "共轭定义");
     }
+    std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 "
+                "最大偏差 %.3g）\n",
+                n, worst_ab, worst_bc);
+  }
+
+  // ---- 4.3 单位四元数 / 恒等 ----
+  {
+    const double qid[4] = {1, 0, 0, 0};
+    near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
+             "恒等四元数：v 不变");
+    near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
+             "恒等四元数：逆旋转也不变");
+
+    // 旋转保模长、正交（RᵀR = I）
+    double q[4];
+    random_quat(q);
+    const Vec3 v(1.5, -2.5, 3.5);
+    near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
+    near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14,
+             "R(q)ᵀ·R(q)·v = v（可逆）");
+
+    // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
+    double q90[4];
+    quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
+    near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
+    near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
+
+    // 共轭
+    double qc[4];
+    quat_conjugate(q, qc);
+    // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+    const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+    near_q(qc, q_conj, 0.0, "共轭定义");
+  }
 }
 
 // ============================================================
@@ -1146,26 +1269,30 @@ static void test_quick_check() {
         ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
            "  负时间（warning 级）两边都放行");
     }
+    ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
+    ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
+       "  负时间（warning 级）两边都放行");
+  }
 }
 
 // ============================================================
 //  main
 // ============================================================
 int main() {
-    std::printf("数据对齐适配层单元测试 test_state_adapter\n");
-    std::printf("（内部口径：ENU + 四元数[w,x,y,z] + 秒 + SI + 光轴系）\n");
+  std::printf("数据对齐适配层单元测试 test_state_adapter\n");
+  std::printf("（内部口径：ENU + 四元数[w,x,y,z] + 秒 + SI + 光轴系）\n");
 
-    test_frame_conversion();
-    test_time();
-    test_attitude();
-    test_quat_cross_check();
-    test_fill_state();
-    test_upstream_simulator();
-    test_checks();
-    test_quick_check();
+  test_frame_conversion();
+  test_time();
+  test_attitude();
+  test_quat_cross_check();
+  test_fill_state();
+  test_upstream_simulator();
+  test_checks();
+  test_quick_check();
 
-    std::printf("\n----------------------------------------\n");
-    std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
-    std::printf("%s\n", (g_fail == 0) ? "ALL PASS" : "SOME TESTS FAILED");
-    return (g_fail == 0) ? 0 : 1;
+  std::printf("\n----------------------------------------\n");
+  std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
+  std::printf("%s\n", (g_fail == 0) ? "ALL PASS" : "SOME TESTS FAILED");
+  return (g_fail == 0) ? 0 : 1;
 }
