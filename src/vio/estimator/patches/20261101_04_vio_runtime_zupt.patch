@@ -1,0 +1,272 @@
+--- a/src/vio/estimator/src/vio_estimator.cpp
++++ b/src/vio/estimator/src/vio_estimator.cpp
+@@ -6,6 +6,7 @@
+ #include <cstdio>
+ #include <deque>
+ #include <mutex>
++#include <utility>
+ 
+ #include "core/VioManager.h"
+ #include "core/VioManagerOptions.h"
+@@ -62,6 +63,7 @@
+     // ---- 失效保护 / 恢复 ----
+     ov_msckf::VioManagerOptions params;   // 保存一份，恢复时用它重建 VioManager
+     bool has_params = false;
++    bool runtime_zupt_enabled = false;  // 重建 VioManager 后仍保留最后一次运行期开关
+     HealthMonitor health;
+     bool recovery_armed = false;          // 进入过 LOST，等待重建
+     int segment_id = 0;                  // 当前初始化段编号（每次重建 +1，用于把指标按段分组）
+@@ -87,6 +89,7 @@
+     // 可视化：当前帧跟踪点（每次 feedImage 后刷新，只在 VIO 线程读）
+     std::vector<VioEstimator::TrackedPoint> tracks;
+ 
++    void createManager();
+     void log(const char* fmt, ...) const;
+     void logAlways(const char* fmt, ...) const;
+     VisionPose applyAnchor(const VisionPose& in) const;
+@@ -144,6 +147,15 @@
+     std::fflush(stdout);
+ }
+ 
++// 初始化、LOST 恢复和时间基恢复统一走这里，保留飞控解锁状态决定的运行期开关。
++void VioEstimator::Impl::createManager() {
++    auto next = std::make_unique<ov_msckf::VioManager>(params);
++    next->set_use_depth_init(opt.use_depth_init);
++    next->set_init_zero_velocity(opt.init_vel_zero);
++    next->set_zupt_enabled(runtime_zupt_enabled);
++    vio = std::move(next);
++}
++
+ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
+     impl_->opt = options;
+ 
+@@ -193,9 +205,8 @@
+         impl_->track_frequency = params.track_frequency;
+         impl_->params = params;
+         impl_->has_params = true;
+-        impl_->vio = std::make_unique<ov_msckf::VioManager>(params);
+-        impl_->vio->set_use_depth_init(options.use_depth_init);
+-        impl_->vio->set_init_zero_velocity(options.init_vel_zero);
++        impl_->runtime_zupt_enabled = params.try_zupt;
++        impl_->createManager();
+         if (options.use_depth_init)
+             impl_->log("[VIO] 使用深度初始化特征（use_depth_init）\n");
+         impl_->health.configure(options.health);
+@@ -270,7 +281,12 @@
+ 
+ void VioEstimator::setZuptEnabled(bool enable) {
+     if (!impl_ || !impl_->ok || !impl_->vio) return;
++    impl_->runtime_zupt_enabled = enable;
+     impl_->vio->set_zupt_enabled(enable);
++}
++
++bool VioEstimator::zuptEnabled() const {
++    return impl_ && impl_->ok && impl_->vio && impl_->vio->zupt_enabled();
+ }
+ 
+ void VioEstimator::setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx,
+@@ -440,9 +456,7 @@
+                 impl_->anchor.yaw = yawOf(Eigen::Quaterniond(lp.q[0], lp.q[1], lp.q[2], lp.q[3]));
+                 impl_->anchor.t = Eigen::Vector3d(lp.x, lp.y, lp.z);
+             }
+-            impl_->vio = std::make_unique<ov_msckf::VioManager>(impl_->params);
+-            impl_->vio->set_use_depth_init(impl_->opt.use_depth_init);
+-            impl_->vio->set_init_zero_velocity(impl_->opt.init_vel_zero);
++            impl_->createManager();
+             impl_->latched = false;
+             impl_->launched = false;
+             impl_->init_time = -1.0;
+@@ -699,9 +713,7 @@
+     impl_->last_published = VisionPose{};
+ 
+     // 换一个全新的 OpenVINS 实例：旧实例里的状态/时间戳/IMU 缓冲全部丢弃。
+-    impl_->vio = std::make_unique<ov_msckf::VioManager>(impl_->params);
+-    impl_->vio->set_use_depth_init(impl_->opt.use_depth_init);
+-    impl_->vio->set_init_zero_velocity(impl_->opt.init_vel_zero);
++    impl_->createManager();
+ 
+     impl_->latched = false;
+     impl_->launched = false;
+--- a/src/vio/estimator/include/pure_uav/vio_estimator.hpp
++++ b/src/vio/estimator/include/pure_uav/vio_estimator.hpp
+@@ -182,7 +182,10 @@
+ 
+     /// 【2026-10-25】运行期开关零速更新（要求 config 里 try_zupt: true）。
+     /// 上层按"飞控是否解锁"自动切：地面上开（静止时钉住速度），空中关（防悬停误判）。
++    // 开关在 LOST / 时间基恢复引起的重建后保持；与 feedImu()/feedImage() 同线程调用。
+     void setZuptEnabled(bool enable);
++    // 当前实例的运行期开关状态；配置 try_zupt 仍决定是否创建零速更新器。
++    bool zuptEnabled() const;
+ 
+     // ---- 运动有效性自检（判断"这次测试到底有没有平移"）----
+     // 单目 VIO 靠平移拿视差，没有视差就三角化不出来。实测（2026-10-21）：
+--- a/src/vio/estimator/CMakeLists.txt
++++ b/src/vio/estimator/CMakeLists.txt
+@@ -222,6 +222,11 @@
+ add_executable(test_pose_convert tests/test_pose_convert.cpp)
+ target_link_libraries(test_pose_convert PRIVATE pure_vio_core)
+ 
++# 无硬件回归：估计器重建后保留零速更新的运行期开关。
++add_executable(test_zupt_rebuild tests/test_zupt_rebuild.cpp src/offline_dataset.cpp)
++target_include_directories(test_zupt_rebuild PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
++target_link_libraries(test_zupt_rebuild PRIVATE pure_vio_core)
++
+ # 离线"飞控时间基变化"恢复测试：需要已录数据集，没给 --dataset 时返回 77（ctest=skip）。
+ # 手动跑：
+ #   ./bin/test_timebase_recovery --dataset datasets/loop5 --config-dir config/gemini_1920x1080
+@@ -299,6 +304,8 @@
+ 
+ enable_testing()
+ add_test(NAME pose_convert COMMAND test_pose_convert)
++add_test(NAME zupt_rebuild COMMAND test_zupt_rebuild
++         ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080)
+ add_test(NAME fcu_clock COMMAND test_fcu_clock)
+ if(TARGET test_odometry_pack)
+     add_test(NAME odometry_pack COMMAND test_odometry_pack)
+@@ -320,4 +327,8 @@
+              --max-after 200
+              --quiet)
+     set_tests_properties(timebase_recovery PROPERTIES TIMEOUT 900)
+-endif()
++    add_test(NAME zupt_lost_rebuild COMMAND test_zupt_rebuild
++             ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080
++             ${PURE_VIO_TEST_DATASET})
++    set_tests_properties(zupt_lost_rebuild PROPERTIES TIMEOUT 900)
++endif()
+--- /dev/null
++++ b/src/vio/estimator/tests/test_zupt_rebuild.cpp
+@@ -0,0 +1,106 @@
++// 重建新 OpenVINS 实例后，运行期开关必须保留，不能退回 try_zupt 的配置默认值。
++// 不需要飞控、相机或数据集；参数是含 try_zupt: true 的测试配置目录。
++#include <cstdio>
++
++#include <opencv2/imgcodecs.hpp>
++#include "offline_dataset.hpp"
++
++#include "pure_uav/vio_estimator.hpp"
++
++namespace {
++int failures = 0;
++#define CHECK(condition) \
++    do { \
++        if (!(condition)) { \
++            std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); \
++            ++failures; \
++        } \
++    } while (0)
++
++// 可选真实数据回放：抬高本测试的特征门限，走实际 LOST 重建路径。
++void checkLostRebuild(pure_uav::VioEstimator::Options options, const char* dataset_dir) {
++    pure_uav::OfflineDataset dataset;
++    std::string error;
++    if (!dataset.load(dataset_dir, &error)) {
++        std::fprintf(stderr, "dataset failed: %s\n", error.c_str());
++        ++failures;
++        return;
++    }
++    options.health.min_features = 1000000;
++    options.health.lost_after_s = 0.05;
++    options.health.force_reinit_after_s = 0.05;
++    options.health.reinit_on_recover = true;
++    options.health.inflate_enable = false;
++    pure_uav::VioEstimator estimator(options);
++    if (!estimator.ok()) {
++        std::fprintf(stderr, "estimator failed: %s\n", estimator.error().c_str());
++        ++failures;
++        return;
++    }
++    estimator.setZuptEnabled(false);
++    size_t imu_index = 0;
++    bool initialized = false;
++    for (const auto& image : dataset.images()) {
++        while (imu_index < dataset.imu().size() &&
++               dataset.imu()[imu_index].timestamp_us <= image.timestamp_us) {
++            estimator.feedImu(dataset.imu()[imu_index++]);
++        }
++        const cv::Mat gray = cv::imread(image.path, cv::IMREAD_GRAYSCALE);
++        if (gray.empty()) { ++failures; break; }
++        estimator.feedImage(gray, image.timestamp_us);
++        initialized = initialized || estimator.initialized();
++        if (estimator.rebuildCount() > 0) break;
++    }
++    CHECK(initialized);
++    CHECK(estimator.rebuildCount() == 1);
++    CHECK(!estimator.zuptEnabled());
++    CHECK(!estimator.publishable());
++    std::printf("LOST rebuild: initialized=%d rebuilds=%lld ZUPT=%d\n",
++                initialized, static_cast<long long>(estimator.rebuildCount()),
++                estimator.zuptEnabled());
++}
++}
++
++int main(int argc, char** argv) {
++    if (argc != 2 && argc != 3) {
++        std::fprintf(stderr, "usage: %s CONFIG_DIR [DATASET_DIR]\n", argv[0]);
++        return 2;
++    }
++    pure_uav::VioEstimator::Options options;
++    options.config_dir = argv[1];
++    options.verbose = false;
++    options.init_threads = 1;
++    pure_uav::VioEstimator estimator(options);
++    if (!estimator.ok()) {
++        std::fprintf(stderr, "estimator failed: %s\n", estimator.error().c_str());
++        return 1;
++    }
++    CHECK(estimator.zuptEnabled());
++
++    // 已解锁时禁用，模拟重连后仍然已解锁（上层不会再次切换开关）。
++    estimator.setZuptEnabled(false);
++    CHECK(!estimator.zuptEnabled());
++    const auto rebuilds = estimator.rebuildCount();
++    estimator.resetForNewTimebase("test: reconnect while armed");
++    CHECK(!estimator.zuptEnabled());
++    CHECK(!estimator.publishable());
++    CHECK(estimator.rebuildCount() == rebuilds + 1);
++    estimator.resetForNewTimebase("test: repeated reset while armed");
++    CHECK(!estimator.zuptEnabled());
++
++    // 地面重新允许零速更新后，下一次重建也应保留开启状态。
++    estimator.setZuptEnabled(true);
++    estimator.resetForNewTimebase("test: reset while disarmed");
++    CHECK(estimator.zuptEnabled());
++    estimator.setZuptEnabled(false);
++    estimator.resetForNewTimebase("test: armed again");
++    CHECK(!estimator.zuptEnabled());
++    CHECK(estimator.rebuildCount() == rebuilds + 4);
++    if (argc == 3) checkLostRebuild(options, argv[2]);
++    if (failures) {
++        std::fprintf(stderr, "FAILED: %d checks\n", failures);
++        return 1;
++    }
++    std::printf("PASS: ZUPT runtime state survives estimator rebuilds (off/on/off)\n");
++    return 0;
++}
+--- a/src/vio/estimator/tests/test_timebase_recovery_offline.cpp
++++ b/src/vio/estimator/tests/test_timebase_recovery_offline.cpp
+@@ -112,6 +112,9 @@
+         return 1;
+     }
+ 
++    // 模拟已解锁：实际重初始化和后续输出期间都必须保持零速更新关闭。
++    est.setZuptEnabled(false);
++    CHECK(!est.zuptEnabled());
+     size_t imu_idx = 0;
+     bool reset_done = false;
+     int64_t ts_offset_us = 0;
+@@ -137,6 +140,7 @@
+                 reset_frame = static_cast<int>(k);
+                 ts_offset_us = static_cast<int64_t>(img.timestamp_us) - 1000000;
+                 est.resetForNewTimebase("offline simulate FC reboot");
++                CHECK(!est.zuptEnabled());
+                 CHECK(!est.initialized());
+                 CHECK(!est.publishable());
+                 std::printf("[reset] 第 %zu 帧：模拟飞控重启，后续时间戳平移 %lld us\n", k,
+@@ -173,6 +177,7 @@
+                             static_cast<unsigned long long>(first_new_base_ts),
+                             static_cast<double>(img.timestamp_us) * 1e-6);
+                 CHECK(est.publishable());
++                CHECK(!est.zuptEnabled());
+             }
+             ++frames_after_reinit;
+             pure_uav::VisionPose p;

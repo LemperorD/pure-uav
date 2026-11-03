@@ -1,0 +1,14 @@
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -9,3 +9,2 @@
+ add_subdirectory(vio/estimator)
+-add_subdirectory(interface)
+ # test 放最后：test_math 依赖 common、test_guidance 依赖 guidance、
+--- a/src/vio/estimator/CMakeLists.txt
++++ b/src/vio/estimator/CMakeLists.txt
+@@ -119,3 +119,4 @@
+     target_include_directories(pure_vio_core PUBLIC
+-        "${CMAKE_SOURCE_DIR}/src/driver/communicate/include")
++        "${CMAKE_SOURCE_DIR}/src/driver/communicate/include"
++        "${CMAKE_SOURCE_DIR}/src/common")
+     message(STATUS "VisionPose: 复用 src/driver/communicate/include/communicator.hpp")

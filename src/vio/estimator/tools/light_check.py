@@ -66,7 +66,7 @@ def find_camera(expected="2bc5:0511"):
 
 
 def pick_python():
-    for c in (sys.executable, "/home/kxy/miniforge3/envs/vins/bin/python",
+    for c in (sys.executable, str(Path.home() / "miniforge3/envs/vins/bin/python"),
               shutil.which("python3")):
         if not c or not Path(c).exists():
             continue

@@ -54,6 +54,7 @@ void HealthMonitor::reset() {
     features_ = 0;
     updated_ = false;
     need_recover_ = false;
+    physical_fault_ = false;
 }
 
 void HealthMonitor::update(double time_s, int features, bool visual_updated, double deperr_px, double tilt_deg) {
@@ -61,6 +62,13 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
         state_ = VioHealthState::OK;
         features_ = features;
         updated_ = visual_updated;
+        return;
+    }
+
+    if (physical_fault_) {
+        features_ = features;
+        updated_ = visual_updated;
+        last_time_ = time_s;
         return;
     }
 
@@ -180,6 +188,13 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
 }
 
 void HealthMonitor::notify_recovered() {
+    physical_fault_ = false;
+    // 新估计器需要重新积累视觉更新，不能沿用旧实例的失效计时窗口。
+    win_time_.clear();
+    win_updated_.clear();
+    start_time_ = state_changed_at_ = last_time_;
+    last_update_time_ = -1.0;
+    bad_since_ = bad_dep_since_ = bad_tilt_since_ = good_since_ = -1.0;
     ++recoveries_;
     need_recover_ = false;
     state_ = VioHealthState::OK;
@@ -204,8 +219,13 @@ HealthReport HealthMonitor::report(double now_s) const {
 // 这是"安全阀"，不参与精度优化——它只保证不发明显错误的位姿。
 void HealthMonitor::mark_implausible(double time_s) {
     if (!cfg_.enabled) return;
+    if (state_ != VioHealthState::LOST) {
+        state_changed_at_ = time_s;
+        ++lost_count_;
+    }
     state_ = VioHealthState::LOST;
-    state_changed_at_ = time_s;
+    physical_fault_ = true;
+    good_since_ = -1.0;
     last_time_ = time_s;
     updated_ = false;
     need_recover_ = true;

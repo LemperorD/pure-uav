@@ -1,5 +1,7 @@
 # VIO 估计器（单目 + IMU + 深度，ROS-free）
 
+> 当前代码与验收以 [2026-11-01 集成修复记录](docs/INTEGRATION_STATUS_20261101.md) 为准。通信 patch 02/05 已合入源码，无需重复应用。
+
 基于 OpenVINS v2.7.0（mono MSCKF + IMU）改的视觉惯性里程计。输入相机图像 + 飞控 IMU，
 输出 `LOCAL_FRD` 位置/姿态/速度，经 MAVLink `ODOMETRY` 发给 ArduPilot。
 

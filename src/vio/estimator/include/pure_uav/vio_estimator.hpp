@@ -142,6 +142,8 @@ public:
     int imageCount() const;
     int poseCount() const;
     uint64_t lastPoseTimestampUs() const;
+    // 估计器所属线程读取；图像需要 IMU 覆盖到 t_camera + 此偏移。
+    double cameraTimeOffsetSec() const;
     double initializedTimeSec() const;  // OpenVINS 初始化时刻（输入时钟的秒）
     const VisionPoseConvert& converter() const;
 
@@ -182,7 +184,10 @@ public:
 
     /// 【2026-10-25】运行期开关零速更新（要求 config 里 try_zupt: true）。
     /// 上层按"飞控是否解锁"自动切：地面上开（静止时钉住速度），空中关（防悬停误判）。
+    // 开关在 LOST / 时间基恢复引起的重建后保持；与 feedImu()/feedImage() 同线程调用。
     void setZuptEnabled(bool enable);
+    // 当前实例的运行期开关状态；配置 try_zupt 仍决定是否创建零速更新器。
+    bool zuptEnabled() const;
 
     // ---- 运动有效性自检（判断"这次测试到底有没有平移"）----
     // 单目 VIO 靠平移拿视差，没有视差就三角化不出来。实测（2026-10-21）：

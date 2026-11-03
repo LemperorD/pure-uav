@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <deque>
 #include <mutex>
+#include <utility>
 
 #include "core/VioManager.h"
 #include "core/VioManagerOptions.h"
@@ -62,6 +63,7 @@ struct VioEstimator::Impl {
     // ---- 失效保护 / 恢复 ----
     ov_msckf::VioManagerOptions params;   // 保存一份，恢复时用它重建 VioManager
     bool has_params = false;
+    bool runtime_zupt_enabled = false;  // 重建 VioManager 后仍保留最后一次运行期开关
     HealthMonitor health;
     bool recovery_armed = false;          // 进入过 LOST，等待重建
     int segment_id = 0;                  // 当前初始化段编号（每次重建 +1，用于把指标按段分组）
@@ -87,6 +89,7 @@ struct VioEstimator::Impl {
     // 可视化：当前帧跟踪点（每次 feedImage 后刷新，只在 VIO 线程读）
     std::vector<VioEstimator::TrackedPoint> tracks;
 
+    void createManager();
     void log(const char* fmt, ...) const;
     void logAlways(const char* fmt, ...) const;
     VisionPose applyAnchor(const VisionPose& in) const;
@@ -144,6 +147,15 @@ void VioEstimator::Impl::log(const char* fmt, ...) const {
     std::fflush(stdout);
 }
 
+// 初始化、LOST 恢复和时间基恢复统一走这里，保留飞控解锁状态决定的运行期开关。
+void VioEstimator::Impl::createManager() {
+    auto next = std::make_unique<ov_msckf::VioManager>(params);
+    next->set_use_depth_init(opt.use_depth_init);
+    next->set_init_zero_velocity(opt.init_vel_zero);
+    next->set_zupt_enabled(runtime_zupt_enabled);
+    vio = std::move(next);
+}
+
 VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
     impl_->opt = options;
 
@@ -193,9 +205,8 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
         impl_->track_frequency = params.track_frequency;
         impl_->params = params;
         impl_->has_params = true;
-        impl_->vio = std::make_unique<ov_msckf::VioManager>(params);
-        impl_->vio->set_use_depth_init(options.use_depth_init);
-        impl_->vio->set_init_zero_velocity(options.init_vel_zero);
+        impl_->runtime_zupt_enabled = params.try_zupt;
+        impl_->createManager();
         if (options.use_depth_init)
             impl_->log("[VIO] 使用深度初始化特征（use_depth_init）\n");
         impl_->health.configure(options.health);
@@ -270,7 +281,12 @@ VioEstimator::TiltCheck VioEstimator::tiltCheck() const {
 
 void VioEstimator::setZuptEnabled(bool enable) {
     if (!impl_ || !impl_->ok || !impl_->vio) return;
+    impl_->runtime_zupt_enabled = enable;
     impl_->vio->set_zupt_enabled(enable);
+}
+
+bool VioEstimator::zuptEnabled() const {
+    return impl_ && impl_->ok && impl_->vio && impl_->vio->zupt_enabled();
 }
 
 void VioEstimator::setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx,
@@ -440,9 +456,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
                 impl_->anchor.yaw = yawOf(Eigen::Quaterniond(lp.q[0], lp.q[1], lp.q[2], lp.q[3]));
                 impl_->anchor.t = Eigen::Vector3d(lp.x, lp.y, lp.z);
             }
-            impl_->vio = std::make_unique<ov_msckf::VioManager>(impl_->params);
-            impl_->vio->set_use_depth_init(impl_->opt.use_depth_init);
-            impl_->vio->set_init_zero_velocity(impl_->opt.init_vel_zero);
+            impl_->createManager();
             impl_->latched = false;
             impl_->launched = false;
             impl_->init_time = -1.0;
@@ -699,9 +713,7 @@ void VioEstimator::resetForNewTimebase(const char* reason) {
     impl_->last_published = VisionPose{};
 
     // 换一个全新的 OpenVINS 实例：旧实例里的状态/时间戳/IMU 缓冲全部丢弃。
-    impl_->vio = std::make_unique<ov_msckf::VioManager>(impl_->params);
-    impl_->vio->set_use_depth_init(impl_->opt.use_depth_init);
-    impl_->vio->set_init_zero_velocity(impl_->opt.init_vel_zero);
+    impl_->createManager();
 
     impl_->latched = false;
     impl_->launched = false;
@@ -758,6 +770,10 @@ int VioEstimator::poseCount() const { return static_cast<int>(impl_->poses); }
 uint64_t VioEstimator::lastPoseTimestampUs() const {
     std::lock_guard<std::mutex> lk(impl_->pose_mutex);
     return impl_->has_latest ? impl_->latest.timestamp_us : 0;
+}
+
+double VioEstimator::cameraTimeOffsetSec() const {
+    return impl_ && impl_->vio ? impl_->vio->get_camera_timeoffset() : 0.0;
 }
 
 double VioEstimator::initializedTimeSec() const { return impl_->init_time; }

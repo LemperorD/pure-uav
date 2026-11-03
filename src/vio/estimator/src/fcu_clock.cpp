@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <vector>
 
 namespace pure_uav {
@@ -25,10 +26,20 @@ void FcuClock::clearLocked() {
 FcuClock::AddResult FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_us) {
     std::lock_guard<std::mutex> lk(mtx_);
 
-    if (last_imu_us_ != 0 && imu_timestamp_us != 0) {
+    if (imu_timestamp_us == 0 ||
+        imu_timestamp_us > static_cast<uint64_t>(std::numeric_limits<int64_t>::max() / 1000)) {
+        out_of_order_.fetch_add(1);
+        return AddResult::kOutOfOrder;
+    }
+    if (last_imu_us_ != 0) {
         // 显著回退 = 飞控重启（boot 时间从 ~0 重来）。必须清空旧样本，
         // 否则新旧两个时间基的 offset 会混在同一个 5% 分位里，映射结果直接错几百秒。
-        if (imu_timestamp_us + static_cast<uint64_t>(kRollbackUs) < last_imu_us_) {
+        const bool rollback = imu_timestamp_us < last_imu_us_ &&
+            last_imu_us_ - imu_timestamp_us > static_cast<uint64_t>(kRollbackUs);
+        const int64_t host_delta_us = std::max<int64_t>(0, (host_ns - last_host_ns_) / 1000);
+        const bool forward_jump = imu_timestamp_us > last_imu_us_ &&
+            imu_timestamp_us - last_imu_us_ > static_cast<uint64_t>(host_delta_us + kRollbackUs);
+        if (rollback || forward_jump) {
             clearLocked();
             timebase_resets_.fetch_add(1);
             last_imu_us_ = imu_timestamp_us;

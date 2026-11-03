@@ -171,6 +171,7 @@ private:
     bool updated_ = false;
     int recoveries_ = 0;
     int lost_count_ = 0;
+    bool physical_fault_ = false;      // 物理异常只能由估计器重建解除
     bool need_recover_ = false;        // LOST 之后、尚未完成重建
 };
 

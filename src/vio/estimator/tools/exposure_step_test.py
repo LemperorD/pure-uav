@@ -68,7 +68,7 @@ def pick_python():
     采集脚本要用 cv2.imencode 存 PNG；用错解释器会在录完图那一刻才报错，
     白等 8 秒。所以开跑前先筛一遍。
     """
-    cands = [sys.executable, "/home/kxy/miniforge3/envs/vins/bin/python",
+    cands = [sys.executable, str(Path.home() / "miniforge3/envs/vins/bin/python"),
              shutil.which("python3")]
     seen = set()
     for c in cands:
@@ -190,7 +190,7 @@ def main() -> int:
     py = pick_python()
     if py is None:
         print("❌ 没找到同时装了 cv2 + numpy 的 python。")
-        print("   用这个跑：/home/kxy/miniforge3/envs/vins/bin/python tools/exposure_step_test.py")
+        print("   用这个跑：~/miniforge3/envs/vins/bin/python tools/exposure_step_test.py")
         return 2
     print(f"  用解释器: {py}")
 
