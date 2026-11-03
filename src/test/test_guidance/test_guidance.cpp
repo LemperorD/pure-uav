@@ -40,8 +40,8 @@
 #include "sensor.hpp"
 #include "target.hpp"
 #include "guidance_loop.hpp"     // 机载主循环外壳 + 黑匣子（§16/§20/§21）
-#include "tools.hpp"             // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
-#include "application.hpp"       // 参数加载 / 校验（§19）
+#include "guidance_sim_tools.hpp"             // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
+#include "guidance_application.hpp"       // 参数加载 / 校验（§19）
 
 using namespace pure_uav;
 namespace flight = pure_uav::guidance::flight;
@@ -1181,7 +1181,7 @@ struct FirstOutCtx {
     int n = 0;
 };
 
-void first_out_hook(void *user, int, const app::SyntheticWorld &,
+void first_out_hook(void *user, int, const app::GuidanceSyntheticWorld &,
                     const flight::GuidanceOutput &o) {
     auto *ctx = static_cast<FirstOutCtx *>(user);
     if (ctx->n++ == 0) ctx->first = o;
@@ -1201,10 +1201,10 @@ struct CollectSink : flight::ICommandSink {
 static void test_closed_loop_regression() {
     section("17. 端到端闭环回归（合成世界）");
 
-    app::SceneConfig sc;   // 默认场景：5 m 高、朝 +x 8 m/s、靶 40 m 前右偏 3 m
+    app::GuidanceSceneConfig sc;   // 默认场景：5 m 高、朝 +x 8 m/s、靶 40 m 前右偏 3 m
     sc.dt = 0.02;          // 50 Hz
 
-    app::SyntheticWorld world(app::demo_camera(), sc);
+    app::GuidanceSyntheticWorld world(app::guidance_demo_camera(), sc);
 
     GuidanceParams p;
     p.law   = GuidanceLaw::PPN;
@@ -1213,7 +1213,7 @@ static void test_closed_loop_regression() {
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
     flight::LoopConfig cfg;
-    cfg.cam              = app::demo_camera();
+    cfg.cam              = app::guidance_demo_camera();
     cfg.loop_hz          = 50;
     cfg.max_sample_age_s = 0.2;   // 合成世界每拍都更新
 
@@ -1221,8 +1221,8 @@ static void test_closed_loop_regression() {
     ok(loop.init(), "§17 init 成功");
 
     FirstOutCtx ctx;
-    const app::ClosedLoopReport rep =
-        app::run_synthetic_closed_loop(world, loop, 400, first_out_hook, &ctx);
+    const app::GuidanceClosedLoopReport rep =
+        app::guidance_run_closed_loop(world, loop, 400, first_out_hook, &ctx);
 
     // ---- 闭环结果 ----
     ok(rep.ticks > 200, "跑够拍数（> 200 拍）");
@@ -1294,7 +1294,7 @@ GuidanceParams csv_params() {
 
 flight::LoopConfig csv_config() {
     flight::LoopConfig cfg;
-    cfg.cam              = app::demo_camera();
+    cfg.cam              = app::guidance_demo_camera();
     cfg.loop_hz          = 50;
     cfg.max_sample_age_s = 0.2;
     return cfg;
@@ -1310,17 +1310,17 @@ static void test_csv_roundtrip() {
 
     // ---- ① 录制：跑 n 拍，输入落盘，同时收集输出 ----
     {
-        app::SceneConfig sc;
+        app::GuidanceSceneConfig sc;
         sc.dt = 0.02;
-        app::SyntheticWorld world(app::demo_camera(), sc);
+        app::GuidanceSyntheticWorld world(app::guidance_demo_camera(), sc);
 
-        app::InputRecorder rec;
+        app::GuidanceInputRecorder rec;
         ok(rec.open(kRoundTripCsv), "§18 打开录制文件");
         if (!rec.ok()) return;   // 打不开就没法继续（不给假绿）
 
-        app::RecordingInsSource    rins(world, rec);
-        app::RecordingTargetSource rtgt(world, rec);
-        app::TeeSink               tee(world, rec_outs);   // 执行器 + 收集
+        app::GuidanceRecordingInsSource    rins(world, rec);
+        app::GuidanceRecordingTargetSource rtgt(world, rec);
+        app::GuidanceTeeSink               tee(world, rec_outs);   // 执行器 + 收集
 
         flight::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
         ok(loop.init(), "§18 录制 loop init");
@@ -1337,9 +1337,9 @@ static void test_csv_roundtrip() {
 
     // ---- ② 回读：格式与字段 ----
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "§18 打开回读文件");
-        app::CsvRow row;
+        app::GuidanceCsvRow row;
         ok(rd.next(row), "读到第一行");
         ok(row.tick == 0, "首行 tick = 0");
         ok(row.ins_new, "首行 ins_new = 1（合成世界每拍都有新帧）");
@@ -1361,9 +1361,9 @@ static void test_csv_roundtrip() {
 
     // ---- ③ 回放：同一份输入 → 同一个 loop ⇒ 输出必须逐位一致 ----
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "§18 重新打开回放文件");
-        app::CsvReplaySource src(rd);
+        app::GuidanceCsvReplaySource src(rd);
 
         CollectSink replay_outs;
         flight::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
@@ -1403,11 +1403,11 @@ static void test_csv_roundtrip() {
     //   ② close() 幂等（析构里再关一次不能 double-free）；
     //   ③ close() 之后 next()/send() 不能去碰野句柄。
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "④ 首次 open");
         ok(rd.is_open(), "④ is_open = true");
         ok(rd.open(kRoundTripCsv), "④ 重复 open 成功（内部先关旧句柄，不泄漏）");
-        app::CsvRow row;
+        app::GuidanceCsvRow row;
         ok(rd.next(row), "④ 重复 open 后仍能读");
         ok(row.tick == 0, "④ 读到的仍是文件开头（rows_ 已复位）");
         rd.close();
@@ -1419,7 +1419,7 @@ static void test_csv_roundtrip() {
         ok(rd.error() == nullptr, "④ 全程无错误信息");
     }
     {
-        app::InputRecorder rec;
+        app::GuidanceInputRecorder rec;
         ok(rec.open(kRoundTripCsv), "④ 录制器首次 open");
         ok(rec.is_open(), "④ 录制器 is_open = true");
         ok(rec.open(kRoundTripCsv), "④ 录制器重复 open 成功（不泄漏）");
@@ -1430,7 +1430,7 @@ static void test_csv_roundtrip() {
     }
     {
         // close() 必须把数据真的刷到磁盘 —— 否则"进程内立刻回读"会读到半截文件
-        app::CsvAccelSink sink(kCmdCsv);
+        app::GuidanceCsvAccelSink sink(kCmdCsv);
         ok(sink.alive(), "④ 落盘器打开成功");
         flight::GuidanceOutput o;
         o.boot_us = 1234;
@@ -1461,14 +1461,14 @@ static void test_csv_roundtrip() {
     {
         // 失败路径必须如实报告：ok() 说谎会让上层误以为"黑匣子在录"，
         // 真出事时才发现没有数据。
-        app::CsvAccelSink bad("no_such_dir_xyz/out.csv");
+        app::GuidanceCsvAccelSink bad("no_such_dir_xyz/out.csv");
         ok(!bad.ok(), "④ 打不开落盘路径 → ok() = false");
         ok(!bad.alive(), "④ 打不开落盘路径 → alive() = false");
         flight::GuidanceOutput o;
         ok(!bad.send(o), "④ 打不开落盘路径 → send() 返回 false（上层据此计 sink_err）");
 
-        app::CsvReader rd;
-        app::CsvRow row;
+        app::GuidanceCsvReader rd;
+        app::GuidanceCsvRow row;
         ok(!rd.open("no_such_dir_xyz/in.csv"), "④ 读不存在的文件 → open 返回 false");
         ok(rd.error() != nullptr, "④ 并给出错误原因（error() 非空）");
         ok(!rd.next(row), "④ 未打开时 next() 直接返回 false（不碰空句柄）");
@@ -1478,21 +1478,21 @@ static void test_csv_roundtrip() {
     //
     // 上面 ④ 只能证明"行为对"，证明不了"没泄漏"。这里直接量：
     // 反复 open/write/read/close 200 轮，进程句柄数必须回到原地。
-    // 历史实测：修 CsvReader::open（原来重复 open 会漏句柄）之后，
+    // 历史实测：修 GuidanceCsvReader::open（原来重复 open 会漏句柄）之后，
     // 200 轮前后句柄数**完全相同**；修复前每轮 +1。
     {
         // 预热 5 轮，把 CRT/运行时的惰性句柄（stdio 缓冲等）先建立起来
         for (int i = 0; i < 5; ++i) {
-            app::InputRecorder rec;
+            app::GuidanceInputRecorder rec;
             rec.open(kCmdCsv);
             flight::InsSample ins;
             flight::TargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
             rec.close();
-            app::CsvReader rd;
+            app::GuidanceCsvReader rd;
             rd.open(kCmdCsv);
-            app::CsvRow row;
+            app::GuidanceCsvRow row;
             while (rd.next(row)) {}
             rd.close();
         }
@@ -1501,20 +1501,20 @@ static void test_csv_roundtrip() {
         int failures = 0;
         const int kRounds = 200;
         for (int i = 0; i < kRounds; ++i) {
-            app::InputRecorder rec;                    // 析构自动 close
+            app::GuidanceInputRecorder rec;                    // 析构自动 close
             if (!rec.open(kCmdCsv)) { ++failures; continue; }
             //  重复 open：正是"重启/换文件"时最容易漏句柄的地方
-            //   （修复前 CsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
+            //   （修复前 GuidanceCsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
             if (!rec.open(kCmdCsv)) { ++failures; continue; }
             flight::InsSample ins;
             flight::TargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
 
-            app::CsvReader rd;                          // 析构自动 close
+            app::GuidanceCsvReader rd;                          // 析构自动 close
             if (!rd.open(kCmdCsv)) { ++failures; continue; }
             if (!rd.open(kCmdCsv)) { ++failures; continue; }   //  重复 open
-            app::CsvRow row;
+            app::GuidanceCsvRow row;
             while (rd.next(row)) {}
         }
         const long after = count_open_handles();
@@ -1539,7 +1539,7 @@ static void test_params() {
     section("19. 参数加载（YAML 子集 / 校验）");
 
     // ---- 默认值必须与 main.cpp 旧硬编码一致（接入加载器后行为不变）----
-    const app::AppParams d = app::default_params();
+    const app::GuidanceAppParams d = app::guidance_default_params();
     near(d.guidance.N, 4.0, 1e-12, "默认 N=4");
     near(d.guidance.a_max, 10.0, 1e-12, "默认 a_max=10");
     ok(d.guidance.law == GuidanceLaw::PPN, "默认 law=PPN");
@@ -1568,8 +1568,8 @@ cam:
   cy: 240
   R_body_cam: 1,0,0, 0,1,0, 0,0,1
 )YAML";
-    app::AppParams p = app::default_params();
-    app::ParamResult r = app::load_yaml_text(yaml, &p);
+    app::GuidanceAppParams p = app::guidance_default_params();
+    app::GuidanceParamResult r = app::guidance_load_yaml_text(yaml, &p);
     ok(r.ok, r.ok ? "嵌套 YAML 解析成功" : r.error.c_str());
     ok(p.guidance.law == GuidanceLaw::TPN, "嵌套 law=TPN");
     near(p.guidance.N, 3.5, 1e-12, "嵌套 N=3.5");
@@ -1587,57 +1587,57 @@ cam:
     near(p.loop.cam.R_body_cam[8], 1.0, 1e-12, "嵌套 R_body_cam[8]=1");
 
     // ---- 扁平点号键 + 行尾注释 ----
-    app::AppParams q = app::default_params();
-    r = app::load_yaml_text("guidance.law: APN\nguidance.N: 6  # 行尾注释\n", &q);
+    app::GuidanceAppParams q = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.law: APN\nguidance.N: 6  # 行尾注释\n", &q);
     ok(r.ok, "扁平点号 + 注释解析成功");
     ok(q.guidance.law == GuidanceLaw::APN, "扁平 law=APN");
     near(q.guidance.N, 6.0, 1e-12, "扁平 N=6");
 
     // ---- 失败路径：未知键 / 类型错 / 重复键 / 矩阵数量错 ----
-    app::AppParams u = app::default_params();
-    r = app::load_yaml_text("guidance.N: 4\nguidance.typo: 1\n", &u);
+    app::GuidanceAppParams u = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: 4\nguidance.typo: 1\n", &u);
     ok(!r.ok && r.error.find("typo") != std::string::npos,
        "未知键被拒绝且错误里带键名");
 
-    app::AppParams t = app::default_params();
-    r = app::load_yaml_text("guidance.N: abc\n", &t);
+    app::GuidanceAppParams t = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: abc\n", &t);
     ok(!r.ok, "非数字被拒绝");
 
-    app::AppParams dup = app::default_params();
-    r = app::load_yaml_text("guidance.N: 4\nguidance.N: 5\n", &dup);
+    app::GuidanceAppParams dup = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: 4\nguidance.N: 5\n", &dup);
     ok(!r.ok, "重复键被拒绝");
 
-    app::AppParams m = app::default_params();
-    r = app::load_yaml_text("cam.R_body_cam: 1,0,0\n", &m);
+    app::GuidanceAppParams m = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("cam.R_body_cam: 1,0,0\n", &m);
     ok(!r.ok, "R_body_cam 不是 9 个被拒绝");
 
     // ---- 校验：范围与一致性 ----
-    app::AppParams v = app::default_params();
+    app::GuidanceAppParams v = app::guidance_default_params();
     v.guidance.N = 0.0;
-    ok(!app::validate(v).ok, "N=0 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "N=0 校验失败");
+    v = app::guidance_default_params();
     v.guidance.a_max = -1.0;
-    ok(!app::validate(v).ok, "a_max<0 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "a_max<0 校验失败");
+    v = app::guidance_default_params();
     v.loop.loop_hz = 0;
-    ok(!app::validate(v).ok, "loop_hz=0 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "loop_hz=0 校验失败");
+    v = app::guidance_default_params();
     v.loop.sensor_timeout_s = 0.05;   // < max_sample_age(0.2)
-    ok(!app::validate(v).ok, "sensor_timeout < max_sample_age 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "sensor_timeout < max_sample_age 校验失败");
+    v = app::guidance_default_params();
     v.loop.hold_last_max_s = 1.0;     // > sensor_timeout(0.5)
-    ok(!app::validate(v).ok, "hold_last_max > sensor_timeout 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "hold_last_max > sensor_timeout 校验失败");
+    v = app::guidance_default_params();
     v.loop.cam.fx = 400.0;            // 只配 fx、不配 fy
-    ok(!app::validate(v).ok, "相机只配 fx 校验失败");
-    ok(app::validate(app::default_params()).ok, "默认参数校验通过");
+    ok(!app::guidance_validate_params(v).ok, "相机只配 fx 校验失败");
+    ok(app::guidance_validate_params(app::guidance_default_params()).ok, "默认参数校验通过");
 
     // ---- 打印（便于 --print-params / 两次配置 diff）----
-    const std::string s = app::to_string(app::default_params());
+    const std::string s = app::guidance_params_to_string(app::guidance_default_params());
     ok(s.find("guidance.N") != std::string::npos &&
        s.find("loop.loop_hz") != std::string::npos &&
        s.find("cam.R_body_cam") != std::string::npos,
-       "to_string 含关键键");
+       "guidance_params_to_string 含关键键");
 }
 
 // ============================================================

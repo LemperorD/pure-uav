@@ -1,11 +1,11 @@
 // =============================================================================
-//  tools.cpp —— 地面工具箱实现（CSV 录放 + 合成世界 + 两种跑法）
+//  guidance_sim_tools.cpp —— 地面工具箱实现（CSV 录放 + 合成世界 + 两种跑法）
 //
 //  CSV 用 C stdio：不抛异常、失败用 ok()/返回值表达。
 //  格式与回放边界见 assets/docs/app/csv-format.md；黑匣子见 assets/docs/app/blackbox.md。
 // =============================================================================
 
-#include "tools.hpp"
+#include "guidance_sim_tools.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -88,12 +88,12 @@ constexpr int kInputFields = 31;
 }  // namespace
 
 // ============================================================================
-//  InputRecorder / 装饰器
+//  GuidanceInputRecorder / 装饰器
 // ============================================================================
 
-InputRecorder::~InputRecorder() { close(); }
+GuidanceInputRecorder::~GuidanceInputRecorder() { close(); }
 
-bool InputRecorder::open(const char *path) {
+bool GuidanceInputRecorder::open(const char *path) {
     close();
     ok_ = false;
     tick_ = 0;
@@ -112,12 +112,12 @@ bool InputRecorder::open(const char *path) {
     return true;
 }
 
-void InputRecorder::on_ins(const flight::InsSample &s, bool new_frame) noexcept {
+void GuidanceInputRecorder::on_ins(const flight::InsSample &s, bool new_frame) noexcept {
     ins_ = s;
     ins_new_ = new_frame;
 }
 
-void InputRecorder::on_target(const flight::TargetSample &s, bool new_frame) noexcept {
+void GuidanceInputRecorder::on_target(const flight::TargetSample &s, bool new_frame) noexcept {
     if (!f_) {
         ok_ = false;
         return;
@@ -140,21 +140,21 @@ void InputRecorder::on_target(const flight::TargetSample &s, bool new_frame) noe
     ++rows_;
 }
 
-void InputRecorder::close() {
+void GuidanceInputRecorder::close() {
     if (f_) {
         if (std::fclose(f_) != 0) ok_ = false;
         f_ = nullptr;
     }
 }
 
-bool RecordingInsSource::poll(flight::InsSample &out) {
+bool GuidanceRecordingInsSource::poll(flight::InsSample &out) {
     const bool got = inner_.poll(out);
     rec_.on_ins(got ? out : last_, got);
     if (got) last_ = out;
     return got;
 }
 
-bool RecordingTargetSource::poll(flight::TargetSample &out) {
+bool GuidanceRecordingTargetSource::poll(flight::TargetSample &out) {
     const bool got = inner_.poll(out);
     rec_.on_target(got ? out : last_, got);
     if (got) last_ = out;
@@ -162,19 +162,19 @@ bool RecordingTargetSource::poll(flight::TargetSample &out) {
 }
 
 // ============================================================================
-//  CsvReader
+//  GuidanceCsvReader
 // ============================================================================
 
-CsvReader::~CsvReader() { close(); }
+GuidanceCsvReader::~GuidanceCsvReader() { close(); }
 
-void CsvReader::close() {
+void GuidanceCsvReader::close() {
     if (f_) {
         std::fclose(f_);
         f_ = nullptr;
     }
 }
 
-bool CsvReader::open(const char *path) {
+bool GuidanceCsvReader::open(const char *path) {
     close();
     ok_ = true;
     rows_ = 0;
@@ -194,7 +194,7 @@ bool CsvReader::open(const char *path) {
     return true;
 }
 
-bool CsvReader::next(CsvRow &row) {
+bool GuidanceCsvReader::next(GuidanceCsvRow &row) {
     if (!f_) return false;
 
     char line[1024];
@@ -288,10 +288,10 @@ bool CsvReader::next(CsvRow &row) {
 }
 
 // ============================================================================
-//  CsvReplaySource
+//  GuidanceCsvReplaySource
 // ============================================================================
 
-bool CsvReplaySource::advance() {
+bool GuidanceCsvReplaySource::advance() {
     if (!r_.next(row_)) {
         done_ = true;
         have_row_ = false;
@@ -304,7 +304,7 @@ bool CsvReplaySource::advance() {
     return true;
 }
 
-bool CsvReplaySource::poll(flight::InsSample &out) {
+bool GuidanceCsvReplaySource::poll(flight::InsSample &out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
         if (!advance()) return false;
     }
@@ -314,7 +314,7 @@ bool CsvReplaySource::poll(flight::InsSample &out) {
     return true;
 }
 
-bool CsvReplaySource::poll(flight::TargetSample &out) {
+bool GuidanceCsvReplaySource::poll(flight::TargetSample &out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
         if (!advance()) return false;
     }
@@ -325,10 +325,10 @@ bool CsvReplaySource::poll(flight::TargetSample &out) {
 }
 
 // ============================================================================
-//  CsvAccelSink
+//  GuidanceCsvAccelSink
 // ============================================================================
 
-CsvAccelSink::CsvAccelSink(const char *path) {
+GuidanceCsvAccelSink::GuidanceCsvAccelSink(const char *path) {
     ok_ = false;
     if (!path || *path == '\0') return;
     f_ = std::fopen(path, "wb");
@@ -341,16 +341,16 @@ CsvAccelSink::CsvAccelSink(const char *path) {
     ok_ = true;
 }
 
-CsvAccelSink::~CsvAccelSink() { close(); }
+GuidanceCsvAccelSink::~GuidanceCsvAccelSink() { close(); }
 
-void CsvAccelSink::close() {
+void GuidanceCsvAccelSink::close() {
     if (f_) {
         if (std::fclose(f_) != 0) ok_ = false;
         f_ = nullptr;
     }
 }
 
-bool CsvAccelSink::send(const flight::GuidanceOutput &o) {
+bool GuidanceCsvAccelSink::send(const flight::GuidanceOutput &o) {
     if (!f_) {
         ok_ = false;
         return false;
@@ -373,7 +373,7 @@ bool CsvAccelSink::send(const flight::GuidanceOutput &o) {
 //  合成世界
 // ============================================================================
 
-flight::CameraModel demo_camera() {
+flight::CameraModel guidance_demo_camera() {
     flight::CameraModel c;
     c.fx = 600.0;
     c.fy = 600.0;
@@ -384,19 +384,19 @@ flight::CameraModel demo_camera() {
     return c;
 }
 
-SyntheticWorld::SyntheticWorld(const flight::CameraModel &cam, const SceneConfig &sc)
+GuidanceSyntheticWorld::GuidanceSyntheticWorld(const flight::CameraModel &cam, const GuidanceSceneConfig &sc)
     : cam_(cam), p_(sc.p0), v_(sc.v0), plate_(sc.plate), dt_(sc.dt), t_us_(sc.t0_us) {
     q_[0] = 1.0;
 }
 
-void SyntheticWorld::step() {
+void GuidanceSyntheticWorld::step() {
     v_ = v_ + a_cmd_ * dt_;
     p_ = p_ + v_ * dt_;
     t_us_ += static_cast<std::uint64_t>(dt_ * 1e6);
     a_cmd_ = Vec3{};
 }
 
-bool SyntheticWorld::poll(flight::InsSample &out) {
+bool GuidanceSyntheticWorld::poll(flight::InsSample &out) {
     out.boot_us      = t_us_;
     out.p            = p_;
     out.v            = v_;
@@ -406,7 +406,7 @@ bool SyntheticWorld::poll(flight::InsSample &out) {
     return true;
 }
 
-bool SyntheticWorld::poll(flight::TargetSample &out) {
+bool GuidanceSyntheticWorld::poll(flight::TargetSample &out) {
     const Vec3 d_world = plate_ - p_;
     const double R = norm(d_world);
     if (!(R > 1e-6)) return false;
@@ -432,7 +432,7 @@ bool SyntheticWorld::poll(flight::TargetSample &out) {
     return true;
 }
 
-bool SyntheticWorld::send(const flight::GuidanceOutput &out) {
+bool GuidanceSyntheticWorld::send(const flight::GuidanceOutput &out) {
     ++sends_;
     last_ = out;
     if (out.ctrl == flight::ControlMode::kAcceleration) {
@@ -446,15 +446,15 @@ bool SyntheticWorld::send(const flight::GuidanceOutput &out) {
     return true;
 }
 
-Vec3 SyntheticWorld::mat3_mul_transpose(const double R[9], const Vec3 &v) {
+Vec3 GuidanceSyntheticWorld::mat3_mul_transpose(const double R[9], const Vec3 &v) {
     return Vec3(R[0] * v.x + R[3] * v.y + R[6] * v.z,
                 R[1] * v.x + R[4] * v.y + R[7] * v.z,
                 R[2] * v.x + R[5] * v.y + R[8] * v.z);
 }
 
-ClosedLoopReport run_synthetic_closed_loop(SyntheticWorld &world, flight::GuidanceLoop &loop,
-                                           int ticks, TickHook hook, void *user) {
-    ClosedLoopReport rep;
+GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld &world, flight::GuidanceLoop &loop,
+                                           int ticks, GuidanceTickHook hook, void *user) {
+    GuidanceClosedLoopReport rep;
     for (int k = 0; k < ticks; ++k) {
         world.step();
         flight::GuidanceOutput out;
@@ -533,7 +533,7 @@ struct PrintCtx {
     double dt    = 0.02;
 };
 
-void on_tick_print(void *user, int k, const SyntheticWorld &world, const flight::GuidanceOutput &out) {
+void on_tick_print(void *user, int k, const GuidanceSyntheticWorld &world, const flight::GuidanceOutput &out) {
     const PrintCtx *ctx = static_cast<const PrintCtx *>(user);
     if (!ctx || ctx->every <= 0 || (k % ctx->every) != 0) return;
     std::printf("  %4d  %5.2f  %5.2f  %6.2f   %s  %6.3f   (%6.2f,%6.2f,%6.2f)  %s\n",
@@ -541,7 +541,7 @@ void on_tick_print(void *user, int k, const SyntheticWorld &world, const flight:
                 out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.sat ? "Y" : ".");
 }
 
-void print_banner(const SimOptions &opt, const AppParams &ap) {
+void print_banner(const GuidanceSimOptions &opt, const GuidanceAppParams &ap) {
     std::printf("=== pure-uav 制导主程序（合成世界，闭环）===\n");
     std::printf("  律=%s  N=%.1f  a_max=%.1f m/s²  loop=%d Hz  拍数=%d\n",
                 law_name(ap.guidance.law), ap.guidance.N, ap.guidance.a_max,
@@ -558,37 +558,37 @@ void print_banner(const SimOptions &opt, const AppParams &ap) {
 
 }  // namespace
 
-int run_synthetic(const SimOptions &opt, const AppParams &ap) {
+int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParams &ap) {
     const int hz = (ap.loop.loop_hz > 0) ? ap.loop.loop_hz : 1;
     const double dt = 1.0 / static_cast<double>(hz);
 
-    SceneConfig sc;
+    GuidanceSceneConfig sc;
     sc.dt = dt;
 
-    const flight::CameraModel cam = ap.loop.cam.valid() ? ap.loop.cam : demo_camera();
-    SyntheticWorld world(cam, sc);
+    const flight::CameraModel cam = ap.loop.cam.valid() ? ap.loop.cam : guidance_demo_camera();
+    GuidanceSyntheticWorld world(cam, sc);
 
     // ---- 录制（可选）：装饰器包在数据源外面，主循环代码一行不改 ----
-    InputRecorder rec;
+    GuidanceInputRecorder rec;
     const bool want_rec = (opt.record != nullptr);
     if (want_rec && !rec.open(opt.record)) {
         std::printf("!! 打不开录制文件：%s\n", opt.record);
         return 1;
     }
-    RecordingInsSource    rins(world, rec);
-    RecordingTargetSource rtgt(world, rec);
+    GuidanceRecordingInsSource    rins(world, rec);
+    GuidanceRecordingTargetSource rtgt(world, rec);
     flight::IInsSource    &ins = want_rec ? static_cast<flight::IInsSource &>(rins)
                                   : static_cast<flight::IInsSource &>(world);
     flight::ITargetSource &tgt = want_rec ? static_cast<flight::ITargetSource &>(rtgt)
                                   : static_cast<flight::ITargetSource &>(world);
 
     // ---- 指令落盘（可选）：一发两处 ----
-    CsvAccelSink csv_sink(opt.out);
+    GuidanceCsvAccelSink csv_sink(opt.out);
     if (opt.out && !csv_sink.ok()) {
         std::printf("!! 打不开输出文件：%s\n", opt.out);
         return 1;
     }
-    TeeSink tee(world, csv_sink);
+    GuidanceTeeSink tee(world, csv_sink);
     flight::ICommandSink &sink = opt.out ? static_cast<flight::ICommandSink &>(tee)
                                  : static_cast<flight::ICommandSink &>(world);
 
@@ -607,7 +607,7 @@ int run_synthetic(const SimOptions &opt, const AppParams &ap) {
     ctx.every = opt.verbose ? 5 : 0;
     ctx.dt    = dt;
 
-    const ClosedLoopReport rep = run_synthetic_closed_loop(
+    const GuidanceClosedLoopReport rep = guidance_run_closed_loop(
         world, loop, opt.ticks, opt.verbose ? on_tick_print : nullptr, &ctx);
 
     const flight::LoopStats &s = loop.stats();
@@ -660,15 +660,15 @@ int run_synthetic(const SimOptions &opt, const AppParams &ap) {
     return rep.target_lost ? 0 : (rep.stop == flight::LoopStatus::kOk ? 0 : 1);
 }
 
-int run_replay(const char *replay, const SimOptions &opt, const AppParams &ap) {
-    CsvReader reader;
+int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const GuidanceAppParams &ap) {
+    GuidanceCsvReader reader;
     if (!reader.open(replay)) {
         std::printf("!! 打不开回放文件：%s\n", replay);
         return 1;
     }
 
-    CsvReplaySource src(reader);
-    CsvAccelSink csv_sink(opt.out);
+    GuidanceCsvReplaySource src(reader);
+    GuidanceCsvAccelSink csv_sink(opt.out);
     if (opt.out && !csv_sink.ok()) {
         std::printf("!! 打不开输出文件：%s\n", opt.out);
         return 1;

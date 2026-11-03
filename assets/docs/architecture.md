@@ -8,9 +8,9 @@
 ## 1 分层
 
 ```text
-main
- └─ app/startup（Application：CLI + 参数 + 分发）
-     ├─ app/tools（CSV + 合成世界，地面用）
+main（全局入口）
+ └─ app/guidance_application（GuidanceApplication：CLI + 参数 + 分发）
+     ├─ app/guidance_sim_tools（CSV + 合成世界，地面用）
      └─ guidance/flight（GuidanceLoop：飞行外壳）
          └─ guidance/adapter（外部口径 → GuidanceState）
              ├─ guidance_libs（纯算法）
@@ -21,13 +21,13 @@ main
 
 ```text
 app → guidance/flight → guidance/adapter → guidance_libs → common
-app/tools → guidance/flight
+app/guidance_sim_tools → guidance/flight
 test → 任意被测层
 ```
 
 - `guidance_libs` 不依赖 app、driver、I/O；
 - `adapter` 不依赖 driver；
-- `flight` 不依赖 app/tools；
+- `flight` 不依赖 app/guidance_sim_tools；
 - `driver` 不依赖 guidance（真机胶水放 `src/app/glue/`，由 main 链接）。
 
 ---
@@ -43,8 +43,8 @@ test → 任意被测层
 | `src/guidance/adapter` | `state_adapter` | 坐标/姿态/时间换算 + 体检 |
 | `src/guidance/flight` | `guidance_shell` | `GuidanceLoop` + `RingLog` |
 | `src/guidance` | `guidance_flight` | INTERFACE 聚合：core + adapter + mavlink_units + shell |
-| `src/app/tools` | `app_tools` | CSV 录制/回放 + 合成世界 |
-| `src/app/startup` | `app_startup` | CLI + 参数 + 分发 |
+| `src/app/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
+| `src/app/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
 | `src/app` | `main` | 入口 |
 
 `guidance_flight` 是机载最小足迹；`guidance_sim` 不在其中。
@@ -57,9 +57,9 @@ test → 任意被测层
 
 ```text
 main()
-  → Application::run(argc, argv)
-      → 默认值 + YAML + CLI → AppParams
-      → validate()
+  → GuidanceApplication::run(argc, argv)
+      → 默认值 + YAML + CLI → GuidanceAppParams
+      → guidance_validate_params()
       → 选模式：
           合成世界 / 回放 → tools::run_*
           真机（未来）    → 构造 Mavlink/Vision 源/出口 + GuidanceLoop
@@ -108,8 +108,8 @@ main()
 
 | 场景 | 入口 | 数据源/出口 |
 |---|---|---|
-| 合成世界 | `run_synthetic` | `SyntheticWorld`（理想点质量） |
-| CSV 回放 | `run_replay` | `CsvReplaySource` |
+| 合成世界 | `guidance_run_synthetic` | `GuidanceSyntheticWorld`（理想点质量） |
+| CSV 回放 | `guidance_run_replay` | `GuidanceCsvReplaySource` |
 | XTDrone2/Gazebo | `sim_xtdrone2/phase_b_guidance.py` | Python 节点 + `pure_guidance` shim |
 | PX4 真机 | 未来 `src/app/glue/` | `MavlinkInsSource` + `MavlinkAccelSink` |
 
@@ -117,7 +117,7 @@ main()
 
 - `sim_xtdrone2` 只通过 shim 调 `guidance_libs`，不链接 app；
 - 真机胶水才 include `communicator.hpp`，guidance 核心不依赖 driver；
-- 机载二进制不链接 `guidance_sim` / `app_tools`。
+- 机载二进制不链接 `guidance_sim` / `guidance_sim_tools`。
 
 ---
 

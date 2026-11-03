@@ -1,16 +1,16 @@
 #pragma once
 // =============================================================================
-//  tools.hpp —— 地面工具箱（CSV 录制/回放 + 合成世界 + 两种跑法）
+//  guidance_sim_tools.hpp —— 地面工具箱（CSV 录制/回放 + 合成世界 + 两种跑法）
 //
 //  定位：只在**地面/开发机**使用；机载二进制不需要链接本文件。
-//  依赖：tools → flight_types + guidance_loop；不反向依赖 application。
+//  依赖：guidance_sim_tools → flight_types + guidance_loop；不反向依赖 guidance_application。
 //  格式/回放边界见 assets/docs/app/csv-format.md；黑匣子见 assets/docs/app/blackbox.md。
 // =============================================================================
 
 #include <cstdint>
 #include <cstdio>
 
-#include "app_params.hpp"     // AppParams（宿主侧配置）
+#include "guidance_app_params.hpp"     // GuidanceAppParams（宿主侧配置）
 #include "flight_types.hpp"   // flight::InsSample / flight::TargetSample / flight::GuidanceOutput / flight::CameraModel
 
 namespace pure_uav {
@@ -28,7 +28,7 @@ namespace app {
 //  §1  CSV 一行 / 录制 / 回放
 // ============================================================================
 
-struct CsvRow {
+struct GuidanceCsvRow {
     std::uint64_t tick = 0;
     flight::InsSample     ins;
     bool          ins_new = false;
@@ -36,12 +36,12 @@ struct CsvRow {
     bool          tgt_new = false;
 };
 
-class InputRecorder {
+class GuidanceInputRecorder {
 public:
-    InputRecorder() = default;
-    ~InputRecorder();
-    InputRecorder(const InputRecorder &) = delete;
-    InputRecorder &operator=(const InputRecorder &) = delete;
+    GuidanceInputRecorder() = default;
+    ~GuidanceInputRecorder();
+    GuidanceInputRecorder(const GuidanceInputRecorder &) = delete;
+    GuidanceInputRecorder &operator=(const GuidanceInputRecorder &) = delete;
 
     bool open(const char *path);
     void on_ins(const flight::InsSample &s, bool new_frame) noexcept;
@@ -62,42 +62,42 @@ private:
 };
 
 // 装饰器：内层数据源 + 顺带记录（不改变返回值语义）
-class RecordingInsSource final : public flight::IInsSource {
+class GuidanceRecordingInsSource final : public flight::IInsSource {
 public:
-    RecordingInsSource(flight::IInsSource &inner, InputRecorder &rec) noexcept
+    GuidanceRecordingInsSource(flight::IInsSource &inner, GuidanceInputRecorder &rec) noexcept
         : inner_(inner), rec_(rec) {}
     bool poll(flight::InsSample &out) override;
     bool alive() const override { return inner_.alive(); }
 
 private:
     flight::IInsSource    &inner_;
-    InputRecorder &rec_;
+    GuidanceInputRecorder &rec_;
     flight::InsSample      last_{};
 };
 
-class RecordingTargetSource final : public flight::ITargetSource {
+class GuidanceRecordingTargetSource final : public flight::ITargetSource {
 public:
-    RecordingTargetSource(flight::ITargetSource &inner, InputRecorder &rec) noexcept
+    GuidanceRecordingTargetSource(flight::ITargetSource &inner, GuidanceInputRecorder &rec) noexcept
         : inner_(inner), rec_(rec) {}
     bool poll(flight::TargetSample &out) override;
     bool alive() const override { return inner_.alive(); }
 
 private:
     flight::ITargetSource &inner_;
-    InputRecorder &rec_;
+    GuidanceInputRecorder &rec_;
     flight::TargetSample   last_{};
 };
 
-class CsvReader {
+class GuidanceCsvReader {
 public:
-    CsvReader() = default;
-    ~CsvReader();
-    CsvReader(const CsvReader &) = delete;
-    CsvReader &operator=(const CsvReader &) = delete;
+    GuidanceCsvReader() = default;
+    ~GuidanceCsvReader();
+    GuidanceCsvReader(const GuidanceCsvReader &) = delete;
+    GuidanceCsvReader &operator=(const GuidanceCsvReader &) = delete;
 
     bool open(const char *path);
     void close();
-    bool next(CsvRow &row);
+    bool next(GuidanceCsvRow &row);
 
     std::uint64_t rows() const { return rows_; }
     bool ok() const { return ok_; }
@@ -113,9 +113,9 @@ private:
 
 // 一个对象同时实现两个接口：一行就是“一拍的两半”。
 // 契约：每拍先 poll(flight::InsSample&) 再 poll(flight::TargetSample&)。
-class CsvReplaySource final : public flight::IInsSource, public flight::ITargetSource {
+class GuidanceCsvReplaySource final : public flight::IInsSource, public flight::ITargetSource {
 public:
-    explicit CsvReplaySource(CsvReader &reader) noexcept : r_(reader) {}
+    explicit GuidanceCsvReplaySource(GuidanceCsvReader &reader) noexcept : r_(reader) {}
 
     bool poll(flight::InsSample &out) override;
     bool poll(flight::TargetSample &out) override;
@@ -128,8 +128,8 @@ public:
 private:
     bool advance();
 
-    CsvReader    &r_;
-    CsvRow        row_{};
+    GuidanceCsvReader    &r_;
+    GuidanceCsvRow        row_{};
     std::uint64_t rows_ = 0;
     bool          done_ = false;
     bool          have_row_ = false;
@@ -138,12 +138,12 @@ private:
 };
 
 // 指令落盘（离线复盘 / 回归测试 / 演示统计）
-class CsvAccelSink final : public flight::ICommandSink {
+class GuidanceCsvAccelSink final : public flight::ICommandSink {
 public:
-    explicit CsvAccelSink(const char *path);
-    ~CsvAccelSink() override;
-    CsvAccelSink(const CsvAccelSink &) = delete;
-    CsvAccelSink &operator=(const CsvAccelSink &) = delete;
+    explicit GuidanceCsvAccelSink(const char *path);
+    ~GuidanceCsvAccelSink() override;
+    GuidanceCsvAccelSink(const GuidanceCsvAccelSink &) = delete;
+    GuidanceCsvAccelSink &operator=(const GuidanceCsvAccelSink &) = delete;
 
     bool send(const flight::GuidanceOutput &out) override;
     bool alive() const override { return f_ != nullptr && ok_; }
@@ -160,9 +160,9 @@ private:
 };
 
 // 一发两处：执行器 + 文件
-class TeeSink final : public flight::ICommandSink {
+class GuidanceTeeSink final : public flight::ICommandSink {
 public:
-    TeeSink(flight::ICommandSink &a, flight::ICommandSink &b) noexcept : a_(a), b_(b) {}
+    GuidanceTeeSink(flight::ICommandSink &a, flight::ICommandSink &b) noexcept : a_(a), b_(b) {}
     bool send(const flight::GuidanceOutput &out) override {
         const bool ra = a_.send(out);
         const bool rb = b_.send(out);
@@ -179,9 +179,9 @@ private:
 //  §2  合成世界（零外部依赖的闭环演示 / 回归）
 // ============================================================================
 
-flight::CameraModel demo_camera();
+flight::CameraModel guidance_demo_camera();
 
-struct SceneConfig {
+struct GuidanceSceneConfig {
     Vec3   p0{0.0, 0.0, -5.0};    // 起点（NED；z=-5 ⇒ 高 5 m）
     Vec3   v0{8.0, 0.0, 0.0};     // 初速
     Vec3   plate{40.0, 3.0, -5.0};// 装甲板位置
@@ -189,11 +189,11 @@ struct SceneConfig {
     std::uint64_t t0_us = 1000000ull;
 };
 
-class SyntheticWorld final : public flight::IInsSource,
+class GuidanceSyntheticWorld final : public flight::IInsSource,
                              public flight::ITargetSource,
                              public flight::ICommandSink {
 public:
-    explicit SyntheticWorld(const flight::CameraModel &cam, const SceneConfig &sc = SceneConfig{});
+    explicit GuidanceSyntheticWorld(const flight::CameraModel &cam, const GuidanceSceneConfig &sc = GuidanceSceneConfig{});
 
     void step();
 
@@ -225,7 +225,7 @@ private:
     int sends_ = 0, sat_ = 0, hold_ = 0, search_ = 0;
 };
 
-struct ClosedLoopReport {
+struct GuidanceClosedLoopReport {
     int ticks = 0;
     double min_r = 1e18;
     int min_r_tick = -1;
@@ -233,18 +233,18 @@ struct ClosedLoopReport {
     bool target_lost = false;
 };
 
-using TickHook = void (*)(void *user, int k,
-                          const SyntheticWorld &world, const flight::GuidanceOutput &out);
+using GuidanceTickHook = void (*)(void *user, int k,
+                          const GuidanceSyntheticWorld &world, const flight::GuidanceOutput &out);
 
-ClosedLoopReport run_synthetic_closed_loop(SyntheticWorld &world, flight::GuidanceLoop &loop,
-                                           int ticks, TickHook hook = nullptr,
+GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld &world, flight::GuidanceLoop &loop,
+                                           int ticks, GuidanceTickHook hook = nullptr,
                                            void *user = nullptr);
 
 // ============================================================================
 //  §3  两种跑法（从 main.cpp 搬来的薄封装）
 // ============================================================================
 
-struct SimOptions {
+struct GuidanceSimOptions {
     int    ticks = 300;
     bool   verbose = true;
     bool   realtime = false;
@@ -254,8 +254,8 @@ struct SimOptions {
     double blackbox_sec = 5.0;        // 黑匣子窗口（秒；<=0 全部）
 };
 
-int run_synthetic(const SimOptions &opt, const AppParams &p);
-int run_replay(const char *replay, const SimOptions &opt, const AppParams &p);
+int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParams &p);
+int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const GuidanceAppParams &p);
 
 }  // namespace app
 }  // namespace pure_uav

@@ -122,4 +122,4 @@ assets/docs/
 
 - 已拆分：quat、Pure 前缀、ω、CSV、接口/时间、架构、测试、冻结判据、目标模型、传感器墙；
 - 日期/emoji：`src/app`、`src/guidance`、`src/test` 已清理；`src/common` 等团队文件未动；
-- 公开 API Doxygen：`IInsSource` / `ITargetSource` / `ICommandSink` / `GuidanceLoop` / `Application` / `guidance_step` 已补。
+- 公开 API Doxygen：`IInsSource` / `ITargetSource` / `ICommandSink` / `GuidanceLoop` / `GuidanceApplication` / `guidance_step` 已补。

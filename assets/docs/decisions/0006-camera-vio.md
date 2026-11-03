@@ -32,9 +32,9 @@ los_hat = normalize(d_world)
 - 内参：`src/vio/extrinsic/results/final/camchain-openvins-final.yaml`；
 - 外参：`src/vio/extrinsic/results/final/final_extrinsics.json`；
 - **这些结果目前只在 `origin/vio` 分支**，当前 `guidance` 分支没有；
-- 演示用 `demo_camera()`（f=600、主点 320×240）只是占位，**真机不能直接用**。
+- 演示用 `guidance_demo_camera()`（f=600、主点 320×240）只是占位，**真机不能直接用**。
 
-真机必须在 YAML 里给 `cam.*`；否则 `Application` 会回退 `demo_camera()`，反投影会用假内参。
+真机必须在 YAML 里给 `cam.*`；否则 `GuidanceApplication` 会回退 `guidance_demo_camera()`，反投影会用假内参。
 
 ## 3 VIO 输出
 

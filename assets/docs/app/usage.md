@@ -1,7 +1,7 @@
 # app 用法（CLI / YAML / 跑法）
 
 - 状态：现行
-- 相关代码：`src/app/main.cpp`、`src/app/startup/application.{hpp,cpp}`
+- 相关代码：`src/app/main.cpp`、`src/app/guidance_application.{hpp,cpp}`
 - 相关文档：[README.md](README.md)、[csv-format.md](csv-format.md)、[blackbox.md](blackbox.md)
 
 ---
@@ -10,9 +10,9 @@
 
 ```text
 main()
-  → Application::run(argc, argv)
-      → 默认值 + YAML + CLI → AppParams
-      → validate()
+  → GuidanceApplication::run(argc, argv)
+      → 默认值 + YAML + CLI → GuidanceAppParams
+      → guidance_validate_params()
       → 合成世界 / 回放 / 未来真机
 ```
 
@@ -50,7 +50,7 @@ main()
 
 - 命令行**没给**的项不会覆盖 YAML；
 - 只有 `--law / --n / --a-max / --hz` 支持命令行覆盖；
-- `--ticks / --record / --out / --replay / --blackbox` 是运行选项，不进 `AppParams`。
+- `--ticks / --record / --out / --replay / --blackbox` 是运行选项，不进 `GuidanceAppParams`。
 
 ---
 
@@ -115,7 +115,7 @@ main()
 
 ## 7 相机
 
-- 配置里没给相机 → **只有合成世界 demo** 才回退 `demo_camera()`；
+- 配置里没给相机 → **只有合成世界 demo** 才回退 `guidance_demo_camera()`；
 - 真机必须在 YAML 里给 `cam.fx/fy/cx/cy/R_body_cam`，否则反投影会用假内参；
 - 真机外参来自 VIO 标定，见 [decisions/0006-camera-vio.md](../decisions/0006-camera-vio.md)。
 
@@ -160,4 +160,4 @@ main()
 - `MavlinkAccelSink`；
 - 胶水放 `src/app/glue/`，由 `main` 链接 `communicate`。
 
-当前 `Application` 仍只分发合成世界/回放。
+当前 `GuidanceApplication` 仍只分发合成世界/回放。

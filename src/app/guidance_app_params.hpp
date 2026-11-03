@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-//  app_params.hpp —— 宿主侧的整机启动配置（app 专用）
+//  guidance_app_params.hpp —— 宿主侧的整机启动配置（app 专用）
 //
 //  这里只放“main 的宿主应用”需要、而制导库不应该知道的配置。
 //  制导库自己的参数是 pure_uav::GuidanceParams；飞行外壳配置是
@@ -17,7 +17,7 @@ namespace app {
 namespace flight = pure_uav::guidance::flight;
 
 /// 整机启动配置：制导参数 + 飞行外壳配置。
-struct AppParams {
+struct GuidanceAppParams {
     GuidanceParams guidance;
     flight::LoopConfig loop;
 };

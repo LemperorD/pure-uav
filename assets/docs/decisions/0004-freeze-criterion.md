@@ -66,5 +66,5 @@ R_freeze ≈ Vc · t_go_freeze
 ## 维护
 
 - 改冻结逻辑 → 跑 `test_guidance` §14；
-- 改默认值 → 同步 `default_params()` 和真机 YAML；
+- 改默认值 → 同步 `guidance_default_params()` 和真机 YAML；
 - 新增判据 → 同步 `FreezeCriterion` 枚举和本文。

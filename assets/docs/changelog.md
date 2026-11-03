@@ -72,6 +72,15 @@
 - `AppParams` 从 `flight_types.hpp` 移到 `src/app/app_params.hpp`，仍属宿主侧 `pure_uav::app`；
 - app 侧用 `flight::` 前缀引用 guidance；CMake include 根增加 `src/app`。
 
+### 宿主侧改名（本次）
+
+- `src/app/startup/application.{hpp,cpp}` → `src/app/guidance_application.{hpp,cpp}`；
+- `src/app/tools/tools.{hpp,cpp}` → `src/app/guidance_sim_tools.{hpp,cpp}`；
+- `src/app/app_params.hpp` → `src/app/guidance_app_params.hpp`；
+- `Application` → `GuidanceApplication`，`AppParams` → `GuidanceAppParams`，`ParamResult` → `GuidanceParamResult`；
+- tools 公开类型统一 `Guidance*` 前缀（`GuidanceCsvRow` / `GuidanceSyntheticWorld` / `GuidanceSimOptions` 等）；
+- CMake target：`app_tools` → `guidance_sim_tools`，`app_startup` → `guidance_application`，删除 `app_guidance` 别名。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

@@ -1,7 +1,7 @@
 # app CSV 格式（录制 / 回放 / 指令落盘）
 
 - 状态：现行
-- 相关代码：`src/app/tools/tools.hpp`、`src/app/tools/tools.cpp`
+- 相关代码：`src/app/guidance_sim_tools.hpp`、`src/app/guidance_sim_tools.cpp`
 - 相关文档：[app/README.md](README.md)
 
 CSV 是**地面工具**：用于离线复盘、调参 A/B、回归测试；机载二进制不需要链接它。
@@ -39,11 +39,11 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 
 ## 3 录制 / 回放行为
 
-- `InputRecorder`：每拍一行，输入帧 + 目标帧一起写；没有新帧也写，保证行对齐。
-- `RecordingInsSource` / `RecordingTargetSource`：装饰器，包在任意数据源外。
-- `CsvReader`：读 CSV，跳过注释/空行，解析 31 列。
-- `CsvReplaySource`：一行同时喂 `IInsSource` 和 `ITargetSource`；`ins_new=0` 时返回 false，让主循环沿用上一帧。
-- `CsvAccelSink`：输出 CSV；`TeeSink` 可同时发执行器和文件。
+- `GuidanceInputRecorder`：每拍一行，输入帧 + 目标帧一起写；没有新帧也写，保证行对齐。
+- `GuidanceRecordingInsSource` / `GuidanceRecordingTargetSource`：装饰器，包在任意数据源外。
+- `GuidanceCsvReader`：读 CSV，跳过注释/空行，解析 31 列。
+- `GuidanceCsvReplaySource`：一行同时喂 `IInsSource` 和 `ITargetSource`；`ins_new=0` 时返回 false，让主循环沿用上一帧。
+- `GuidanceCsvAccelSink`：输出 CSV；`GuidanceTeeSink` 可同时发执行器和文件。
 
 ## 4 用法
 
@@ -65,7 +65,7 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 
 ## 6 实飞注意
 
-**不要用 `CsvAccelSink` 当实飞黑匣子。** stdio 落盘可能阻塞主循环（fsync 抖动几十 ms）。
+**不要用 `GuidanceCsvAccelSink` 当实飞黑匣子。** stdio 落盘可能阻塞主循环（fsync 抖动几十 ms）。
 
 实飞用：
 

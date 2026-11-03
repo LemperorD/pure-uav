@@ -37,9 +37,9 @@
 
 | 代码位置 | 主要文档 | 说明 |
 |---|---|---|
-| `src/app/main.cpp` | [app/README.md](app/README.md) | 入口：只创建 `Application` |
-| `src/app/startup/` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | CLI / 参数加载 / 分发 |
-| `src/app/tools/` | [app/README.md](app/README.md) + [app/csv-format.md](app/csv-format.md) + [app/blackbox.md](app/blackbox.md) | CSV 录制/回放 + 合成世界 + 黑匣子 |
+| `src/app/main.cpp` | [app/README.md](app/README.md) | 入口：只创建 `GuidanceApplication` |
+| `src/app/guidance_application.{hpp,cpp}` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | CLI / 参数加载 / 分发 |
+| `src/app/guidance_sim_tools.{hpp,cpp}` | [app/README.md](app/README.md) + [app/csv-format.md](app/csv-format.md) + [app/blackbox.md](app/blackbox.md) | CSV 录制/回放 + 合成世界 + 黑匣子 |
 | `src/guidance/flight/` | [guidance/README.md](guidance/README.md) + [architecture.md](architecture.md) | 飞行外壳：`flight_types` + `guidance_loop` |
 | `src/guidance/guidance_libs/` | [guidance/README.md](guidance/README.md) + [0001](decisions/0001-quat-semantics.md) + [0002](decisions/0002-pure-prefix.md) + [0004](decisions/0004-freeze-criterion.md) + [0007](decisions/0007-target-models.md) + [0008](decisions/0008-sensor-wall.md) | 算法核 / 冻结 / 目标模型 / 传感器墙 |
 | `src/guidance/adapter/` | [guidance/README.md](guidance/README.md) + [interfaces.md](interfaces.md) + [0005](decisions/0005-time-base.md) | 坐标/时间适配 + 体检 |

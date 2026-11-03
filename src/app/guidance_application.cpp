@@ -1,11 +1,11 @@
 // =============================================================================
-//  application.cpp —— 启动层实现（YAML 子集 + CLI + 模式分发）
+//  guidance_application.cpp —— 启动层实现（YAML 子集 + CLI + 模式分发）
 //
 //  只在启动阶段调用；不用异常；不引入 yaml-cpp。
 //  CLI/YAML/跑法见 assets/docs/app/usage.md。
 // =============================================================================
 
-#include "application.hpp"
+#include "guidance_application.hpp"
 
 #include <cctype>
 #include <cerrno>
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "tools.hpp"   // run_synthetic / run_replay / demo_camera / SimOptions
+#include "guidance_sim_tools.hpp"   // guidance_run_synthetic / guidance_run_replay / guidance_demo_camera / GuidanceSimOptions
 
 namespace pure_uav {
 namespace app {
@@ -200,7 +200,7 @@ bool set_camera_matrix(const std::string &raw, double out[9]) {
     return true;
 }
 
-bool apply_key(const std::string &key, const std::string &raw, AppParams *p, std::string *why) {
+bool apply_key(const std::string &key, const std::string &raw, GuidanceAppParams *p, std::string *why) {
     const std::string val = trim(raw);
     auto bad = [&](const char *expect) {
         *why = "键 '" + key + "' 的值非法（期望 " + expect + "）：'" + val + "'";
@@ -401,8 +401,8 @@ bool parse_args(int argc, char **argv, Args *a) {
 //  参数实现（原 params.cpp）
 // ============================================================================
 
-AppParams default_params() {
-    AppParams p;
+GuidanceAppParams guidance_default_params() {
+    GuidanceAppParams p;
     p.guidance.law = GuidanceLaw::PPN;
     p.guidance.N = 4.0;
     p.guidance.a_max = 10.0;
@@ -416,10 +416,10 @@ AppParams default_params() {
     return p;
 }
 
-ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *source) {
-    if (out == nullptr) return ParamResult::fail("内部错误：out 为空");
+GuidanceParamResult guidance_load_yaml_text(const std::string &text, GuidanceAppParams *out, const char *source) {
+    if (out == nullptr) return GuidanceParamResult::fail("内部错误：out 为空");
 
-    AppParams p = *out;
+    GuidanceAppParams p = *out;
     std::vector<std::pair<int, std::string>> stack;
     std::set<std::string> seen;
     std::istringstream in(text);
@@ -433,7 +433,7 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
         std::size_t first = 0;
         while (first < raw.size() && raw[first] == ' ') ++first;
         if (first < raw.size() && raw[first] == '\t') {
-            return ParamResult::fail(err_at(source, line_no, "不允许用 tab 缩进（请用空格）"));
+            return GuidanceParamResult::fail(err_at(source, line_no, "不允许用 tab 缩进（请用空格）"));
         }
         const int indent = static_cast<int>(first);
 
@@ -471,18 +471,18 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
             }
         }
         if (colon == std::string::npos) {
-            return ParamResult::fail(
+            return GuidanceParamResult::fail(
                 err_at(source, line_no, "缺少 ':'（本加载器只支持 `key: value`）"));
         }
 
         const std::string key = trim(line.substr(0, colon));
         std::string val = trim(line.substr(colon + 1));
         if (key.empty()) {
-            return ParamResult::fail(err_at(source, line_no, "键名为空"));
+            return GuidanceParamResult::fail(err_at(source, line_no, "键名为空"));
         }
         for (char c : key) {
             if (std::isspace(static_cast<unsigned char>(c)) != 0) {
-                return ParamResult::fail(err_at(source, line_no, "键名里不允许空格：'" + key + "'"));
+                return GuidanceParamResult::fail(err_at(source, line_no, "键名里不允许空格：'" + key + "'"));
             }
         }
 
@@ -501,87 +501,87 @@ ParamResult load_yaml_text(const std::string &text, AppParams *out, const char *
             full = it->second + "." + full;
         }
         if (!seen.insert(full).second) {
-            return ParamResult::fail(err_at(source, line_no, "重复的键：'" + full + "'"));
+            return GuidanceParamResult::fail(err_at(source, line_no, "重复的键：'" + full + "'"));
         }
 
         std::string why;
         if (!apply_key(full, val, &p, &why)) {
-            return ParamResult::fail(err_at(source, line_no, why));
+            return GuidanceParamResult::fail(err_at(source, line_no, why));
         }
     }
 
     *out = p;
-    return ParamResult::success();
+    return GuidanceParamResult::success();
 }
 
-ParamResult load_yaml_file(const std::string &path, AppParams *out) {
+GuidanceParamResult guidance_load_yaml_file(const std::string &path, GuidanceAppParams *out) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return ParamResult::fail("打不开配置文件：" + path);
+    if (!f) return GuidanceParamResult::fail("打不开配置文件：" + path);
     std::ostringstream os;
     os << f.rdbuf();
-    if (!f.good() && !f.eof()) return ParamResult::fail("读取配置文件失败：" + path);
-    return load_yaml_text(os.str(), out, path.c_str());
+    if (!f.good() && !f.eof()) return GuidanceParamResult::fail("读取配置文件失败：" + path);
+    return guidance_load_yaml_text(os.str(), out, path.c_str());
 }
 
-ParamResult validate(const AppParams &p) {
+GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
     const int law = static_cast<int>(p.guidance.law);
-    if (law < 0 || law > 2) return ParamResult::fail("guidance.law 非法");
+    if (law < 0 || law > 2) return GuidanceParamResult::fail("guidance.law 非法");
     const int freeze = static_cast<int>(p.guidance.freeze_criterion);
-    if (freeze < 0 || freeze > 2) return ParamResult::fail("guidance.freeze_criterion 非法");
+    if (freeze < 0 || freeze > 2) return GuidanceParamResult::fail("guidance.freeze_criterion 非法");
     const int los = static_cast<int>(p.guidance.los_rate_source);
-    if (los < 0 || los > 1) return ParamResult::fail("guidance.los_rate_source 非法");
+    if (los < 0 || los > 1) return GuidanceParamResult::fail("guidance.los_rate_source 非法");
     const int unh = static_cast<int>(p.loop.on_unhealthy);
-    if (unh < 0 || unh > 2) return ParamResult::fail("loop.on_unhealthy 非法");
+    if (unh < 0 || unh > 2) return GuidanceParamResult::fail("loop.on_unhealthy 非法");
 
     std::string e = check_range("guidance.N", p.guidance.N, 0.5, 20.0, true, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("guidance.a_max", p.guidance.a_max, 0.0, 100.0, true, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("guidance.t_go_freeze", p.guidance.t_go_freeze, 0.0, 10.0, false, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("guidance.R_freeze", p.guidance.R_freeze, 0.0, 100.0, false, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
 
     if (p.loop.loop_hz < 1 || p.loop.loop_hz > 1000) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "loop.loop_hz 超出范围：%d（要求 [1, 1000]）",
                       p.loop.loop_hz);
-        return ParamResult::fail(buf);
+        return GuidanceParamResult::fail(buf);
     }
     e = check_range("loop.max_sample_age_s", p.loop.max_sample_age_s, 0.0, 5.0, true, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("loop.sensor_timeout_s", p.loop.sensor_timeout_s, 0.0, 10.0, true, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     if (p.loop.sensor_timeout_s < p.loop.max_sample_age_s) {
-        return ParamResult::fail("loop.sensor_timeout_s 必须 ≥ loop.max_sample_age_s"
+        return GuidanceParamResult::fail("loop.sensor_timeout_s 必须 ≥ loop.max_sample_age_s"
                                  "（否则数据还没判过期就先判掉线）");
     }
     e = check_range("loop.hold_last_max_s", p.loop.hold_last_max_s, 0.0,
                     p.loop.sensor_timeout_s, false, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("loop.full_check_hz", p.loop.full_check_hz, 0.0, 1000.0, false, false);
-    if (!e.empty()) return ParamResult::fail(e);
+    if (!e.empty()) return GuidanceParamResult::fail(e);
 
     const flight::CameraModel &c = p.loop.cam;
     if ((c.fx > 0.0) != (c.fy > 0.0)) {
-        return ParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
+        return GuidanceParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
     }
     if (c.fx < 0.0 || c.fy < 0.0) {
-        return ParamResult::fail("cam.fx / cam.fy 不能为负");
+        return GuidanceParamResult::fail("cam.fx / cam.fy 不能为负");
     }
     if (!std::isfinite(c.cx) || !std::isfinite(c.cy)) {
-        return ParamResult::fail("cam.cx / cam.cy 必须是有限数");
+        return GuidanceParamResult::fail("cam.cx / cam.cy 必须是有限数");
     }
     for (int i = 0; i < 9; ++i) {
         if (!std::isfinite(c.R_body_cam[i])) {
-            return ParamResult::fail("cam.R_body_cam 含非有限数");
+            return GuidanceParamResult::fail("cam.R_body_cam 含非有限数");
         }
     }
 
-    return ParamResult::success();
+    return GuidanceParamResult::success();
 }
 
-std::string to_string(const AppParams &p) {
+std::string guidance_params_to_string(const GuidanceAppParams &p) {
     std::ostringstream os;
     os << "guidance.law: " << law_name(p.guidance.law) << "\n";
     os << "guidance.N: " << p.guidance.N << "\n";
@@ -611,10 +611,10 @@ std::string to_string(const AppParams &p) {
 }
 
 // ============================================================================
-//  Application
+//  GuidanceApplication
 // ============================================================================
 
-int Application::run(int argc, char **argv) {
+int GuidanceApplication::run(int argc, char **argv) {
     Args a;
     if (!parse_args(argc, argv, &a)) return 2;
     if (a.help) return 0;
@@ -629,9 +629,9 @@ int Application::run(int argc, char **argv) {
     }
 
     // 默认值 → YAML → 命令行（只覆盖显式给出的项）
-    AppParams ap = default_params();
+    GuidanceAppParams ap = guidance_default_params();
     if (a.config != nullptr) {
-        const ParamResult r = load_yaml_file(a.config, &ap);
+        const GuidanceParamResult r = guidance_load_yaml_file(a.config, &ap);
         if (!r.ok) {
             std::printf("!! 配置加载失败：%s\n", r.error.c_str());
             return 2;
@@ -642,7 +642,7 @@ int Application::run(int argc, char **argv) {
     if (a.a_max_given) ap.guidance.a_max = a.a_max;
     if (a.hz_given) ap.loop.loop_hz = a.hz;
 
-    const ParamResult vr = validate(ap);
+    const GuidanceParamResult vr = guidance_validate_params(ap);
     if (!vr.ok) {
         std::printf("!! 参数校验失败：%s\n", vr.error.c_str());
         return 2;
@@ -650,14 +650,14 @@ int Application::run(int argc, char **argv) {
 
     // 合成世界 demo：配置里没给相机时回退演示相机。
     // 注意：真机必须在 YAML 里给 cam.fx/fy/cx/cy/R_body_cam。
-    if (!ap.loop.cam.valid()) ap.loop.cam = demo_camera();
+    if (!ap.loop.cam.valid()) ap.loop.cam = guidance_demo_camera();
 
     if (a.print_params) {
-        std::printf("%s", to_string(ap).c_str());
+        std::printf("%s", guidance_params_to_string(ap).c_str());
         return 0;
     }
 
-    SimOptions opt;
+    GuidanceSimOptions opt;
     opt.ticks        = a.ticks;
     opt.verbose      = a.verbose;
     opt.realtime     = a.realtime;
@@ -666,8 +666,8 @@ int Application::run(int argc, char **argv) {
     opt.blackbox     = a.blackbox;
     opt.blackbox_sec = a.blackbox_sec;
 
-    if (a.replay != nullptr) return run_replay(a.replay, opt, ap);
-    return run_synthetic(opt, ap);
+    if (a.replay != nullptr) return guidance_run_replay(a.replay, opt, ap);
+    return guidance_run_synthetic(opt, ap);
 }
 
 }  // namespace app

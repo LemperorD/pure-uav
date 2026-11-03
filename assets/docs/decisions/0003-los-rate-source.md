@@ -61,5 +61,5 @@
 ## 维护
 
 - 改 `dt` 来源或 `guidance_step` 调用时机 → 必须重跑 `test_guidance` 的 ω/制导断言；
-- 改 `los_rate_source` 默认值 → 同步 `default_params()` 和真机 YAML；
+- 改 `los_rate_source` 默认值 → 同步 `guidance_default_params()` 和真机 YAML；
 - 新增 `LosRateSource` 枚举时，必须同时更新 `guidance_types.hpp` 的注释和本文档。

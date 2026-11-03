@@ -18,13 +18,13 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog
 
 src/app/（宿主应用与入口，pure_uav::app）
-  main.cpp                 入口：只创建 Application 并调用 run(argc, argv)
-  app_params.hpp           宿主侧整机配置 AppParams
-  startup/application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
-  tools/tools.{hpp,cpp}     合成世界 + 闭环驱动 + CSV 录制/回放 + run_synthetic/run_replay
+  main.cpp                         入口：只创建 GuidanceApplication 并调用 run(argc, argv)
+  guidance_app_params.hpp          宿主侧整机配置 GuidanceAppParams
+  guidance_application.{hpp,cpp}   CLI + 参数加载/校验/打印 + 模式分发
+  guidance_sim_tools.{hpp,cpp}     合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
 ```
 
-依赖方向：`main → application → app_params / tools → guidance_loop → flight_types`，
+依赖方向：`main → guidance_application → guidance_app_params / guidance_sim_tools → guidance_loop → flight_types`，
 底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `flight_types.hpp` 保持零外部协议依赖。
@@ -61,13 +61,13 @@ src/app/（宿主应用与入口，pure_uav::app）
 | 发送 | 300 拍全部发出（`sent == ticks`） |
 | 目标帧 | 250（后 50 拍目标出画 ⇒ 只重发、不重算） |
 
-### 2.1 参数加载（`application.{hpp,cpp}`）
+### 2.1 参数加载（`guidance_application.{hpp,cpp}`）
 
 - **优先级**：默认值 < `--config=FILE` < **显式给出的**命令行项
   （`--law/--n/--a-max/--hz`；没给的不会覆盖 YAML）。
 - **YAML 子集**（故意不引入 yaml-cpp）：缩进嵌套或扁平点号键、`#` 注释、
   整数/浮点/布尔/枚举名（大小写不敏感）、`cam.R_body_cam` 9 个逗号分隔浮点。
-- **校验**（`validate()`，失败直接退出码 2）：`N ∈ (0.5,20]`、`a_max ∈ (0,100]`、
+- **校验**（`guidance_validate_params()`，失败直接退出码 2）：`N ∈ (0.5,20]`、`a_max ∈ (0,100]`、
   `loop_hz ∈ [1,1000]`、`sensor_timeout ≥ max_sample_age`、`hold_last ≤ sensor_timeout`、
   相机 `fx/fy` 必须成对……
 - **支持的键**：
@@ -75,7 +75,7 @@ src/app/（宿主应用与入口，pure_uav::app）
   `loop.{loop_hz,max_sample_age_s,sensor_timeout_s,on_unhealthy,hold_last_max_s,full_check_hz,send_on_every_tick}` ·
   `cam.{fx,fy,cx,cy,R_body_cam}`
 - `--print-params` 打印最终值（两次配置可 diff）；`cam.*` 未配时**只有合成世界 demo**
-  才回退 `demo_camera()`，真机必须在 YAML 里给相机。
+  才回退 `guidance_demo_camera()`，真机必须在 YAML 里给相机。
 
 ### 2.2 端到端打点（`LoopStats::latency`）
 
@@ -116,14 +116,14 @@ present, has_range, range_m, has_vT, vTn,vTe,vTd
 ### 用法（接线时一行不用改主循环）
 
 ```cpp
-InputRecorder rec;
+GuidanceInputRecorder rec;
 rec.open("flight.csv");
-RecordingInsSource    ins(raw_ins, rec);   // 装饰器
-RecordingTargetSource tgt(raw_tgt, rec);
+GuidanceRecordingInsSource    ins(raw_ins, rec);   // 装饰器
+GuidanceRecordingTargetSource tgt(raw_tgt, rec);
 GuidanceLoop loop(params, cfg, ins, tgt, sink);
 ```
 
-复盘：`CsvReader` + `CsvReplaySource`（一个类同时喂两个接口）+ `CsvAccelSink`。
+复盘：`GuidanceCsvReader` + `GuidanceCsvReplaySource`（一个类同时喂两个接口）+ `GuidanceCsvAccelSink`。
 
 ### ⚠ 回放的能力边界
 
@@ -139,7 +139,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `test_guidance` §16 | 主循环外壳：像素反投影、PN 方向、SEARCH、三级降级、过期、重发、统计 | 37 |
 | `test_guidance` §17 | **端到端闭环回归**：跑一整段交会并断言 min R / 饱和 / HOLD / 每拍发送 | 16 |
 | `test_guidance` §18 | **CSV 录制 → 回放逐位一致**（黑匣子有效性）+ 句柄生命周期 + 句柄泄漏计数 | 59 |
-| `test_guidance` §19 | **参数加载**：默认值 / 嵌套与扁平 YAML / 未知键 / 类型错 / 重复键 / 范围校验 / to_string | 33 |
+| `test_guidance` §19 | **参数加载**：默认值 / 嵌套与扁平 YAML / 未知键 / 类型错 / 重复键 / 范围校验 / guidance_params_to_string | 33 |
 | `test_guidance` §20 | **端到端打点**：五段 P50/P95/max、环形回绕、空统计 | 14 |
 | `test_guidance` §21 | **黑匣子**：环形回绕、时间窗 dump、文件内容、与 loop 接线 | 19 |
 
@@ -155,15 +155,15 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 `new / delete / malloc / free / strdup` 出现次数 = **0**。所有容器（`std::vector` /
 `std::string`）都是 RAII，随作用域释放。
 
-唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `tools.{hpp,cpp}` 三个类：
+唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `guidance_sim_tools.{hpp,cpp}` 三个类：
 
 | 类 | 释放点 | 重复 `open()` | `close()` 幂等 | 拷贝 |
 | --- | --- | --- | --- | --- |
-| `InputRecorder` | 析构 / `close()` | ✅ 先关旧句柄 | ✅ | 禁止 |
-| `CsvReader` | 析构 / `close()` | ✅ 先关旧句柄 | ✅ | 禁止 |
-| `CsvAccelSink` | 析构 / `close()` | —（只构造时开一次） | ✅ | 禁止 |
+| `GuidanceInputRecorder` | 析构 / `close()` | ✅ 先关旧句柄 | ✅ | 禁止 |
+| `GuidanceCsvReader` | 析构 / `close()` | ✅ 先关旧句柄 | ✅ | 禁止 |
+| `GuidanceCsvAccelSink` | 析构 / `close()` | —（只构造时开一次） | ✅ | 禁止 |
 
-`GuidanceLoop` / `TeeSink` / 两个装饰器**只持有引用、不拥有对象** ⇒
+`GuidanceLoop` / `GuidanceTeeSink` / 两个装饰器**只持有引用、不拥有对象** ⇒
 循环对象必须先于其数据源析构（`main` 与测试里的声明顺序都满足）。
 
 §18 ⑤ 用**进程句柄计数**做真正的泄漏检测：200 轮 open/write/read/close
