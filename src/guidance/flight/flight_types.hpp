@@ -4,7 +4,7 @@
 //
 //  本文件是 guidance/flight 的叶子头：不 include 任何 app/ 文件。
 //  数据源/出口的具体实现只在此声明；真机胶水放 src/app/glue/，不把 driver 拖进来。
-//  命名空间暂用 pure_uav::app（历史命名，待统一）。
+//  命名空间：pure_uav::guidance::flight。
 // =============================================================================
 
 #include <cstdint>
@@ -13,7 +13,8 @@
 #include "vec3.hpp"             // pure_uav::Vec3
 
 namespace pure_uav {
-namespace app {
+namespace guidance {
+namespace flight {
 
 // ============================================================================
 //  §1  采样
@@ -173,11 +174,7 @@ struct LoopConfig {
     CameraModel cam;
 };
 
-// 整机启动配置（机载只认这一份）
-struct AppParams {
-    GuidanceParams guidance;
-    LoopConfig     loop;
-};
+// 整机启动配置（宿主侧 app 专用）定义在 src/app/app_params.hpp。
 
 // ============================================================================
 //  §5  预留实现声明（只有声明，没有实现）
@@ -193,5 +190,6 @@ struct AppParams {
 //  class MavlinkAccelSink     final : public ICommandSink { ... };
 //  class Ros2AccelSink        final : public ICommandSink { ... };
 
-}  // namespace app
+}  // namespace flight
+}  // namespace guidance
 }  // namespace pure_uav

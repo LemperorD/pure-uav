@@ -10,6 +10,7 @@
 #include "guidance_types.hpp"
 
 namespace pure_uav {
+namespace guidance {
 namespace adapter {
 
 // ============================================================================
@@ -181,4 +182,5 @@ bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
                      double a_max_mps2 = 0.0, bool has_a_max = false);
 
 }  // namespace adapter
+}  // namespace guidance
 }  // namespace pure_uav

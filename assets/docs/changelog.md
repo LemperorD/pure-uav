@@ -65,6 +65,13 @@
 - 清理 `src/app`、`src/guidance`、`src/test` 中的日期与 `★/⚠/✅/🔴`；
 - 公开 API 补 Doxygen：`IInsSource` / `ITargetSource` / `ICommandSink` / `GuidanceLoop` / `Application` / `guidance_step`。
 
+### 命名空间归位（本次）
+
+- guidance 飞行外壳：`pure_uav::app` → `pure_uav::guidance::flight`；
+- 输入适配层：`pure_uav::adapter` → `pure_uav::guidance::adapter`；
+- `AppParams` 从 `flight_types.hpp` 移到 `src/app/app_params.hpp`，仍属宿主侧 `pure_uav::app`；
+- app 侧用 `flight::` 前缀引用 guidance；CMake include 根增加 `src/app`。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

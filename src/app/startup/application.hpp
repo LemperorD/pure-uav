@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-#include "flight_types.hpp"   // AppParams
+#include "app_params.hpp"   // AppParams（宿主侧配置）
 
 namespace pure_uav {
 namespace app {

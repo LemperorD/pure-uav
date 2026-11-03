@@ -5,6 +5,7 @@
 #    src/guidance/flight/    flight_types.hpp / guidance_loop.{hpp,cpp}
 #    src/app/
 #      main.cpp              入口
+#      app_params.hpp        宿主侧 AppParams
 #      startup/              application.{hpp,cpp}（CLI + 参数 + 分发）
 #      tools/                tools.{hpp,cpp}（CSV 录制/回放 + 合成世界）
 #
@@ -19,6 +20,7 @@ add_library(app_tools STATIC
     tools/tools.cpp
 )
 target_include_directories(app_tools PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/tools
 )
 target_link_libraries(app_tools PUBLIC
@@ -29,6 +31,7 @@ add_library(app_startup STATIC
     startup/application.cpp
 )
 target_include_directories(app_startup PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/startup
 )
 target_link_libraries(app_startup PUBLIC

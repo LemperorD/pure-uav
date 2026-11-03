@@ -4,6 +4,7 @@
 #include <cstddef>
 
 namespace pure_uav {
+namespace guidance {
 namespace adapter {
 
 // ============================================================================
@@ -441,4 +442,5 @@ GuidanceState to_guidance_state(const RawFrame &raw) noexcept {
 }
 
 }  // namespace adapter
+}  // namespace guidance
 }  // namespace pure_uav

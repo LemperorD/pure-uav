@@ -7,6 +7,7 @@
 #include "vec3.hpp"
 
 namespace pure_uav {
+namespace guidance {
 namespace adapter {
 
 // ============================================================================
@@ -309,4 +310,5 @@ bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
 }
 
 }  // namespace adapter
+}  // namespace guidance
 }  // namespace pure_uav

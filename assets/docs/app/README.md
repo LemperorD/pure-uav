@@ -13,17 +13,18 @@
 ## 1 分层与文件
 
 ```
-src/guidance/flight/（飞行外壳）
-  flight_types.hpp         类型 / 契约 / CameraModel / LoopConfig / AppParams
+src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
+  flight_types.hpp         类型 / 契约 / CameraModel / LoopConfig
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog
 
-src/app/（组装与入口）
+src/app/（宿主应用与入口，pure_uav::app）
   main.cpp                 入口：只创建 Application 并调用 run(argc, argv)
+  app_params.hpp           宿主侧整机配置 AppParams
   startup/application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
   tools/tools.{hpp,cpp}     合成世界 + 闭环驱动 + CSV 录制/回放 + run_synthetic/run_replay
 ```
 
-依赖方向：`main → application → tools → guidance_loop → flight_types`，
+依赖方向：`main → application → app_params / tools → guidance_loop → flight_types`，
 底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `flight_types.hpp` 保持零外部协议依赖。

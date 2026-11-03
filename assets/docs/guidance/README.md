@@ -34,7 +34,7 @@ src/guidance/
 │       ├── state_adapter.cpp
 │       └── state_check.cpp
 ├── flight/                         # 飞行外壳（2026-11-01 从 app 迁入）
-│   ├── flight_types.hpp            # 类型 / 契约 / CameraModel / LoopConfig / AppParams
+│   ├── flight_types.hpp            # 类型 / 契约 / CameraModel / LoopConfig
 │   └── guidance_loop.{hpp,cpp}     # 主循环 + 内存黑匣子
 └── sim/
     ├── pn_sim.cpp                  # 3D 拦截数值仿真（输出 CSV）

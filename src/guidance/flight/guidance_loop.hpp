@@ -17,7 +17,8 @@
 #include "state_adapter.hpp"   // adapter::StateTimeTracker
 
 namespace pure_uav {
-namespace app {
+namespace guidance {
+namespace flight {
 
 // ============================================================================
 //  §1  端到端打点（固定环形，循环内零分配）
@@ -198,5 +199,6 @@ private:
     RingLog   blackbox_{};
 };
 
-}  // namespace app
+}  // namespace flight
+}  // namespace guidance
 }  // namespace pure_uav

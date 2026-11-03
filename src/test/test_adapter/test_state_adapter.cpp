@@ -17,7 +17,7 @@
 #include "guidance.hpp"      // guidance_step()
 
 using namespace pure_uav;
-using namespace pure_uav::adapter;
+using namespace pure_uav::guidance::adapter;
 
 // ============================================================
 //  轻量断言

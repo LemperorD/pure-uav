@@ -10,6 +10,7 @@
 #include "mavlink_units.hpp"       // 单位换算与哨兵（本文件全部转调它）
 
 namespace pure_uav {
+namespace guidance {
 namespace adapter {
 
 // ============================================================================
@@ -287,4 +288,5 @@ struct RawFrame {        // 一帧完整外部输入
 GuidanceState to_guidance_state(const RawFrame &raw) noexcept;
 
 }  // namespace adapter
+}  // namespace guidance
 }  // namespace pure_uav

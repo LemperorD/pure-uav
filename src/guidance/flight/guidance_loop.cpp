@@ -19,7 +19,8 @@
 #include "state_check.hpp"     // quick_check()
 
 namespace pure_uav {
-namespace app {
+namespace guidance {
+namespace flight {
 
 // ============================================================================
 //  LatencyStats 实现（只在循环外调用：复制到栈上排序，无堆分配）
@@ -480,5 +481,6 @@ LoopStatus GuidanceLoop::run() {
     return LoopStatus::kStopped;
 }
 
-}  // namespace app
+}  // namespace flight
+}  // namespace guidance
 }  // namespace pure_uav

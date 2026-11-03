@@ -114,11 +114,11 @@ const char *los_name(LosRateSource v) {
     return "?";
 }
 
-const char *unhealthy_name(LoopConfig::OnUnhealthy v) {
+const char *unhealthy_name(flight::LoopConfig::OnUnhealthy v) {
     switch (v) {
-        case LoopConfig::OnUnhealthy::kHoldLastCommand: return "HOLD_LAST_COMMAND";
-        case LoopConfig::OnUnhealthy::kSafeHover: return "SAFE_HOVER";
-        case LoopConfig::OnUnhealthy::kStop: return "STOP";
+        case flight::LoopConfig::OnUnhealthy::kHoldLastCommand: return "HOLD_LAST_COMMAND";
+        case flight::LoopConfig::OnUnhealthy::kSafeHover: return "SAFE_HOVER";
+        case flight::LoopConfig::OnUnhealthy::kStop: return "STOP";
     }
     return "?";
 }
@@ -162,18 +162,18 @@ bool set_enum_los(const std::string &raw, LosRateSource *out) {
     return false;
 }
 
-bool set_enum_unhealthy(const std::string &raw, LoopConfig::OnUnhealthy *out) {
+bool set_enum_unhealthy(const std::string &raw, flight::LoopConfig::OnUnhealthy *out) {
     const std::string v = lower(trim(raw));
     if (v == "0" || v == "hold" || v == "hold_last" || v == "hold_last_command") {
-        *out = LoopConfig::OnUnhealthy::kHoldLastCommand;
+        *out = flight::LoopConfig::OnUnhealthy::kHoldLastCommand;
         return true;
     }
     if (v == "1" || v == "safe_hover" || v == "hover") {
-        *out = LoopConfig::OnUnhealthy::kSafeHover;
+        *out = flight::LoopConfig::OnUnhealthy::kSafeHover;
         return true;
     }
     if (v == "2" || v == "stop") {
-        *out = LoopConfig::OnUnhealthy::kStop;
+        *out = flight::LoopConfig::OnUnhealthy::kStop;
         return true;
     }
     return false;
@@ -562,7 +562,7 @@ ParamResult validate(const AppParams &p) {
     e = check_range("loop.full_check_hz", p.loop.full_check_hz, 0.0, 1000.0, false, false);
     if (!e.empty()) return ParamResult::fail(e);
 
-    const CameraModel &c = p.loop.cam;
+    const flight::CameraModel &c = p.loop.cam;
     if ((c.fx > 0.0) != (c.fy > 0.0)) {
         return ParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
     }

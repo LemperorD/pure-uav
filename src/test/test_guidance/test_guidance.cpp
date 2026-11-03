@@ -44,6 +44,7 @@
 #include "application.hpp"       // 参数加载 / 校验（§19）
 
 using namespace pure_uav;
+namespace flight = pure_uav::guidance::flight;
 
 // ============================================================
 //  轻量断言
@@ -884,10 +885,10 @@ static void test_invariants() {
 //   ⑤ 统计计数
 namespace {
 
-struct LoopStubIns : app::IInsSource {
-    app::InsSample next;
+struct LoopStubIns : flight::IInsSource {
+    flight::InsSample next;
     bool pending = false;
-    bool poll(app::InsSample &o) override {
+    bool poll(flight::InsSample &o) override {
         if (!pending) return false;
         o = next;
         pending = false;
@@ -896,10 +897,10 @@ struct LoopStubIns : app::IInsSource {
     bool alive() const override { return true; }
 };
 
-struct LoopStubTgt : app::ITargetSource {
-    app::TargetSample next;
+struct LoopStubTgt : flight::ITargetSource {
+    flight::TargetSample next;
     bool pending = false;
-    bool poll(app::TargetSample &o) override {
+    bool poll(flight::TargetSample &o) override {
         if (!pending) return false;
         o = next;
         pending = false;
@@ -908,10 +909,10 @@ struct LoopStubTgt : app::ITargetSource {
     bool alive() const override { return true; }
 };
 
-struct LoopStubSink : app::ICommandSink {
-    app::GuidanceOutput last;
+struct LoopStubSink : flight::ICommandSink {
+    flight::GuidanceOutput last;
     int sends = 0;
-    bool send(const app::GuidanceOutput &o) override {
+    bool send(const flight::GuidanceOutput &o) override {
         last = o;
         ++sends;
         return true;
@@ -920,16 +921,16 @@ struct LoopStubSink : app::ICommandSink {
 };
 
 // 相机：针孔 f=500、主点 (320,240)；外参 = 相机(x右,y下,z前) → 机体 FRD(x前,y右,z下)
-app::CameraModel loop_cam() {
-    app::CameraModel c;
+flight::CameraModel loop_cam() {
+    flight::CameraModel c;
     c.fx = 500.0; c.fy = 500.0; c.cx = 320.0; c.cy = 240.0;
     const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};   // 行主序
     for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
     return c;
 }
 
-app::InsSample loop_ins(std::uint64_t us) {
-    app::InsSample s;
+flight::InsSample loop_ins(std::uint64_t us) {
+    flight::InsSample s;
     s.boot_us = us;
     s.p = Vec3(0.0, 0.0, -5.0);      // NED：z=-5 ⇒ 高度 5 m
     s.v = Vec3(10.0, 0.0, 0.0);      // 朝 +x（北）10 m/s
@@ -940,8 +941,8 @@ app::InsSample loop_ins(std::uint64_t us) {
 }
 
 // 目标：世界视线朝 +x 偏 +y（右），tanθ 给定；像素由内参反算 ⇒ 顺带验证反投影
-app::TargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
-    app::TargetSample t;
+flight::TargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
+    flight::TargetSample t;
     t.boot_us   = us;
     t.u_px      = 320.0 + 500.0 * tan_theta;
     t.v_px      = 240.0;
@@ -970,34 +971,34 @@ static void test_guidance_loop() {
     // --- 16.1 init 校验：相机模型必须有（目标数据是像素）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg;                       // cam 未填
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg;                       // cam 未填
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         ok(!loop.init(), "无相机模型 ⇒ init 失败");
 
-        app::LoopConfig cfg2;
+        flight::LoopConfig cfg2;
         cfg2.cam = loop_cam();
         cfg2.loop_hz = 50;
-        app::GuidanceLoop loop2(loop_params(), cfg2, ins, tgt, sink);
+        flight::GuidanceLoop loop2(loop_params(), cfg2, ins, tgt, sink);
         ok(loop2.init(), "相机模型有效 + 50 Hz ⇒ init 成功");
     }
 
     // --- 16.2 正常制导：像素反投影 + PPN 方向 ---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;   // 右偏 11.3°
 
-        app::GuidanceOutput out;
-        const app::LoopStatus s = loop.run_once(&out);
-        ok(s == app::LoopStatus::kOk, "run_once 返回 kOk");
-        ok(out.health == app::InputHealth::kOk, "体检通过");
+        flight::GuidanceOutput out;
+        const flight::LoopStatus s = loop.run_once(&out);
+        ok(s == flight::LoopStatus::kOk, "run_once 返回 kOk");
+        ok(out.health == flight::InputHealth::kOk, "体检通过");
         ok(out.mode == PureGuidanceMode::PN, "mode = PN");
         ok(out.valid, "valid = true");
-        ok(out.ctrl == app::ControlMode::kAcceleration, "ctrl = 加速度");
+        ok(out.ctrl == flight::ControlMode::kAcceleration, "ctrl = 加速度");
         ok(out.a_cmd_ned.y > 0.5, "加速度指向 +y（目标所在侧）");
         near(out.a_cmd_ned.x, 0.0, 1e-9, "x 分量≈0（PPN 只出横向）");
         near(out.a_cmd_ned.z, 0.0, 1e-9, "z 分量≈0（共面）");
@@ -1010,12 +1011,12 @@ static void test_guidance_loop() {
     // --- 16.3 共线目标：ω=0 ⇒ 零指令（与 §3 的零速/共线退化一致）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.0); tgt.pending = true;
-        app::GuidanceOutput out;
+        flight::GuidanceOutput out;
         loop.run_once(&out);
         ok(out.a_cmd_norm < 1e-9, "正前方共线 ⇒ 指令为零");
     }
@@ -1023,12 +1024,12 @@ static void test_guidance_loop() {
     // --- 16.4 目标丢失：SEARCH + 零指令 ---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2, /*present=*/false); tgt.pending = true;
-        app::GuidanceOutput out;
+        flight::GuidanceOutput out;
         loop.run_once(&out);
         ok(out.mode == PureGuidanceMode::SEARCH, "present=false ⇒ mode = SEARCH");
         ok(!out.valid, "  valid = false");
@@ -1038,15 +1039,15 @@ static void test_guidance_loop() {
     // --- 16.5 脏数据（NaN 像素）→ 限时保持上一拍 ---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::LoopConfig::OnUnhealthy::kHoldLastCommand;
         cfg.hold_last_max_s = 0.2;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput good, bad;
+        flight::GuidanceOutput good, bad;
         loop.run_once(&good);
 
         ins.next = loop_ins(1020000ull); ins.pending = true;
@@ -1055,8 +1056,8 @@ static void test_guidance_loop() {
         tgt.pending = true;
         loop.run_once(&bad);
 
-        ok(bad.health != app::InputHealth::kOk, "脏数据被体检抓到");
-        ok(bad.ctrl == app::ControlMode::kAcceleration, "限时内仍走加速度通道（保持）");
+        ok(bad.health != flight::InputHealth::kOk, "脏数据被体检抓到");
+        ok(bad.ctrl == flight::ControlMode::kAcceleration, "限时内仍走加速度通道（保持）");
         near(bad.a_cmd_ned.y, good.a_cmd_ned.y, 1e-12, "保持的是上一拍指令");
         ok(loop.stats().unhealthy == 1, "unhealthy 计数 +1");
     }
@@ -1064,15 +1065,15 @@ static void test_guidance_loop() {
     // --- 16.6 脏数据持续超时 → 零速度悬停（ 保持窗口从"最后一条好指令"起算）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::LoopConfig::OnUnhealthy::kHoldLastCommand;
         cfg.hold_last_max_s = 0.05;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(80));   // 超过 0.05 s
@@ -1083,7 +1084,7 @@ static void test_guidance_loop() {
         tgt.pending = true;
         loop.run_once(&o);
 
-        ok(o.ctrl == app::ControlMode::kVelocity, "超时后转速度通道");
+        ok(o.ctrl == flight::ControlMode::kVelocity, "超时后转速度通道");
         ok(o.v_cmd_ned.x == 0.0 && o.v_cmd_ned.y == 0.0 && o.v_cmd_ned.z == 0.0,
            "  速度指令为零（真悬停，不是零加速度）");
         near(o.a_cmd_norm, 0.0, 1e-12, "  加速度归零");
@@ -1094,43 +1095,43 @@ static void test_guidance_loop() {
     // --- 16.7 策略直接 kSafeHover：脏数据立刻悬停 ---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kSafeHover;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::LoopConfig::OnUnhealthy::kSafeHover;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
-        ok(o.ctrl == app::ControlMode::kVelocity, "ctrl = 速度");
+        ok(o.ctrl == flight::ControlMode::kVelocity, "ctrl = 速度");
         ok(o.v_cmd_ned.x == 0.0, "零速度");
     }
 
     // --- 16.8 数据过期（目标帧落后 1 s > 0.1 s）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.max_sample_age_s = 0.10;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam(); cfg.max_sample_age_s = 0.10;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(3000000ull); ins.pending = true;          // ins 3.0 s
         tgt.next = loop_tgt(2000000ull, 0.2); tgt.pending = true;     // tgt 2.0 s
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
-        ok(o.health == app::InputHealth::kStale, "health = kStale");
-        ok(o.ctrl == app::ControlMode::kVelocity, "过期 ⇒ 降级（首拍无历史 ⇒ 零速度悬停）");
+        ok(o.health == flight::InputHealth::kStale, "health = kStale");
+        ok(o.ctrl == flight::ControlMode::kVelocity, "过期 ⇒ 降级（首拍无历史 ⇒ 零速度悬停）");
     }
 
     // --- 16.9 没有新目标帧：仍然重发（PX4 offboard 需要持续到达）---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(1000000ull); ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput first, resent;
+        flight::GuidanceOutput first, resent;
         loop.run_once(&first);
         const int sends_before = sink.sends;
 
@@ -1144,16 +1145,16 @@ static void test_guidance_loop() {
     // --- 16.10 统计计数 ---
     {
         LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::LoopConfig cfg; cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         for (int k = 0; k < 5; ++k) {
             ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
             tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-            app::GuidanceOutput o;
+            flight::GuidanceOutput o;
             loop.run_once(&o);
         }
-        const app::LoopStats &st = loop.stats();
+        const flight::LoopStats &st = loop.stats();
         ok(st.ticks == 5, "ticks = 5");
         ok(st.ins_frames == 5, "ins_frames = 5");
         ok(st.tgt_frames == 5, "tgt_frames = 5");
@@ -1176,19 +1177,19 @@ static void test_guidance_loop() {
 namespace {
 
 struct FirstOutCtx {
-    app::GuidanceOutput first{};
+    flight::GuidanceOutput first{};
     int n = 0;
 };
 
 void first_out_hook(void *user, int, const app::SyntheticWorld &,
-                    const app::GuidanceOutput &o) {
+                    const flight::GuidanceOutput &o) {
     auto *ctx = static_cast<FirstOutCtx *>(user);
     if (ctx->n++ == 0) ctx->first = o;
 }
 
-struct CollectSink : app::ICommandSink {
-    std::vector<app::GuidanceOutput> outs;
-    bool send(const app::GuidanceOutput &o) override {
+struct CollectSink : flight::ICommandSink {
+    std::vector<flight::GuidanceOutput> outs;
+    bool send(const flight::GuidanceOutput &o) override {
         outs.push_back(o);
         return true;
     }
@@ -1211,12 +1212,12 @@ static void test_closed_loop_regression() {
     p.a_max = 10.0;
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
-    app::LoopConfig cfg;
+    flight::LoopConfig cfg;
     cfg.cam              = app::demo_camera();
     cfg.loop_hz          = 50;
     cfg.max_sample_age_s = 0.2;   // 合成世界每拍都更新
 
-    app::GuidanceLoop loop(p, cfg, world, world, world);
+    flight::GuidanceLoop loop(p, cfg, world, world, world);
     ok(loop.init(), "§17 init 成功");
 
     FirstOutCtx ctx;
@@ -1228,7 +1229,7 @@ static void test_closed_loop_regression() {
     ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；历史实测 0.033）");
     ok(rep.min_r > 0.0, "最近距离 > 0（不是退化成一出发就在靶点）");
     ok(rep.min_r_tick > 100, "最近距离出现在交会后段（> 100 拍）");
-    ok(rep.stop == app::LoopStatus::kOk, "跑满拍数、没被异常状态打断");
+    ok(rep.stop == flight::LoopStatus::kOk, "跑满拍数、没被异常状态打断");
     ok(loop.stats().tgt_frames < loop.stats().ticks,
        "后段目标飞越出画：目标帧数 < 拍数（否则说明像素一直有效，几何写错了）");
 
@@ -1243,7 +1244,7 @@ static void test_closed_loop_regression() {
     near(ctx.first.a_cmd_ned.z, 0.0, 1e-12, "首拍 z = 0（共面，不出纵向加速度）");
 
     // ---- PX4 的硬要求：指令必须每拍都发（不是"只在有新数据时才发"）----
-    const app::LoopStats &s = loop.stats();
+    const flight::LoopStats &s = loop.stats();
     ok(s.sent == s.ticks, "每拍都发出指令（sent == ticks）");
     ok(s.sink_errors == 0, "无发送失败");
     ok(s.saturated == 0, "全程不饱和（a_max=10 够用）");
@@ -1291,8 +1292,8 @@ GuidanceParams csv_params() {
     return p;
 }
 
-app::LoopConfig csv_config() {
-    app::LoopConfig cfg;
+flight::LoopConfig csv_config() {
+    flight::LoopConfig cfg;
     cfg.cam              = app::demo_camera();
     cfg.loop_hz          = 50;
     cfg.max_sample_age_s = 0.2;
@@ -1321,7 +1322,7 @@ static void test_csv_roundtrip() {
         app::RecordingTargetSource rtgt(world, rec);
         app::TeeSink               tee(world, rec_outs);   // 执行器 + 收集
 
-        app::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
+        flight::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
         ok(loop.init(), "§18 录制 loop init");
 
         for (int k = 0; k < n; ++k) {
@@ -1365,7 +1366,7 @@ static void test_csv_roundtrip() {
         app::CsvReplaySource src(rd);
 
         CollectSink replay_outs;
-        app::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
+        flight::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
         ok(loop.init(), "§18 回放 loop init");
 
         for (int k = 0; k < n && !src.done(); ++k) loop.run_once(nullptr);
@@ -1377,8 +1378,8 @@ static void test_csv_roundtrip() {
         int  first_bad = -1;
         if (same) {
             for (std::size_t i = 0; i < replay_outs.outs.size(); ++i) {
-                const app::GuidanceOutput &a = rec_outs.outs[i];
-                const app::GuidanceOutput &b = replay_outs.outs[i];
+                const flight::GuidanceOutput &a = rec_outs.outs[i];
+                const flight::GuidanceOutput &b = replay_outs.outs[i];
                 if (a.boot_us != b.boot_us || a.ctrl != b.ctrl || a.mode != b.mode ||
                     a.valid != b.valid || a.sat != b.sat || a.health != b.health ||
                     a.a_cmd_ned.x != b.a_cmd_ned.x || a.a_cmd_ned.y != b.a_cmd_ned.y ||
@@ -1431,7 +1432,7 @@ static void test_csv_roundtrip() {
         // close() 必须把数据真的刷到磁盘 —— 否则"进程内立刻回读"会读到半截文件
         app::CsvAccelSink sink(kCmdCsv);
         ok(sink.alive(), "④ 落盘器打开成功");
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         o.boot_us = 1234;
         o.a_cmd_ned = Vec3(1.0, 2.0, 3.0);
         ok(sink.send(o), "④ 写入一条指令");
@@ -1463,7 +1464,7 @@ static void test_csv_roundtrip() {
         app::CsvAccelSink bad("no_such_dir_xyz/out.csv");
         ok(!bad.ok(), "④ 打不开落盘路径 → ok() = false");
         ok(!bad.alive(), "④ 打不开落盘路径 → alive() = false");
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         ok(!bad.send(o), "④ 打不开落盘路径 → send() 返回 false（上层据此计 sink_err）");
 
         app::CsvReader rd;
@@ -1484,8 +1485,8 @@ static void test_csv_roundtrip() {
         for (int i = 0; i < 5; ++i) {
             app::InputRecorder rec;
             rec.open(kCmdCsv);
-            app::InsSample ins;
-            app::TargetSample tgt;
+            flight::InsSample ins;
+            flight::TargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
             rec.close();
@@ -1505,8 +1506,8 @@ static void test_csv_roundtrip() {
             //  重复 open：正是"重启/换文件"时最容易漏句柄的地方
             //   （修复前 CsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
             if (!rec.open(kCmdCsv)) { ++failures; continue; }
-            app::InsSample ins;
-            app::TargetSample tgt;
+            flight::InsSample ins;
+            flight::TargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
 
@@ -1578,7 +1579,7 @@ cam:
     ok(p.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE,
        "嵌套 los=FROM_LOS_DIFFERENCE");
     ok(p.loop.loop_hz == 100, "嵌套 loop_hz=100");
-    ok(p.loop.on_unhealthy == app::LoopConfig::OnUnhealthy::kSafeHover,
+    ok(p.loop.on_unhealthy == flight::LoopConfig::OnUnhealthy::kSafeHover,
        "嵌套 on_unhealthy=SAFE_HOVER");
     ok(!p.loop.send_on_every_tick, "嵌套 send_on_every_tick=false");
     ok(p.loop.cam.valid(), "嵌套相机有效");
@@ -1646,32 +1647,32 @@ static void test_latency() {
     section("20. 端到端打点（P50/P95/max + 环形缓冲）");
 
     // ---- 空统计：所有分位数都是 0，不许除零 ----
-    app::LatencyStats empty;
+    flight::LatencyStats empty;
     ok(empty.count() == 0, "空统计 count=0");
     ok(empty.size() == 0, "空统计 size=0");
-    ok(empty.percentile_ns(app::LatencyStats::Stage::kTotal, 0.95) == 0, "空统计 p95=0");
-    ok(empty.max_ns(app::LatencyStats::Stage::kTotal) == 0, "空统计 max=0");
+    ok(empty.percentile_ns(flight::LatencyStats::Stage::kTotal, 0.95) == 0, "空统计 p95=0");
+    ok(empty.max_ns(flight::LatencyStats::Stage::kTotal) == 0, "空统计 max=0");
 
     // ---- 跑 300 拍（> kCap=128）验证环形回绕 ----
     LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-    app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+    flight::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+    flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
     ok(loop.init(), "§20 init");
 
     const int ticks = 300;
     for (int k = 0; k < ticks; ++k) {
         ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
         tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
     }
-    const app::LoopStats &st = loop.stats();
+    const flight::LoopStats &st = loop.stats();
     ok(st.latency.count() == static_cast<std::uint64_t>(ticks), "打点样本数 = 拍数（含回绕）");
-    ok(st.latency.size() == app::LatencyStats::kCap, "环形只保留 kCap 个样本");
+    ok(st.latency.size() == flight::LatencyStats::kCap, "环形只保留 kCap 个样本");
     ok(st.ticks == static_cast<std::uint64_t>(ticks), "ticks 同步");
 
     // ---- P50 ≤ P95 ≤ max；总延迟 ≥ 任一段（逐样本单调 ⇒ 分位数也单调）----
-    using S = app::LatencyStats::Stage;
+    using S = flight::LatencyStats::Stage;
     const std::uint64_t t50  = st.latency.percentile_ns(S::kTotal, 0.50);
     const std::uint64_t t95  = st.latency.percentile_ns(S::kTotal, 0.95);
     const std::uint64_t tmax = st.latency.max_ns(S::kTotal);
@@ -1689,17 +1690,17 @@ static void test_latency() {
 static void test_ring_log() {
     section("21. 黑匣子（环形缓冲 / 时间窗 dump）");
 
-    app::RingLog log;
+    flight::RingLog log;
     ok(log.empty() && log.count() == 0 && log.size() == 0, "空黑匣子");
 
     // 稀疏样本：每 1 s 一条
     for (int k = 0; k < 5; ++k) {
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         o.boot_us   = static_cast<std::uint64_t>(k) * 1000000ull;
         o.a_cmd_ned = Vec3(0.1 * k, 0.2 * k, 0.3 * k);
         o.a_cmd_norm = 0.1 * k;
         o.mode      = PureGuidanceMode::PN;
-        o.health    = app::InputHealth::kOk;
+        o.health    = flight::InputHealth::kOk;
         o.valid     = true;
         log.push(o);
     }
@@ -1739,29 +1740,29 @@ static void test_ring_log() {
 
     // 环形回绕：push kCap+10 条
     log.clear();
-    const int total = app::RingLog::kCap + 10;
+    const int total = flight::RingLog::kCap + 10;
     for (int k = 0; k < total; ++k) {
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         o.boot_us = static_cast<std::uint64_t>(k) * 1000ull;
         log.push(o);
     }
-    ok(log.size() == app::RingLog::kCap, "回绕后 size = kCap");
+    ok(log.size() == flight::RingLog::kCap, "回绕后 size = kCap");
     ok(log.count() == static_cast<std::uint64_t>(total), "count 累计不丢");
     ok(log.at(0).boot_us ==
-           static_cast<std::uint64_t>(total - app::RingLog::kCap) * 1000ull,
+           static_cast<std::uint64_t>(total - flight::RingLog::kCap) * 1000ull,
        "回绕后最旧 = 第 (total-kCap) 条");
     ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ull,
        "回绕后最新 = 最后一条");
 
     // 集成：GuidanceLoop 每拍都进黑匣子
     LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-    app::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
+    flight::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
+    flight::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
     ok(lp.init(), "§21 init");
     for (int k = 0; k < 60; ++k) {
         ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
         tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         lp.run_once(&o);
     }
     ok(lp.blackbox().size() == 60, "GuidanceLoop 每拍都进黑匣子（60 条）");
