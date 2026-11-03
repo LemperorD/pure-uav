@@ -17,14 +17,14 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_flight_types.hpp         类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
-src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp）
+src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两个功能目录）
   main.cpp                         入口：只创建 GuidanceApplication 并调用 run(argc, argv)
-  config/guidance_app_params.hpp   宿主侧整机配置 GuidanceAppParams
+  startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
   startup/guidance_application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
   sim/guidance_sim_tools.{hpp,cpp}        合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
 ```
 
-依赖方向：`main → startup/guidance_application → config/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`，
+依赖方向：`main → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`，
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `guidance_flight_types.hpp` 保持零外部协议依赖。

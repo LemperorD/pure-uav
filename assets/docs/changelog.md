@@ -111,10 +111,11 @@
 
 ### app 顶层只保留 main.cpp（本次）
 
-- `guidance_app_params.hpp` → `config/guidance_app_params.hpp`；
+- `guidance_app_params.hpp` → `startup/guidance_app_params.hpp`；
 - `guidance_application.{hpp,cpp}` → `startup/guidance_application.{hpp,cpp}`；
 - `guidance_sim_tools.{hpp,cpp}` → `sim/guidance_sim_tools.{hpp,cpp}`；
-- include 改为路径化：`config/...` / `startup/...` / `sim/...`；
+- include 改为路径化：`startup/...` / `sim/...`；
+- `src/app` 只保留 `startup/` 和 `sim/` 两个功能目录（`config/` 仅一个头文件，已合并到 `startup/`）；
 - CMake 源文件路径同步；`guidance_sim_tools` / `guidance_application` 只以 `src/app` 为 include 根。
 
 ## 2026-10-25
