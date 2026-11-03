@@ -87,6 +87,12 @@
 - `guidance_shell` / `guidance_flight` / `test_state_adapter` 的链接同步更新；
 - 文件名 `state_adapter.{hpp,cpp}` 与命名空间 `guidance::adapter` 不变。
 
+### 移除 guidance_libs 兼容聚合（本次）
+
+- 删除 INTERFACE target `guidance_libs`（= core + sim 的旧聚合名）；
+- `guidance_libs/` 作为源码目录保留，不再作为 target；
+- 仿真/测试直接链接 `guidance_core` + `guidance_sim`，机载链接 `guidance_flight`。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

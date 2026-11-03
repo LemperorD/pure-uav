@@ -14,9 +14,8 @@
 #                      · target.cpp    弹丸动力学模型（DART / 弹道 / 圆周 …）
 #                    ⇒ 依赖 guidance_core（单向，无反向依赖）
 #
-#    guidance_libs : **向后兼容的聚合名**（= core + sim），仅供既有代码/脚本沿用。
-#                    ⚠ 机载**不要**链接它 —— 那会把 Sensor（含 <random> 噪声发生器）
-#                      和 TargetModel（弹丸动力学）装进飞机。
+#    guidance_libs/ : 源码目录（core + sim 的源码都在这里），**不是** target。
+#                    机载只链接 guidance_flight；仿真另行链接 guidance_core + guidance_sim。
 #
 #    guidance_state_adapter : 适配层（外部口径 → GuidanceState），2026-10-20 从 src/interface 迁入
 #    guidance_shell : 飞行外壳（主循环 + RingLog），2026-11-01 从 app 迁入
@@ -60,14 +59,6 @@ target_include_directories(guidance_sim PUBLIC
 )
 target_link_libraries(guidance_sim
     guidance_core
-)
-
-# 向后兼容的聚合名（老 CMakeLists / 脚本里写 guidance_libs 的地方不用改）。
-# ⚠ 它是 INTERFACE 目标 —— 本身不产生库文件，只是"把 core + sim 一起带出来"。
-add_library(guidance_libs INTERFACE)
-target_link_libraries(guidance_libs INTERFACE
-    guidance_core
-    guidance_sim
 )
 
 # ============================================================

@@ -59,7 +59,6 @@ src/guidance/
 | **`guidance_state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
 | **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + RingLog） | 机载外壳；由 `guidance_flight` 聚合 |
 | **`guidance_flight`** | **机载聚合名**（= core + guidance_state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
-| `guidance_libs` | **聚合名**（= core + sim，INTERFACE 目标） | 仅为向后兼容旧脚本；⚠ **机载不要 link** |
 
 **验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，
 而 `guidance_step` / `quat_rotate_vec` 齐全 ⇒ 核心库**不含任何仿真符号**。

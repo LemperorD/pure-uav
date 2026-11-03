@@ -69,7 +69,7 @@ target_link_libraries(test_mavlink_units
 #        以及 quat_rotate_vec 做交叉验证；这两样都在 guidance_core 里。
 #         2026-10-20 起适配层已从 src/interface 迁到 src/guidance/adapter，
 #         Vec3 迁到 src/common（pure_vec3），故 include 路径同步更新。
-#     ⚠ 不要链接 guidance_sim / guidance_libs —— 那会把仿真拖进真机路径的依赖，
+#     ⚠ 不要链接 guidance_sim —— 那会把仿真拖进真机路径的依赖，
 #        正是 2026-10-16 把四元数工具从 sensor.* 移出核心所要修掉的问题。
 add_executable(test_state_adapter
     test_adapter/test_state_adapter.cpp
