@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-#include "guidance_app_params.hpp"   // GuidanceAppParams（宿主侧配置）
+#include "config/guidance_app_params.hpp"   // GuidanceAppParams（宿主侧配置）
 
 namespace pure_uav {
 namespace app {

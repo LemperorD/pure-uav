@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "guidance_app_params.hpp"     // GuidanceAppParams（宿主侧配置）
+#include "config/guidance_app_params.hpp"     // GuidanceAppParams（宿主侧配置）
 #include "guidance_flight_types.hpp"   // flight::GuidanceInsSample / flight::GuidanceTargetSample / flight::GuidanceOutput / flight::GuidanceCameraModel
 
 namespace pure_uav {

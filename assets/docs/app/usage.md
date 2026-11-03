@@ -1,7 +1,7 @@
 # app 用法（CLI / YAML / 跑法）
 
 - 状态：现行
-- 相关代码：`src/app/main.cpp`、`src/app/guidance_application.{hpp,cpp}`
+- 相关代码：`src/app/main.cpp`、`src/app/startup/guidance_application.{hpp,cpp}`
 - 相关文档：[README.md](README.md)、[csv-format.md](csv-format.md)、[blackbox.md](blackbox.md)
 
 ---

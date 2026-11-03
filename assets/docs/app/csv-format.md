@@ -1,7 +1,7 @@
 # app CSV 格式（录制 / 回放 / 指令落盘）
 
 - 状态：现行
-- 相关代码：`src/app/guidance_sim_tools.hpp`、`src/app/guidance_sim_tools.cpp`
+- 相关代码：`src/app/sim/guidance_sim_tools.hpp`、`src/app/sim/guidance_sim_tools.cpp`
 - 相关文档：[app/README.md](README.md)
 
 CSV 是**地面工具**：用于离线复盘、调参 A/B、回归测试；机载二进制不需要链接它。

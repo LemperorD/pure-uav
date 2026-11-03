@@ -5,7 +5,7 @@
 //  本文件保持 5 行，方便以后换 GUI / 换启动方式。
 // =============================================================================
 
-#include "guidance_application.hpp"
+#include "startup/guidance_application.hpp"
 
 int main(int argc, char **argv) {
     pure_uav::app::GuidanceApplication app;

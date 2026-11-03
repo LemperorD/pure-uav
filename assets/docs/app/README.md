@@ -17,14 +17,14 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_flight_types.hpp         类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
-src/app/（宿主应用与入口，pure_uav::app）
+src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp）
   main.cpp                         入口：只创建 GuidanceApplication 并调用 run(argc, argv)
-  guidance_app_params.hpp          宿主侧整机配置 GuidanceAppParams
-  guidance_application.{hpp,cpp}   CLI + 参数加载/校验/打印 + 模式分发
-  guidance_sim_tools.{hpp,cpp}     合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
+  config/guidance_app_params.hpp   宿主侧整机配置 GuidanceAppParams
+  startup/guidance_application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
+  sim/guidance_sim_tools.{hpp,cpp}        合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
 ```
 
-依赖方向：`main → guidance_application → guidance_app_params / guidance_sim_tools → guidance_loop → flight_types`，
+依赖方向：`main → startup/guidance_application → config/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`，
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `guidance_flight_types.hpp` 保持零外部协议依赖。
@@ -61,7 +61,7 @@ src/app/（宿主应用与入口，pure_uav::app）
 | 发送 | 300 拍全部发出（`sent == ticks`） |
 | 目标帧 | 250（后 50 拍目标出画 ⇒ 只重发、不重算） |
 
-### 2.1 参数加载（`guidance_application.{hpp,cpp}`）
+### 2.1 参数加载（`startup/guidance_application.{hpp,cpp}`）
 
 - **优先级**：默认值 < `--config=FILE` < **显式给出的**命令行项
   （`--law/--n/--a-max/--hz`；没给的不会覆盖 YAML）。
@@ -155,7 +155,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 `new / delete / malloc / free / strdup` 出现次数 = **0**。所有容器（`std::vector` /
 `std::string`）都是 RAII，随作用域释放。
 
-唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `guidance_sim_tools.{hpp,cpp}` 三个类：
+唯一"手工持有"的资源是 **`std::FILE*`**，集中在 `sim/guidance_sim_tools.{hpp,cpp}` 三个类：
 
 | 类 | 释放点 | 重复 `open()` | `close()` 幂等 | 拷贝 |
 | --- | --- | --- | --- | --- |

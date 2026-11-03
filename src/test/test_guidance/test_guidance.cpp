@@ -40,8 +40,8 @@
 #include "sensor.hpp"
 #include "target.hpp"
 #include "guidance_loop.hpp"     // 机载主循环外壳 + 黑匣子（§16/§20/§21）
-#include "guidance_sim_tools.hpp"             // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
-#include "guidance_application.hpp"       // 参数加载 / 校验（§19）
+#include "sim/guidance_sim_tools.hpp"             // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
+#include "startup/guidance_application.hpp"       // 参数加载 / 校验（§19）
 
 using namespace pure_uav;
 namespace flight = pure_uav::guidance::flight;

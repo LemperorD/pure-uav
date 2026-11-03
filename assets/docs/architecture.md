@@ -43,8 +43,8 @@ test → 任意被测层
 | `src/guidance/adapter` | `guidance_state_adapter` | 坐标/姿态/时间换算 + 体检 |
 | `src/guidance/flight` | `guidance_shell` | `GuidanceLoop` + `GuidanceRingLog` |
 | `src/guidance` | `guidance_flight` | INTERFACE 聚合：core + adapter + mavlink_units + shell |
-| `src/app/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
-| `src/app/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
+| `src/app/sim/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
+| `src/app/startup/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
 | `src/app` | `main` | 入口 |
 
 `guidance_flight` 是机载最小足迹；`guidance_sim` 不在其中。

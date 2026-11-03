@@ -5,7 +5,7 @@
 //  CLI/YAML/跑法见 assets/docs/app/usage.md。
 // =============================================================================
 
-#include "guidance_application.hpp"
+#include "startup/guidance_application.hpp"
 
 #include <cctype>
 #include <cerrno>
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "guidance_sim_tools.hpp"   // guidance_run_synthetic / guidance_run_replay / guidance_demo_camera / GuidanceSimOptions
+#include "sim/guidance_sim_tools.hpp"   // guidance_run_synthetic / guidance_run_replay / guidance_demo_camera / GuidanceSimOptions
 
 namespace pure_uav {
 namespace app {

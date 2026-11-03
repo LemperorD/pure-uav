@@ -109,6 +109,14 @@
   `GuidanceTargetRaw` / `GuidanceRawFrame` / `GuidanceSeverity` /
   `GuidanceCheckCode` / `GuidanceIssue` / `GuidanceReport`。
 
+### app 顶层只保留 main.cpp（本次）
+
+- `guidance_app_params.hpp` → `config/guidance_app_params.hpp`；
+- `guidance_application.{hpp,cpp}` → `startup/guidance_application.{hpp,cpp}`；
+- `guidance_sim_tools.{hpp,cpp}` → `sim/guidance_sim_tools.{hpp,cpp}`；
+- include 改为路径化：`config/...` / `startup/...` / `sim/...`；
+- CMake 源文件路径同步；`guidance_sim_tools` / `guidance_application` 只以 `src/app` 为 include 根。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

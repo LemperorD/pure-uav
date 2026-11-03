@@ -5,7 +5,7 @@
 //  格式与回放边界见 assets/docs/app/csv-format.md；黑匣子见 assets/docs/app/blackbox.md。
 // =============================================================================
 
-#include "guidance_sim_tools.hpp"
+#include "sim/guidance_sim_tools.hpp"
 
 #include <chrono>
 #include <cmath>
