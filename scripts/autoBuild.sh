@@ -84,7 +84,6 @@ cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
 echo
 echo "[Build] Building..."
 cmake --build "${BUILD_DIR}" --parallel "$(nproc)"
-ln -sf build/compile_commands.json compile_commands.json
 
 echo
 echo "========================================"
