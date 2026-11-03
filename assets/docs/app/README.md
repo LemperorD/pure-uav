@@ -18,7 +18,7 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
 src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两个功能目录）
-  main.cpp                         入口：只创建 GuidanceApplication 并调用 run(argc, argv)
+  main.cpp                         入口：通信示例；制导调用示例在 run_guidance_example()
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
   startup/guidance_application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
   sim/guidance_sim_tools.{hpp,cpp}        合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
@@ -176,7 +176,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 
 | 项 | 依赖 |
 | --- | --- |
-| `mavlink_ins_source.cpp` / `mavlink_sink.cpp`（真机数据入口/出口） | communication 合进 main |
+| `mavlink_ins_source.cpp` / `mavlink_sink.cpp`（真机数据入口/出口） | 通信示例已进 main；真机数据源/出口待实现 |
 | `VisionTargetSource`（接检测） | 检测组接口（像素 + 距离 + 曝光时戳） |
 | `SimTruthInsSource` / `SimTruthTargetSource`（XTDrone2 真值） | 仿真桥 |
 | 端到端打点（t0 取数 → t3 发出，P50/P95/max） | ✅ 已完成（§20） |

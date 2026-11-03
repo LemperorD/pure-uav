@@ -41,6 +41,7 @@ add_executable(main
 )
 target_link_libraries(main PRIVATE
     guidance_application
+    communicate
 )
 
 # 可执行文件统一放到 <仓库>/bin（与 test/CMakeLists.txt 的 TEST_OUTPUT_DIR 一致），

@@ -118,6 +118,13 @@
 - `src/app` 只保留 `startup/` 和 `sim/` 两个功能目录（`config/` 仅一个头文件，已合并到 `startup/`）；
 - CMake 源文件路径同步；`guidance_sim_tools` / `guidance_application` 只以 `src/app` 为 include 根。
 
+### main.cpp：通信示例 + 制导示例（本次）
+
+- `main()` 保留通信模块示例（串口打开、心跳、姿态读取）；
+- `run_guidance_example()` 作为制导调用示例，不占用 `main()`；
+- `main` target 增加链接 `communicate`；
+- `main.cpp` 使用 `using namespace pure_uav;` + `using pure_uav::app::GuidanceApplication;`。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

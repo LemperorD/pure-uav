@@ -9,7 +9,8 @@
 ## 1 入口
 
 ```text
-main()
+main()                         # 通信示例（不占用 GuidanceApplication）
+run_guidance_example()         # 制导调用示例；从 main 里需要时调用
   → GuidanceApplication::run(argc, argv)
       → 默认值 + YAML + CLI → GuidanceAppParams
       → guidance_validate_params()

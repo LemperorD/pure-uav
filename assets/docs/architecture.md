@@ -56,12 +56,13 @@ test → 任意被测层
 ### 3.1 启动
 
 ```text
-main()
+main()                         # 通信示例
+run_guidance_example()         # 制导调用示例（不占用 main）
   → GuidanceApplication::run(argc, argv)
       → 默认值 + YAML + CLI → GuidanceAppParams
       → guidance_validate_params()
       → 选模式：
-          合成世界 / 回放 → tools::run_*
+          合成世界 / 回放 → guidance_run_synthetic / guidance_run_replay
           真机（未来）    → 构造 Mavlink/Vision 源/出口 + GuidanceLoop
 ```
 
