@@ -37,7 +37,8 @@
 
 | 代码位置 | 主要文档 | 说明 |
 |---|---|---|
-| `src/app/main.cpp` | [app/README.md](app/README.md) | 入口：只创建 `GuidanceApplication` |
+| `src/app/main.cpp` | [app/README.md](app/README.md) | 通信示例入口 |
+| `src/app/startup/guidance_example.cpp` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | 制导调用示例入口 |
 | `src/app/startup/guidance_application.{hpp,cpp}` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | CLI / 参数加载 / 分发 |
 | `src/app/sim/guidance_sim_tools.{hpp,cpp}` | [app/README.md](app/README.md) + [app/csv-format.md](app/csv-format.md) + [app/blackbox.md](app/blackbox.md) | CSV 录制/回放 + 合成世界 + 黑匣子 |
 | `src/guidance/flight/` | [guidance/README.md](guidance/README.md) + [architecture.md](architecture.md) | 飞行外壳：`flight_types` + `guidance_loop` |

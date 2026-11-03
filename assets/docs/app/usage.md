@@ -1,7 +1,7 @@
 # app 用法（CLI / YAML / 跑法）
 
 - 状态：现行
-- 相关代码：`src/app/main.cpp`、`src/app/startup/guidance_application.{hpp,cpp}`
+- 相关代码：`src/app/main.cpp`（通信示例）、`src/app/startup/guidance_example.cpp`（制导示例入口）、`src/app/startup/guidance_application.{hpp,cpp}`
 - 相关文档：[README.md](README.md)、[csv-format.md](csv-format.md)、[blackbox.md](blackbox.md)
 
 ---
@@ -9,8 +9,8 @@
 ## 1 入口
 
 ```text
-main()                         # 通信示例（不占用 GuidanceApplication）
-run_guidance_example()         # 制导调用示例；从 main 里需要时调用
+bin/main                        # 通信示例（全局 main，不跑制导）
+bin/guidance_example            # 制导调用示例（独立可执行文件）
   → GuidanceApplication::run(argc, argv)
       → 默认值 + YAML + CLI → GuidanceAppParams
       → guidance_validate_params()
@@ -126,19 +126,19 @@ run_guidance_example()         # 制导调用示例；从 main 里需要时调�
 
 ```bash
 # ① 合成世界闭环（零依赖）
-./bin/main --ticks=300
+./bin/guidance_example --ticks=300
 
 # ② 边跑边录
-./bin/main --ticks=300 --record=flight.csv --out=cmd.csv
+./bin/guidance_example --ticks=300 --record=flight.csv --out=cmd.csv
 
 # ③ 回放
-./bin/main --replay=flight.csv --ticks=300 --out=replay_cmd.csv
+./bin/guidance_example --replay=flight.csv --ticks=300 --out=replay_cmd.csv
 
 # ④ 参数文件
-./bin/main --config=guidance.yaml --print-params
+./bin/guidance_example --config=guidance.yaml --print-params
 
 # ⑤ 黑匣子
-./bin/main --ticks=300 --blackbox=bb.csv --blackbox-sec=10
+./bin/guidance_example --ticks=300 --blackbox=bb.csv --blackbox-sec=10
 ```
 
 ---

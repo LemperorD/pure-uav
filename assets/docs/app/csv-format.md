@@ -49,10 +49,10 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 
 ```bash
 # 边跑边录
-./bin/main --ticks=300 --record=flight.csv --out=cmd.csv
+./bin/guidance_example --ticks=300 --record=flight.csv --out=cmd.csv
 
 # 回放：同一份输入重算
-./bin/main --replay=flight.csv --ticks=300 --out=replay_cmd.csv
+./bin/guidance_example --replay=flight.csv --ticks=300 --out=replay_cmd.csv
 ```
 
 ## 5 回放的能力边界

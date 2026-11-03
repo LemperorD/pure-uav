@@ -18,34 +18,39 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
 src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两个功能目录）
-  main.cpp                         入口：通信示例；制导调用示例在 run_guidance_example()
+  main.cpp                         通信示例（全局 main）
+  startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
   startup/guidance_application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
   sim/guidance_sim_tools.{hpp,cpp}        合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
 ```
 
-依赖方向：`main → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`，
+依赖方向：
+- `main → communicate`（通信示例）；
+- `guidance_example → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`。
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `guidance_flight_types.hpp` 保持零外部协议依赖。
 
 ---
 
-## 2 三种跑法
+## 2 三种跑法（`guidance_example`）
 
 ```bash
 # ① 合成世界闭环（零依赖：无 Gazebo / 无 PX4 / 无相机 / 无串口）
-./bin/main --law=0 --n=4 --a-max=10 --ticks=300
+./bin/guidance_example --law=0 --n=4 --a-max=10 --ticks=300
 
 # ② 边跑边录（黑匣子）：输入 + 指令各落一份 CSV
-./bin/main --record=flight.csv --out=cmd.csv
+./bin/guidance_example --record=flight.csv --out=cmd.csv
 
 # ③ 回放：只用录下来的输入重算一遍（不跑合成世界）
-./bin/main --replay=flight.csv --out=replay.csv
+./bin/guidance_example --replay=flight.csv --out=replay.csv
 
 # ④ 参数文件：默认值 < YAML < 显式命令行；先看最终参数
-./bin/main --config=guidance.yaml --print-params
+./bin/guidance_example --config=guidance.yaml --print-params
 ```
+
+> `./bin/main` 是通信示例，会等待飞控心跳，不跑上述制导流程。
 
 参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 
@@ -83,7 +88,7 @@ src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两�
 - 固定**环形缓冲 `kCap=128`**（≈2.5 s @50 Hz）：循环内零分配、零 STL、零 I/O，
   只有 4 次 `steady_clock::now()` + 5 次数组写入；
 - `LatencyTrace` 是 RAII：**所有 return 路径**（超时 / 无帧 / 降级 / 不健康）都落一条样本；
-- P50/P95/max 在**循环外**按需计算（复制到栈上排序）；`main` 汇总里打印一行；
+- P50/P95/max 在**循环外**按需计算（复制到栈上排序）；`guidance_example` 汇总里打印一行；
 - ⚠ Windows `steady_clock` 分辨率约 **100 ns** ⇒ 数值是 100 ns 的整数倍；
   WSL/Linux 上更细。真实机载时延（串口/调度）会比合成世界大得多，以实机为准。
 
@@ -94,7 +99,7 @@ src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两�
   固定环形 **`kCap=512`**（≈10.2 s @50 Hz，约 49 KB）；
 - 循环内**零 I/O、零分配**；只有 `dump_csv()` 才碰磁盘；
 - `GuidanceLoop::blackbox()` 暴露只读视图：跑完 / 异常现场 / 手动触发都能 dump；
-- `main --blackbox=F --blackbox-sec=S` 跑完写最近 S 秒（`<=0` = 全部）；
+- `guidance_example --blackbox=F --blackbox-sec=S` 跑完写最近 S 秒（`<=0` = 全部）；
 - 与 `guidance_sim_tools` 互补：CSV 是**持续录制/复盘**，GuidanceRingLog 是常驻内存的"最后一口气"。
 
 ---
@@ -164,7 +169,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | `GuidanceCsvAccelSink` | 析构 / `close()` | —（只构造时开一次） | ✅ | 禁止 |
 
 `GuidanceLoop` / `GuidanceTeeSink` / 两个装饰器**只持有引用、不拥有对象** ⇒
-循环对象必须先于其数据源析构（`main` 与测试里的声明顺序都满足）。
+循环对象必须先于其数据源析构（`guidance_example` 与测试里的声明顺序都满足）。
 
 §18 ⑤ 用**进程句柄计数**做真正的泄漏检测：200 轮 open/write/read/close
 （每轮都故意重复 open 一次）前后句柄数必须**完全相同**。

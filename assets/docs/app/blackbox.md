@@ -75,7 +75,7 @@ a_n,a_e,a_d,v_n,v_e,v_d,anorm,t_go,Vc,R,lam_dot
 命令行：
 
 ```bash
-./bin/main --ticks=300 --blackbox=bb.csv --blackbox-sec=10
+./bin/guidance_example --ticks=300 --blackbox=bb.csv --blackbox-sec=10
 ```
 
 ---

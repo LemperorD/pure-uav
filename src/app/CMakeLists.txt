@@ -7,12 +7,14 @@
 #      main.cpp                        入口（全局 main，顶层只留这一个源文件）
 #      startup/guidance_app_params.hpp  宿主侧整机配置
 #      startup/guidance_application.{hpp,cpp}  CLI + 参数 + 分发
+#      startup/guidance_example.cpp            制导调用示例（独立可执行文件）
 #      sim/guidance_sim_tools.{hpp,cpp}        CSV 录制/回放 + 合成世界
 #
 #  target：
 #    guidance_sim_tools  地面工具（可不上机）
 #    guidance_application 宿主启动层
-#    main                可执行入口（全局 main）
+#    main                通信示例入口（全局 main）
+#    guidance_example    制导调用示例入口
 # ============================================================
 
 add_library(guidance_sim_tools STATIC
@@ -40,12 +42,18 @@ add_executable(main
     main.cpp
 )
 target_link_libraries(main PRIVATE
-    guidance_application
     communicate
 )
 
+add_executable(guidance_example
+    startup/guidance_example.cpp
+)
+target_link_libraries(guidance_example PRIVATE
+    guidance_application
+)
+
 # 可执行文件统一放到 <仓库>/bin（与 test/CMakeLists.txt 的 TEST_OUTPUT_DIR 一致），
-# 这样文档里的 `./bin/main` 在 Windows 与 WSL 上都成立。
-set_target_properties(main PROPERTIES
+# 这样文档里的 `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
+set_target_properties(main guidance_example PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )

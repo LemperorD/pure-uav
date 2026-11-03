@@ -45,7 +45,8 @@ test → 任意被测层
 | `src/guidance` | `guidance_flight` | INTERFACE 聚合：core + adapter + mavlink_units + shell |
 | `src/app/sim/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
 | `src/app/startup/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
-| `src/app` | `main` | 入口 |
+| `src/app/startup/guidance_example.cpp` | `guidance_example` | 制导调用示例入口 |
+| `src/app/main.cpp` | `main` | 通信示例入口 |
 
 `guidance_flight` 是机载最小足迹；`guidance_sim` 不在其中。
 
@@ -57,7 +58,7 @@ test → 任意被测层
 
 ```text
 main()                         # 通信示例
-run_guidance_example()         # 制导调用示例（不占用 main）
+guidance_example              # 制导调用示例（独立可执行文件）
   → GuidanceApplication::run(argc, argv)
       → 默认值 + YAML + CLI → GuidanceAppParams
       → guidance_validate_params()
@@ -137,4 +138,4 @@ run_guidance_example()         # 制导调用示例（不占用 main）
 - `flight_logger`：中间量/检测变量按间隔记录；
 - 真机胶水：`MavlinkInsSource` / `MavlinkAccelSink`；
 - VIO 融合：PX4 EKF2 EV → `vehicle_local_position`，guidance 不直接消费 VIO；
-- `main` / `main_sim` 拆分：机载入口不链工具。
+- 已拆出 `guidance_example`；未来真机入口 `main_real` 不链工具。
