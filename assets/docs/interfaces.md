@@ -130,7 +130,7 @@ boot_us   = 视觉时间戳 − offset_us
 
 ## 5 单位换算
 
-单位换算（m/mm/cm、m/s/cm/s、deg/cdeg/degE7、ms/µs）统一在 `src/common/common_libs/mavlink_units`：
+单位换算（m/mm/cm、m/s/cm/s、deg/cdeg/degE7、ms/µs）统一在 `src/common/common_libs/include/mavlink_units.hpp`：
 
 - 只做“数值 + 单位”，不解析报文、不做坐标变换、不做状态机；
 - 角度归一化结果一律为 rad；

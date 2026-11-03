@@ -2,7 +2,7 @@
 
 - 状态：现行（仿真）
 - 日期：2026-11-01（文档化）
-- 相关代码：`src/guidance/guidance_libs/include/target.hpp`、`src/target.cpp`
+- 相关代码：`src/guidance/guidance_libs/include/target.hpp`、`src/guidance/guidance_libs/src/target.cpp`
 - 相关测试：`test_guidance` §13
 
 ## 决定

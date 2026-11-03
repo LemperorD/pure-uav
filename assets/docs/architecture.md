@@ -28,7 +28,7 @@ test → 任意被测层
 - `guidance_libs` 不依赖 app、driver、I/O；
 - `adapter` 不依赖 driver；
 - `flight` 不依赖 app/guidance_sim_tools；
-- `driver` 不依赖 guidance（真机胶水放 `src/app/glue/`，由 main 链接）。
+- `driver` 不依赖 guidance（未来真机胶水放 `src/app/glue/`，由 main 链接）。
 
 ---
 

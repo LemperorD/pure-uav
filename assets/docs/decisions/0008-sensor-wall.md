@@ -2,7 +2,7 @@
 
 - 状态：现行（仿真）
 - 日期：2026-11-01（文档化）
-- 相关代码：`src/guidance/guidance_libs/include/sensor.hpp`、`src/sensor.cpp`
+- 相关代码：`src/guidance/guidance_libs/include/sensor.hpp`、`src/guidance/guidance_libs/src/sensor.cpp`
 - 相关测试：`test_guidance` §8–§12
 
 ## 决定
