@@ -1,22 +1,3 @@
-# ============================================================
-#  宿主应用与入口（app）
-#
-#  文件布局：
-#    src/guidance/flight/    guidance_flight_types.hpp / guidance_loop.{hpp,cpp}
-#    src/app/
-#      main.cpp                        入口（全局 main，顶层只留这一个源文件）
-#      startup/guidance_app_params.hpp  宿主侧整机配置
-#      startup/guidance_application.{hpp,cpp}  CLI + 参数 + 分发
-#      startup/guidance_example.cpp            制导调用示例（独立可执行文件）
-#      sim/guidance_sim_tools.{hpp,cpp}        CSV 录制/回放 + 合成世界
-#
-#  target：
-#    guidance_sim_tools  地面工具（可不上机）
-#    guidance_application 宿主启动层
-#    main                通信示例入口（全局 main）
-#    guidance_example    制导调用示例入口
-# ============================================================
-
 add_library(guidance_sim_tools STATIC
     sim/guidance_sim_tools.cpp
 )
