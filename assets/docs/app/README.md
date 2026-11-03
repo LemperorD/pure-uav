@@ -25,7 +25,7 @@ src/app/（宿主应用与入口，pure_uav::app）
 ```
 
 依赖方向：`main → guidance_application → guidance_app_params / guidance_sim_tools → guidance_loop → flight_types`，
-底层是 `guidance_flight`（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
+底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `flight_types.hpp` 保持零外部协议依赖。
 

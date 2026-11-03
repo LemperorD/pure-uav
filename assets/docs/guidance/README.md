@@ -56,24 +56,24 @@ src/guidance/
 | --- | --- | --- |
 | **`guidance_core`** | `guidance.cpp` + `pn_law.cpp` + `quat.cpp`（+ 纯头文件） | ★ 真机主循环的**算法**部分 |
 | **`guidance_sim`** | `sensor.cpp` + `target.cpp`（依赖 core，单向） | 只在仿真 / 离线测试里 link |
-| **`state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
+| **`guidance_state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
 | **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + RingLog） | 机载外壳；由 `guidance_flight` 聚合 |
-| **`guidance_flight`** | **机载聚合名**（= core + state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
+| **`guidance_flight`** | **机载聚合名**（= core + guidance_state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
 | `guidance_libs` | **聚合名**（= core + sim，INTERFACE 目标） | 仅为向后兼容旧脚本；⚠ **机载不要 link** |
 
 **验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，
 而 `guidance_step` / `quat_rotate_vec` 齐全 ⇒ 核心库**不含任何仿真符号**。
 
-> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `state_adapter` + `mavlink_units` + `guidance_shell`）。
+> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 > 源码位置：`src/guidance/`（核心）+ `src/guidance/adapter/`（适配层）+ `src/guidance/flight/`（外壳）+ `src/common/common_libs/`（单位换算 / `Vec3`）。
-> 真机的数据入口是 `state_adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
+> 真机的数据入口是 `guidance::adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
 
 单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 304 条断言，产物 `bin/test/`）。
 > ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
 > 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
-> 只链接 `state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
+> 只链接 `guidance_state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
 
 **`Vec3` 已迁出**（2026-10-20）：`vec3.hpp` 现在在 `src/common/common_libs/include/`，由
 header-only 的 INTERFACE 目标 `pure_vec3` 提供 include 目录。因此 `src/guidance/` 不再自带

@@ -18,9 +18,9 @@
 #                    ⚠ 机载**不要**链接它 —— 那会把 Sensor（含 <random> 噪声发生器）
 #                      和 TargetModel（弹丸动力学）装进飞机。
 #
-#    state_adapter : 适配层（外部口径 → GuidanceState），2026-10-20 从 src/interface 迁入
+#    guidance_state_adapter : 适配层（外部口径 → GuidanceState），2026-10-20 从 src/interface 迁入
 #    guidance_shell : 飞行外壳（主循环 + RingLog），2026-11-01 从 app 迁入
-#    guidance_flight : **机载聚合名** = guidance_core + state_adapter + mavlink_units + guidance_shell
+#    guidance_flight : **机载聚合名** = guidance_core + guidance_state_adapter + mavlink_units + guidance_shell
 #                    ⇒ 飞机上只 link 这一个名字（不含任何仿真代码）
 #
 #    依赖方向（2026-10-20 复核，无反向依赖）：
@@ -82,20 +82,20 @@ target_link_libraries(guidance_libs INTERFACE
 #       不调用任何核心函数，继续保持原设计的"零链接依赖"（机载可单独复用）。
 #  机载想"只记一个名字"时用下面的 guidance_flight 聚合目标。
 # ============================================================
-add_library(state_adapter SHARED
+add_library(guidance_state_adapter SHARED
     adapter/src/state_adapter.cpp
     adapter/src/state_check.cpp
 )
-target_include_directories(state_adapter PUBLIC
+target_include_directories(guidance_state_adapter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/adapter/include
     ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include
 )
-target_link_libraries(state_adapter
+target_link_libraries(guidance_state_adapter
     pure_vec3
     mavlink_units
 )
 
-install(TARGETS state_adapter
+install(TARGETS guidance_state_adapter
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -103,7 +103,7 @@ install(TARGETS state_adapter
 
 # ------------------------------------------------------------
 #  guidance_shell：飞行外壳（主循环 + 内存黑匣子）
-#    只依赖 core + state_adapter；由 guidance_flight 聚合给机载使用。
+#    只依赖 core + guidance_state_adapter；由 guidance_flight 聚合给机载使用。
 #    ⚠ 不含仿真；test_state_adapter 仍只链 core + adapter。
 # ------------------------------------------------------------
 add_library(guidance_shell STATIC
@@ -114,12 +114,12 @@ target_include_directories(guidance_shell PUBLIC
 )
 target_link_libraries(guidance_shell
     guidance_core
-    state_adapter
+    guidance_state_adapter
 )
 
 # ------------------------------------------------------------
 #  guidance_flight：**机载最小足迹**的聚合名（INTERFACE，不产生库文件）
-#    = guidance_core（制导算法）+ state_adapter（数据入口）+ guidance_shell（飞行外壳）
+#    = guidance_core（制导算法）+ guidance_state_adapter（数据入口）+ guidance_shell（飞行外壳）
 #      + mavlink_units（单位换算）
 #    飞机上只需 `target_link_libraries(xxx guidance_flight)` 一行。
 #  ⚠ 不含 guidance_sim（仿真专用：<random> 噪声发生器 + 弹丸动力学）。
@@ -127,7 +127,7 @@ target_link_libraries(guidance_shell
 add_library(guidance_flight INTERFACE)
 target_link_libraries(guidance_flight INTERFACE
     guidance_core
-    state_adapter
+    guidance_state_adapter
     mavlink_units
     guidance_shell
 )

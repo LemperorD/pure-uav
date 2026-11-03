@@ -850,7 +850,7 @@ static void test_invariants() {
         GuidanceState s2 = make_state(0.5, 100.0, Vec3(1, 0.01, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
         const PureGuidanceCmd cd = guidance_step(s2, pd, md);
         std::printf("  （提示：时间戳倒退时 dt = %.3f s，制导不自行纠正 —— "
-                    "单调性由上游保证，见 state_adapter::StateTimeTracker）\n",
+                    "单调性由上游保证，见 guidance::adapter::StateTimeTracker）\n",
                     s2.t - s1.t);
         ok(std::isfinite(norm(cd.a_cmd)), "时间戳倒退时输出仍有限（不产生 NaN/Inf）");
     }

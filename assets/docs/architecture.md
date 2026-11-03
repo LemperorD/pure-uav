@@ -40,7 +40,7 @@ test → 任意被测层
 | `src/driver` | `communicate` / `OrbbecSDK` | MAVLink 串口、相机 SDK |
 | `src/guidance/guidance_libs` | `guidance_core` | `guidance_step` / `pn_law` / `quat` |
 | `src/guidance/guidance_libs` | `guidance_sim` | 传感器墙 / 目标模型（**不上机**） |
-| `src/guidance/adapter` | `state_adapter` | 坐标/姿态/时间换算 + 体检 |
+| `src/guidance/adapter` | `guidance_state_adapter` | 坐标/姿态/时间换算 + 体检 |
 | `src/guidance/flight` | `guidance_shell` | `GuidanceLoop` + `RingLog` |
 | `src/guidance` | `guidance_flight` | INTERFACE 聚合：core + adapter + mavlink_units + shell |
 | `src/app/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |

@@ -81,6 +81,12 @@
 - tools 公开类型统一 `Guidance*` 前缀（`GuidanceCsvRow` / `GuidanceSyntheticWorld` / `GuidanceSimOptions` 等）；
 - CMake target：`app_tools` → `guidance_sim_tools`，`app_startup` → `guidance_application`，删除 `app_guidance` 别名。
 
+### 适配层 target 改名（本次）
+
+- CMake target `state_adapter` → `guidance_state_adapter`；
+- `guidance_shell` / `guidance_flight` / `test_state_adapter` 的链接同步更新；
+- 文件名 `state_adapter.{hpp,cpp}` 与命名空间 `guidance::adapter` 不变。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

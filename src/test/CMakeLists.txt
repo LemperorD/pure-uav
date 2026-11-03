@@ -64,10 +64,10 @@ target_link_libraries(test_mavlink_units
 # 数据对齐适配层单元测试（外部口径 → 内部口径）
 #   覆盖：NED↔ENU / 时间对齐与回绕 / 姿态（外部机体系→光轴系）/ 四元数交叉验证
 #         / 组装 GuidanceState / 上游模拟器（多口径同一场景）/ 不变量自检
-#   ★ 链接要求：state_adapter + mavlink_units + pure_vec3 + **guidance_core**
+#   ★ 链接要求：guidance_state_adapter + mavlink_units + pure_vec3 + **guidance_core**
 #     —— 本测试属于**真机路径**，只该依赖核心。它需要 guidance_step() 校验不变量、
 #        以及 quat_rotate_vec 做交叉验证；这两样都在 guidance_core 里。
-#         2026-10-20 起 state_adapter 已从 src/interface 迁到 src/guidance/adapter，
+#         2026-10-20 起适配层已从 src/interface 迁到 src/guidance/adapter，
 #         Vec3 迁到 src/common（pure_vec3），故 include 路径同步更新。
 #     ⚠ 不要链接 guidance_sim / guidance_libs —— 那会把仿真拖进真机路径的依赖，
 #        正是 2026-10-16 把四元数工具从 sensor.* 移出核心所要修掉的问题。
@@ -80,7 +80,7 @@ target_include_directories(test_state_adapter PUBLIC
     ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
 )
 target_link_libraries(test_state_adapter
-    state_adapter
+    guidance_state_adapter
     mavlink_units
     pure_vec3
     guidance_core

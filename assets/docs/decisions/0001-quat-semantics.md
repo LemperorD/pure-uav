@@ -24,11 +24,11 @@
 
 - 放在 core 后，`test_state_adapter` 只需链接 `guidance_core`，不再被仿真依赖污染；
 - 分量顺序与 PX4 uORB、MAVLink（ATTITUDE_QUATERNION、ODOMETRY.q）一致，上游可原样填入；
-- `R(q)·v` 语义与 `state_adapter::rotate_vec_by_quat`、标准旋转矩阵一致，跨模块不会“转反”。
+- `R(q)·v` 语义与 `guidance::adapter::rotate_vec_by_quat`、标准旋转矩阵一致，跨模块不会“转反”。
 
 ## 实测
 
-2026-10-16 用三条独立路径（本文件、`state_adapter` 自带实现、标准旋转矩阵）各跑 200 例随机姿态，最大偏差 **2.7e-15**。
+2026-10-16 用三条独立路径（本文件、`guidance::adapter` 自带实现、标准旋转矩阵）各跑 200 例随机姿态，最大偏差 **2.7e-15**。
 
 一致性由 `test_guidance` §6 与 `test_state_adapter` §4 双向钉住。
 
