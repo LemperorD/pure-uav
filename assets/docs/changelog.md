@@ -2,6 +2,17 @@
 
 > 代码注释不写日期和迁移历史，统一记在这里。
 
+## 2026-11-03
+
+### test_state_adapter 合并残留修复
+
+- 恢复 `test_attitude` 中丢失的 `cases` / `worst` 与外层循环结构；
+- 删除重复的 4.3 四元数恒等测试块；
+- 修复 `test_quat_cross_check` 缺失的 4.1 闭合块；
+- 删除 `test_quick_check` 尾部重复的 `same` / `f` 断言；
+- `Frame` / `AttitudeFrame` 统一为 `GuidanceFrame` / `GuidanceAttitudeFrame`；
+- 基线从 1193 更新为 **1212**。
+
 ## 2026-11-01
 
 ### app 代码合并（commit `b2d3493`）
