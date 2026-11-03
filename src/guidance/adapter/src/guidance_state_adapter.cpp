@@ -1,9 +1,10 @@
-#include "state_adapter.hpp"
+#include "guidance_state_adapter.hpp"
 
 #include <cmath>
 #include <cstddef>
 
 namespace pure_uav {
+namespace guidance {
 namespace adapter {
 
 // ============================================================================
@@ -17,7 +18,7 @@ namespace adapter {
 //      解析侧 / 机载侧单独编译本层时不必拖上整个 guidance_libs；
 //   ② 语义明确：跨模块口径换算必须用**数学定义**的那一个。
 //
-// 【与 guidance_libs::quat_rotate_vec 的关系（2026-10-16 三条路径实测）】
+// 【与 guidance_libs::quat_rotate_vec 的关系（三条路径实测）】
 //   仓库的 `quat_rotate_vec` 与本文实现、与"标准旋转矩阵"三者**完全一致**
 //   （各 200 例随机姿态，最大偏差 2.7e-15），即它确实是 R(q)·v，不是转置。
 //   三个实现互相钉住：见 test_state_adapter.cpp §4。
@@ -64,25 +65,25 @@ enum class OpticalAxis { kRight, kDown, kForward };
 //
 //   ⇒ 光轴系 ↔ FRD 是**循环置换** (x,y,z)_cam = (y,z,x)_frd，det = +1（不是镜像）；
 //     光轴系 ↔ FLU 同样是循环置换，只是"下"的符号随 FLU 的 z 向上而翻转。
-//   ⚠ 三根轴的正交性/手性由构造保证：(x̂_cam × ŷ_cam = ẑ_cam)
+//   注意：三根轴的正交性/手性由构造保证：(x̂_cam × ŷ_cam = ẑ_cam)
 //     = (机右 × 机下 = 机头方向) —— 自己乘一遍即可确认，无需再做归一化。
-Vec3 optical_axis_in_external_frame(OpticalAxis axis, AttitudeFrame f) noexcept {
+Vec3 optical_axis_in_external_frame(OpticalAxis axis, GuidanceAttitudeFrame f) noexcept {
     switch (f) {
-        case AttitudeFrame::kFrd:
+        case GuidanceAttitudeFrame::kFrd:
             switch (axis) {
                 case OpticalAxis::kRight:   return Vec3(0.0, 1.0, 0.0);
                 case OpticalAxis::kDown:    return Vec3(0.0, 0.0, 1.0);
                 case OpticalAxis::kForward: return Vec3(1.0, 0.0, 0.0);
             }
             break;
-        case AttitudeFrame::kFlu:
+        case GuidanceAttitudeFrame::kFlu:
             switch (axis) {
                 case OpticalAxis::kRight:   return Vec3(0.0, -1.0, 0.0);
                 case OpticalAxis::kDown:    return Vec3(0.0, 0.0, -1.0);
                 case OpticalAxis::kForward: return Vec3(1.0, 0.0, 0.0);
             }
             break;
-        case AttitudeFrame::kCamFrd:
+        case GuidanceAttitudeFrame::kCamFrd:
             // 外部**已经是光轴系**（按 FRD 语系书写）⇒ 光轴系三轴 = 自己的基
             switch (axis) {
                 case OpticalAxis::kRight:   return Vec3(1.0, 0.0, 0.0);
@@ -90,7 +91,7 @@ Vec3 optical_axis_in_external_frame(OpticalAxis axis, AttitudeFrame f) noexcept 
                 case OpticalAxis::kForward: return Vec3(0.0, 0.0, 1.0);
             }
             break;
-        case AttitudeFrame::kCamFlu:
+        case GuidanceAttitudeFrame::kCamFlu:
             // 同上，按 FLU 语系书写。两者都退化为单位基 —— 差别在 q 的语义，
             // 而 q 是原样拿到的，所以这里不做任何变换（见 convert_attitude）。
             switch (axis) {
@@ -99,7 +100,7 @@ Vec3 optical_axis_in_external_frame(OpticalAxis axis, AttitudeFrame f) noexcept 
                 case OpticalAxis::kForward: return Vec3(0.0, 0.0, 1.0);
             }
             break;
-        case AttitudeFrame::kOpticalPassthrough:
+        case GuidanceAttitudeFrame::kOpticalPassthrough:
             // 对方已按光轴系给了 q ⇒ 只做世界系换算，机体轴不动
             switch (axis) {
                 case OpticalAxis::kRight:   return Vec3(1.0, 0.0, 0.0);
@@ -112,11 +113,11 @@ Vec3 optical_axis_in_external_frame(OpticalAxis axis, AttitudeFrame f) noexcept 
 }
 
 // 世界系矢量：从 `from` 转到 `to`（当前只是 NED↔ENU，但写成通用形状）
-Vec3 world_to_world(const Vec3 &v, Frame from, Frame to) noexcept {
+Vec3 world_to_world(const Vec3 &v, GuidanceFrame from, GuidanceFrame to) noexcept {
     if (from == to) return v;
     // ENU = (N.y, N.x, −N.z)；自逆 —— 反向同样用这个式子再转一次即可。
-    if (from == Frame::kNed && to == Frame::kEnu) return Vec3(v.y, v.x, -v.z);
-    if (from == Frame::kEnu && to == Frame::kNed) return Vec3(v.y, v.x, -v.z);
+    if (from == GuidanceFrame::kNed && to == GuidanceFrame::kEnu) return Vec3(v.y, v.x, -v.z);
+    if (from == GuidanceFrame::kEnu && to == GuidanceFrame::kNed) return Vec3(v.y, v.x, -v.z);
     return v;
 }
 
@@ -125,7 +126,7 @@ Vec3 world_to_world(const Vec3 &v, Frame from, Frame to) noexcept {
 // ============================================================================
 //  §1  坐标系换算
 // ============================================================================
-Vec3 convert_vec(const Vec3 &v, Frame from, Frame to) noexcept {
+Vec3 convert_vec(const Vec3 &v, GuidanceFrame from, GuidanceFrame to) noexcept {
     return world_to_world(v, from, to);
 }
 
@@ -148,8 +149,8 @@ double normalize_quat(double q[4]) noexcept {
     return n;
 }
 
-bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_in,
-                      double q_out[4], Frame &world_out) noexcept {
+bool convert_attitude(const double q_in[4], GuidanceFrame world_in, GuidanceAttitudeFrame frame_in,
+                      double q_out[4], GuidanceFrame &world_out) noexcept {
     world_out = world_in;   // 失败时保持"未转换"的语义，调用方不会误以为转过了
 
     for (int i = 0; i < 4; ++i) {
@@ -162,7 +163,7 @@ bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_
     // |q| 必须"像个四元数"：
     //   · 太接近 0 ⇒ 没有姿态信息（零/退化输入）
     //   · 数量级差太远 ⇒ 大概率不是四元数（把欧拉角或别的结构填进来了）
-    // ⚠ 容差不设成 1e-3：**未归一化的四元数很常见**（外推、插值、整数标定），
+    // 注意：容差不设成 1e-3：**未归一化的四元数很常见**（外推、插值、整数标定），
     //   只要方向对，归一化后就是同一个姿态 ⇒ 应当接受并归一化，不该拒。
     const double n2 = q_in[0] * q_in[0] + q_in[1] * q_in[1] +
                       q_in[2] * q_in[2] + q_in[3] * q_in[3];
@@ -192,7 +193,7 @@ bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_
             // ③ 外部世界系 → 内部世界系(ENU)。
             //    kCamFrd / kCamFlu / kOpticalPassthrough 的 ① 已是单位基，
             //    所以这一步等价于"直接把 q 当光轴系→世界的旋转"，符合预期。
-            col[i] = world_to_world(in_world, world_in, Frame::kEnu);
+            col[i] = world_to_world(in_world, world_in, GuidanceFrame::kEnu);
         }
     }
 
@@ -231,7 +232,7 @@ bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_
 
     q_out[0] = w; q_out[1] = x; q_out[2] = y; q_out[3] = z;
     normalize_quat(q_out);   // 清掉重建过程的舍入误差，保证 |q| 严格接近 1
-    world_out = Frame::kEnu;
+    world_out = GuidanceFrame::kEnu;
     return true;
 }
 
@@ -239,13 +240,13 @@ bool convert_attitude(const double q_in[4], Frame world_in, AttitudeFrame frame_
 //  §3  时间对齐
 // ============================================================================
 
-double timestamp_to_s(double raw, TimeUnit unit, double t_ref) noexcept {
+double timestamp_to_s(double raw, GuidanceTimeUnit unit, double t_ref) noexcept {
     switch (unit) {
-        case TimeUnit::kSeconds: return raw - t_ref;
-        case TimeUnit::kMillis:  return mavlink_units::ms_diff_to_s(
+        case GuidanceTimeUnit::kSeconds: return raw - t_ref;
+        case GuidanceTimeUnit::kMillis:  return mavlink_units::ms_diff_to_s(
                                      static_cast<uint32_t>(raw),
                                      static_cast<uint32_t>(t_ref));
-        case TimeUnit::kMicros:  return (raw - t_ref) * 1e-6;
+        case GuidanceTimeUnit::kMicros:  return (raw - t_ref) * 1e-6;
     }
     return raw - t_ref;
 }
@@ -258,9 +259,9 @@ double timestamp_u64_us_to_s(uint64_t raw_us, uint64_t t_ref_us) noexcept {
     return static_cast<double>(raw_us - t_ref_us) * 1e-6;
 }
 
-// ---- StateTimeTracker ----
+// ---- GuidanceStateTimeTracker ----
 
-void StateTimeTracker::push_u64_us(uint64_t raw_us) noexcept {
+void GuidanceStateTimeTracker::push_u64_us(uint64_t raw_us) noexcept {
     ++frames_;
     last_jump_suspect_ = false;
 
@@ -282,7 +283,7 @@ void StateTimeTracker::push_u64_us(uint64_t raw_us) noexcept {
     if (d > 5000000ull) last_jump_suspect_ = true;   // > 5 s：可疑（丢帧/时钟跳变）
 }
 
-void StateTimeTracker::push_u32_ms(uint32_t raw_ms) noexcept {
+void GuidanceStateTimeTracker::push_u32_ms(uint32_t raw_ms) noexcept {
     ++frames_;
     last_jump_suspect_ = false;
 
@@ -307,7 +308,7 @@ void StateTimeTracker::push_u32_ms(uint32_t raw_ms) noexcept {
     if (d_ms > 5000u) last_jump_suspect_ = true;
 }
 
-void StateTimeTracker::push_s(double raw_s) noexcept {
+void GuidanceStateTimeTracker::push_s(double raw_s) noexcept {
     ++frames_;
     last_jump_suspect_ = false;
 
@@ -332,7 +333,7 @@ void StateTimeTracker::push_s(double raw_s) noexcept {
     if (d_s > 5.0) last_jump_suspect_ = true;
 }
 
-void StateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
+void GuidanceStateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
     if (!has_prev_) {
         // 还没数据：把参考点设为该值，下一帧自然从 0 附近开始
         prev_u64_ = raw_us;
@@ -350,14 +351,14 @@ void StateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
     ref_u64_us_ = t_us_;               // 之后 t_s() = (t_us_ − ref)/1e6
 }
 
-void StateTimeTracker::set_reference_u32_ms(uint32_t raw_ms) noexcept {
+void GuidanceStateTimeTracker::set_reference_u32_ms(uint32_t raw_ms) noexcept {
     set_reference_u64_us(static_cast<uint64_t>(raw_ms) * 1000ull);
 }
 
-void StateTimeTracker::reset() noexcept {
+void GuidanceStateTimeTracker::reset() noexcept {
     t_us_ = 0; has_prev_ = false; prev_u64_ = 0; ref_u64_us_ = 0;
     frames_ = 0; out_of_order_ = 0; last_jump_suspect_ = false;
-    base_ = TimeBase::kUnknown;
+    base_ = GuidanceTimeBase::kUnknown;
 }
 
 // ============================================================================
@@ -367,24 +368,24 @@ void StateTimeTracker::reset() noexcept {
 void fill_ins(GuidanceState &st,
               const Vec3 &p_raw, const Vec3 &v_raw,
               const double q_raw[4],
-              Frame world_in, AttitudeFrame att_in,
+              GuidanceFrame world_in, GuidanceAttitudeFrame att_in,
               bool has_position, bool has_attitude) noexcept {
-    if (has_position) st.p_M = world_to_world(p_raw, world_in, Frame::kEnu);
-    st.v_M = world_to_world(v_raw, world_in, Frame::kEnu);
+    if (has_position) st.p_M = world_to_world(p_raw, world_in, GuidanceFrame::kEnu);
+    st.v_M = world_to_world(v_raw, world_in, GuidanceFrame::kEnu);
     if (has_attitude) {
-        Frame dummy = Frame::kEnu;
+        GuidanceFrame dummy = GuidanceFrame::kEnu;
         convert_attitude(q_raw, world_in, att_in, st.q, dummy);
     }
 }
 
 uint32_t fill_target(GuidanceState &st,
-                     const Vec3 &los_raw, Frame from,
+                     const Vec3 &los_raw, GuidanceFrame from,
                      bool has_range, double opt_range_m,
                      bool has_vT, const Vec3 &opt_vT_raw,
                      bool target_present) noexcept {
     uint32_t filled = 0;
 
-    const Vec3 los_enu = world_to_world(los_raw, from, Frame::kEnu);
+    const Vec3 los_enu = world_to_world(los_raw, from, GuidanceFrame::kEnu);
     const double los_norm = norm(los_enu);
     if (los_norm > 1e-9) {
         st.los_hat = los_enu / los_norm;
@@ -399,7 +400,7 @@ uint32_t fill_target(GuidanceState &st,
     }
 
     if (has_vT) {
-        st.v_T = world_to_world(opt_vT_raw, from, Frame::kEnu);
+        st.v_T = world_to_world(opt_vT_raw, from, GuidanceFrame::kEnu);
         filled |= kHaveVT;
     }
 
@@ -408,13 +409,13 @@ uint32_t fill_target(GuidanceState &st,
     return filled;
 }
 
-void fill_target_accel(GuidanceState &st, const Vec3 &a_T_raw, Frame from,
+void fill_target_accel(GuidanceState &st, const Vec3 &a_T_raw, GuidanceFrame from,
                        bool has_ata) noexcept {
-    st.a_T_perp = has_ata ? world_to_world(a_T_raw, from, Frame::kEnu) : Vec3{};
+    st.a_T_perp = has_ata ? world_to_world(a_T_raw, from, GuidanceFrame::kEnu) : Vec3{};
 }
 
 void cmd_accel_to_ned(const PureGuidanceCmd &cmd, double out_xyz[3]) noexcept {
-    const Vec3 a_ned = world_to_world(cmd.a_cmd, Frame::kEnu, Frame::kNed);
+    const Vec3 a_ned = world_to_world(cmd.a_cmd, GuidanceFrame::kEnu, GuidanceFrame::kNed);
     out_xyz[0] = a_ned.x;
     out_xyz[1] = a_ned.y;
     out_xyz[2] = a_ned.z;
@@ -424,7 +425,7 @@ void cmd_accel_to_ned(const PureGuidanceCmd &cmd, double out_xyz[3]) noexcept {
 //  §5  整帧入口
 // ============================================================================
 
-GuidanceState to_guidance_state(const RawFrame &raw) noexcept {
+GuidanceState to_guidance_state(const GuidanceRawFrame &raw) noexcept {
     GuidanceState st;
 
     // ① 惯导（位置 / 速度 / 姿态）
@@ -441,4 +442,5 @@ GuidanceState to_guidance_state(const RawFrame &raw) noexcept {
 }
 
 }  // namespace adapter
+}  // namespace guidance
 }  // namespace pure_uav

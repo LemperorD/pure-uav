@@ -2,11 +2,16 @@
 
 比例导引（PN）制导律与 3D 拦截仿真。
 
+> 文档位置：`assets/docs/guidance/`
+> 代码位置：`src/guidance/`
+> 相关文档：[任务书](任务书.md) · [后续注意问题](后续注意问题.md) · [ω 决策](../decisions/0003-los-rate-source.md)
+> 文档索引：[../README.md](../README.md)
+
 ## 目录结构
 
 ```text
 src/guidance/
-├── CMakeLists.txt                  # target 一览见下节（core / sim / state_adapter / 两个聚合名）
+├── CMakeLists.txt                  # target 一览见下节（core / sim / adapter / shell / 聚合名）
 ├── guidance_libs/                  # 制导算法库（源码目录）
 │   ├── include/
 │   │   ├── guidance_types.hpp      # 数据结构：输入 state / 输出 cmd      ← 核心
@@ -23,11 +28,14 @@ src/guidance/
 │       └── target.cpp              # 目标弹道（解析式 + 预积分，含气动阻力）  ← **仿真**
 ├── adapter/                        # 数据对齐适配层（2026-10-20 由 src/interface 迁入）
 │   ├── include/
-│   │   ├── state_adapter.hpp       # 外部口径 → GuidanceState（"边界只转一次"）
-│   │   └── state_check.hpp         # 输入自检：不变量体检（只报告不修改）
+│   │   ├── guidance_state_adapter.hpp       # 外部口径 → GuidanceState（"边界只转一次"）
+│   │   └── guidance_state_check.hpp         # 输入自检：不变量体检（只报告不修改）
 │   └── src/
-│       ├── state_adapter.cpp
-│       └── state_check.cpp
+│       ├── guidance_state_adapter.cpp
+│       └── guidance_state_check.cpp
+├── flight/                         # 飞行外壳（2026-11-01 从 app 迁入）
+│   ├── guidance_flight_types.hpp            # 类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
+│   └── guidance_loop.{hpp,cpp}     # 主循环 + 内存黑匣子
 └── sim/
     ├── pn_sim.cpp                  # 3D 拦截数值仿真（输出 CSV）
     ├── plot_sim.py                 # 单场景画图（3D 轨迹 / R / λ̇ / |a|）
@@ -48,23 +56,23 @@ src/guidance/
 | --- | --- | --- |
 | **`guidance_core`** | `guidance.cpp` + `pn_law.cpp` + `quat.cpp`（+ 纯头文件） | ★ 真机主循环的**算法**部分 |
 | **`guidance_sim`** | `sensor.cpp` + `target.cpp`（依赖 core，单向） | 只在仿真 / 离线测试里 link |
-| **`state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
-| **`guidance_flight`** | **机载聚合名**（= core + state_adapter + mavlink_units） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
-| `guidance_libs` | **聚合名**（= core + sim，INTERFACE 目标） | 仅为向后兼容旧脚本；⚠ **机载不要 link** |
+| **`guidance_state_adapter`** | `guidance_state_adapter.cpp` + `guidance_state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
+| **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + GuidanceRingLog） | 机载外壳；由 `guidance_flight` 聚合 |
+| **`guidance_flight`** | **机载聚合名**（= core + guidance_state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
 
 **验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，
 而 `guidance_step` / `quat_rotate_vec` 齐全 ⇒ 核心库**不含任何仿真符号**。
 
-> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `state_adapter` + `mavlink_units`）。
-> 源码位置：`src/guidance/`（核心）+ `src/guidance/adapter/`（适配层）+ `src/common/common_libs/`（单位换算 / `Vec3`）。
-> 真机的数据入口是 `state_adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
+> **真机最小足迹** = 聚合目标 **`guidance_flight`**（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
+> 源码位置：`src/guidance/`（核心）+ `src/guidance/adapter/`（适配层）+ `src/guidance/flight/`（外壳）+ `src/common/common_libs/`（单位换算 / `Vec3`）。
+> 真机的数据入口是 `guidance::adapter::to_guidance_state()` —— **"谁填 GuidanceState"就是唯一的替换点**。
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
 
-单元测试在 `src/test/test_guidance/test_guidance.cpp`（15 组 126 条断言，产物 `bin/test/`）。
+单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 304 条断言，产物 `bin/test/`）。
 > ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
 > 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
-> 只链接 `state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
+> 只链接 `guidance_state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
 
 **`Vec3` 已迁出**（2026-10-20）：`vec3.hpp` 现在在 `src/common/common_libs/include/`，由
 header-only 的 INTERFACE 目标 `pure_vec3` 提供 include 目录。因此 `src/guidance/` 不再自带
@@ -160,7 +168,7 @@ v = 18 m/s 时  a_drag ≈ 0.70 m/s² ≈ 7% g
 
 **结论**：打"受恒定重力"的飞镖，APN 的控制代价比 PPN 低一个数量级
 （1.40 vs 22.20 m/s²），因为重力是可预测的常值加速度，补偿它几乎是免费的。
-弹道曲线见 `sim/target_model_plot.png`（`python sim/plot_target.py`）。
+弹道曲线见 `src/guidance/sim/target_model_plot.png`（`python src/guidance/sim/plot_target.py`）。
 
 ## 末端冻结判据（t_go / R）与"加速度的影响"
 
@@ -282,10 +290,10 @@ CIRCLE / SNAKE / 查表连续性）· 末端冻结判据（**t_go 基准 ≡ R �
 画图（需要 matplotlib）：
 
 ```bash
-python sim/plot_sim.py pn_sim_log.csv    # 单场景 4 子图：3D 轨迹 / R(t) / λ̇(t) / |a|(t)
-python sim/plot_compare.py               # 多律对比：λ̇(t) 与 |a|(t)，展示 N_eff 判据
-python sim/plot_sensor.py                # 传感器墙对比：λ̇ / |a| / 测距误差 / 制导模式
-python sim/plot_target.py                # 目标模型：弹道 / 速率衰减 / 加速度
+python src/guidance/sim/plot_sim.py pn_sim_log.csv    # 单场景 4 子图：3D 轨迹 / R(t) / λ̇(t) / |a|(t)
+python src/guidance/sim/plot_compare.py               # 多律对比：λ̇(t) 与 |a|(t)，展示 N_eff 判据
+python src/guidance/sim/plot_sensor.py                # 传感器墙对比：λ̇ / |a| / 测距误差 / 制导模式
+python src/guidance/sim/plot_target.py                # 目标模型：弹道 / 速率衰减 / 加速度
 ```
 
 ## 传感器墙（M4）：三级逼真度
@@ -328,7 +336,7 @@ python sim/plot_target.py                # 目标模型：弹道 / 速率衰减 
 失效模式是**过载饱和**（撞上 `a_max = 30 m/s²`），不是制导发散。拐点在 **~2 px**。
 → 下一步该做的是 **λ̇ 滤波 / 估计器**（M5），或放宽过载上限。
 
-曲线见 `sim/sensor_compare_plot.png`（`python sim/plot_sensor.py`）。
+曲线见 `src/guidance/sim/sensor_compare_plot.png`（`python src/guidance/sim/plot_sensor.py`）。
 
 ## 仿真发现：PPN 的有效导航比
 
@@ -355,7 +363,7 @@ N 扫描实测（最近距离 m）：
 30 m/s² —— 命中纯属临界侥幸，加噪声即脱靶。**所以本仿真默认取 N=6。**
 
 **结论**：PPN 的 N 不能照搬 TPN 的"2~4"，要按 `V_M/V_c` 折算；迎头（`V_c` 大）时
-尤其要放大 N。对比曲线见 `sim/pn_compare_plot.png`（`python sim/plot_compare.py`）。
+尤其要放大 N。对比曲线见 `src/guidance/sim/pn_compare_plot.png`（`python src/guidance/sim/plot_compare.py`）。
 这条已同步进讲义。
 
 ## 参考文档
