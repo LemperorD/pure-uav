@@ -1,21 +1,9 @@
-// MAVLink 单位换算模块单元测试 —— 王乙芃
+// MAVLink 单位换算模块单元测试
 //
-// 风格：无外部测试框架，纯 main() + 轻量断言（与仓库 test_math / test_guidance 一致）。
+// 覆盖：长度/速度/角度/角速度/时间、uint32 回绕、取整/饱和、哨兵、往返精度。
+// 测试矩阵与基线见 assets/docs/testing.md。
 //
-// 覆盖：
-//    1. 长度 / 速度（mm·cm·m、cm/s·m/s）
-//    2. 角度：deg ↔ rad
-//    3. 角度：cdeg（MAVLink 的 degrees*100）
-//    4. 角度：degE7（MAVLink 的 lat/lon）
-//    5. 角速度：deg/s ↔ rad/s
-//    6. ★ 角度归一化与角差（±π 边界、358° 假跳变）
-//    7. 时间：s / ms / us
-//    8. ★★ uint32 毫秒回绕（约 49.7 天）—— 本模块最容易被忽略的边界
-//    9. ★ 取整 / 饱和 / 环绕（写回 MAVLink 整型字段）
-//   10. ★ 哨兵值（MAVLink 的 invalid 约定）
-//   11. 精度：往返一致性
-//
-// 运行：./bin/test/test_mavlink_units   （退出码 0=全过，1=有失败）
+// 运行：./bin/test/test_mavlink_units（退出码 0=全过，1=有失败）
 
 #include <cmath>
 #include <cstdint>
@@ -184,7 +172,7 @@ static void test_wrap() {
     near(wrap_2pi(2.0 * PI_REF), 0.0, 1e-15, "wrap_2pi(2π) = 0");
     near(wrap_2pi(3.0 * PI_REF), PI_REF, 1e-15, "wrap_2pi(3π) = π");
 
-    // ★ 358° 假跳变：+179° 与 −179° 实际只差 2°
+    //  358° 假跳变：+179° 与 −179° 实际只差 2°
     //   符号约定：正值 = a 在 b 的**逆时针**方向（角度增大方向）
     near(angle_diff_pi(deg_to_rad(179.0), deg_to_rad(-179.0)), -deg_to_rad(2.0), 1e-12,
          "angle_diff_pi(179°, −179°) = −2°（顺时针 2°，不是 358°）");
@@ -207,7 +195,7 @@ static void test_time() {
 }
 
 // ============================================================
-//  8. ★★ uint32 毫秒回绕
+//  8.  uint32 毫秒回绕
 // ============================================================
 static void test_ms_wrap() {
     section("8. uint32 毫秒回绕（约 49.7 天）");
@@ -216,26 +204,26 @@ static void test_ms_wrap() {
     ok(mu::ms_diff_u32(1000u, 400u) == 600u, "普通差：1000 − 400 = 600 ms");
     ok(mu::ms_diff_u32(400u, 400u) == 0u, "同刻差 = 0");
 
-    // ★ 回绕：prev 接近 uint32 上限，now 已绕回 0 附近
+    //  回绕：prev 接近 uint32 上限，now 已绕回 0 附近
     //   prev = 4294967290，now = 15  ⇒ 真实间隔 21 ms
     ok(mu::ms_diff_u32(15u, 4294967290u) == 21u,
-       "★回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
+       "回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
     near(mu::ms_diff_to_s(15u, 4294967290u), 0.021, 1e-12, "回绕后换算成秒 = 0.021 s");
 
     // 超时判断（回绕安全）
     ok(mu::ms_elapsed(1000u, 400u), "ms_elapsed：已过 400 → true");
     ok(!mu::ms_elapsed(400u, 1000u), "ms_elapsed：还没到 1000 → false");
     ok(mu::ms_elapsed(400u, 400u), "ms_elapsed：恰好到达 → true");
-    // ★ 跨回绕：deadline = 4294967290（旧），now = 15（已绕回）⇒ 已过
-    ok(mu::ms_elapsed(15u, 4294967290u), "★ms_elapsed 跨回绕：已过 → true");
-    ok(!mu::ms_elapsed(4294967290u, 15u), "★ms_elapsed 跨回绕：未到 → false");
+    //  跨回绕：deadline = 4294967290（旧），now = 15（已绕回）⇒ 已过
+    ok(mu::ms_elapsed(15u, 4294967290u), "ms_elapsed 跨回绕：已过 → true");
+    ok(!mu::ms_elapsed(4294967290u, 15u), "ms_elapsed 跨回绕：未到 → false");
 
     // 边界：恰好 2^31（半个周期）—— 临界，这里只要求不崩且语义一致
     ok(!mu::ms_elapsed(0u, 0x80000000u), "半周期边界不误判为已过");
 }
 
 // ============================================================
-//  9. ★ 取整 / 饱和 / 环绕（写回 MAVLink 整型字段）
+//  9.  取整 / 饱和 / 环绕（写回 MAVLink 整型字段）
 // ============================================================
 static void test_rounding() {
     section("9. 取整 / 饱和 / 环绕");
@@ -256,44 +244,44 @@ static void test_rounding() {
     ok(round_to_u16_sat(1.0e9) == 65535u, "巨大正数 → 65535（uint16 上界）");
     ok(round_to_u16_sat(1234.6) == 1235u, "1234.6 → 1235");
 
-    // ★ 度 → cdeg：四舍五入 + 环绕到 [0, 36000)
+    //  度 → cdeg：四舍五入 + 环绕到 [0, 36000)
     ok(deg_to_cdeg_wrapped(0.0) == 0u, "0° → 0 cdeg");
     ok(deg_to_cdeg_wrapped(123.45) == 12345u, "123.45° → 12345 cdeg");
     ok(deg_to_cdeg_wrapped(359.994) == 35999u, "359.994° → 35999 cdeg");
-    ok(deg_to_cdeg_wrapped(359.999) == 0u, "★359.999° 四舍五入到 36000 ⇒ 绕回 0");
+    ok(deg_to_cdeg_wrapped(359.999) == 0u, "359.999° 四舍五入到 36000 ⇒ 绕回 0");
     ok(deg_to_cdeg_wrapped(360.0) == 0u, "360° → 0 cdeg");
     ok(deg_to_cdeg_wrapped(720.5) == 50u, "720.5° → 50 cdeg");
     ok(deg_to_cdeg_wrapped(-0.001) == 0u, "−0.001° → 0 cdeg（负数也绕回正区间）");
     ok(deg_to_cdeg_wrapped(-10.0) == 35000u, "−10° → 35000 cdeg");
 
-    // ★ 度 → degE7：四舍五入 + 饱和
+    //  度 → degE7：四舍五入 + 饱和
     ok(deg_to_deg_e7_round(47.0) == 470000000, "47° → 470000000 degE7");
     ok(deg_to_deg_e7_round(-122.0) == -1220000000, "−122° → −1220000000 degE7");
     // 200° × 1e7 = 2.0e9 < INT32_MAX(2.147e9) ⇒ 仍在范围内，不饱和
     ok(deg_to_deg_e7_round(200.0) == 2000000000, "200° 仍在 int32 范围内（不饱和）");
-    // ★ 饱和阈值是 |deg| > 214.7483647
+    //  饱和阈值是 |deg| > 214.7483647
     ok(deg_to_deg_e7_round(214.7483647) == std::numeric_limits<int32_t>::max(),
        "阈值 214.7483647° 恰好取到 INT32_MAX");
     ok(deg_to_deg_e7_round(300.0) == std::numeric_limits<int32_t>::max(),
-       "★300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
+       "300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
     ok(deg_to_deg_e7_round(-300.0) == std::numeric_limits<int32_t>::min(),
-       "★−300° ⇒ 饱和到 INT32_MIN");
+       "−300° ⇒ 饱和到 INT32_MIN");
     ok(deg_to_deg_e7_round(std::nan("")) == 0, "NaN → 0");
 }
 
 // ============================================================
-//  10. ★ 哨兵值（MAVLink 的 invalid 约定）
+//  10.  哨兵值（MAVLink 的 invalid 约定）
 // ============================================================
 static void test_sentinels() {
     section("10. 哨兵值（invalid）");
 
     ok(is_valid_heading_cdeg(0u), "hdg = 0 有效");
     ok(is_valid_heading_cdeg(12345u), "hdg = 12345 有效");
-    ok(!is_valid_heading_cdeg(kInvalidU16), "★hdg = UINT16_MAX(65535) ⇒ 无效");
+    ok(!is_valid_heading_cdeg(kInvalidU16), "hdg = UINT16_MAX(65535) ⇒ 无效");
 
     double out = -123.456;
-    ok(!heading_cdeg_to_rad(kInvalidU16, out), "★哨兵值 → 返回 false");
-    near(out, -123.456, 0.0, "★无效时 out 不被写入");
+    ok(!heading_cdeg_to_rad(kInvalidU16, out), "哨兵值 → 返回 false");
+    near(out, -123.456, 0.0, "无效时 out 不被写入");
     ok(heading_cdeg_to_rad(9000u, out), "有效 hdg → 返回 true");
     near(out, PI_REF / 2.0, 1e-15, "hdg=9000 cdeg → π/2");
 

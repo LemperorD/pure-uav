@@ -1,34 +1,59 @@
 # ============================================================
-#  机载主循环（app）
+#  宿主应用与入口（app）
 #
-#  · 契约/骨架：sample.hpp / output.hpp / sensor_source.hpp / command_sink.hpp
-#  · 主循环：    guidance_loop.{hpp,cpp}   （一拍做什么，纯我们自己的逻辑）
-#  · 合成世界：  synthetic_world.{hpp,cpp} （闭环演示 + test_guidance §17 回归共用）
-#  · 离线 IO：   csv_io.{hpp,cpp}          （录制/回放/落盘/空实现）
-#  · 薄壳：      main.cpp                  （只做命令行解析与打印）
+#  文件布局：
+#    src/guidance/flight/    guidance_flight_types.hpp / guidance_loop.{hpp,cpp}
+#    src/app/
+#      main.cpp                        入口（全局 main，顶层只留这一个源文件）
+#      startup/guidance_app_params.hpp  宿主侧整机配置
+#      startup/guidance_application.{hpp,cpp}  CLI + 参数 + 分发
+#      startup/guidance_example.cpp            制导调用示例（独立可执行文件）
+#      sim/guidance_sim_tools.{hpp,cpp}        CSV 录制/回放 + 合成世界
 #
-#  ⚠ 依赖方向：app → guidance_flight（= guidance_core + state_adapter + mavlink_units）
-#    具体数据源/出口（mavlink_ins_source.cpp / mavlink_sink.cpp）落地后再加到这里，
-#    且**只有那些 .cpp** 才 include 通信模块的头文件。
+#  target：
+#    guidance_sim_tools  地面工具（可不上机）
+#    guidance_application 宿主启动层
+#    main                通信示例入口（全局 main）
+#    guidance_example    制导调用示例入口
 # ============================================================
-add_library(app_guidance STATIC
-    guidance_loop.cpp
-    synthetic_world.cpp
-    csv_io.cpp
-    params.cpp
-    ring_log.cpp
+
+add_library(guidance_sim_tools STATIC
+    sim/guidance_sim_tools.cpp
 )
-target_include_directories(app_guidance PUBLIC
+target_include_directories(guidance_sim_tools PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(app_guidance
+target_link_libraries(guidance_sim_tools PUBLIC
+    guidance_flight
+)
+
+add_library(guidance_application STATIC
+    startup/guidance_application.cpp
+)
+target_include_directories(guidance_application PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(guidance_application PUBLIC
+    guidance_sim_tools
     guidance_flight
 )
 
 add_executable(main
     main.cpp
 )
-
-target_link_libraries(main
+target_link_libraries(main PRIVATE
     communicate
+)
+
+add_executable(guidance_example
+    startup/guidance_example.cpp
+)
+target_link_libraries(guidance_example PRIVATE
+    guidance_application
+)
+
+# 可执行文件统一放到 <仓库>/bin（与 test/CMakeLists.txt 的 TEST_OUTPUT_DIR 一致），
+# 这样文档里的 `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
+set_target_properties(main guidance_example PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
