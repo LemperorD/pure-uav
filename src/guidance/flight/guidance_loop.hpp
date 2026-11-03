@@ -12,9 +12,9 @@
 #include <chrono>
 #include <cstdint>
 
-#include "flight_types.hpp"    // InsSample / TargetSample / 接口 / LoopConfig
+#include "guidance_flight_types.hpp"    // GuidanceInsSample / GuidanceTargetSample / 接口 / GuidanceLoopConfig
 #include "guidance_types.hpp"  // GuidanceParams / GuidanceMemory
-#include "state_adapter.hpp"   // adapter::StateTimeTracker
+#include "guidance_state_adapter.hpp"   // adapter::GuidanceStateTimeTracker
 
 namespace pure_uav {
 namespace guidance {
@@ -24,7 +24,7 @@ namespace flight {
 //  §1  端到端打点（固定环形，循环内零分配）
 // ============================================================================
 
-struct LatencyStats {
+struct GuidanceLatencyStats {
     static constexpr int kCap = 128;      // 128 拍 ≈ 2.5 s @ 50 Hz
     enum class Stage : int { kPoll = 0, kProject, kGuidance, kSend, kTotal, kCount };
 
@@ -64,7 +64,7 @@ struct LatencyStats {
 //  §2  循环统计
 // ============================================================================
 
-struct LoopStats {
+struct GuidanceLoopStats {
     std::uint64_t ticks        = 0;
     std::uint64_t ins_frames   = 0;
     std::uint64_t tgt_frames   = 0;
@@ -76,18 +76,18 @@ struct LoopStats {
     std::uint64_t safe_hover   = 0;
     std::uint64_t sink_errors  = 0;
     std::uint64_t max_latency_us = 0;
-    LatencyStats  latency;
+    GuidanceLatencyStats  latency;
 };
 
 // ============================================================================
 //  §3  内存黑匣子（最近 kCap 拍；循环内零 I/O，dump 才碰磁盘）
 // ============================================================================
 
-struct RingRecord {
+struct GuidanceRingRecord {
     std::uint64_t boot_us = 0;
-    std::uint8_t  ctrl    = 0;     // ControlMode
+    std::uint8_t  ctrl    = 0;     // GuidanceControlMode
     std::uint8_t  mode    = 0;     // PureGuidanceMode
-    std::uint8_t  health  = 0;     // InputHealth
+    std::uint8_t  health  = 0;     // GuidanceInputHealth
     std::uint8_t  flags   = 0;     // bit0 valid / bit1 sat / bit2 hold_yaw / bit3 velocity
     double a_ned[3] = {0.0, 0.0, 0.0};
     double v_ned[3] = {0.0, 0.0, 0.0};
@@ -98,7 +98,7 @@ struct RingRecord {
     double lam_dot = 0.0;
 };
 
-class RingLog {
+class GuidanceRingLog {
 public:
     static constexpr int kCap = 512;   // ≈10.2 s @ 50 Hz
 
@@ -113,15 +113,15 @@ public:
     int size() const noexcept { return static_cast<int>(n_ < kCap ? n_ : kCap); }
     std::uint64_t count() const noexcept { return n_; }
 
-    const RingRecord &at(int i) const noexcept;
-    const RingRecord &newest() const noexcept;
+    const GuidanceRingRecord &at(int i) const noexcept;
+    const GuidanceRingRecord &newest() const noexcept;
 
     // 最近 seconds 秒（按 boot_us）写成 CSV；<=0 表示全部；返回行数，失败 -1。
     // 说明见 assets/docs/app/blackbox.md；唯一 I/O 入口，绝不能在循环里调用。
     long dump_csv(const char *path, double seconds) const;
 
 private:
-    RingRecord    r_[kCap];
+    GuidanceRingRecord    r_[kCap];
     int           head_ = 0;
     std::uint64_t n_    = 0;
 };
@@ -135,8 +135,8 @@ private:
 class GuidanceLoop {
 public:
     /// 构造：注入参数、配置、两个数据源、一个出口。
-    GuidanceLoop(const GuidanceParams &params, const LoopConfig &cfg,
-                 IInsSource &ins, ITargetSource &tgt, ICommandSink &sink);
+    GuidanceLoop(const GuidanceParams &params, const GuidanceLoopConfig &cfg,
+                 GuidanceInsSource &ins, GuidanceTargetSource &tgt, GuidanceCommandSink &sink);
     ~GuidanceLoop() = default;
 
     GuidanceLoop(const GuidanceLoop &) = delete;
@@ -149,36 +149,36 @@ public:
     /// @brief 跑一拍。
     /// @param[out] out 可空；非空时写入本拍输出。
     /// @return kOk / kSensorTimeout / kUnhealthyInput / kSinkError / kStopped。
-    LoopStatus run_once(GuidanceOutput *out = nullptr);
+    GuidanceLoopStatus run_once(GuidanceOutput *out = nullptr);
 
     /// @brief 按 cfg.loop_hz 阻塞运行，直到 request_stop 或错误。
-    LoopStatus run();
+    GuidanceLoopStatus run();
 
     /// @brief 请求停止；下一次 run/run_once 返回 kStopped。
     void request_stop();
 
-    const LoopStats &stats() const { return stats_; }
-    const RingLog &blackbox() const { return blackbox_; }
+    const GuidanceLoopStats &stats() const { return stats_; }
+    const GuidanceRingLog &blackbox() const { return blackbox_; }
     bool initialized() const { return inited_; }
 
 private:
-    LoopStatus emit(const GuidanceOutput &o, GuidanceOutput *out);
+    GuidanceLoopStatus emit(const GuidanceOutput &o, GuidanceOutput *out);
     double local_now_s() const;
 
     // 外部依赖（引用，不拥有）
     const GuidanceParams params_;
-    LoopConfig           cfg_;
-    IInsSource    &ins_;
-    ITargetSource &tgt_;
-    ICommandSink  &sink_;
+    GuidanceLoopConfig           cfg_;
+    GuidanceInsSource    &ins_;
+    GuidanceTargetSource &tgt_;
+    GuidanceCommandSink  &sink_;
 
     // 内核状态
     GuidanceMemory memory_{};
-    adapter::StateTimeTracker tracker_{};
+    adapter::GuidanceStateTimeTracker tracker_{};
 
     // 最近一帧采样（零阶保持）
-    InsSample    ins_now_{};
-    TargetSample tgt_now_{};
+    GuidanceInsSample    ins_now_{};
+    GuidanceTargetSample tgt_now_{};
     bool have_ins_ = false;
     bool have_tgt_ = false;
     bool computed_ = false;
@@ -195,8 +195,8 @@ private:
     bool inited_ = false;
     std::atomic<bool> stop_requested_{false};
 
-    LoopStats stats_{};
-    RingLog   blackbox_{};
+    GuidanceLoopStats stats_{};
+    GuidanceRingLog   blackbox_{};
 };
 
 }  // namespace flight

@@ -41,7 +41,7 @@ test → 任意被测层
 | `src/guidance/guidance_libs` | `guidance_core` | `guidance_step` / `pn_law` / `quat` |
 | `src/guidance/guidance_libs` | `guidance_sim` | 传感器墙 / 目标模型（**不上机**） |
 | `src/guidance/adapter` | `guidance_state_adapter` | 坐标/姿态/时间换算 + 体检 |
-| `src/guidance/flight` | `guidance_shell` | `GuidanceLoop` + `RingLog` |
+| `src/guidance/flight` | `guidance_shell` | `GuidanceLoop` + `GuidanceRingLog` |
 | `src/guidance` | `guidance_flight` | INTERFACE 聚合：core + adapter + mavlink_units + shell |
 | `src/app/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
 | `src/app/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
@@ -70,12 +70,12 @@ main()
 ```text
 ① poll 飞控帧 / 目标帧（没有新帧 → 沿用上一帧）
 ② 目标像素 → 相机系 → 机体 → 世界（得到 los_hat）
-③ adapter::RawFrame → to_guidance_state()
+③ adapter::GuidanceRawFrame → to_guidance_state()
 ④ quick_check()（不健康 → 按 on_unhealthy 降级）
 ⑤ guidance_step()（纯函数）
 ⑥ cmd_accel_to_ned()
 ⑦ sink->send()（每拍都发，PX4 offboard 要求持续到达）
-⑧ 统计 / 延迟打点 / RingLog 记录
+⑧ 统计 / 延迟打点 / GuidanceRingLog 记录
 ```
 
 关键点：
@@ -86,9 +86,9 @@ main()
 
 ### 3.3 端口
 
-- `IInsSource`：飞控/仿真给 `InsSample`；
-- `ITargetSource`：检测/仿真给 `TargetSample`（像素）；
-- `ICommandSink`：MAVLink/ROS2/仿真接 `GuidanceOutput`。
+- `GuidanceInsSource`：飞控/仿真给 `GuidanceInsSample`；
+- `GuidanceTargetSource`：检测/仿真给 `GuidanceTargetSample`（像素）；
+- `GuidanceCommandSink`：MAVLink/ROS2/仿真接 `GuidanceOutput`。
 
 主循环是**拉模型**：每拍主动 `poll`，数据到达时刻不打乱节拍。
 
@@ -98,7 +98,7 @@ main()
 
 - 控制回路单线程：`GuidanceLoop::run()` 用绝对时间 `sleep_until`，不累积漂移；
 - 循环内**零分配、零 printf、零 std::string、零文件 I/O**；
-- `RingLog` 只做内存 memcpy，dump 在循环外；
+- `GuidanceRingLog` 只做内存 memcpy，dump 在循环外；
 - CSV 录制/回放是地面工具，不参与机载实时路径；
 - 将来的 `flight_logger` 应该是“循环内 push + 独立写线程”，不在控制线程里做 I/O。
 

@@ -74,8 +74,8 @@ target_link_libraries(guidance_sim
 #  机载想"只记一个名字"时用下面的 guidance_flight 聚合目标。
 # ============================================================
 add_library(guidance_state_adapter SHARED
-    adapter/src/state_adapter.cpp
-    adapter/src/state_check.cpp
+    adapter/src/guidance_state_adapter.cpp
+    adapter/src/guidance_state_check.cpp
 )
 target_include_directories(guidance_state_adapter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/adapter/include

@@ -14,7 +14,7 @@
 | 制导任务分工 | [guidance/任务书.md](guidance/任务书.md) |
 | 跑机载主循环、录制、回放 | [app/README.md](app/README.md) |
 | CLI / YAML / 三种跑法 | [app/usage.md](app/usage.md) |
-| 黑匣子（RingLog / dump） | [app/blackbox.md](app/blackbox.md) |
+| 黑匣子（GuidanceRingLog / dump） | [app/blackbox.md](app/blackbox.md) |
 | 注释规范 | [comment-style.md](comment-style.md) |
 | 系统架构 / 数据流 / 线程模型 | [architecture.md](architecture.md) |
 | 坐标、姿态、时间、单位、端口 | [interfaces.md](interfaces.md) |

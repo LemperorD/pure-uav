@@ -14,8 +14,8 @@
 
 ```
 src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
-  flight_types.hpp         类型 / 契约 / CameraModel / LoopConfig
-  guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 RingLog
+  guidance_flight_types.hpp         类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
+  guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
 src/app/（宿主应用与入口，pure_uav::app）
   main.cpp                         入口：只创建 GuidanceApplication 并调用 run(argc, argv)
@@ -27,7 +27,7 @@ src/app/（宿主应用与入口，pure_uav::app）
 依赖方向：`main → guidance_application → guidance_app_params / guidance_sim_tools → guidance_loop → flight_types`，
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
-`flight_types.hpp` 保持零外部协议依赖。
+`guidance_flight_types.hpp` 保持零外部协议依赖。
 
 ---
 
@@ -77,7 +77,7 @@ src/app/（宿主应用与入口，pure_uav::app）
 - `--print-params` 打印最终值（两次配置可 diff）；`cam.*` 未配时**只有合成世界 demo**
   才回退 `guidance_demo_camera()`，真机必须在 YAML 里给相机。
 
-### 2.2 端到端打点（`LoopStats::latency`）
+### 2.2 端到端打点（`GuidanceLoopStats::latency`）
 
 - `run_once()` 每拍记录 **5 段耗时（ns）**：取数 / 反投影 / 制导 / 发送 / 总；
 - 固定**环形缓冲 `kCap=128`**（≈2.5 s @50 Hz）：循环内零分配、零 STL、零 I/O，
@@ -87,15 +87,15 @@ src/app/（宿主应用与入口，pure_uav::app）
 - ⚠ Windows `steady_clock` 分辨率约 **100 ns** ⇒ 数值是 100 ns 的整数倍；
   WSL/Linux 上更细。真实机载时延（串口/调度）会比合成世界大得多，以实机为准。
 
-### 2.3 黑匣子（`RingLog`）
+### 2.3 黑匣子（`GuidanceRingLog`）
 
-- 每拍 `push` 一条 `RingRecord`（`boot_us` / `ctrl` / `mode` / `health` / flags /
+- 每拍 `push` 一条 `GuidanceRingRecord`（`boot_us` / `ctrl` / `mode` / `health` / flags /
   `a_ned` / `v_ned` / `a_norm` / `t_go` / `Vc` / `R` / `lam_dot`），
   固定环形 **`kCap=512`**（≈10.2 s @50 Hz，约 49 KB）；
 - 循环内**零 I/O、零分配**；只有 `dump_csv()` 才碰磁盘；
 - `GuidanceLoop::blackbox()` 暴露只读视图：跑完 / 异常现场 / 手动触发都能 dump；
 - `main --blackbox=F --blackbox-sec=S` 跑完写最近 S 秒（`<=0` = 全部）；
-- 与 `tools` 互补：CSV 是**持续录制/复盘**，RingLog 是常驻内存的"最后一口气"。
+- 与 `guidance_sim_tools` 互补：CSV 是**持续录制/复盘**，GuidanceRingLog 是常驻内存的"最后一口气"。
 
 ---
 
@@ -110,7 +110,7 @@ present, has_range, range_m, has_vT, vTn,vTe,vTd
 - `#` 开头是注释（表头即注释，读取自动跳过）；浮点写 `%.17g` ⇒ 读回**逐位一致**。
 - `ins_new / tgt_new`：该拍是否真有新帧。★ **必须原样保留** —— 回放时
   「没有新目标帧 ⇒ 只重发不重算」的行为全靠它，丢了 ω 会被系统性改变。
-- `boot_us`：飞控 boot 时钟 µs（见 `src/guidance/flight/flight_types.hpp` 的时间戳约定）。
+- `boot_us`：飞控 boot 时钟 µs（见 `src/guidance/flight/guidance_flight_types.hpp` 的时间戳约定）。
 - 指令落盘 CSV：`boot_us, ctrl, mode, valid, sat, a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health`。
 
 ### 用法（接线时一行不用改主循环）

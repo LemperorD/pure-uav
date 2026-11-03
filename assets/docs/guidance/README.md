@@ -28,13 +28,13 @@ src/guidance/
 │       └── target.cpp              # 目标弹道（解析式 + 预积分，含气动阻力）  ← **仿真**
 ├── adapter/                        # 数据对齐适配层（2026-10-20 由 src/interface 迁入）
 │   ├── include/
-│   │   ├── state_adapter.hpp       # 外部口径 → GuidanceState（"边界只转一次"）
-│   │   └── state_check.hpp         # 输入自检：不变量体检（只报告不修改）
+│   │   ├── guidance_state_adapter.hpp       # 外部口径 → GuidanceState（"边界只转一次"）
+│   │   └── guidance_state_check.hpp         # 输入自检：不变量体检（只报告不修改）
 │   └── src/
-│       ├── state_adapter.cpp
-│       └── state_check.cpp
+│       ├── guidance_state_adapter.cpp
+│       └── guidance_state_check.cpp
 ├── flight/                         # 飞行外壳（2026-11-01 从 app 迁入）
-│   ├── flight_types.hpp            # 类型 / 契约 / CameraModel / LoopConfig
+│   ├── guidance_flight_types.hpp            # 类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
 │   └── guidance_loop.{hpp,cpp}     # 主循环 + 内存黑匣子
 └── sim/
     ├── pn_sim.cpp                  # 3D 拦截数值仿真（输出 CSV）
@@ -56,8 +56,8 @@ src/guidance/
 | --- | --- | --- |
 | **`guidance_core`** | `guidance.cpp` + `pn_law.cpp` + `quat.cpp`（+ 纯头文件） | ★ 真机主循环的**算法**部分 |
 | **`guidance_sim`** | `sensor.cpp` + `target.cpp`（依赖 core，单向） | 只在仿真 / 离线测试里 link |
-| **`guidance_state_adapter`** | `state_adapter.cpp` + `state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
-| **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + RingLog） | 机载外壳；由 `guidance_flight` 聚合 |
+| **`guidance_state_adapter`** | `guidance_state_adapter.cpp` + `guidance_state_check.cpp`（适配层） | ★ 真机的**数据入口**（不 link core） |
+| **`guidance_shell`** | `flight/guidance_loop.cpp`（主循环 + GuidanceRingLog） | 机载外壳；由 `guidance_flight` 聚合 |
 | **`guidance_flight`** | **机载聚合名**（= core + guidance_state_adapter + mavlink_units + guidance_shell） | ★★ **飞机上只 link 它**（INTERFACE，不产生库文件） |
 
 **验证**（二进制符号级）：`libguidance_core` 里 `Sensor=0  TargetModel=0`，

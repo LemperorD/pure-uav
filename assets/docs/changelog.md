@@ -93,6 +93,22 @@
 - `guidance_libs/` 作为源码目录保留，不再作为 target；
 - 仿真/测试直接链接 `guidance_core` + `guidance_sim`，机载链接 `guidance_flight`。
 
+### 文件与公共类型改名（本次）
+
+- `state_adapter.{hpp,cpp}` → `guidance_state_adapter.{hpp,cpp}`；
+- `state_check.{hpp,cpp}` → `guidance_state_check.{hpp,cpp}`；
+- `flight_types.hpp` → `guidance_flight_types.hpp`；
+- `guidance::flight` / `guidance::adapter` 的公共类型统一 `Guidance*` 前缀：
+  `GuidanceInsSample` / `GuidanceTargetSample` / `GuidanceCameraModel` /
+  `GuidanceLoopConfig` / `GuidanceInputHealth` / `GuidanceControlMode` /
+  `GuidanceLoopStatus` / `GuidanceInsSource` / `GuidanceTargetSource` /
+  `GuidanceCommandSink` / `GuidanceNullSink` / `GuidanceLatencyStats` /
+  `GuidanceLoopStats` / `GuidanceRingRecord` / `GuidanceRingLog` /
+  `GuidanceFrame` / `GuidanceAttitudeFrame` / `GuidanceTimeUnit` /
+  `GuidanceTimeBase` / `GuidanceStateTimeTracker` / `GuidanceInsRaw` /
+  `GuidanceTargetRaw` / `GuidanceRawFrame` / `GuidanceSeverity` /
+  `GuidanceCheckCode` / `GuidanceIssue` / `GuidanceReport`。
+
 ## 2026-10-25
 
 - 反转距/参数/黑匣子基线：`test_guidance` 304 通过；

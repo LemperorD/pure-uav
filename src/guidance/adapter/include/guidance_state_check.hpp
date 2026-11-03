@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-//  state_check.hpp —— 输入不变量体检（只报告，不修改）
+//  guidance_state_check.hpp —— 输入不变量体检（只报告，不修改）
 //
 //  体检项与使用方式见 assets/docs/interfaces.md §8。
 // =============================================================================
@@ -17,13 +17,13 @@ namespace adapter {
 //  §0  结果类型
 // ============================================================================
 
-enum class Severity {
+enum class GuidanceSeverity {
     kOk = 0,     // 满足不变量
     kWarn = 1,   // 可疑但物理上可能（例如 |q| 因外推略偏离 1）
     kError = 2,  // 违反不变量 —— 拿来进制导会出错
 };
 
-enum class CheckCode : int {
+enum class GuidanceCheckCode : int {
     kOk = 0,
 
     // --- 通用 ---
@@ -54,19 +54,19 @@ enum class CheckCode : int {
 };
 
 // 单条检查结果
-struct Issue {
-    Severity   severity = Severity::kOk;
-    CheckCode  code = CheckCode::kOk;
+struct GuidanceIssue {
+    GuidanceSeverity   severity = GuidanceSeverity::kOk;
+    GuidanceCheckCode  code = GuidanceCheckCode::kOk;
     std::string field;    // 字段名 / 量名
     std::string detail;   // 人类可读说明（含实测数）
 };
 
 // 一次体检的报告
-struct Report {
+struct GuidanceReport {
     int n_ok = 0;
     int n_warn = 0;
     int n_error = 0;
-    Issue issues[16];
+    GuidanceIssue issues[16];
     int n_issues = 0;
 
     // 有没有 error（warning 不算不通过：联调时它是提示，不是阻塞）
@@ -79,12 +79,12 @@ struct Report {
     std::string detail() const;
 
     // 供测试/日志：是否存在某个 code 的 error
-    bool has(CheckCode code) const noexcept;
+    bool has(GuidanceCheckCode code) const noexcept;
 };
 
 // 把一次检查追加进 report（满足不变量则只记 n_ok）
-void add_check(Report &rep, bool ok_cond, Severity sev_if_fail,
-               CheckCode code, const char *field, const char *detail) noexcept;
+void add_check(GuidanceReport &rep, bool ok_cond, GuidanceSeverity sev_if_fail,
+               GuidanceCheckCode code, const char *field, const char *detail) noexcept;
 
 // 惰性版本：`make_detail()` **只在检查失败时**才被调用。
 //
@@ -96,20 +96,20 @@ void add_check(Report &rep, bool ok_cond, Severity sev_if_fail,
 // 用法：add_check_lazy(rep, cond, sev, code, "field", [&] { return fmt("…", v); });
 //      add_check_lazy(rep, cond, sev, code, "field", [] { return std::string("…"); });
 template <class MakeDetail>
-inline void add_check_lazy(Report &rep, bool ok_cond, Severity sev_if_fail,
-                           CheckCode code, const char *field,
+inline void add_check_lazy(GuidanceReport &rep, bool ok_cond, GuidanceSeverity sev_if_fail,
+                           GuidanceCheckCode code, const char *field,
                            MakeDetail &&make_detail) {
     if (ok_cond) {
         ++rep.n_ok;
         return;
     }
-    if (sev_if_fail == Severity::kWarn) {
+    if (sev_if_fail == GuidanceSeverity::kWarn) {
         ++rep.n_warn;
     } else {
         ++rep.n_error;
     }
     if (rep.n_issues < static_cast<int>(sizeof(rep.issues) / sizeof(rep.issues[0]))) {
-        Issue &is = rep.issues[rep.n_issues++];
+        GuidanceIssue &is = rep.issues[rep.n_issues++];
         is.severity = sev_if_fail;
         is.code = code;
         is.field = field;
@@ -136,18 +136,18 @@ inline constexpr double kCmdTol        = 1e-9;   // 指令量的比较容差(m/s
 // `expected_los_units`：los_hat 是否为**单位矢量**。制导契约要求是单位矢量；
 //   若你的上游给的是"未归一化方向"且打算让制导自己归一化，传 false 只查"非零"。
 // `has_a_max` / `a_max_mps2`：给了才查"限幅后不得超限"。
-Report check_guidance_state(const GuidanceState &st,
+GuidanceReport check_guidance_state(const GuidanceState &st,
                             bool expected_los_units = true);
 
 // 体检一个 PureGuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
-Report check_guidance_cmd(const PureGuidanceCmd &cmd,
+GuidanceReport check_guidance_cmd(const PureGuidanceCmd &cmd,
                           double a_max_mps2 = 0.0,
                           bool has_a_max = false,
                           double expect_t = 0.0,
                           bool has_expect_t = false);
 
 // 一次性体检 state + cmd（联调现场最常用）。
-Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
+GuidanceReport check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
                    double a_max_mps2 = 0.0, bool has_a_max = false);
 
 // ============================================================================
@@ -155,8 +155,8 @@ Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
 // ============================================================================
 //
 // 与 check_guidance_state 的区别：
-//   · **不分配内存、不构造字符串、无 Report**，只有几个分支 ⇒ 实测 ~10 ns 量级
-//     （完整版 ≈960 ns，因为它要填 Report 并把每条 detail 变成 std::string）；
+//   · **不分配内存、不构造字符串、无 GuidanceReport**，只有几个分支 ⇒ 实测 ~10 ns 量级
+//     （完整版 ≈960 ns，因为它要填 GuidanceReport 并把每条 detail 变成 std::string）；
 //   · 只覆盖"会让制导出错"的**硬条件**（完整版里 error 级的那些），忽略 warning
 //     —— 因为飞行中真正要拦的是"这帧能不能用"，不是"值不值得提醒"。
 //
@@ -168,7 +168,7 @@ Report check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
 //
 // 注意：它**不检查** cmd，也不判断数据口径（NED/ENU、时间戳是否同源）——
 //    那些靠单元测试与联调时的完整体检。
-bool quick_check(const GuidanceState &st, CheckCode *first_bad = nullptr) noexcept;
+bool quick_check(const GuidanceState &st, GuidanceCheckCode *first_bad = nullptr) noexcept;
 
 // ============================================================================
 //  §3  不变量总闸（单测用）

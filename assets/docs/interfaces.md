@@ -3,7 +3,7 @@
 > 本文是跨模块的“契约”：坐标系、姿态系、时间基准、单位、端口。
 > 代码里的唯一换算点是 `src/guidance/adapter/`；其他地方**不要再转一次**。
 
-- 相关代码：`src/guidance/adapter/include/state_adapter.hpp`、`state_check.hpp`
+- 相关代码：`src/guidance/adapter/include/guidance_state_adapter.hpp`、`guidance_state_check.hpp`
 - 相关文档：[architecture.md](architecture.md)；时间基准细节见本文 §4（ADR 0005 计划中）。
 
 ---
@@ -72,7 +72,7 @@ NED = (E.y, E.x, −E.z)
 `convert_attitude()` 的输出：
 
 - `q_out`：光轴系 → 世界系（ENU），`|q_out| ≈ 1`；
-- `world_out`：恒为 `Frame::kEnu`；
+- `world_out`：恒为 `GuidanceFrame::kEnu`；
 - 输入不构成正规旋转（`|q|` 偏离过大 / NaN）时返回 false，`q_out` 置单位四元数。
 
 ---
@@ -110,14 +110,14 @@ boot_us   = 视觉时间戳 − offset_us
 
 换算是**单向**的（只做相机 → boot），`offset_us` 要持续维护（`SYSTEM_TIME` 约 1 Hz）。
 
-### 4.4 `StateTimeTracker`
+### 4.4 `GuidanceStateTimeTracker`
 
 不要让调用方自己写 `(now − first) * 1e-6`，原因：
 
 - uint32 ms 回绕（约 49.7 天）会让差值变成巨大负数；
 - uint64 µs 的绝对差在 uptime 很大时可能超过 2^53，double 转换丢精度。
 
-`StateTimeTracker` 改为**累加每帧差值**（差值总是小量，恒定精度），并天然容纳回绕。
+`GuidanceStateTimeTracker` 改为**累加每帧差值**（差值总是小量，恒定精度），并天然容纳回绕。
 
 接口：
 
@@ -142,11 +142,11 @@ boot_us   = 视觉时间戳 − offset_us
 
 | 端口 | 输入/输出 | 口径 |
 |---|---|---|
-| `IInsSource` | `InsSample` | 外部 NED、m、m/s、q[wxyz]、boot µs |
-| `ITargetSource` | `TargetSample` | 像素 `(u,v)` + 框 + 距离 + 曝光 boot µs |
-| `ICommandSink` | `GuidanceOutput` | 内部算完后换成 NED 的 `a_cmd_ned` / `v_cmd_ned` |
+| `GuidanceInsSource` | `GuidanceInsSample` | 外部 NED、m、m/s、q[wxyz]、boot µs |
+| `GuidanceTargetSource` | `GuidanceTargetSample` | 像素 `(u,v)` + 框 + 距离 + 曝光 boot µs |
+| `GuidanceCommandSink` | `GuidanceOutput` | 内部算完后换成 NED 的 `a_cmd_ned` / `v_cmd_ned` |
 
-`InsSample` / `TargetSample` / `GuidanceOutput` 定义在 `src/guidance/flight/flight_types.hpp`。
+`GuidanceInsSample` / `GuidanceTargetSample` / `GuidanceOutput` 定义在 `src/guidance/flight/guidance_flight_types.hpp`。
 
 ---
 
@@ -159,8 +159,8 @@ d_world = R(q) · d_body
 los_hat = normalize(d_world)
 ```
 
-- `fx/fy/cx/cy/R_body_cam` 来自 `LoopConfig::cam`；
-- `q` 来自 `InsSample`（机体 → 世界）；
+- `fx/fy/cx/cy/R_body_cam` 来自 `GuidanceLoopConfig::cam`；
+- `q` 来自 `GuidanceInsSample`（机体 → 世界）；
 - `R_body_cam` 的目标系是 **PX4 FRD**；
 - 目标在相机后方（`d_cam.z <= 0`）或结果零矢量 → 视作目标丢失。
 

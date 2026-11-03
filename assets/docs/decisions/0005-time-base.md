@@ -2,7 +2,7 @@
 
 - 状态：接受
 - 日期：2026-11-01（文档化）
-- 相关代码：`src/guidance/adapter/include/state_adapter.hpp`
+- 相关代码：`src/guidance/adapter/include/guidance_state_adapter.hpp`
 - 相关测试：`test_state_adapter` §2
 
 ## 背景
@@ -22,21 +22,21 @@
 2. 所有进入制导的采样都带 `boot_us`；
 3. **同一帧数据的所有时间戳必须同源**；
 4. 跨源数据必须先换算到 boot 域，再参与差值；
-5. `StateTimeTracker` 用“累加每帧差值”而不是“先相减再转 double”。
+5. `GuidanceStateTimeTracker` 用“累加每帧差值”而不是“先相减再转 double”。
 
 ## 为什么不用本机时钟
 
 - 本机 `steady_clock` 只适合超时/降级计时，不能和飞控/相机数据对齐；
 - 回放时本机时间几乎不前进，超时行为不可复现（见 `app/csv-format.md`）。
 
-## 为什么用 `StateTimeTracker`
+## 为什么用 `GuidanceStateTimeTracker`
 
 调用方自己写 `(now − first) * 1e-6` 有两个坑：
 
 1. uint32 ms 回绕（49.7 天）→ 差值变巨大负数；
 2. uint64 µs 的绝对差在 uptime 很大时可能超过 `2^53`，double 丢精度。
 
-`StateTimeTracker` 累加小差值，天然容纳回绕，且精度恒定。
+`GuidanceStateTimeTracker` 累加小差值，天然容纳回绕，且精度恒定。
 
 接口：
 

@@ -2,12 +2,12 @@
 
 - 状态：现行（VIO 仍在分支上，未合并）
 - 日期：2026-11-01（文档化）
-- 相关代码：`src/guidance/flight/guidance_loop.cpp`（像素反投影）、`LoopConfig::cam`
+- 相关代码：`src/guidance/flight/guidance_loop.cpp`（像素反投影）、`GuidanceLoopConfig::cam`
 - 相关文档：[interfaces.md](../interfaces.md)
 
 ## 1 相机模型
 
-`CameraModel`：
+`GuidanceCameraModel`：
 
 - `fx / fy`：焦距（像素）；
 - `cx / cy`：主点；
@@ -23,7 +23,7 @@ d_world = R(q) · d_body
 los_hat = normalize(d_world)
 ```
 
-- `q` 来自 `InsSample`（机体 → 世界）；
+- `q` 来自 `GuidanceInsSample`（机体 → 世界）；
 - `R_body_cam` 的目标系是 FRD；
 - 目标在相机后方或结果零矢量 → 视作目标丢失。
 
@@ -56,7 +56,7 @@ VIO → MAVLink ODOMETRY → PX4 EKF2 EV → vehicle_local_position → Guidance
 ```
 
 - 制导代码不改；
-- `InsSample` 仍来自飞控 local position/attitude；
+- `GuidanceInsSample` 仍来自飞控 local position/attitude；
 - 需要设置 PX4 参数：
   - `EKF2_EV_CTRL`（启用水平/垂直/速度/yaw 融合）；
   - `EKF2_EV_DELAY`（ms，补偿链路/曝光延迟）；

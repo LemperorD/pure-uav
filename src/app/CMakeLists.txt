@@ -2,7 +2,7 @@
 #  宿主应用与入口（app）
 #
 #  文件布局：
-#    src/guidance/flight/    flight_types.hpp / guidance_loop.{hpp,cpp}
+#    src/guidance/flight/    guidance_flight_types.hpp / guidance_loop.{hpp,cpp}
 #    src/app/
 #      main.cpp                入口（全局 main）
 #      guidance_app_params.hpp 宿主侧整机配置

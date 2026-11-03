@@ -42,7 +42,7 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 - `GuidanceInputRecorder`：每拍一行，输入帧 + 目标帧一起写；没有新帧也写，保证行对齐。
 - `GuidanceRecordingInsSource` / `GuidanceRecordingTargetSource`：装饰器，包在任意数据源外。
 - `GuidanceCsvReader`：读 CSV，跳过注释/空行，解析 31 列。
-- `GuidanceCsvReplaySource`：一行同时喂 `IInsSource` 和 `ITargetSource`；`ins_new=0` 时返回 false，让主循环沿用上一帧。
+- `GuidanceCsvReplaySource`：一行同时喂 `GuidanceInsSource` 和 `GuidanceTargetSource`；`ins_new=0` 时返回 false，让主循环沿用上一帧。
 - `GuidanceCsvAccelSink`：输出 CSV；`GuidanceTeeSink` 可同时发执行器和文件。
 
 ## 4 用法
@@ -70,4 +70,4 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 实飞用：
 
 - `MavlinkAccelSink` + 独立线程环形缓冲；
-- 或 `RingLog` 的内存黑匣子，出事再 dump。
+- 或 `GuidanceRingLog` 的内存黑匣子，出事再 dump。

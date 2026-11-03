@@ -11,7 +11,7 @@
 #include <cstdio>
 
 #include "guidance_app_params.hpp"     // GuidanceAppParams（宿主侧配置）
-#include "flight_types.hpp"   // flight::InsSample / flight::TargetSample / flight::GuidanceOutput / flight::CameraModel
+#include "guidance_flight_types.hpp"   // flight::GuidanceInsSample / flight::GuidanceTargetSample / flight::GuidanceOutput / flight::GuidanceCameraModel
 
 namespace pure_uav {
 namespace guidance {
@@ -30,9 +30,9 @@ namespace app {
 
 struct GuidanceCsvRow {
     std::uint64_t tick = 0;
-    flight::InsSample     ins;
+    flight::GuidanceInsSample     ins;
     bool          ins_new = false;
-    flight::TargetSample  tgt;
+    flight::GuidanceTargetSample  tgt;
     bool          tgt_new = false;
 };
 
@@ -44,8 +44,8 @@ public:
     GuidanceInputRecorder &operator=(const GuidanceInputRecorder &) = delete;
 
     bool open(const char *path);
-    void on_ins(const flight::InsSample &s, bool new_frame) noexcept;
-    void on_target(const flight::TargetSample &s, bool new_frame) noexcept;
+    void on_ins(const flight::GuidanceInsSample &s, bool new_frame) noexcept;
+    void on_target(const flight::GuidanceTargetSample &s, bool new_frame) noexcept;
 
     bool ok() const { return ok_; }
     bool is_open() const { return f_ != nullptr; }
@@ -54,7 +54,7 @@ public:
 
 private:
     std::FILE    *f_ = nullptr;
-    flight::InsSample     ins_{};
+    flight::GuidanceInsSample     ins_{};
     bool          ins_new_ = false;
     std::uint64_t tick_ = 0;
     std::uint64_t rows_ = 0;
@@ -62,30 +62,30 @@ private:
 };
 
 // 装饰器：内层数据源 + 顺带记录（不改变返回值语义）
-class GuidanceRecordingInsSource final : public flight::IInsSource {
+class GuidanceRecordingInsSource final : public flight::GuidanceInsSource {
 public:
-    GuidanceRecordingInsSource(flight::IInsSource &inner, GuidanceInputRecorder &rec) noexcept
+    GuidanceRecordingInsSource(flight::GuidanceInsSource &inner, GuidanceInputRecorder &rec) noexcept
         : inner_(inner), rec_(rec) {}
-    bool poll(flight::InsSample &out) override;
+    bool poll(flight::GuidanceInsSample &out) override;
     bool alive() const override { return inner_.alive(); }
 
 private:
-    flight::IInsSource    &inner_;
+    flight::GuidanceInsSource    &inner_;
     GuidanceInputRecorder &rec_;
-    flight::InsSample      last_{};
+    flight::GuidanceInsSample      last_{};
 };
 
-class GuidanceRecordingTargetSource final : public flight::ITargetSource {
+class GuidanceRecordingTargetSource final : public flight::GuidanceTargetSource {
 public:
-    GuidanceRecordingTargetSource(flight::ITargetSource &inner, GuidanceInputRecorder &rec) noexcept
+    GuidanceRecordingTargetSource(flight::GuidanceTargetSource &inner, GuidanceInputRecorder &rec) noexcept
         : inner_(inner), rec_(rec) {}
-    bool poll(flight::TargetSample &out) override;
+    bool poll(flight::GuidanceTargetSample &out) override;
     bool alive() const override { return inner_.alive(); }
 
 private:
-    flight::ITargetSource &inner_;
+    flight::GuidanceTargetSource &inner_;
     GuidanceInputRecorder &rec_;
-    flight::TargetSample   last_{};
+    flight::GuidanceTargetSample   last_{};
 };
 
 class GuidanceCsvReader {
@@ -112,13 +112,13 @@ private:
 };
 
 // 一个对象同时实现两个接口：一行就是“一拍的两半”。
-// 契约：每拍先 poll(flight::InsSample&) 再 poll(flight::TargetSample&)。
-class GuidanceCsvReplaySource final : public flight::IInsSource, public flight::ITargetSource {
+// 契约：每拍先 poll(flight::GuidanceInsSample&) 再 poll(flight::GuidanceTargetSample&)。
+class GuidanceCsvReplaySource final : public flight::GuidanceInsSource, public flight::GuidanceTargetSource {
 public:
     explicit GuidanceCsvReplaySource(GuidanceCsvReader &reader) noexcept : r_(reader) {}
 
-    bool poll(flight::InsSample &out) override;
-    bool poll(flight::TargetSample &out) override;
+    bool poll(flight::GuidanceInsSample &out) override;
+    bool poll(flight::GuidanceTargetSample &out) override;
     bool alive() const override { return !done_; }
 
     bool done() const { return done_; }
@@ -138,7 +138,7 @@ private:
 };
 
 // 指令落盘（离线复盘 / 回归测试 / 演示统计）
-class GuidanceCsvAccelSink final : public flight::ICommandSink {
+class GuidanceCsvAccelSink final : public flight::GuidanceCommandSink {
 public:
     explicit GuidanceCsvAccelSink(const char *path);
     ~GuidanceCsvAccelSink() override;
@@ -160,9 +160,9 @@ private:
 };
 
 // 一发两处：执行器 + 文件
-class GuidanceTeeSink final : public flight::ICommandSink {
+class GuidanceTeeSink final : public flight::GuidanceCommandSink {
 public:
-    GuidanceTeeSink(flight::ICommandSink &a, flight::ICommandSink &b) noexcept : a_(a), b_(b) {}
+    GuidanceTeeSink(flight::GuidanceCommandSink &a, flight::GuidanceCommandSink &b) noexcept : a_(a), b_(b) {}
     bool send(const flight::GuidanceOutput &out) override {
         const bool ra = a_.send(out);
         const bool rb = b_.send(out);
@@ -171,15 +171,15 @@ public:
     bool alive() const override { return a_.alive() && b_.alive(); }
 
 private:
-    flight::ICommandSink &a_;
-    flight::ICommandSink &b_;
+    flight::GuidanceCommandSink &a_;
+    flight::GuidanceCommandSink &b_;
 };
 
 // ============================================================================
 //  §2  合成世界（零外部依赖的闭环演示 / 回归）
 // ============================================================================
 
-flight::CameraModel guidance_demo_camera();
+flight::GuidanceCameraModel guidance_demo_camera();
 
 struct GuidanceSceneConfig {
     Vec3   p0{0.0, 0.0, -5.0};    // 起点（NED；z=-5 ⇒ 高 5 m）
@@ -189,17 +189,17 @@ struct GuidanceSceneConfig {
     std::uint64_t t0_us = 1000000ull;
 };
 
-class GuidanceSyntheticWorld final : public flight::IInsSource,
-                             public flight::ITargetSource,
-                             public flight::ICommandSink {
+class GuidanceSyntheticWorld final : public flight::GuidanceInsSource,
+                             public flight::GuidanceTargetSource,
+                             public flight::GuidanceCommandSink {
 public:
-    explicit GuidanceSyntheticWorld(const flight::CameraModel &cam, const GuidanceSceneConfig &sc = GuidanceSceneConfig{});
+    explicit GuidanceSyntheticWorld(const flight::GuidanceCameraModel &cam, const GuidanceSceneConfig &sc = GuidanceSceneConfig{});
 
     void step();
 
-    bool poll(flight::InsSample &out) override;
+    bool poll(flight::GuidanceInsSample &out) override;
     bool alive() const override { return true; }
-    bool poll(flight::TargetSample &out) override;
+    bool poll(flight::GuidanceTargetSample &out) override;
     bool send(const flight::GuidanceOutput &out) override;
 
     Vec3   pos() const { return p_; }
@@ -215,7 +215,7 @@ public:
 private:
     static Vec3 mat3_mul_transpose(const double R[9], const Vec3 &v);
 
-    flight::CameraModel cam_;
+    flight::GuidanceCameraModel cam_;
     Vec3   p_, v_, plate_;
     double q_[4] = {1.0, 0.0, 0.0, 0.0};
     double dt_;
@@ -229,7 +229,7 @@ struct GuidanceClosedLoopReport {
     int ticks = 0;
     double min_r = 1e18;
     int min_r_tick = -1;
-    flight::LoopStatus stop = flight::LoopStatus::kOk;
+    flight::GuidanceLoopStatus stop = flight::GuidanceLoopStatus::kOk;
     bool target_lost = false;
 };
 

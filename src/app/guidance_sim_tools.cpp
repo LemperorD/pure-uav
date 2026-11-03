@@ -98,7 +98,7 @@ bool GuidanceInputRecorder::open(const char *path) {
     ok_ = false;
     tick_ = 0;
     rows_ = 0;
-    ins_ = flight::InsSample{};
+    ins_ = flight::GuidanceInsSample{};
     ins_new_ = false;
 
     if (!path || *path == '\0') return false;
@@ -112,12 +112,12 @@ bool GuidanceInputRecorder::open(const char *path) {
     return true;
 }
 
-void GuidanceInputRecorder::on_ins(const flight::InsSample &s, bool new_frame) noexcept {
+void GuidanceInputRecorder::on_ins(const flight::GuidanceInsSample &s, bool new_frame) noexcept {
     ins_ = s;
     ins_new_ = new_frame;
 }
 
-void GuidanceInputRecorder::on_target(const flight::TargetSample &s, bool new_frame) noexcept {
+void GuidanceInputRecorder::on_target(const flight::GuidanceTargetSample &s, bool new_frame) noexcept {
     if (!f_) {
         ok_ = false;
         return;
@@ -147,14 +147,14 @@ void GuidanceInputRecorder::close() {
     }
 }
 
-bool GuidanceRecordingInsSource::poll(flight::InsSample &out) {
+bool GuidanceRecordingInsSource::poll(flight::GuidanceInsSample &out) {
     const bool got = inner_.poll(out);
     rec_.on_ins(got ? out : last_, got);
     if (got) last_ = out;
     return got;
 }
 
-bool GuidanceRecordingTargetSource::poll(flight::TargetSample &out) {
+bool GuidanceRecordingTargetSource::poll(flight::GuidanceTargetSample &out) {
     const bool got = inner_.poll(out);
     rec_.on_target(got ? out : last_, got);
     if (got) last_ = out;
@@ -304,7 +304,7 @@ bool GuidanceCsvReplaySource::advance() {
     return true;
 }
 
-bool GuidanceCsvReplaySource::poll(flight::InsSample &out) {
+bool GuidanceCsvReplaySource::poll(flight::GuidanceInsSample &out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
         if (!advance()) return false;
     }
@@ -314,7 +314,7 @@ bool GuidanceCsvReplaySource::poll(flight::InsSample &out) {
     return true;
 }
 
-bool GuidanceCsvReplaySource::poll(flight::TargetSample &out) {
+bool GuidanceCsvReplaySource::poll(flight::GuidanceTargetSample &out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
         if (!advance()) return false;
     }
@@ -373,8 +373,8 @@ bool GuidanceCsvAccelSink::send(const flight::GuidanceOutput &o) {
 //  合成世界
 // ============================================================================
 
-flight::CameraModel guidance_demo_camera() {
-    flight::CameraModel c;
+flight::GuidanceCameraModel guidance_demo_camera() {
+    flight::GuidanceCameraModel c;
     c.fx = 600.0;
     c.fy = 600.0;
     c.cx = 320.0;   // 640×480 的主点
@@ -384,7 +384,7 @@ flight::CameraModel guidance_demo_camera() {
     return c;
 }
 
-GuidanceSyntheticWorld::GuidanceSyntheticWorld(const flight::CameraModel &cam, const GuidanceSceneConfig &sc)
+GuidanceSyntheticWorld::GuidanceSyntheticWorld(const flight::GuidanceCameraModel &cam, const GuidanceSceneConfig &sc)
     : cam_(cam), p_(sc.p0), v_(sc.v0), plate_(sc.plate), dt_(sc.dt), t_us_(sc.t0_us) {
     q_[0] = 1.0;
 }
@@ -396,7 +396,7 @@ void GuidanceSyntheticWorld::step() {
     a_cmd_ = Vec3{};
 }
 
-bool GuidanceSyntheticWorld::poll(flight::InsSample &out) {
+bool GuidanceSyntheticWorld::poll(flight::GuidanceInsSample &out) {
     out.boot_us      = t_us_;
     out.p            = p_;
     out.v            = v_;
@@ -406,7 +406,7 @@ bool GuidanceSyntheticWorld::poll(flight::InsSample &out) {
     return true;
 }
 
-bool GuidanceSyntheticWorld::poll(flight::TargetSample &out) {
+bool GuidanceSyntheticWorld::poll(flight::GuidanceTargetSample &out) {
     const Vec3 d_world = plate_ - p_;
     const double R = norm(d_world);
     if (!(R > 1e-6)) return false;
@@ -435,7 +435,7 @@ bool GuidanceSyntheticWorld::poll(flight::TargetSample &out) {
 bool GuidanceSyntheticWorld::send(const flight::GuidanceOutput &out) {
     ++sends_;
     last_ = out;
-    if (out.ctrl == flight::ControlMode::kAcceleration) {
+    if (out.ctrl == flight::GuidanceControlMode::kAcceleration) {
         a_cmd_ = out.a_cmd_ned;
     } else {
         a_cmd_ = Vec3{};
@@ -458,10 +458,10 @@ GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld &world,
     for (int k = 0; k < ticks; ++k) {
         world.step();
         flight::GuidanceOutput out;
-        const flight::LoopStatus st = loop.run_once(&out);
-        if (st != flight::LoopStatus::kOk) {
+        const flight::GuidanceLoopStatus st = loop.run_once(&out);
+        if (st != flight::GuidanceLoopStatus::kOk) {
             rep.stop = st;
-            rep.target_lost = (st == flight::LoopStatus::kSensorTimeout);
+            rep.target_lost = (st == flight::GuidanceLoopStatus::kSensorTimeout);
             break;
         }
 
@@ -482,15 +482,15 @@ GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld &world,
 
 namespace {
 
-const char *status_name(flight::LoopStatus s) {
+const char *status_name(flight::GuidanceLoopStatus s) {
     switch (s) {
-        case flight::LoopStatus::kOk:             return "kOk";
-        case flight::LoopStatus::kNotInitialized: return "kNotInitialized";
-        case flight::LoopStatus::kStopped:        return "kStopped";
-        case flight::LoopStatus::kSensorTimeout:  return "kSensorTimeout";
-        case flight::LoopStatus::kUnhealthyInput: return "kUnhealthyInput";
-        case flight::LoopStatus::kSinkError:      return "kSinkError";
-        case flight::LoopStatus::kEstimatorReset: return "kEstimatorReset";
+        case flight::GuidanceLoopStatus::kOk:             return "kOk";
+        case flight::GuidanceLoopStatus::kNotInitialized: return "kNotInitialized";
+        case flight::GuidanceLoopStatus::kStopped:        return "kStopped";
+        case flight::GuidanceLoopStatus::kSensorTimeout:  return "kSensorTimeout";
+        case flight::GuidanceLoopStatus::kUnhealthyInput: return "kUnhealthyInput";
+        case flight::GuidanceLoopStatus::kSinkError:      return "kSinkError";
+        case flight::GuidanceLoopStatus::kEstimatorReset: return "kEstimatorReset";
     }
     return "?";
 }
@@ -520,7 +520,7 @@ struct Lat3 {
     unsigned long long max = 0;
 };
 
-Lat3 lat3(const flight::LatencyStats &l, flight::LatencyStats::Stage s) {
+Lat3 lat3(const flight::GuidanceLatencyStats &l, flight::GuidanceLatencyStats::Stage s) {
     Lat3 v;
     v.p50 = static_cast<unsigned long long>(l.percentile_ns(s, 0.50));
     v.p95 = static_cast<unsigned long long>(l.percentile_ns(s, 0.95));
@@ -565,7 +565,7 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
     GuidanceSceneConfig sc;
     sc.dt = dt;
 
-    const flight::CameraModel cam = ap.loop.cam.valid() ? ap.loop.cam : guidance_demo_camera();
+    const flight::GuidanceCameraModel cam = ap.loop.cam.valid() ? ap.loop.cam : guidance_demo_camera();
     GuidanceSyntheticWorld world(cam, sc);
 
     // ---- 录制（可选）：装饰器包在数据源外面，主循环代码一行不改 ----
@@ -577,10 +577,10 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
     }
     GuidanceRecordingInsSource    rins(world, rec);
     GuidanceRecordingTargetSource rtgt(world, rec);
-    flight::IInsSource    &ins = want_rec ? static_cast<flight::IInsSource &>(rins)
-                                  : static_cast<flight::IInsSource &>(world);
-    flight::ITargetSource &tgt = want_rec ? static_cast<flight::ITargetSource &>(rtgt)
-                                  : static_cast<flight::ITargetSource &>(world);
+    flight::GuidanceInsSource    &ins = want_rec ? static_cast<flight::GuidanceInsSource &>(rins)
+                                  : static_cast<flight::GuidanceInsSource &>(world);
+    flight::GuidanceTargetSource &tgt = want_rec ? static_cast<flight::GuidanceTargetSource &>(rtgt)
+                                  : static_cast<flight::GuidanceTargetSource &>(world);
 
     // ---- 指令落盘（可选）：一发两处 ----
     GuidanceCsvAccelSink csv_sink(opt.out);
@@ -589,8 +589,8 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
         return 1;
     }
     GuidanceTeeSink tee(world, csv_sink);
-    flight::ICommandSink &sink = opt.out ? static_cast<flight::ICommandSink &>(tee)
-                                 : static_cast<flight::ICommandSink &>(world);
+    flight::GuidanceCommandSink &sink = opt.out ? static_cast<flight::GuidanceCommandSink &>(tee)
+                                 : static_cast<flight::GuidanceCommandSink &>(world);
 
     flight::GuidanceLoop loop(ap.guidance, ap.loop, ins, tgt, sink);
     if (!loop.init()) {
@@ -610,9 +610,9 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
     const GuidanceClosedLoopReport rep = guidance_run_closed_loop(
         world, loop, opt.ticks, opt.verbose ? on_tick_print : nullptr, &ctx);
 
-    const flight::LoopStats &s = loop.stats();
+    const flight::GuidanceLoopStats &s = loop.stats();
     std::printf("\n=== 汇总 ===\n");
-    if (rep.stop != flight::LoopStatus::kOk) {
+    if (rep.stop != flight::GuidanceLoopStatus::kOk) {
         std::printf("  终止：%s%s\n", status_name(rep.stop),
                     rep.target_lost ? "（目标离开视野，演示里属正常）" : "");
     }
@@ -628,11 +628,11 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
     std::printf("  末速度 (%.2f, %.2f, %.2f)  max_latency=%llu us\n", world.vel().x,
                 world.vel().y, world.vel().z, (unsigned long long)s.max_latency_us);
     if (s.latency.count() > 0) {
-        const Lat3 poll = lat3(s.latency, flight::LatencyStats::Stage::kPoll);
-        const Lat3 proj = lat3(s.latency, flight::LatencyStats::Stage::kProject);
-        const Lat3 guid = lat3(s.latency, flight::LatencyStats::Stage::kGuidance);
-        const Lat3 send = lat3(s.latency, flight::LatencyStats::Stage::kSend);
-        const Lat3 tot  = lat3(s.latency, flight::LatencyStats::Stage::kTotal);
+        const Lat3 poll = lat3(s.latency, flight::GuidanceLatencyStats::Stage::kPoll);
+        const Lat3 proj = lat3(s.latency, flight::GuidanceLatencyStats::Stage::kProject);
+        const Lat3 guid = lat3(s.latency, flight::GuidanceLatencyStats::Stage::kGuidance);
+        const Lat3 send = lat3(s.latency, flight::GuidanceLatencyStats::Stage::kSend);
+        const Lat3 tot  = lat3(s.latency, flight::GuidanceLatencyStats::Stage::kTotal);
         std::printf("  打点 P50/P95/max (ns)  取数 %llu/%llu/%llu  反投影 %llu/%llu/%llu\n",
                     poll.p50, poll.p95, poll.max, proj.p50, proj.p95, proj.max);
         std::printf("                        制导 %llu/%llu/%llu  发送 %llu/%llu/%llu"
@@ -657,7 +657,7 @@ int guidance_run_synthetic(const GuidanceSimOptions &opt, const GuidanceAppParam
     else
         std::printf("  ⇒ 最近距离仍 > 1 m：检查初速方向 / a_max / N\n");
 
-    return rep.target_lost ? 0 : (rep.stop == flight::LoopStatus::kOk ? 0 : 1);
+    return rep.target_lost ? 0 : (rep.stop == flight::GuidanceLoopStatus::kOk ? 0 : 1);
 }
 
 int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const GuidanceAppParams &ap) {
@@ -673,9 +673,9 @@ int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const
         std::printf("!! 打不开输出文件：%s\n", opt.out);
         return 1;
     }
-    flight::NullSink null_sink;
-    flight::ICommandSink &sink = opt.out ? static_cast<flight::ICommandSink &>(csv_sink)
-                                 : static_cast<flight::ICommandSink &>(null_sink);
+    flight::GuidanceNullSink null_sink;
+    flight::GuidanceCommandSink &sink = opt.out ? static_cast<flight::GuidanceCommandSink &>(csv_sink)
+                                 : static_cast<flight::GuidanceCommandSink &>(null_sink);
 
     flight::GuidanceLoop loop(ap.guidance, ap.loop, src, src, sink);
     if (!loop.init()) {
@@ -690,10 +690,10 @@ int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const
 
     const int ticks = (opt.ticks > 0) ? opt.ticks : 1000000;
     int k = 0;
-    flight::LoopStatus stop = flight::LoopStatus::kOk;
+    flight::GuidanceLoopStatus stop = flight::GuidanceLoopStatus::kOk;
     for (; k < ticks; ++k) {
-        const flight::LoopStatus st = loop.run_once(nullptr);
-        if (st != flight::LoopStatus::kOk) {
+        const flight::GuidanceLoopStatus st = loop.run_once(nullptr);
+        if (st != flight::GuidanceLoopStatus::kOk) {
             stop = st;
             break;
         }
@@ -704,7 +704,7 @@ int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const
         }
     }
 
-    const flight::LoopStats &s = loop.stats();
+    const flight::GuidanceLoopStats &s = loop.stats();
     std::printf("\n=== 汇总 ===\n");
     if (src.error()) std::printf("  !! CSV 解析问题：%s\n", src.error());
     std::printf("  回放行数 %llu  循环拍数 %llu  ins=%llu  tgt=%llu  sent=%llu\n",
@@ -725,7 +725,7 @@ int guidance_run_replay(const char *replay, const GuidanceSimOptions &opt, const
                          opt.blackbox);
     }
 
-    return (stop == flight::LoopStatus::kOk || src.error() == nullptr) ? 0 : 1;
+    return (stop == flight::GuidanceLoopStatus::kOk || src.error() == nullptr) ? 0 : 1;
 }
 
 }  // namespace app

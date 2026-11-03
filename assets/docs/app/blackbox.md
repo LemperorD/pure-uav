@@ -1,4 +1,4 @@
-# app 黑匣子（RingLog）
+# app 黑匣子（GuidanceRingLog）
 
 - 状态：现行
 - 相关代码：`src/guidance/flight/guidance_loop.hpp`、`guidance_loop.cpp`
@@ -8,7 +8,7 @@
 
 ## 1 它是什么
 
-`RingLog` 是**内存里的“最后 10 秒”**：
+`GuidanceRingLog` 是**内存里的“最后 10 秒”**：
 
 - 固定环形缓冲 `kCap = 512` 拍；
 - 50 Hz 下约 **10.2 s**，约 **49 KB**；
@@ -17,7 +17,7 @@
 
 它和 CSV 的区别：
 
-| | RingLog | CSV (`tools`) |
+| | GuidanceRingLog | CSV (`guidance_sim_tools`) |
 |---|---|---|
 | 位置 | 内存 | 磁盘 |
 | 时长 | 最近 512 拍 | 全程（可选） |
@@ -28,7 +28,7 @@
 
 ## 2 记录什么
 
-`RingRecord`：
+`GuidanceRingRecord`：
 
 ```text
 boot_us, ctrl, mode, health, flags,
@@ -93,5 +93,5 @@ a_n,a_e,a_d,v_n,v_e,v_d,anorm,t_go,Vc,R,lam_dot
 ## 6 未来
 
 - 信号处理/看门狗里自动 dump；
-- 和 `flight_logger` 分工：RingLog 负责“最后一口气”，logger 负责全程；
+- 和 `flight_logger` 分工：GuidanceRingLog 负责“最后一口气”，logger 负责全程；
 - 增加 `seq` 支持增量落盘。

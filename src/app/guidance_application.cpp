@@ -114,11 +114,11 @@ const char *los_name(LosRateSource v) {
     return "?";
 }
 
-const char *unhealthy_name(flight::LoopConfig::OnUnhealthy v) {
+const char *unhealthy_name(flight::GuidanceLoopConfig::OnUnhealthy v) {
     switch (v) {
-        case flight::LoopConfig::OnUnhealthy::kHoldLastCommand: return "HOLD_LAST_COMMAND";
-        case flight::LoopConfig::OnUnhealthy::kSafeHover: return "SAFE_HOVER";
-        case flight::LoopConfig::OnUnhealthy::kStop: return "STOP";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand: return "HOLD_LAST_COMMAND";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover: return "SAFE_HOVER";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kStop: return "STOP";
     }
     return "?";
 }
@@ -162,18 +162,18 @@ bool set_enum_los(const std::string &raw, LosRateSource *out) {
     return false;
 }
 
-bool set_enum_unhealthy(const std::string &raw, flight::LoopConfig::OnUnhealthy *out) {
+bool set_enum_unhealthy(const std::string &raw, flight::GuidanceLoopConfig::OnUnhealthy *out) {
     const std::string v = lower(trim(raw));
     if (v == "0" || v == "hold" || v == "hold_last" || v == "hold_last_command") {
-        *out = flight::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        *out = flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand;
         return true;
     }
     if (v == "1" || v == "safe_hover" || v == "hover") {
-        *out = flight::LoopConfig::OnUnhealthy::kSafeHover;
+        *out = flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover;
         return true;
     }
     if (v == "2" || v == "stop") {
-        *out = flight::LoopConfig::OnUnhealthy::kStop;
+        *out = flight::GuidanceLoopConfig::OnUnhealthy::kStop;
         return true;
     }
     return false;
@@ -562,7 +562,7 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
     e = check_range("loop.full_check_hz", p.loop.full_check_hz, 0.0, 1000.0, false, false);
     if (!e.empty()) return GuidanceParamResult::fail(e);
 
-    const flight::CameraModel &c = p.loop.cam;
+    const flight::GuidanceCameraModel &c = p.loop.cam;
     if ((c.fx > 0.0) != (c.fy > 0.0)) {
         return GuidanceParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
     }

@@ -23,8 +23,8 @@ struct TruthState {
     double q[4] = {1, 0, 0, 0};  // 机体姿态四元数 [w,x,y,z]（机体→世界；与 PX4/MAVLink 一致）
 };
 
-// 相机内参 + 目标特征尺寸（size 反推测距用）
-struct CameraModel {
+// 相机内参 + 目标特征尺寸（size 反推测距用；仿真专用）
+struct GuidanceSimCameraModel {
     double fx = 1200.0;          // 焦距 x (像素)
     double fy = 1200.0;          // 焦距 y (像素)
     double cx = 320.0;           // 主点 x (像素)
@@ -44,7 +44,7 @@ enum class SensorFidelity {
 
 struct SensorConfig {
     SensorFidelity fidelity = SensorFidelity::IDEAL;
-    CameraModel    cam;
+    GuidanceSimCameraModel    cam;
 
     // --- 噪声（SEMI_REAL / FULL_REAL）---
     double pixel_noise_std = 0.1;   // 检测框中心像素噪声 std (px)
