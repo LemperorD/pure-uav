@@ -3,7 +3,7 @@
 // 内部头文件（不对外安装），只被 detection_rt 使用。
 
 #include "pure_uav/detection/detection_types.hpp"
-#include "pure_uav/detection/yolo_npu.hpp"
+#include "pure_uav/detection/yolo_output.hpp"
 
 namespace pure_uav {
 namespace detection {
@@ -19,7 +19,7 @@ struct PostprocessParams {
 
 // 把 NPU 输出写入 FrameResult 的 boxes/count/present 与主目标字段。
 // 返回 false 表示输出布局无法识别（此时 count=0）。
-bool postprocess(const NpuOutputView& out, const PostprocessParams& p, FrameResult& r);
+bool postprocess(const YoloOutputView& out, const PostprocessParams& p, FrameResult& r);
 
 }  // namespace detection
 }  // namespace pure_uav

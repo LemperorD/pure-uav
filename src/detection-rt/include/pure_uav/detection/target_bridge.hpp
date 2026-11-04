@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-//  FrameResult → pure_uav::app::TargetSample 桥接
+//  FrameResult → pure_uav::guidance::flight::GuidanceTargetSample 桥接
 //
 //  【时间戳语义（必须看清）】
 //    FrameResult::host_us 是**帧到达主机的时刻**（Unix 微秒，system_clock），
@@ -11,7 +11,7 @@
 //    换算成飞控 boot 微秒，再作为 boot_us 传进来；本函数不读时钟、不换算。
 //
 //  【映射表（与 spec 一致）】
-//    TargetSample.boot_us   ← 调用方传入（已换算到飞控 boot 时钟）
+//    GuidanceTargetSample.boot_us ← 调用方传入（已换算到飞控 boot 时钟）
 //    u_px / v_px            ← 主目标框中心
 //    has_box                ← present
 //    w_px / h_px            ← 主目标框宽高
@@ -28,13 +28,13 @@
 #include <cstdint>
 
 #include "pure_uav/detection/detection_types.hpp"
-#include "sample.hpp"   // pure_uav::app::TargetSample（src/app/sample.hpp，只读引用）
+#include "guidance_flight_types.hpp"   // flight::GuidanceTargetSample
 
 namespace pure_uav {
 namespace detection {
 
 bool to_target_sample(const FrameResult& r, uint64_t boot_us,
-                      pure_uav::app::TargetSample& out);
+                      pure_uav::guidance::flight::GuidanceTargetSample& out);
 
 }  // namespace detection
 }  // namespace pure_uav

@@ -28,7 +28,7 @@
 
 #include "pure_uav/detection/detector.hpp"
 #include "pure_uav/detection/detection_types.hpp"
-#include "pure_uav/detection/yolo_npu.hpp"
+#include "pure_uav/detection/yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
 namespace {
@@ -39,7 +39,7 @@ using pure_uav::detection::DetectorConfig;
 using pure_uav::detection::DetectorStats;
 using pure_uav::detection::FrameResult;
 using pure_uav::detection::PostprocessParams;
-using pure_uav::detection::YoloNpu;
+using pure_uav::detection::YoloBackend;
 
 std::atomic<bool> g_sigint{false};
 
@@ -60,9 +60,15 @@ bool fileExists(const std::string& p) {
     return std::filesystem::is_regular_file(p, ec);
 }
 
-// 默认模型：cwd 的 assets/models/yolo26n.nb，其次从可执行文件向上找仓库根。
+#if defined(PURE_DETECTION_BACKEND_CPU)
+constexpr const char* kDefaultModelRel = "assets/models/yolo26n.onnx";
+#else
+constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
+#endif
+
+// 默认模型：cwd 下的 assets/models/<模型>，其次从可执行文件向上找仓库根。
 std::string resolveDefaultModel() {
-    const std::string rel = "assets/models/yolo26n.nb";
+    const std::string rel = kDefaultModelRel;
     if (fileExists(rel)) return rel;
 
     std::string exe;
@@ -210,18 +216,18 @@ int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json
         return 1;
     }
 
-    YoloNpu npu;
+    YoloBackend backend;
     std::string error;
-    if (!npu.load(cfg.model_path, cfg.imgsz, error)) {
-        std::fprintf(stderr, "[error] NPU 加载失败: %s\n", error.c_str());
+    if (!backend.load(cfg.model_path, cfg.imgsz, error)) {
+        std::fprintf(stderr, "[error] 模型加载失败: %s\n", error.c_str());
         return 1;
     }
     std::fprintf(stderr, "[detect_rt] model=%s\n", cfg.model_path.c_str());
-    std::fprintf(stderr, "[detect_rt] %s\n", npu.info().c_str());
+    std::fprintf(stderr, "[detect_rt] %s\n", backend.info().c_str());
     std::fprintf(stderr, "[detect_rt] image=%s %dx%d\n", image_path.c_str(), bgr.cols, bgr.rows);
 
-    pure_uav::detection::NpuOutputView view;
-    if (!npu.infer(bgr, view, error)) {
+    pure_uav::detection::YoloOutputView view;
+    if (!backend.infer(bgr, view, error)) {
         std::fprintf(stderr, "[error] 推理失败: %s\n", error.c_str());
         return 1;
     }
@@ -262,7 +268,7 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
     }
 
     std::fprintf(stderr, "[detect_rt] model=%s\n", cfg.model_path.c_str());
-    std::fprintf(stderr, "[detect_rt] %s\n", det.npuInfo().c_str());
+    std::fprintf(stderr, "[detect_rt] %s\n", det.modelInfo().c_str());
     std::fprintf(stderr, "[detect_rt] camera profile=%s\n", det.cameraProfile().c_str());
 
     long processed = 0;

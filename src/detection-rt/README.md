@@ -12,7 +12,7 @@ VIPLite / awnn  →  assets/models/yolo26n.nb
         ▼
 解码 + 逐类 NMS → FrameResult
         ▼
-poll(FrameResult&) → to_target_sample() → app::TargetSample
+poll(FrameResult&) → to_target_sample() → flight::GuidanceTargetSample
 ```
 
 ## 1. 目录结构
@@ -22,17 +22,22 @@ src/detection-rt/
 ├── include/pure_uav/detection/
 │   ├── detection_types.hpp   # FrameResult / DetectionBox（固定容量，实时无堆分配）
 │   ├── camera_source.hpp     # Orbbec 彩色采集接口
-│   ├── yolo_npu.hpp          # NBG 加载 / 预处理 / 推理 / 输出融合
+│   ├── yolo_output.hpp       # NPU/CPU 共用的输出视图
+│   ├── yolo_npu.hpp          # NPU 后端：NBG 加载 / 量化 / 输出融合
+│   ├── yolo_cpu.hpp          # CPU 后端：ONNX Runtime
+│   ├── yolo_backend.hpp      # 编译期后端别名 YoloBackend
 │   ├── detector.hpp          # 门面：采集+推理流水线、poll、stats
-│   └── target_bridge.hpp     # FrameResult → app::TargetSample
+│   └── target_bridge.hpp     # FrameResult → flight::GuidanceTargetSample
 ├── src/
 │   ├── camera_source.cpp
 │   ├── yolo_npu.cpp
+│   ├── yolo_cpu.cpp
 │   ├── yolo_postprocess.{hpp,cpp}
 │   ├── detector.cpp
 │   ├── target_bridge.cpp
 │   └── detect_rt_main.cpp    # CLI
-├── third_party/awnn/         # 全志 ai-sdk awnn 运行时
+├── third_party/awnn/         # 全志 ai-sdk awnn 运行时（NPU）
+├── third_party/onnxruntime/  # ONNX Runtime 1.23.2（CPU）
 └── CMakeLists.txt
 ```
 
@@ -42,14 +47,22 @@ src/detection-rt/
 | --- | --- |
 | OpenCV 4.5.4 | 图像解码、letterbox、NMS |
 | OrbbecSDK 1.10.37 | 仓库内 `src/driver/orbbec` |
-| 全志 VIPLite | 系统 `/usr/include/vip_lite.h`、`/lib/libNBGlinker.so`、`/lib/libVIPhal.so` |
-| 模型 | `assets/models/yolo26n.nb`（输入 640×640×3 uint8，输出 8400×4 + 8400×2） |
+| 全志 VIPLite（NPU 后端） | 系统 `/usr/include/vip_lite.h`、`/lib/libNBGlinker.so`、`/lib/libVIPhal.so` |
+| ONNX Runtime 1.23.2（CPU 后端） | 仓库内 `third_party/onnxruntime`（aarch64 库；其他架构用系统安装） |
+| NPU 模型 | `assets/models/yolo26n.nb`（输入 640×640×3 uint8，输出 8400×4 + 8400×2） |
+| CPU 模型 | `assets/models/yolo26n.onnx`（输入 640×640×3 FP32） |
 
 构建开关 `PURE_DETECTION_BUILD`：
 
 - `AUTO`（默认）：依赖齐全才构建，缺依赖时打印 `STATUS` 并跳过，不影响其余 target；
 - `ON`：缺依赖直接 `FATAL_ERROR` 并列出缺项；
 - `OFF`：不构建。
+
+后端开关 `PURE_DETECTION_BACKEND`：
+
+- `AUTO`（默认）：优先 NPU（VIPLite）；**没有检测到 NPU 时自动改用 CPU（ONNX Runtime）**；
+- `NPU`：强制 NPU，缺 VIPLite 则按 `PURE_DETECTION_BUILD` 跳过/FATAL；
+- `CPU`：强制 CPU（ONNX Runtime），用于无 NPU 机器或对照测试。
 
 ## 3. 构建
 
@@ -62,9 +75,14 @@ src/detection-rt/
 手动构建：
 
 ```bash
+# 默认 AUTO：有 NPU 用 NPU；没有 NPU 自动用 CPU
 env -u LD_LIBRARY_PATH -u LD_PRELOAD \
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 env -u LD_LIBRARY_PATH -u LD_PRELOAD cmake --build build -j8
+
+# 在本机强制 CPU 对照（建议单独 checkout，或切换前清掉共享产物）
+env -u LD_LIBRARY_PATH -u LD_PRELOAD \
+  cmake -S . -B build_cpu -DCMAKE_BUILD_TYPE=Release -DPURE_DETECTION_BACKEND=CPU
 ```
 
 产物：
@@ -94,7 +112,7 @@ bin/detect_rt
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `--model PATH` | `assets/models/yolo26n.nb` | NBG 路径；默认从当前目录/可执行文件向上查找 |
+| `--model PATH` | NPU: `yolo26n.nb`；CPU: `yolo26n.onnx` | 模型路径；默认从当前目录/可执行文件向上查找 |
 | `--conf` | `0.25` | 置信度阈值 |
 | `--iou` | `0.45` | 逐类 NMS IoU |
 | `--image FILE` | — | 离线单图模式 |
@@ -194,7 +212,7 @@ pkill -f "output_http.so -p 8080"
 #include "pure_uav/detection/target_bridge.hpp"
 
 pure_uav::detection::DetectorConfig cfg;
-cfg.model_path = "assets/models/yolo26n.nb";   // 其余用默认值
+cfg.model_path = "assets/models/yolo26n.nb";   // CPU 版改成 yolo26n.onnx
 
 pure_uav::detection::Detector det;
 std::string err;
@@ -202,12 +220,12 @@ if (!det.start(cfg, err)) { /* err 含相机/NBG 失败原因 */ }
 
 pure_uav::detection::FrameResult r;
 if (det.poll(r)) {                              // 非阻塞；只返回最新结果
-    pure_uav::app::TargetSample t;
+    pure_uav::guidance::flight::GuidanceTargetSample t;
     // boot_us：用通信模块 SystemTime 把 r.host_us 换算到飞控 boot 时钟
     pure_uav::detection::to_target_sample(r, boot_us, t);
     // t.present=false ⇒ 主循环可进入 SEARCH
 }
-det.stop();                                     // 停线程、释放相机和 awnn 上下文
+det.stop();                                     // 停线程、释放相机和推理后端
 ```
 
 - `poll()` 无新结果时返回 `false`，且不修改传入的 `out`；
@@ -228,14 +246,14 @@ det.stop();                                     // 停线程、释放相机和 a
 | `width/height` | 原始图像尺寸 |
 | `count/present` | 有效框数量 / 是否有目标 |
 | `boxes[]` | `x1,y1,x2,y2, conf, class_id`（原始图像像素坐标） |
-| `u_px/v_px/w_px/h_px/conf/class_id` | 置信度最高的主目标，直接对应 `TargetSample` |
-| `infer_ms` | NPU 前向 + 输出融合耗时 |
+| `u_px/v_px/w_px/h_px/conf/class_id` | 置信度最高的主目标，直接对应 `GuidanceTargetSample` |
+| `infer_ms` | 当前推理后端的前向耗时 |
 
 类别：`0=armor_blue`、`1=armor_red`。
 
 `to_target_sample()` 映射：
 
-| TargetSample | 来源 |
+| GuidanceTargetSample | 来源 |
 | --- | --- |
 | `boot_us` | 调用方传入（由 `host_us` 经 SystemTime 换算） |
 | `u_px/v_px/w_px/h_px/conf/class_id` | 主目标 |
@@ -243,8 +261,8 @@ det.stop();                                     // 停线程、释放相机和 a
 | `has_range/range_m` | 恒 `false/0`（本模块不测距） |
 | `has_v_T/v_T` | 恒 `false/零向量`（真机拿不到目标速度） |
 
-**时间戳语义**：`host_us` 是帧到达时刻，不是曝光中点，也不是飞控 boot 时钟；曝光→到达的链路时延本次不补偿。换算成 `TargetSample.boot_us` 后可直接供制导使用。
+**时间戳语义**：`host_us` 是帧到达时刻，不是曝光中点，也不是飞控 boot 时钟；曝光→到达的链路时延本次不补偿。换算成 `GuidanceTargetSample.boot_us` 后可直接供制导使用。
 
 ## 7. 范围与限制
 
-- 单进程单实例；不要在多个线程里并发调用同一个 `Detector::poll()` 之外的 NPU 接口。
+- 单进程单实例；不要在多个线程里并发调用同一个 `Detector::poll()` 之外的推理接口。

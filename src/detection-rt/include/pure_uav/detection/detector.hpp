@@ -62,8 +62,8 @@ public:
 
     // 相机实际打开的 profile（"WxH@FPS fmtF"），供 CLI 打印。
     std::string cameraProfile() const;
-    // NBG 输入/输出与量化信息。
-    std::string npuInfo() const;
+    // 当前推理后端（NPU/CPU）的输入/输出与配置信息。
+    std::string modelInfo() const;
 
 private:
     struct Impl;

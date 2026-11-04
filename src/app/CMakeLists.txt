@@ -24,6 +24,7 @@ add_executable(main
 )
 target_link_libraries(main PRIVATE
     communicate
+    detection_rt
 )
 
 add_executable(guidance_example

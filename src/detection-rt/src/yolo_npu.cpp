@@ -329,8 +329,8 @@ bool YoloNpu::load(const std::string& model_path, int imgsz, std::string& error)
     return true;
 }
 
-bool YoloNpu::infer(const cv::Mat& bgr, NpuOutputView& out, std::string& error) {
-    out = NpuOutputView();
+bool YoloNpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error) {
+    out = YoloOutputView();
     if (!impl_ || !impl_->ctx) {
         error = "YoloNpu 未加载模型";
         return false;

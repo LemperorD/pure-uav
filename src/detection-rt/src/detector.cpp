@@ -10,7 +10,7 @@
 
 #include <opencv2/core.hpp>
 
-#include "pure_uav/detection/yolo_npu.hpp"
+#include "pure_uav/detection/yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
 namespace pure_uav {
@@ -30,7 +30,7 @@ double nowSeconds() {
 struct Detector::Impl {
     DetectorConfig cfg;
     CameraSource camera;
-    YoloNpu npu;
+    YoloBackend backend;
     std::thread infer_thread;
 
     std::atomic<bool> running{false};
@@ -89,9 +89,9 @@ struct Detector::Impl {
             }
             if (bgr.empty()) continue;
 
-            NpuOutputView view;
+            YoloOutputView view;
             std::string error;
-            if (!npu.infer(bgr, view, error)) {
+            if (!backend.infer(bgr, view, error)) {
                 std::lock_guard<std::mutex> lk(result_mu);
                 last_infer_error = error;
                 continue;
@@ -148,8 +148,8 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
         return false;
     }
 
-    // 先加载 NPU，模型错误在打开相机之前暴露
-    if (!impl_->npu.load(cfg.model_path, cfg.imgsz, error)) {
+    // 先加载推理后端，模型错误在打开相机之前暴露
+    if (!impl_->backend.load(cfg.model_path, cfg.imgsz, error)) {
         g_instance_used.store(false);
         return false;
     }
@@ -157,7 +157,7 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
     if (!impl_->camera.start(cfg.camera,
                              [this](const CameraFrame& f) { impl_->onCameraFrame(f); },
                              &error)) {
-        impl_->npu.release();
+        impl_->backend.release();
         g_instance_used.store(false);
         return false;
     }
@@ -199,7 +199,7 @@ void Detector::stop() {
     impl_->camera.stop();
     if (impl_->infer_thread.joinable()) impl_->infer_thread.join();
 
-    impl_->npu.release();
+    impl_->backend.release();
     {
         std::lock_guard<std::mutex> lk(impl_->frame_mu);
         impl_->latest_bgr.release();
@@ -256,8 +256,8 @@ std::string Detector::cameraProfile() const {
     return impl_ ? impl_->camera.activeProfile() : std::string();
 }
 
-std::string Detector::npuInfo() const {
-    return impl_ ? impl_->npu.info() : std::string();
+std::string Detector::modelInfo() const {
+    return impl_ ? impl_->backend.info() : std::string();
 }
 
 }  // namespace detection

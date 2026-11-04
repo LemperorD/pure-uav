@@ -9,7 +9,7 @@
 namespace pure_uav {
 namespace detection {
 
-bool postprocess(const NpuOutputView& out, const PostprocessParams& p, FrameResult& r) {
+bool postprocess(const YoloOutputView& out, const PostprocessParams& p, FrameResult& r) {
     r.count = 0;
     r.present = false;
     r.u_px = r.v_px = r.w_px = r.h_px = 0.0;

@@ -18,17 +18,10 @@
 
 #include <opencv2/core.hpp>
 
+#include "pure_uav/detection/yolo_output.hpp"
+
 namespace pure_uav {
 namespace detection {
-
-struct NpuOutputView {
-    const float* data = nullptr;
-    int channels = 0;        // 4 + nc
-    int anchors = 0;
-    bool channel_major = true;  // true: [1,C,A]；false: [1,A,C]
-    float letterbox_scale = 1.0f;
-    float infer_ms = 0.0f;   // NPU 前向 + 输出融合耗时
-};
 
 class YoloNpu {
 public:
@@ -41,7 +34,7 @@ public:
     // model_path: yolo26n.nb；imgsz: 640。失败返回 false 并给出可读 error。
     bool load(const std::string& model_path, int imgsz, std::string& error);
     // 执行一次预处理 + 前向 + 输出融合；out 指向内部复用缓冲，下一次 infer 前有效。
-    bool infer(const cv::Mat& bgr, NpuOutputView& out, std::string& error);
+    bool infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error);
 
     bool loaded() const;
     int inputSize() const;
