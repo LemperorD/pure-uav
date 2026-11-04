@@ -1,3 +1,4 @@
+// 检测输出解码与逐类 NMS。
 #include "yolo_postprocess.hpp"
 
 #include <algorithm>

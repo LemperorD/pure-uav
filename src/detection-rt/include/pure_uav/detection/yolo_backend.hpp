@@ -1,11 +1,6 @@
 #pragma once
-// =============================================================================
-//  编译期推理后端别名
-//
-//  CMake 根据 PURE_DETECTION_BACKEND 定义 PURE_DETECTION_BACKEND_NPU 或
-//  PURE_DETECTION_BACKEND_CPU，Detector 与 CLI 只认 YoloBackend 这一个类型。
-//  两个后端都有 load()/infer()/loaded()/info()/release()，接口保持一致。
-// =============================================================================
+// 编译期推理后端别名：YoloBackend = YoloNpu 或 YoloCpu。
+// 后端由 CMake 的 PURE_DETECTION_BACKEND 决定。
 
 #if defined(PURE_DETECTION_BACKEND_CPU)
 #include "pure_uav/detection/yolo_cpu.hpp"

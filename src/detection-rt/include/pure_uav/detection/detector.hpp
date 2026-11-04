@@ -1,12 +1,6 @@
 #pragma once
-// =============================================================================
-//  检测门面：采集线程 → 最新 BGR 帧槽 → 推理线程 → 最新 FrameResult 槽
-//
-//  · poll(FrameResult&) 非阻塞：有新结果返回 true 并覆盖 out；
-//    没有新结果返回 false 且**不改 out**；永远只返回最新一帧（旧帧可丢）。
-//  · 只允许同时存在一个 Detector 实例（awnn 全局状态）。
-//  · stop() 正确 join 推理线程、停相机、awnn_destroy()/awnn_uninit()。
-// =============================================================================
+// 检测门面：采集线程发布最新 BGR 帧，推理线程发布最新 FrameResult。
+// poll() 非阻塞且只返回最新结果；线程模型见同目录 README。
 
 #include <cstdint>
 #include <memory>
@@ -18,10 +12,10 @@
 namespace pure_uav {
 namespace detection {
 
+/// 检测器配置；model_path 为空时由调用方负责给出有效模型路径。
 struct DetectorConfig {
     CameraConfig camera;
 
-    // NPU / 后处理
     std::string model_path;
     int imgsz = 640;
     int num_classes = 2;
@@ -32,14 +26,16 @@ struct DetectorConfig {
     bool verbose = false;
 };
 
+/// 启动以来的采集/处理统计。
 struct DetectorStats {
-    double capture_fps = 0.0;     // 采集帧率
-    double process_fps = 0.0;     // 处理（发布结果）帧率
-    double avg_infer_ms = 0.0;    // NPU 前向 + 融合平均耗时
-    uint64_t capture_frames = 0;  // 采集帧数
-    uint64_t process_frames = 0;  // 处理帧数
+    double capture_fps = 0.0;
+    double process_fps = 0.0;
+    double avg_infer_ms = 0.0;
+    uint64_t capture_frames = 0;
+    uint64_t process_frames = 0;
 };
 
+/// 检测门面；同一进程只允许一个实例（推理后端是进程级资源）。
 class Detector {
 public:
     Detector();
@@ -48,21 +44,33 @@ public:
     Detector(const Detector&) = delete;
     Detector& operator=(const Detector&) = delete;
 
+    /// 加载推理后端并启动相机与推理线程。
+    /// @param[out] error 失败原因
+    /// @return 成功为 true。
     bool start(const DetectorConfig& cfg, std::string& error);
+
+    /// 停止采集/推理线程并释放相机与推理后端；可重复调用。
     void stop();
 
     bool running() const;
     bool alive() const;
 
+    /// 取最新检测结果。
+    /// @param[out] out 有新结果时覆盖；返回 false 时不修改
+    /// @return 自上次 poll 后是否有新结果
+    /// @note 非阻塞，可在定周期循环中每拍调用。
     bool poll(FrameResult& out);
+
+    /// 启动以来采集/处理的平均统计。
     DetectorStats stats() const;
 
-    // 最近一次已发布结果对应的 BGR 帧（浅拷贝），仅供可视化 / --dump-dir 使用。
+    /// 最近一次已发布结果对应的 BGR 帧（浅拷贝），仅供可视化。
     bool latest_frame(cv::Mat& out) const;
 
-    // 相机实际打开的 profile（"WxH@FPS fmtF"），供 CLI 打印。
+    /// 相机实际打开的 profile（"WxH@FPS fmtF"）。
     std::string cameraProfile() const;
-    // 当前推理后端（NPU/CPU）的输入/输出与配置信息。
+
+    /// 当前推理后端的输入/输出与配置信息。
     std::string modelInfo() const;
 
 private:

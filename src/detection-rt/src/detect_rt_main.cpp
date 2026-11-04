@@ -1,12 +1,5 @@
-// detect_rt：实时相机检测 / 离线单图检测的命令行入口。
-//
-// 用法：
-//   detect_rt [--model PATH] [--conf 0.25] [--iou 0.45]
-//             [--image FILE] [--frames N] [--json] [--dump-dir DIR]
-//             [--stream-dir DIR] [--stream-fps FPS]
-//             [--camera WxH@FPS] [--verbose]
-//
-// --json 时 stdout 只输出 JSON 行（每处理帧一行），其余诊断走 stderr。
+// detect_rt：实时相机/离线单图检测 CLI；--json 时 stdout 只输出 JSON 行。
+// 参数与推流用法见同目录 README。
 
 #include <algorithm>
 #include <atomic>
@@ -156,11 +149,8 @@ cv::Mat drawAnnotated(const cv::Mat& bgr, const FrameResult& r) {
     return vis;
 }
 
-// 给 mjpg-streamer 的 input_file 插件提供最新一帧带框图。
-// 先写 frame_tmp.bin 再原子 rename 成 frame.jpg：
-//   · 临时文件故意不用 .jpg 扩展名，input_file 的 --existing 模式扫描目录时
-//     不会把它当成视频帧；
-//   · rename 是原子的，读端要么看到上一帧、要么看到完整的新帧。
+// 给 mjpg-streamer 提供最新带框图：先写 frame_tmp.bin 再原子 rename 成 frame.jpg。
+// 临时文件不带 .jpg 扩展名，--existing 扫描不会把它当视频帧；rename 保证读端只看到完整帧。
 bool writeStreamFrame(const cv::Mat& bgr, const FrameResult& r, const std::string& stream_dir) {
     const cv::Mat vis = drawAnnotated(bgr, r);
     const auto dir = std::filesystem::path(stream_dir);

@@ -1,14 +1,10 @@
 #pragma once
-// =============================================================================
-//  推理后端（NPU / CPU）的统一输出视图
-//
-//  后端只负责把网络原始输出交给后处理；解码 + NMS 在 yolo_postprocess 里共用。
-//  data 指向后端内部复用缓冲，只在下一次 infer 前有效。
-// =============================================================================
+// 推理后端（NPU/CPU）的统一输出视图；data 只在下一次 infer 前有效。
 
 namespace pure_uav {
 namespace detection {
 
+/// 网络原始输出视图。
 struct YoloOutputView {
     const float* data = nullptr;
     int channels = 0;            // 4 + nc

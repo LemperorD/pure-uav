@@ -1,3 +1,4 @@
+// VIPLite/awnn 推理后端实现；NBG 输入/输出布局见同目录 README。
 #include "pure_uav/detection/yolo_npu.hpp"
 
 #include <algorithm>

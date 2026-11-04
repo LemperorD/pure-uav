@@ -1,3 +1,4 @@
+// Orbbec 彩色采集实现；回调在采集线程执行，不得阻塞。
 #include "pure_uav/detection/camera_source.hpp"
 
 #include <algorithm>

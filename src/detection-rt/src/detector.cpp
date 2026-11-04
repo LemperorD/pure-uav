@@ -1,3 +1,4 @@
+// 检测门面实现：采集线程发布最新帧，推理线程发布最新结果。
 #include "pure_uav/detection/detector.hpp"
 
 #include <algorithm>
