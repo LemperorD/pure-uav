@@ -12,9 +12,7 @@
 #include "guidance_types.hpp"  // PureGuidanceMode / GuidanceParams
 #include "vec3.hpp"            // pure_uav::Vec3
 
-namespace pure_uav {
-namespace guidance {
-namespace flight {
+namespace pure_uav::guidance::flight {
 
 // ============================================================================
 //  §1  采样
@@ -108,7 +106,7 @@ class GuidanceInsSource {
     /// @note 非阻塞、零分配、可每拍调用。
     virtual bool poll(GuidanceInsSample& out) = 0;
     /// @return 数据源是否仍可用。
-    virtual bool alive() const = 0;
+    [[nodiscard]] virtual bool alive() const = 0;
 };
 
 /// 视觉/检测/仿真目标数据源（拉模型）。
@@ -120,7 +118,7 @@ class GuidanceTargetSource {
     /// @return 有新帧为 true；false 表示沿用上一帧。
     virtual bool poll(GuidanceTargetSample& out) = 0;
     /// @return 数据源是否仍可用。
-    virtual bool alive() const = 0;
+    [[nodiscard]] virtual bool alive() const = 0;
 };
 
 /// 指令出口（MAVLink / ROS2 / 仿真）。
@@ -132,16 +130,16 @@ class GuidanceCommandSink {
     /// @return 发送成功为 true。
     virtual bool send(const GuidanceOutput& out) = 0;
     /// @return 出口是否仍可用。
-    virtual bool alive() const = 0;
+    [[nodiscard]] virtual bool alive() const = 0;
 };
 
 /// 空出口：调试“只看算得对不对、不发指令”时用。
 class GuidanceNullSink final : public GuidanceCommandSink {
   public:
-    bool send(const GuidanceOutput&) override {
+    bool send(const GuidanceOutput& /*out*/) override {
         return true;
     }
-    bool alive() const override {
+    [[nodiscard]] bool alive() const override {
         return true;
     }
 };
@@ -155,7 +153,7 @@ struct GuidanceCameraModel {
     double cx = 0.0, cy = 0.0;
     // 外参：相机系 → 机体系（行主序 9 个 double）
     double R_body_cam[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-    bool valid() const {
+    [[nodiscard]] bool valid() const {
         return fx > 0.0 && fy > 0.0;
     }
 };
@@ -194,6 +192,4 @@ struct GuidanceLoopConfig {
 //  class MavlinkAccelSink     final : public GuidanceCommandSink { ... };
 //  class Ros2AccelSink        final : public GuidanceCommandSink { ... };
 
-}  // namespace flight
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::flight

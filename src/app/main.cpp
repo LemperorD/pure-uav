@@ -20,7 +20,9 @@ int main() {
     }
 
     std::printf("等待飞控心跳...\n");
-    while (!comm.isConnected()) usleep(100000);
+    while (!comm.isConnected()) {
+        usleep(100000);
+    }
     std::printf("已连接，固件：%s，模式：%s\n", comm.getAutopilotNameCn(), comm.getFlightModeNameCn());
 
     // 读一次姿态示例
@@ -30,7 +32,7 @@ int main() {
     }
 
     detection::DetectorConfig det_cfg;
-#if defined(PURE_DETECTION_BACKEND_CPU)
+#ifdef PURE_DETECTION_BACKEND_CPU
     det_cfg.model_path = "assets/models/yolo26n.onnx";
 #else
     det_cfg.model_path = "assets/models/yolo26n.nb";
@@ -49,7 +51,7 @@ int main() {
         uint64_t boot_us = 0;
         SystemTime st;
         if (comm.getSystemTime(st) && st.time_unix_usec > 0) {
-            const int64_t offset_us = static_cast<int64_t>(st.time_unix_usec) - static_cast<int64_t>(st.time_boot_ms) * 1000;
+            const int64_t offset_us = static_cast<int64_t>(st.time_unix_usec) - (static_cast<int64_t>(st.time_boot_ms) * 1000);
             if (offset_us >= 0 && r.host_us > static_cast<uint64_t>(offset_us)) {
                 boot_us = r.host_us - static_cast<uint64_t>(offset_us);
             }

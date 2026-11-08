@@ -58,12 +58,12 @@ inline Vec3 operator*(double s, const Vec3& v) {
 }
 
 inline double dot(const Vec3& a, const Vec3& b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
+    return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
 }
 
 // 叉积：3D 制导求法向的核心运算
 inline Vec3 cross(const Vec3& a, const Vec3& b) {
-    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+    return {(a.y * b.z) - (a.z * b.y), (a.z * b.x) - (a.x * b.z), (a.x * b.y) - (a.y * b.x)};
 }
 
 inline double norm(const Vec3& v) {

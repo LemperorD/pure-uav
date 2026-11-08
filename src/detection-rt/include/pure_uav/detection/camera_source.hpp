@@ -8,8 +8,7 @@
 #include <opencv2/core.hpp>
 #include <string>
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 
 /// 相机采集配置；分辨率/帧率必须与设备支持的 profile 匹配。
 struct CameraConfig {
@@ -47,15 +46,14 @@ class CameraSource {
     /// 停止采集并释放相机；可重复调用。
     void stop();
 
-    bool running() const;
+    [[nodiscard]] bool running() const;
 
     /// 已打开的实际 profile（"WxH@FPS fmtF"）；未启动时为空。
-    std::string activeProfile() const;
+    [[nodiscard]] std::string activeProfile() const;
 
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection

@@ -9,8 +9,7 @@
 #include "pure_uav/detection/camera_source.hpp"
 #include "pure_uav/detection/detection_types.hpp"
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 
 /// 检测器配置；model_path 为空时由调用方负责给出有效模型路径。
 struct DetectorConfig {
@@ -19,8 +18,8 @@ struct DetectorConfig {
     std::string model_path;
     int imgsz = 640;
     int num_classes = 2;
-    float conf_thr = 0.25f;
-    float iou_thr = 0.45f;
+    float conf_thr = 0.25F;
+    float iou_thr = 0.45F;
     int max_det = 300;
 
     bool verbose = false;
@@ -52,8 +51,8 @@ class Detector {
     /// 停止采集/推理线程并释放相机与推理后端；可重复调用。
     void stop();
 
-    bool running() const;
-    bool alive() const;
+    [[nodiscard]] bool running() const;
+    [[nodiscard]] bool alive() const;
 
     /// 取最新检测结果。
     /// @param[out] out 有新结果时覆盖；返回 false 时不修改
@@ -62,21 +61,20 @@ class Detector {
     bool poll(FrameResult& out);
 
     /// 启动以来采集/处理的平均统计。
-    DetectorStats stats() const;
+    [[nodiscard]] DetectorStats stats() const;
 
     /// 最近一次已发布结果对应的 BGR 帧（浅拷贝），仅供可视化。
     bool latest_frame(cv::Mat& out) const;
 
     /// 相机实际打开的 profile（"WxH@FPS fmtF"）。
-    std::string cameraProfile() const;
+    [[nodiscard]] std::string cameraProfile() const;
 
     /// 当前推理后端的输入/输出与配置信息。
-    std::string modelInfo() const;
+    [[nodiscard]] std::string modelInfo() const;
 
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection

@@ -4,8 +4,7 @@
 
 #include <cstdint>
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 
 constexpr int kMaxDetections = 300;
 
@@ -34,5 +33,4 @@ struct FrameResult {
     float infer_ms;  // 当前推理后端的前向耗时
 };
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection

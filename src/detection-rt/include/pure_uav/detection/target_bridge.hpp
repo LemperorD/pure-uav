@@ -7,8 +7,7 @@
 #include "guidance_flight_types.hpp"
 #include "pure_uav/detection/detection_types.hpp"
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 
 /// 把检测结果填成制导目标样本。
 /// @param[in] r 检测结果
@@ -17,5 +16,4 @@ namespace detection {
 /// @return 有目标为 true。
 bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance::flight::GuidanceTargetSample& out);
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection
