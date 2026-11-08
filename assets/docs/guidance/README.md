@@ -2,6 +2,9 @@
 
 比例导引（PN）制导律与 3D 拦截仿真。
 
+> **当前项目目标：守备拦截固定装甲板；暂不做飞镖拦截。**
+> 无人机模型较小，飞镖拦截不作为现阶段目标（2026-11-08 定案）。
+
 > 文档位置：`assets/docs/guidance/`
 > 代码位置：`src/guidance/`
 > 相关文档：[任务书](任务书.md) · [后续注意问题](后续注意问题.md) · [ω 决策](../decisions/0003-los-rate-source.md)
@@ -101,7 +104,11 @@ header-only 的 INTERFACE 目标 `pure_vec3` 提供 include 目录。因此 `src
 **怎么改**：把 `GuidanceParams::los_rate_source` 从 `FROM_RELATIVE_VELOCITY` 改成 `FROM_LOS_DIFFERENCE` 即可，制导律其余部分不动。
 推导见《比例导引讲义.html》第 12 节。
 
-## 目标模型（M2）：飞镖的弹道
+## 目标模型（M2）：飞镖的弹道（**离线保留，非当前项目目标**）
+
+> **项目目标状态（2026-11-08）：暂不做飞镖拦截。**
+> 本节只保留离线目标模型与历史实验，不接入当前守备拦截主线；
+> 主线目标是撞击固定装甲板（见 `sim_xtdrone2/README.md`）。
 
 `target.hpp/.cpp` 把"目标"从"匀速直线"升级成有物理的弹道。接口只有一个：
 `TargetModel::state(t) -> {p, v, a}`，**只依赖 t**（不依赖无人机），因此可预生成、可回放。

@@ -300,18 +300,33 @@ struct Args {
     bool   hz_given = false;
 };
 
+// CLI 数值参数：先去掉首尾空白，再严格解析。
+// ⚠ 不能只判断 *end == '\0'：空串时 strtol/strtod 返回 0 且 end 指回起点，
+//    那样 `--law=` 会被静默当成 0；溢出时还必须看 errno，不能直接 cast。
 bool cli_parse_int(const char *s, int &out) {
+    if (s == nullptr) return false;
+    const std::string text = trim(s);
+    if (text.empty()) return false;
+
+    errno = 0;
     char *end = nullptr;
-    const long v = std::strtol(s, &end, 10);
-    if (!end || *end != '\0' || v < 0) return false;
+    const long v = std::strtol(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0' || errno == ERANGE) return false;
+    // 这三个 CLI 参数（hz / law / ticks）都要求非负；跨 int 范围时不要截断。
+    if (v < 0 || v > INT_MAX) return false;
     out = static_cast<int>(v);
     return true;
 }
 
 bool cli_parse_double(const char *s, double &out) {
+    if (s == nullptr) return false;
+    const std::string text = trim(s);
+    if (text.empty()) return false;
+
+    errno = 0;
     char *end = nullptr;
-    const double v = std::strtod(s, &end);
-    if (!end || *end != '\0') return false;
+    const double v = std::strtod(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0' || errno == ERANGE || !std::isfinite(v)) return false;
     out = v;
     return true;
 }
@@ -401,7 +416,7 @@ bool parse_args(int argc, char **argv, Args *a) {
 //  参数实现（原 params.cpp）
 // ============================================================================
 
-GuidanceAppParams guidance_default_params() {
+GuidanceAppParams guidance_default_params(){
     GuidanceAppParams p;
     p.guidance.law = GuidanceLaw::PPN;
     p.guidance.N = 4.0;
