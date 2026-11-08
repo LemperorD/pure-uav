@@ -411,7 +411,6 @@ static void test_attitude() {
                 }
             }
           }
-        }
         std::printf("  （随机姿态交叉比对 %d 例，最大偏差 %.3g）\n", cases, worst);
     }
 
@@ -539,41 +538,40 @@ static void test_attitude() {
         near_q(q_wrap, q_expect, 1e-15,
                "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
     }
-  }
 
   // ---- 3.7 非法输入必须被拒；"未归一化但方向合理"必须被接受 ----
   {
     double qout[4];
-    Frame wout = Frame::kEnu;
+    GuidanceFrame wout = GuidanceFrame::kEnu;
 
     const double q_zero[4] = {0, 0, 0, 0};
-    ok(!convert_attitude(q_zero, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+    ok(!convert_attitude(q_zero, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
        "零四元数被拒（没有姿态信息）");
     near_q(qout, kIdentityQuat, 0.0, "  被拒时输出单位四元数");
-    ok(wout == Frame::kNed, "  被拒时不谎报已转换（world_out 不变）");
+    ok(wout == GuidanceFrame::kNed, "  被拒时不谎报已转换（world_out 不变）");
 
     const double q_nan[4] = {1.0, 0.0, std::numeric_limits<double>::quiet_NaN(),
                              0.0};
-    ok(!convert_attitude(q_nan, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+    ok(!convert_attitude(q_nan, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
        "含 NaN 的四元数被拒");
 
     const double q_huge[4] = {1e9, 0.0, 0.0, 0.0};
-    ok(!convert_attitude(q_huge, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+    ok(!convert_attitude(q_huge, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
        "量级离谱（|q|=1e9）被判为非四元数并拒绝");
 
     // ★ 未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
     const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5}; // |q| = 0.7071
-    ok(convert_attitude(q_scaled, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+    ok(convert_attitude(q_scaled, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
        "未归一化（|q|=0.707）被接受");
     const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0,
                               -0.70710678118654752440};
     double q_ref[4];
-    Frame wr = Frame::kNed;
-    convert_attitude(q_unit, Frame::kNed, AttitudeFrame::kFrd, q_ref, wr);
+    GuidanceFrame wr = GuidanceFrame::kNed;
+    convert_attitude(q_unit, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_ref, wr);
     near_q(qout, q_ref, 1e-15, "  归一化后与单位四元数结果完全一致");
 
     const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
-    ok(convert_attitude(q_slight, Frame::kNed, AttitudeFrame::kFrd, qout, wout),
+    ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
        "轻微未归一化被接受");
     near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] + qout[2] * qout[2] +
                    qout[3] * qout[3]),
@@ -603,8 +601,8 @@ static void test_attitude() {
     const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0,
                              0.70710678118654752440};
     double q_direct[4], q_wrap[4];
-    Frame w = Frame::kNed;
-    convert_attitude(q_frd, Frame::kNed, AttitudeFrame::kFrd, q_direct, w);
+    GuidanceFrame w = GuidanceFrame::kNed;
+    convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
     ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
     near_q(q_wrap, q_direct, 1e-15,
            "attitude_from_ned_frd = convert_attitude(NED, FRD)");
@@ -643,6 +641,7 @@ static void test_quat_cross_check() {
       if (d > 1e-13)
         ok(false, "rotate_vec_by_quat 与参考实现不一致");
     }
+  }
 
     // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
     //
@@ -686,40 +685,6 @@ static void test_quat_cross_check() {
         std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n",
                     n, worst_ab, worst_bc);
     }
-
-    // ---- 4.3 单位四元数 / 恒等 ----
-    {
-        const double qid[4] = {1, 0, 0, 0};
-        near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
-                 "恒等四元数：v 不变");
-        near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
-                 "恒等四元数：逆旋转也不变");
-
-        // 旋转保模长、正交（RᵀR = I）
-        double q[4];
-        random_quat(q);
-        const Vec3 v(1.5, -2.5, 3.5);
-        near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
-        near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14,
-                 "R(q)ᵀ·R(q)·v = v（可逆）");
-
-        // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
-        double q90[4];
-        quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
-        near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
-        near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
-
-        // 共轭
-        double qc[4];
-        quat_conjugate(q, qc);
-        // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
-        const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
-        near_q(qc, q_conj, 0.0, "共轭定义");
-    }
-    std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 "
-                "最大偏差 %.3g）\n",
-                n, worst_ab, worst_bc);
-  }
 
   // ---- 4.3 单位四元数 / 恒等 ----
   {
@@ -1269,11 +1234,7 @@ static void test_quick_check() {
         ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
            "  负时间（warning 级）两边都放行");
     }
-    ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
-    ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
-       "  负时间（warning 级）两边都放行");
   }
-}
 
 // ============================================================
 //  main
