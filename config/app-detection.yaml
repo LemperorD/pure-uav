@@ -1,0 +1,45 @@
+app:
+  main_loop_hz: 50
+  heartbeat_wait_s: 5.0
+  status_period_s: 1.0
+  pose:
+    max_age_ms: 150
+    quality_ok: 90
+    quality_degraded: 50
+    pos_sigma_ok_m: 0.15
+    vel_sigma_ok_mps: 0.25
+    pos_sigma_degraded_m: 0.5
+    vel_sigma_degraded_mps: 0.8
+  vio:
+    config_dir: src/vio/estimator/config/gemini_1920x1080
+    width: 1920
+    height: 1080
+    fps: 30
+    imu_hz: 200
+    use_depth: true
+    use_depth_init: true
+    init_vel_zero: true
+    static_init: false
+    online_timeoffset: true
+  camera:
+    aggregate_mode: 0
+    auto_exposure: false
+    exposure: 100
+    gain: 30
+    white_balance: 4600
+    auto_tune_exposure: true
+    tune_expected_rate_dps: 100
+    tune_blur_budget_px: 3.0
+    tune_max_gain: 40
+  guidance_enabled: false
+  detection_enabled: true
+  detection:
+    model_path: assets/models/yolo26n.nb
+    imgsz: 640
+    num_classes: 2
+    conf_thr: 0.25
+    iou_thr: 0.45
+    max_det: 100
+    target_class: -1
+    max_hz: 10
+    max_age_ms: 200

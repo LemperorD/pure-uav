@@ -3,10 +3,9 @@
 // NBG 输入/输出与量化处理见同目录 README。
 
 #include <cstdint>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
-
-#include <opencv2/core.hpp>
 
 #include "pure_uav/detection/yolo_output.hpp"
 
@@ -15,7 +14,7 @@ namespace detection {
 
 /// awnn 推理封装；单实例，infer() 不可并发调用。
 class YoloNpu {
-public:
+  public:
     YoloNpu();
     ~YoloNpu();
 
@@ -45,7 +44,7 @@ public:
     /// 销毁 awnn 上下文；析构时自动调用。
     void release();
 
-private:
+  private:
     struct Impl;
     Impl* impl_ = nullptr;
 };

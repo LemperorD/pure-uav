@@ -1,22 +1,23 @@
 #include "guidance.hpp"
 
+#include <limits>
+
 #include "pn_law.hpp"
 
 namespace pure_uav {
 
-PureGuidanceCmd guidance_step(const GuidanceState &state,
-                          const GuidanceParams &params,
-                          GuidanceMemory &memory) {
+PureGuidanceCmd guidance_step(const GuidanceState& state, const GuidanceParams& params, GuidanceMemory& memory) {
     PureGuidanceCmd cmd;
-    cmd.t     = state.t;
+    cmd.t = state.t;
     cmd.valid = state.valid;
-    cmd.N     = params.N;
+    cmd.N = params.N;
     cmd.r_hat = state.los_hat;
-    cmd.R     = state.range;
+    cmd.R = state.range;
 
     // ---- 1) 有效性检查 ----
     // 目标丢失 → SEARCH，输出零指令，并清掉历史（重新捕获时从零开始）
-    if (!state.valid) {
+    if (!state.valid || (!state.has_range && (params.law != GuidanceLaw::PPN || params.los_rate_source != LosRateSource::FROM_LOS_DIFFERENCE))) {
+        cmd.valid = false;
         cmd.mode = PureGuidanceMode::SEARCH;
         memory.has_prev = false;
         return cmd;
@@ -27,19 +28,18 @@ PureGuidanceCmd guidance_step(const GuidanceState &state,
     //   B) FROM_LOS_DIFFERENCE   ：ω = û × (dû/dt)        （真机；只需 û 历史）
     //   切换点就在 GuidanceParams::los_rate_source，其余代码不动。
     //   推导见《比例导引讲义.html》第 12 节。
-    const Vec3 r     = state.los_hat * state.range;   // r = û · R
+    const Vec3 r = state.los_hat * state.range;  // r = û · R
     const Vec3 v_rel = state.v_T - state.v_M;
 
-    Vec3 omega;   // 默认零矢量
+    Vec3 omega;  // 默认零矢量
     switch (params.los_rate_source) {
         case LosRateSource::FROM_RELATIVE_VELOCITY:
             omega = los_rate_vector(r, v_rel, state.range);
             break;
         case LosRateSource::FROM_LOS_DIFFERENCE:
-            if (memory.has_prev) {   // 第一帧没有历史，ω 保持为零
+            if (memory.has_prev) {  // 第一帧没有历史，ω 保持为零
                 const double dt = state.t - memory.t_prev;
-                omega = los_rate_from_los_difference(state.los_hat,
-                                                     memory.los_hat_prev, dt);
+                omega = los_rate_from_los_difference(state.los_hat, memory.los_hat_prev, dt);
             }
             break;
     }
@@ -47,13 +47,13 @@ PureGuidanceCmd guidance_step(const GuidanceState &state,
     // 几何量：接近速度 Vc（TPN / APN 需要）
     const double Vc = closing_velocity(r, v_rel, state.range);
 
-    cmd.lam_dot = norm(omega);   // 调试量：便于与真值对照
-    cmd.Vc      = Vc;
+    cmd.lam_dot = norm(omega);  // 调试量：便于与真值对照
+    cmd.Vc = Vc;
 
     // 更新记忆：差分法需要上一帧的 û 与时间戳
     memory.los_hat_prev = state.los_hat;
-    memory.t_prev       = state.t;
-    memory.has_prev     = true;
+    memory.t_prev = state.t;
+    memory.has_prev = true;
 
     // ---- 3) 选导引律 → 未限幅指令 a_cmd_unsat ----
     // 默认 PPN：a = N · (ω × v_M)，只需要 ω 和自身速度 v_M。
@@ -80,7 +80,7 @@ PureGuidanceCmd guidance_step(const GuidanceState &state,
     //   BY_RANGE 以剩余距离 R 为基准（真机可直接测 R，不需估计 Vc）；
     //   BY_TGO_OR_RANGE 两者取"或"，用 R 兜底（防 Vc→0 时 t_go 发散）。
     //   同 Vc 下三者等价：R_freeze ≈ Vc · t_go_freeze。
-    cmd.t_go  = state.range / (Vc > 1e-6 ? Vc : 1e-6);
+    cmd.t_go = state.range / (Vc > 1e-6 ? Vc : 1e-6);
     cmd.a_cmd = cmd.a_cmd_unsat;
 
     bool freeze = false;
@@ -92,19 +92,18 @@ PureGuidanceCmd guidance_step(const GuidanceState &state,
             freeze = (state.range < params.R_freeze);
             break;
         case FreezeCriterion::BY_TGO_OR_RANGE:
-            freeze = (cmd.t_go < params.t_go_freeze) ||
-                     (state.range < params.R_freeze);
+            freeze = (cmd.t_go < params.t_go_freeze) || (state.range < params.R_freeze);
             break;
     }
     if (freeze) {
-        cmd.mode  = PureGuidanceMode::HOLD;
+        cmd.mode = PureGuidanceMode::HOLD;
         cmd.a_cmd = memory.a_cmd_prev;
     }
 
     // ---- 5) 过载限幅（矢量等比缩放；禁止对 x/y/z 分量各自 clip）----
     const double a_norm = norm(cmd.a_cmd);
     if (a_norm > params.a_max) {
-        cmd.a_cmd = cmd.a_cmd * (params.a_max / a_norm);   // 方向不变，只缩模长
+        cmd.a_cmd = cmd.a_cmd * (params.a_max / a_norm);  // 方向不变，只缩模长
         cmd.sat = true;
     }
     // 限幅后的模长只可能是 a_max 或原值 ⇒ 直接复用已算出的 a_norm，省一次 sqrt。
@@ -117,4 +116,4 @@ PureGuidanceCmd guidance_step(const GuidanceState &state,
     return cmd;
 }
 
-} // namespace pure_uav
+}  // namespace pure_uav

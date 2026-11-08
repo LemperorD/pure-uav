@@ -1,26 +1,26 @@
 // detect_rt：实时相机/离线单图检测 CLI；--json 时 stdout 只输出 JSON 行。
 // 参数与推流用法见同目录 README。
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <cstdio>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <string>
-#include <thread>
-#include <unistd.h>
-#include <vector>
-
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <string>
+#include <thread>
+#include <vector>
 
-#include "pure_uav/detection/detector.hpp"
 #include "pure_uav/detection/detection_types.hpp"
+#include "pure_uav/detection/detector.hpp"
 #include "pure_uav/detection/yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
@@ -40,12 +40,13 @@ std::atomic<bool> g_sigint{false};
 // 这样驱动/VIPLite 自己打印到 stdout 的日志不会污染 JSON。
 FILE* g_json_out = stdout;
 
-void onSigint(int) { g_sigint.store(true); }
+void onSigint(int /*unused*/) {
+    g_sigint.store(true);
+}
 
 uint64_t unixNowUs() {
     using namespace std::chrono;
-    return static_cast<uint64_t>(
-        duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
+    return static_cast<uint64_t>(duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
 }
 
 bool fileExists(const std::string& p) {
@@ -53,7 +54,7 @@ bool fileExists(const std::string& p) {
     return std::filesystem::is_regular_file(p, ec);
 }
 
-#if defined(PURE_DETECTION_BACKEND_CPU)
+#ifdef PURE_DETECTION_BACKEND_CPU
 constexpr const char* kDefaultModelRel = "assets/models/yolo26n.onnx";
 #else
 constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
@@ -62,7 +63,9 @@ constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
 // 默认模型：cwd 下的 assets/models/<模型>，其次从可执行文件向上找仓库根。
 std::string resolveDefaultModel() {
     const std::string rel = kDefaultModelRel;
-    if (fileExists(rel)) return rel;
+    if (fileExists(rel)) {
+        return rel;
+    }
 
     std::string exe;
     {
@@ -77,7 +80,9 @@ std::string resolveDefaultModel() {
         std::filesystem::path dir = std::filesystem::path(exe).parent_path();
         for (int i = 0; i < 6 && !dir.empty(); ++i) {
             const auto candidate = dir / rel;
-            if (fileExists(candidate.string())) return candidate.string();
+            if (fileExists(candidate.string())) {
+                return candidate.string();
+            }
             dir = dir.parent_path();
         }
     }
@@ -92,11 +97,9 @@ void printBoxes(const FrameResult& r, bool json) {
     FILE* out = json ? g_json_out : stdout;
     if (json) {
         std::fprintf(out,
-                    "{\"host_us\":%llu,\"seq\":%llu,\"infer_ms\":%.3f,\"present\":%s,"
-                    "\"count\":%d,\"boxes\":[",
-                    static_cast<unsigned long long>(r.host_us),
-                    static_cast<unsigned long long>(r.seq),
-                    static_cast<double>(r.infer_ms), r.present ? "true" : "false", r.count);
+                     "{\"host_us\":%llu,\"seq\":%llu,\"infer_ms\":%.3f,\"present\":%s,"
+                     "\"count\":%d,\"boxes\":[",
+                     static_cast<unsigned long long>(r.host_us), static_cast<unsigned long long>(r.seq), static_cast<double>(r.infer_ms), r.present ? "true" : "false", r.count);
         for (int i = 0; i < r.count; ++i) {
             const DetectionBox& b = r.boxes[i];
             const double u = 0.5 * (b.x1 + b.x2);
@@ -107,9 +110,7 @@ void printBoxes(const FrameResult& r, bool json) {
                          "%s{\"class_id\":%d,\"conf\":%.6f,\"x1\":%.3f,\"y1\":%.3f,"
                          "\"x2\":%.3f,\"y2\":%.3f,\"u\":%.3f,\"v\":%.3f,\"w\":%.3f,"
                          "\"h\":%.3f}",
-                         i ? "," : "", b.class_id, static_cast<double>(b.conf),
-                         static_cast<double>(b.x1), static_cast<double>(b.y1),
-                         static_cast<double>(b.x2), static_cast<double>(b.y2), u, v, w, h);
+                         (i != 0) ? "," : "", b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), u, v, w, h);
         }
         std::fprintf(out, "]}\n");
         std::fflush(out);
@@ -118,17 +119,13 @@ void printBoxes(const FrameResult& r, bool json) {
 
     for (int i = 0; i < r.count; ++i) {
         const DetectionBox& b = r.boxes[i];
-        std::printf("box[%d] class=%d conf=%.4f x1=%.1f y1=%.1f x2=%.1f y2=%.1f "
-                    "center=(%.1f,%.1f) size=%.1fx%.1f\n",
-                    i, b.class_id, static_cast<double>(b.conf),
-                    static_cast<double>(b.x1), static_cast<double>(b.y1),
-                    static_cast<double>(b.x2), static_cast<double>(b.y2),
-                    0.5 * (b.x1 + b.x2), 0.5 * (b.y1 + b.y2),
-                    static_cast<double>(b.x2 - b.x1), static_cast<double>(b.y2 - b.y1));
+        std::printf(
+            "box[%d] class=%d conf=%.4f x1=%.1f y1=%.1f x2=%.1f y2=%.1f "
+            "center=(%.1f,%.1f) size=%.1fx%.1f\n",
+            i, b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), 0.5 * (b.x1 + b.x2), 0.5 * (b.y1 + b.y2), static_cast<double>(b.x2 - b.x1), static_cast<double>(b.y2 - b.y1));
     }
     if (r.present) {
-        std::printf("main target: class=%d conf=%.4f u=%.1f v=%.1f w=%.1f h=%.1f\n",
-                    r.class_id, r.conf, r.u_px, r.v_px, r.w_px, r.h_px);
+        std::printf("main target: class=%d conf=%.4f u=%.1f v=%.1f w=%.1f h=%.1f\n", r.class_id, r.conf, r.u_px, r.v_px, r.w_px, r.h_px);
     } else {
         std::printf("main target: present=false\n");
     }
@@ -139,12 +136,10 @@ cv::Mat drawAnnotated(const cv::Mat& bgr, const FrameResult& r) {
     for (int i = 0; i < r.count; ++i) {
         const DetectionBox& b = r.boxes[i];
         const cv::Scalar color = (b.class_id == 1) ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 0, 0);
-        cv::rectangle(vis, cv::Point(static_cast<int>(b.x1), static_cast<int>(b.y1)),
-                      cv::Point(static_cast<int>(b.x2), static_cast<int>(b.y2)), color, 2);
+        cv::rectangle(vis, cv::Point(static_cast<int>(b.x1), static_cast<int>(b.y1)), cv::Point(static_cast<int>(b.x2), static_cast<int>(b.y2)), color, 2);
         char text[64];
         std::snprintf(text, sizeof(text), "c%d %.2f", b.class_id, static_cast<double>(b.conf));
-        cv::putText(vis, text, cv::Point(static_cast<int>(b.x1), static_cast<int>(b.y1) - 4),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+        cv::putText(vis, text, cv::Point(static_cast<int>(b.x1), static_cast<int>(b.y1) - 4), cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
     }
     return vis;
 }
@@ -169,8 +164,7 @@ bool writeStreamFrame(const cv::Mat& bgr, const FrameResult& r, const std::strin
             std::fprintf(stderr, "[warn] 打开流帧临时文件失败: %s\n", tmp.c_str());
             return false;
         }
-        ofs.write(reinterpret_cast<const char*>(jpg.data()),
-                 static_cast<std::streamsize>(jpg.size()));
+        ofs.write(reinterpret_cast<const char*>(jpg.data()), static_cast<std::streamsize>(jpg.size()));
         if (!ofs) {
             std::fprintf(stderr, "[warn] 写入流帧失败: %s\n", tmp.c_str());
             std::filesystem::remove(tmp);
@@ -187,8 +181,7 @@ bool writeStreamFrame(const cv::Mat& bgr, const FrameResult& r, const std::strin
     return true;
 }
 
-void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& dump_dir,
-                 uint64_t seq) {
+void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& dump_dir, uint64_t seq) {
     const cv::Mat vis = drawAnnotated(bgr, r);
     char name[128];
     std::snprintf(name, sizeof(name), "detect_%06llu.jpg", static_cast<unsigned long long>(seq));
@@ -198,8 +191,7 @@ void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& du
     }
 }
 
-int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json,
-             const std::string& dump_dir, const std::string& stream_dir) {
+int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json, const std::string& dump_dir, const std::string& stream_dir) {
     cv::Mat bgr = cv::imread(image_path, cv::IMREAD_COLOR);
     if (bgr.empty()) {
         std::fprintf(stderr, "[error] 无法读取图片: %s\n", image_path.c_str());
@@ -239,17 +231,19 @@ int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json
     pure_uav::detection::postprocess(view, pp, r);
 
     printBoxes(r, json);
-    if (!dump_dir.empty()) drawAndSave(bgr, r, dump_dir, r.seq);
-    if (!stream_dir.empty()) writeStreamFrame(bgr, r, stream_dir);
+    if (!dump_dir.empty()) {
+        drawAndSave(bgr, r, dump_dir, r.seq);
+    }
+    if (!stream_dir.empty()) {
+        writeStreamFrame(bgr, r, stream_dir);
+    }
     if (!json) {
-        std::printf("summary: infer_ms=%.3f count=%d present=%s\n",
-                    static_cast<double>(r.infer_ms), r.count, r.present ? "true" : "false");
+        std::printf("summary: infer_ms=%.3f count=%d present=%s\n", static_cast<double>(r.infer_ms), r.count, r.present ? "true" : "false");
     }
     return 0;
 }
 
-int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::string& dump_dir,
-              const std::string& stream_dir, double stream_fps) {
+int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::string& dump_dir, const std::string& stream_dir, double stream_fps) {
     Detector det;
     std::string error;
     if (!det.start(cfg, error)) {
@@ -277,16 +271,19 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
         if (got) {
             ++processed;
             total_boxes += static_cast<uint64_t>(r.count);
-            if (r.present) ++present_frames;
+            if (r.present) {
+                ++present_frames;
+            }
             printBoxes(r, json);
             if (!dump_dir.empty()) {
                 cv::Mat frame;
-                if (det.latest_frame(frame)) drawAndSave(frame, r, dump_dir, r.seq);
+                if (det.latest_frame(frame)) {
+                    drawAndSave(frame, r, dump_dir, r.seq);
+                }
             }
             if (!stream_dir.empty()) {
                 const auto now = std::chrono::steady_clock::now();
-                if (last_stream.time_since_epoch().count() == 0 ||
-                    now - last_stream >= stream_period) {
+                if (last_stream.time_since_epoch().count() == 0 || now - last_stream >= stream_period) {
                     cv::Mat frame;
                     if (det.latest_frame(frame)) {
                         writeStreamFrame(frame, r, stream_dir);
@@ -295,7 +292,9 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
                 }
             }
         }
-        if (frames > 0 && processed >= frames) break;
+        if (frames > 0 && processed >= frames) {
+            break;
+        }
 
         const auto now = std::chrono::steady_clock::now();
         if (now - last_report >= std::chrono::seconds(1)) {
@@ -303,14 +302,14 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
             std::fprintf(json ? stderr : stdout,
                          "[stats] capture=%.1f fps process=%.1f fps avg_infer=%.2f ms "
                          "frames=%llu/%llu\n",
-                         s.capture_fps, s.process_fps, s.avg_infer_ms,
-                         static_cast<unsigned long long>(s.process_frames),
-                         static_cast<unsigned long long>(s.capture_frames));
+                         s.capture_fps, s.process_fps, s.avg_infer_ms, static_cast<unsigned long long>(s.process_frames), static_cast<unsigned long long>(s.capture_frames));
             last_report = now;
         }
 
         // 没有新结果时短暂让出 CPU；有结果时不额外等待。
-        if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if (!got) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
     }
 
     const DetectorStats s = det.stats();
@@ -319,11 +318,7 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
     std::fprintf(json ? stderr : stdout,
                  "summary: capture_fps=%.1f process_fps=%.1f avg_infer_ms=%.3f "
                  "capture_frames=%llu process_frames=%llu present_frames=%llu total_boxes=%llu\n",
-                 s.capture_fps, s.process_fps, s.avg_infer_ms,
-                 static_cast<unsigned long long>(s.capture_frames),
-                 static_cast<unsigned long long>(s.process_frames),
-                 static_cast<unsigned long long>(present_frames),
-                 static_cast<unsigned long long>(total_boxes));
+                 s.capture_fps, s.process_fps, s.avg_infer_ms, static_cast<unsigned long long>(s.capture_frames), static_cast<unsigned long long>(s.process_frames), static_cast<unsigned long long>(present_frames), static_cast<unsigned long long>(total_boxes));
     return 0;
 }
 
@@ -371,7 +366,7 @@ int main(int argc, char** argv) {
             image_path = requireValue("--image");
         } else if (arg == "--frames") {
             frames = std::atol(requireValue("--frames").c_str());
-            if (frames < 0) frames = 0;
+            frames = std::max<long>(frames, 0);
         } else if (arg == "--json") {
             json = true;
         } else if (arg == "--dump-dir") {
@@ -401,7 +396,7 @@ int main(int argc, char** argv) {
         const int fd = dup(STDOUT_FILENO);
         if (fd >= 0) {
             FILE* f = fdopen(fd, "w");
-            if (f) {
+            if (f != nullptr) {
                 g_json_out = f;
                 std::setvbuf(g_json_out, nullptr, _IOLBF, 0);
             } else {
@@ -411,7 +406,7 @@ int main(int argc, char** argv) {
         dup2(STDERR_FILENO, STDOUT_FILENO);
     }
 
-    if (cfg.conf_thr <= 0.0f || cfg.conf_thr > 1.0f || cfg.iou_thr <= 0.0f || cfg.iou_thr > 1.0f) {
+    if (cfg.conf_thr <= 0.0F || cfg.conf_thr > 1.0F || cfg.iou_thr <= 0.0F || cfg.iou_thr > 1.0F) {
         std::fprintf(stderr, "[error] --conf/--iou 必须在 (0,1] 内\n");
         return 2;
     }
@@ -421,10 +416,11 @@ int main(int argc, char** argv) {
     }
 
     if (!camera_arg.empty()) {
-        int w = 0, h = 0, fps = 0;
+        int w = 0;
+        int h = 0;
+        int fps = 0;
         if (!parseCamera(camera_arg, w, h, fps)) {
-            std::fprintf(stderr, "[error] --camera 需要 WxH@FPS 形式，收到: %s\n",
-                         camera_arg.c_str());
+            std::fprintf(stderr, "[error] --camera 需要 WxH@FPS 形式，收到: %s\n", camera_arg.c_str());
             return 2;
         }
         cfg.camera.width = w;
@@ -441,7 +437,9 @@ int main(int argc, char** argv) {
     cfg.verbose = verbose;
 
     for (const auto& dir : {dump_dir, stream_dir}) {
-        if (dir.empty()) continue;
+        if (dir.empty()) {
+            continue;
+        }
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         if (ec) {

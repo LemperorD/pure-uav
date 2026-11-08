@@ -26,15 +26,16 @@
 #include <thread>
 
 #include "common/mavlink.h"
-
-#include "mavlink_link.hpp"
 #include "fcu_clock.hpp"
+#include "mavlink_link.hpp"
 #include "odom_tool_core.hpp"
 
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int) { g_stop.store(true); }
+void onSigint(int /*unused*/) {
+    g_stop.store(true);
+}
 
 int64_t steadyNowNs() {
     using namespace std::chrono;
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
     int quality = 90;
     int reset_counter = 0;
     double wait_s = 10.0;
-    double run_s = 0.0;   // >0 时只跑这么久（默认按脚本长度）
+    double run_s = 0.0;  // >0 时只跑这么久（默认按脚本长度）
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -83,7 +84,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        } else if (a == "--serial") {
+        }
+        if (a == "--serial") {
             serial = need("--serial");
         } else if (a == "--baud") {
             baud = std::stoi(need("--baud"));
@@ -105,8 +107,7 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    if (!std::isfinite(rate_hz) || !std::isfinite(wait_s) || !std::isfinite(run_s) ||
-        wait_s <= 0.0 || run_s < 0.0) {
+    if (!std::isfinite(rate_hz) || !std::isfinite(wait_s) || !std::isfinite(run_s) || wait_s <= 0.0 || run_s < 0.0) {
         std::fprintf(stderr, "频率/等待时间必须有限且为正，时长必须非负\n");
         return 2;
     }
@@ -123,7 +124,7 @@ int main(int argc, char** argv) {
     pure_uav::MavlinkLink::Config cfg;
     cfg.device = serial;
     cfg.baudrate = baud;
-    cfg.target_sysid = 0;   // 自动锁定
+    cfg.target_sysid = 0;  // 自动锁定
     std::string err;
     if (!link.start(cfg, &err)) {
         std::fprintf(stderr, "打开串口失败: %s\n", err.c_str());
@@ -136,13 +137,11 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (!link.connected()) {
-        std::fprintf(stderr, "[sender] %.0f s 内没收到飞控心跳，退出。检查串口/波特率/飞控是否上电。\n",
-                     wait_s);
+        std::fprintf(stderr, "[sender] %.0f s 内没收到飞控心跳，退出。检查串口/波特率/飞控是否上电。\n", wait_s);
         link.stop();
         return 1;
     }
-    std::printf("[sender] 飞控已连接 sysid=%u，等待 HIGHRES_IMU 建立时间基准…\n",
-                static_cast<unsigned>(link.fcuSysId()));
+    std::printf("[sender] 飞控已连接 sysid=%u，等待 HIGHRES_IMU 建立时间基准…\n", static_cast<unsigned>(link.fcuSysId()));
 
     pure_uav::FcuClock clock;
     const uint64_t session = link.reconnectCount();
@@ -160,40 +159,37 @@ int main(int argc, char** argv) {
                 timebase_changed = true;
                 break;
             }
-            if (result == pure_uav::FcuClock::AddResult::kOk)
+            if (result == pure_uav::FcuClock::AddResult::kOk) {
                 last_imu_host_ns = item.host_ns;
+            }
         }
     };
     const int64_t imu_deadline = steadyNowNs() + static_cast<int64_t>(wait_s * 1e9);
-    while (!clock.valid() && !g_stop.load() && steadyNowNs() < imu_deadline &&
-           link.connected() && link.reconnectCount() == session && !timebase_changed) {
+    while (!clock.valid() && !g_stop.load() && steadyNowNs() < imu_deadline && link.connected() && link.reconnectCount() == session && !timebase_changed) {
         collectImu();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    if (!clock.valid() || timebase_changed || !link.connected() ||
-        link.reconnectCount() != session || g_stop.load()) {
-        std::fprintf(stderr, "[sender] 未在 %.2f s 内建立稳定 IMU 时间基准，或等待期间会话变化，退出。\n",
-                     wait_s);
+    if (!clock.valid() || timebase_changed || !link.connected() || link.reconnectCount() != session || g_stop.load()) {
+        std::fprintf(stderr, "[sender] 未在 %.2f s 内建立稳定 IMU 时间基准，或等待期间会话变化，退出。\n", wait_s);
         link.stop();
         return 1;
     }
 
     const int64_t t0_host_ns = steadyNowNs();
-    std::printf("[sender] 时间基准已建立（%zu 个 IMU 样本）。开始脚本（约 %.0f s）\n",
-                clock.sampleCount(), pure_uav::odom_tool::scriptDuration());
+    std::printf("[sender] 时间基准已建立（%zu 个 IMU 样本）。开始脚本（约 %.0f s）\n", clock.sampleCount(), pure_uav::odom_tool::scriptDuration());
     std::fflush(stdout);
 
     const double period_s = 1.0 / rate_hz;
     int64_t next_send_ns = t0_host_ns;
     int last_phase = -1;
-    uint64_t sent = 0, failed = 0;
+    uint64_t sent = 0;
+    uint64_t failed = 0;
     int64_t last_report_ns = t0_host_ns;
 
     bool aborted = false;
     while (!g_stop.load()) {
         collectImu();
-        if (timebase_changed || link.reconnectCount() != session || !link.connected() ||
-            steadyNowNs() - last_imu_host_ns > 500000000LL) {
+        if (timebase_changed || link.reconnectCount() != session || !link.connected() || steadyNowNs() - last_imu_host_ns > 500000000LL) {
             std::fprintf(stderr, "[sender] 飞控会话/时间基准变化或 IMU 超过 500ms 未更新，停止发送；请重新运行测试。\n");
             aborted = true;
             break;
@@ -219,8 +215,7 @@ int main(int argc, char** argv) {
         if (phase != last_phase) {
             last_phase = phase;
             const auto& st = pure_uav::odom_tool::scriptSteps()[phase];
-            std::printf("\n[sender] 阶段 %d/%zu：%s  →  飞控端应看到：%s\n", phase + 1,
-                        pure_uav::odom_tool::scriptSteps().size(), st.name, st.expect);
+            std::printf("\n[sender] 阶段 %d/%zu：%s  →  飞控端应看到：%s\n", phase + 1, pure_uav::odom_tool::scriptSteps().size(), st.name, st.expect);
             std::fflush(stdout);
         }
 
@@ -240,7 +235,7 @@ int main(int argc, char** argv) {
         pose.vy = sample.vy;
         pose.vz = sample.vz;
 
-        if (link.sendVisionPose(pose, quality, static_cast<uint8_t>(reset_counter), 0.15f, 0.25f)) {
+        if (link.sendVisionPose(pose, quality, static_cast<uint8_t>(reset_counter), 0.15F, 0.25F)) {
             ++sent;
         } else {
             ++failed;
@@ -248,9 +243,7 @@ int main(int argc, char** argv) {
 
         if (now_ns - last_report_ns > 2000000000LL) {
             last_report_ns = now_ns;
-            std::printf("[sender] t=%.1fs 已发 %llu 帧（失败 %llu）quality=%d reset=%d\n", t_s,
-                        static_cast<unsigned long long>(sent),
-                        static_cast<unsigned long long>(failed), quality, reset_counter);
+            std::printf("[sender] t=%.1fs 已发 %llu 帧（失败 %llu）quality=%d reset=%d\n", t_s, static_cast<unsigned long long>(sent), static_cast<unsigned long long>(failed), quality, reset_counter);
             std::fflush(stdout);
         }
 
@@ -263,9 +256,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::printf("\n[sender] 结束：发送 %llu 帧，失败 %llu 帧\n",
-                static_cast<unsigned long long>(sent),
-                static_cast<unsigned long long>(failed));
+    std::printf("\n[sender] 结束：发送 %llu 帧，失败 %llu 帧\n", static_cast<unsigned long long>(sent), static_cast<unsigned long long>(failed));
     if (failed > 0) {
         std::printf("[sender] 有失败帧：优先检查串口是否被别的程序占用/线是否松。\n");
     }

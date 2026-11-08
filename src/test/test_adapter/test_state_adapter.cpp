@@ -6,15 +6,16 @@
 //
 // 运行：./bin/test/test_state_adapter（退出码 0=全过，1=有失败）
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
 
+#include "guidance.hpp"  // guidance_step()
 #include "guidance_state_adapter.hpp"
 #include "guidance_state_check.hpp"
-#include "quat.hpp"          // guidance_core：交叉验证四元数旋转（通用数学，不在仿真里）
-#include "guidance.hpp"      // guidance_step()
+#include "quat.hpp"  // guidance_core：交叉验证四元数旋转（通用数学，不在仿真里）
 
 using namespace pure_uav;
 using namespace pure_uav::guidance::adapter;
@@ -25,61 +26,60 @@ using namespace pure_uav::guidance::adapter;
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void ok(bool cond, const char *what) {
-  if (cond) {
-    ++g_pass;
-  } else {
-    ++g_fail;
-    std::printf("  [FAIL] %s\n", what);
-  }
+static void ok(bool cond, const char* what) {
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  [FAIL] %s\n", what);
+    }
 }
 
-static void near(double got, double want, double tol, const char *what) {
-  if (std::fabs(got - want) <= tol) {
-    ++g_pass;
-  } else {
-    ++g_fail;
-    std::printf("  [FAIL] %s: got %.12g, want %.12g (tol %.2g)\n", what, got,
-                want, tol);
-  }
+static void near(double got, double want, double tol, const char* what) {
+    if (std::fabs(got - want) <= tol) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  [FAIL] %s: got %.12g, want %.12g (tol %.2g)\n", what, got, want, tol);
+    }
 }
 
-static void near_vec(const Vec3 &got, const Vec3 &want, double tol,
-                     const char *what) {
-  const double d = norm(got - want);
-  if (d <= tol) {
-    ++g_pass;
-  } else {
-    ++g_fail;
-    std::printf(
-        "  [FAIL] %s: got (%.12g, %.12g, %.12g), want (%.12g, %.12g, %.12g) "
-        "(|d|=%.3g, tol=%.2g)\n",
-        what, got.x, got.y, got.z, want.x, want.y, want.z, d, tol);
-  }
+static void near_vec(const Vec3& got, const Vec3& want, double tol, const char* what) {
+    const double d = norm(got - want);
+    if (d <= tol) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf(
+            "  [FAIL] %s: got (%.12g, %.12g, %.12g), want (%.12g, %.12g, %.12g) "
+            "(|d|=%.3g, tol=%.2g)\n",
+            what, got.x, got.y, got.z, want.x, want.y, want.z, d, tol);
+    }
 }
 
-static void near_q(const double got[4], const double want[4], double tol,
-                   const char *what) {
-  // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
-  double d1 = 0.0, d2 = 0.0;
-  for (int i = 0; i < 4; ++i) {
-    d1 += (got[i] - want[i]) * (got[i] - want[i]);
-    d2 += (got[i] + want[i]) * (got[i] + want[i]);
-  }
-  const double d = std::sqrt(std::fmin(d1, d2));
-  if (d <= tol) {
-    ++g_pass;
-  } else {
-    ++g_fail;
-    std::printf(
-        "  [FAIL] %s: got [%.9g,%.9g,%.9g,%.9g], want [%.9g,%.9g,%.9g,%.9g]"
-        " (|d|=%.3g, tol=%.2g)\n",
-        what, got[0], got[1], got[2], got[3], want[0], want[1], want[2],
-        want[3], d, tol);
-  }
+static void near_q(const double got[4], const double want[4], double tol, const char* what) {
+    // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
+    double d1 = 0.0;
+    double d2 = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        d1 += (got[i] - want[i]) * (got[i] - want[i]);
+        d2 += (got[i] + want[i]) * (got[i] + want[i]);
+    }
+    const double d = std::sqrt(std::fmin(d1, d2));
+    if (d <= tol) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf(
+            "  [FAIL] %s: got [%.9g,%.9g,%.9g,%.9g], want [%.9g,%.9g,%.9g,%.9g]"
+            " (|d|=%.3g, tol=%.2g)\n",
+            what, got[0], got[1], got[2], got[3], want[0], want[1], want[2], want[3], d, tol);
+    }
 }
 
-static void section(const char *name) { std::printf("\n== %s ==\n", name); }
+static void section(const char* name) {
+    std::printf("\n== %s ==\n", name);
+}
 
 static constexpr double PI_REF = 3.14159265358979323846;
 
@@ -88,95 +88,109 @@ static constexpr double PI_REF = 3.14159265358979323846;
 // ============================================================
 
 // 参考四元数旋转：v' = R(q)·v，q = [w,x,y,z]（机体→世界）
-static Vec3 ref_rotate(const double q[4], const Vec3 &v) {
-  const double w = q[0], x = q[1], y = q[2], z = q[3];
-  const double R[3][3] = {
-      {1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
-      {2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)},
-      {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)},
-  };
-  return Vec3(R[0][0] * v.x + R[0][1] * v.y + R[0][2] * v.z,
-              R[1][0] * v.x + R[1][1] * v.y + R[1][2] * v.z,
-              R[2][0] * v.x + R[2][1] * v.y + R[2][2] * v.z);
+static Vec3 ref_rotate(const double q[4], const Vec3& v) {
+    const double w = q[0];
+    const double x = q[1];
+    const double y = q[2];
+    const double z = q[3];
+    const double R[3][3] = {
+        {1 - (2 * (y * y + z * z)), 2 * (x * y - z * w), 2 * (x * z + y * w)},
+        {2 * (x * y + z * w), 1 - (2 * (x * x + z * z)), 2 * (y * z - x * w)},
+        {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - (2 * (x * x + y * y))},
+    };
+    return {(R[0][0] * v.x) + (R[0][1] * v.y) + (R[0][2] * v.z), (R[1][0] * v.x) + (R[1][1] * v.y) + (R[1][2] * v.z), (R[2][0] * v.x) + (R[2][1] * v.y) + (R[2][2] * v.z)};
 }
 
 // 参考旋转矩阵（q 对应的 R，行优先）—— 从矩阵直接读"三列的叉积/行列式"
 static void ref_matrix(const double q[4], double R[3][3]) {
-  const double w = q[0], x = q[1], y = q[2], z = q[3];
-  R[0][0] = 1 - 2 * (y * y + z * z);
-  R[0][1] = 2 * (x * y - z * w);
-  R[0][2] = 2 * (x * z + y * w);
-  R[1][0] = 2 * (x * y + z * w);
-  R[1][1] = 1 - 2 * (x * x + z * z);
-  R[1][2] = 2 * (y * z - x * w);
-  R[2][0] = 2 * (x * z - y * w);
-  R[2][1] = 2 * (y * z + x * w);
-  R[2][2] = 1 - 2 * (x * x + y * y);
+    const double w = q[0];
+    const double x = q[1];
+    const double y = q[2];
+    const double z = q[3];
+    R[0][0] = 1 - (2 * (y * y + z * z));
+    R[0][1] = 2 * (x * y - z * w);
+    R[0][2] = 2 * (x * z + y * w);
+    R[1][0] = 2 * (x * y + z * w);
+    R[1][1] = 1 - (2 * (x * x + z * z));
+    R[1][2] = 2 * (y * z - x * w);
+    R[2][0] = 2 * (x * z - y * w);
+    R[2][1] = 2 * (y * z + x * w);
+    R[2][2] = 1 - (2 * (x * x + y * y));
 }
 
 // 从四元数取"某机体轴在世界系下的指向"（列向量）
 static Vec3 ref_axis_in_world(const double q[4], int axis) {
-  double R[3][3];
-  ref_matrix(q, R);
-  return Vec3(R[0][axis], R[1][axis], R[2][axis]);
+    double R[3][3];
+    ref_matrix(q, R);
+    return {R[0][axis], R[1][axis], R[2][axis]};
 }
 
-static double ref_det3(const Vec3 &a, const Vec3 &b, const Vec3 &c) {
-  return dot(a, cross(b, c));
+static double ref_det3(const Vec3& a, const Vec3& b, const Vec3& c) {
+    return dot(a, cross(b, c));
 }
 
 // NED ↔ ENU 的参考实现（独立写一遍，不复用被测函数）
-static Vec3 ref_ned_to_enu(const Vec3 &v) { return Vec3(v.y, v.x, -v.z); }
+static Vec3 ref_ned_to_enu(const Vec3& v) {
+    return {v.y, v.x, -v.z};
+}
 
 // 参考：外部姿态（world_in + frame_in）→ 光轴系姿态（ENU）下"光轴系三轴的世界指向"
 // 返回 [光轴系+x, 光轴系+y, 光轴系+z] 在 ENU 下的指向
-static void ref_optical_axes(const double q_in[4], GuidanceFrame world_in, GuidanceAttitudeFrame f,
-                             Vec3 out[3]) {
+static void ref_optical_axes(const double q_in[4], GuidanceFrame world_in, GuidanceAttitudeFrame f, Vec3 out[3]) {
     // 光轴系第 k 根轴在**外部机体系**下的坐标
     Vec3 in_body[3];
     switch (f) {
         case GuidanceAttitudeFrame::kFrd:
-            in_body[0] = Vec3(0, 1, 0); in_body[1] = Vec3(0, 0, 1); in_body[2] = Vec3(1, 0, 0);
+            in_body[0] = Vec3(0, 1, 0);
+            in_body[1] = Vec3(0, 0, 1);
+            in_body[2] = Vec3(1, 0, 0);
             break;
         case GuidanceAttitudeFrame::kFlu:
-            in_body[0] = Vec3(0, -1, 0); in_body[1] = Vec3(0, 0, -1); in_body[2] = Vec3(1, 0, 0);
+            in_body[0] = Vec3(0, -1, 0);
+            in_body[1] = Vec3(0, 0, -1);
+            in_body[2] = Vec3(1, 0, 0);
             break;
         case GuidanceAttitudeFrame::kCamFrd:
         case GuidanceAttitudeFrame::kCamFlu:
         case GuidanceAttitudeFrame::kOpticalPassthrough:
-            in_body[0] = Vec3(1, 0, 0); in_body[1] = Vec3(0, 1, 0); in_body[2] = Vec3(0, 0, 1);
+            in_body[0] = Vec3(1, 0, 0);
+            in_body[1] = Vec3(0, 1, 0);
+            in_body[2] = Vec3(0, 0, 1);
             break;
     }
     for (int k = 0; k < 3; ++k) {
-        const Vec3 w = ref_rotate(q_in, in_body[k]);      // 外部世界系
+        const Vec3 w = ref_rotate(q_in, in_body[k]);  // 外部世界系
         out[k] = (world_in == GuidanceFrame::kNed) ? ref_ned_to_enu(w) : w;
     }
 }
 
 // 随机单位四元数（可复现）
-static uint32_t g_seed = 20261016u;
+static uint32_t g_seed = 20261016U;
 static double rnd01() {
-  g_seed = g_seed * 1664525u + 1013904223u;
-  return static_cast<double>(g_seed >> 8) / 16777216.0; // 2^24
+    g_seed = (g_seed * 1664525U) + 1013904223U;
+    return static_cast<double>(g_seed >> 8) / 16777216.0;  // 2^24
 }
 static void random_quat(double q[4]) {
-  // 均匀四元数（Shoemake 法）
-  const double u1 = rnd01(), u2 = rnd01(), u3 = rnd01();
-  const double s1 = std::sqrt(1.0 - u1), s2 = std::sqrt(u1);
-  q[0] = s1 * std::sin(2 * PI_REF * u2); // w
-  q[1] = s1 * std::cos(2 * PI_REF * u2); // x
-  q[2] = s2 * std::sin(2 * PI_REF * u3); // y
-  q[3] = s2 * std::cos(2 * PI_REF * u3); // z
+    // 均匀四元数（Shoemake 法）
+    const double u1 = rnd01();
+    const double u2 = rnd01();
+    const double u3 = rnd01();
+    const double s1 = std::sqrt(1.0 - u1);
+    const double s2 = std::sqrt(u1);
+    q[0] = s1 * std::sin(2 * PI_REF * u2);  // w
+    q[1] = s1 * std::cos(2 * PI_REF * u2);  // x
+    q[2] = s2 * std::sin(2 * PI_REF * u3);  // y
+    q[3] = s2 * std::cos(2 * PI_REF * u3);  // z
 }
 
 // 绕单位轴 axis 转 angle 的四元数 [w,x,y,z]
-static void quat_axis_angle(const Vec3 &axis_in, double angle, double q[4]) {
-  const Vec3 a = normalized(axis_in);
-  const double s = std::sin(angle * 0.5);
-  q[0] = std::cos(angle * 0.5);
-  q[1] = a.x * s;
-  q[2] = a.y * s;
-  q[3] = a.z * s;
+static void quat_axis_angle(const Vec3& axis_in, double angle, double q[4]) {
+    const Vec3 a = normalized(axis_in);
+    const double s = std::sin(angle * 0.5);
+    q[0] = std::cos(angle * 0.5);
+    q[1] = a.x * s;
+    q[2] = a.y * s;
+    q[3] = a.z * s;
 }
 
 // 单位四元数（避免用 C99 复合字面量 —— C++ 不支持）
@@ -184,16 +198,22 @@ static const double kIdentityQuat[4] = {1.0, 0.0, 0.0, 0.0};
 
 // 各外部机体口径下"光轴系三轴"在**外部机体坐标**里的取值。
 // 用于手性（det）检查：必须是 +1（正规旋转），不能是 −1（镜像）。
-static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame *frames, Vec3 out[3]) {
+static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame* frames, Vec3 out[3]) {
     switch (frames[idx]) {
         case GuidanceAttitudeFrame::kFrd:
-            out[0] = Vec3(0, 1, 0); out[1] = Vec3(0, 0, 1); out[2] = Vec3(1, 0, 0);
+            out[0] = Vec3(0, 1, 0);
+            out[1] = Vec3(0, 0, 1);
+            out[2] = Vec3(1, 0, 0);
             break;
         case GuidanceAttitudeFrame::kFlu:
-            out[0] = Vec3(0, -1, 0); out[1] = Vec3(0, 0, -1); out[2] = Vec3(1, 0, 0);
+            out[0] = Vec3(0, -1, 0);
+            out[1] = Vec3(0, 0, -1);
+            out[2] = Vec3(1, 0, 0);
             break;
-        default:   // kCamFrd / kCamFlu / kOpticalPassthrough：就是自己的单位基
-            out[0] = Vec3(1, 0, 0); out[1] = Vec3(0, 1, 0); out[2] = Vec3(0, 0, 1);
+        default:  // kCamFrd / kCamFlu / kOpticalPassthrough：就是自己的单位基
+            out[0] = Vec3(1, 0, 0);
+            out[1] = Vec3(0, 1, 0);
+            out[2] = Vec3(0, 0, 1);
             break;
     }
 }
@@ -212,8 +232,7 @@ static void test_frame_conversion() {
 
     // 自逆：转两次 = 恒等
     const Vec3 v(1.5, -2.25, 3.125);
-    near_vec(convert_vec(convert_vec(v, GuidanceFrame::kNed, GuidanceFrame::kEnu), GuidanceFrame::kEnu, GuidanceFrame::kNed),
-             v, 0.0, "NED→ENU→NED = 恒等");
+    near_vec(convert_vec(convert_vec(v, GuidanceFrame::kNed, GuidanceFrame::kEnu), GuidanceFrame::kEnu, GuidanceFrame::kNed), v, 0.0, "NED→ENU→NED = 恒等");
     // 同系 = 原样
     near_vec(convert_vec(v, GuidanceFrame::kEnu, GuidanceFrame::kEnu), v, 0.0, "ENU→ENU = 原样");
     // 模长不变
@@ -240,63 +259,61 @@ static void test_time() {
     near(timestamp_to_s(3.0, GuidanceTimeUnit::kSeconds, 0.5), 2.5, 0.0, "s → s（带参考）");
 
     // ---- uint32 ms 回绕（约 49.7 天）----
-    near(timestamp_u32_ms_to_s(1000u, 0u), 1.0, 0.0, "u32 ms 常规差");
+    near(timestamp_u32_ms_to_s(1000U, 0U), 1.0, 0.0, "u32 ms 常规差");
     // 4294967290 → 5：真实间隔 = (0xFFFFFFFF − 4294967290) + 5 + 1 = 11 ms
-    near(timestamp_u32_ms_to_s(5u, 4294967290u), 0.011, 1e-12, "u32 ms 回绕差 = 11 ms");
-    near(timestamp_u32_ms_to_s(4294967295u, 0u), 4294967.295, 1e-6, "u32 ms 最大差");
+    near(timestamp_u32_ms_to_s(5U, 4294967290U), 0.011, 1e-12, "u32 ms 回绕差 = 11 ms");
+    near(timestamp_u32_ms_to_s(4294967295U, 0U), 4294967.295, 1e-6, "u32 ms 最大差");
 
     // ---- uint64 µs ----
-    near(timestamp_u64_us_to_s(2500000ull, 0ull), 2.5, 0.0, "u64 µs → s");
+    near(timestamp_u64_us_to_s(2500000ULL, 0ULL), 2.5, 0.0, "u64 µs → s");
     //  关键：本机 SITL 实测 timestamp ≈ Unix epoch µs（1.79e15）。先相减再转 double 才安全。
     {
-        const uint64_t t0 = 1792136351209102ull;
-        const uint64_t t1 = t0 + 456789ull;                 // +0.456789 s
+        const uint64_t t0 = 1792136351209102ULL;
+        const uint64_t t1 = t0 + 456789ULL;  // +0.456789 s
         near(timestamp_u64_us_to_s(t1, t0), 0.456789, 1e-9, "u64 µs 大数差（epoch 量级）");
 
         // 反例：绝对量级大到 double 无法表示 1 µs 时，"先转 double 再相减"会得到 0
         //   （2^53 µs ≈ 285 年，此时 double 的 ULP 已 > 1 µs）
-        const uint64_t big0 = 9007199254740992ull;          // 2^53
-        const uint64_t big1 = big0 + 1ull;                  // +1 µs
-        near(timestamp_u64_us_to_s(big1, big0), 1e-6, 1e-18,
-             "u64 µs 大数差：整数相减保住 1 µs");
-        ok(static_cast<double>(big1) == static_cast<double>(big0),
-           "参考：先转 double 再相减会丢 1 µs（故本模块先在整数域相减）");
+        const uint64_t big0 = 9007199254740992ULL;  // 2^53
+        const uint64_t big1 = big0 + 1ULL;          // +1 µs
+        near(timestamp_u64_us_to_s(big1, big0), 1e-6, 1e-18, "u64 µs 大数差：整数相减保住 1 µs");
+        ok(static_cast<double>(big1) == static_cast<double>(big0), "参考：先转 double 再相减会丢 1 µs（故本模块先在整数域相减）");
     }
 
     // ---- GuidanceStateTimeTracker：基本累加 ----
     {
         GuidanceStateTimeTracker tr;
         ok(tr.empty(), "跟踪器初始为空");
-        tr.push_u64_us(1000ull);              // 首帧 → t = 0
+        tr.push_u64_us(1000ULL);  // 首帧 → t = 0
         near(tr.t_s(), 0.0, 0.0, "首帧 t = 0");
-        tr.push_u64_us(1000ull + 20000ull);   // +20 ms
+        tr.push_u64_us(1000ULL + 20000ULL);  // +20 ms
         near(tr.t_s(), 0.020, 1e-15, "累加 20 ms");
-        tr.push_u64_us(1000ull + 50000ull);   // +30 ms
+        tr.push_u64_us(1000ULL + 50000ULL);  // +30 ms
         near(tr.t_s(), 0.050, 1e-15, "累加 50 ms");
-        ok(tr.frames() == 3u, "帧计数");
-        ok(tr.out_of_order() == 0u, "无乱序");
+        ok(tr.frames() == 3U, "帧计数");
+        ok(tr.out_of_order() == 0U, "无乱序");
     }
 
     // ---- GuidanceStateTimeTracker：uint32 回绕 ----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u32_ms(4294967290u);          // 距回绕 5 ms
+        tr.push_u32_ms(4294967290U);  // 距回绕 5 ms
         near(tr.t_s(), 0.0, 0.0, "u32 首帧 t = 0");
-        tr.push_u32_ms(10u);                  // 回绕后真实间隔 16 ms
+        tr.push_u32_ms(10U);  // 回绕后真实间隔 16 ms
         near(tr.t_s(), 0.016, 1e-12, "u32 回绕累加 16 ms（关键用例）");
-        tr.push_u32_ms(20u);
+        tr.push_u32_ms(20U);
         near(tr.t_s(), 0.026, 1e-12, "u32 回绕后继续累加");
-        ok(tr.out_of_order() == 0u, "回绕不算乱序");
+        ok(tr.out_of_order() == 0U, "回绕不算乱序");
     }
 
     // ---- GuidanceStateTimeTracker：乱序必须被拒（且不倒退）----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u64_us(1000000ull);
-        tr.push_u64_us(1002000ull);           // +2 ms
+        tr.push_u64_us(1000000ULL);
+        tr.push_u64_us(1002000ULL);  // +2 ms
         const double t_before = tr.t_s();
-        tr.push_u64_us(1000ull);              // 明显乱序（早于首帧）
-        ok(tr.out_of_order() == 1u, "乱序被计数");
+        tr.push_u64_us(1000ULL);  // 明显乱序（早于首帧）
+        ok(tr.out_of_order() == 1U, "乱序被计数");
         near(tr.t_s(), t_before, 0.0, "乱序不改变已累加时间（不会倒退）");
         ok(tr.last_jump_suspect(), "乱序被标记为可疑跳变");
     }
@@ -304,13 +321,13 @@ static void test_time() {
     // ---- GuidanceStateTimeTracker：参考点（发射时刻 → t = 0）----
     {
         GuidanceStateTimeTracker tr;
-        const uint64_t fmu_t = 1792136351209102ull;   // epoch µs 量级
+        const uint64_t fmu_t = 1792136351209102ULL;  // epoch µs 量级
         tr.push_u64_us(fmu_t);
-        tr.push_u64_us(fmu_t + 1000000ull);            // 1 s 后
+        tr.push_u64_us(fmu_t + 1000000ULL);  // 1 s 后
         near(tr.t_s(), 1.0, 1e-9, "参考点前的绝对时间（相对首帧）");
-        tr.set_reference_u64_us(fmu_t + 1000000ull);  // 此刻定为 0
+        tr.set_reference_u64_us(fmu_t + 1000000ULL);  // 此刻定为 0
         near(tr.t_s(), 0.0, 1e-12, "参考点归零（发射时刻 = t_ref）");
-        tr.push_u64_us(fmu_t + 1456789ull);            // 再 +0.456789 s
+        tr.push_u64_us(fmu_t + 1456789ULL);  // 再 +0.456789 s
         near(tr.t_s(), 0.456789, 1e-9, "参考点后的相对时间（保持 µs 精度）");
         ok(!tr.last_jump_suspect(), "正常帧不报可疑");
     }
@@ -318,17 +335,15 @@ static void test_time() {
     // ---- GuidanceStateTimeTracker：大跳变提示 ----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u64_us(0ull);
-        tr.push_u64_us(6000000ull);           // +6 s > 5 s 阈值
+        tr.push_u64_us(0ULL);
+        tr.push_u64_us(6000000ULL);  // +6 s > 5 s 阈值
         ok(tr.last_jump_suspect(), "6 s 跳变被提示（丢帧/时钟跳变的信号）");
         near(tr.t_s(), 6.0, 1e-12, "跳变仍被累加（只提示不丢弃）");
     }
 
     // ---- 基准自检 ----
-    ok(is_safe_to_difference(GuidanceTimeBase::kSameSource, GuidanceTimeBase::kSameSource),
-       "同源可相减");
-    ok(!is_safe_to_difference(GuidanceTimeBase::kSinceBoot, GuidanceTimeBase::kUnixEpoch),
-       "boot 与 epoch 跨源相减被拦下");
+    ok(is_safe_to_difference(GuidanceTimeBase::kSameSource, GuidanceTimeBase::kSameSource), "同源可相减");
+    ok(!is_safe_to_difference(GuidanceTimeBase::kSinceBoot, GuidanceTimeBase::kUnixEpoch), "boot 与 epoch 跨源相减被拦下");
 }
 
 // ============================================================
@@ -342,8 +357,7 @@ static void test_attitude() {
         const double qid[4] = {1, 0, 0, 0};
         double qout[4];
         GuidanceFrame wout = GuidanceFrame::kNed;
-        ok(convert_attitude(qid, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kOpticalPassthrough, qout, wout),
-           "透传：返回成功");
+        ok(convert_attitude(qid, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kOpticalPassthrough, qout, wout), "透传：返回成功");
         near_q(qout, qid, 1e-15, "透传：ENU + 光轴系 → 恒等");
         ok(wout == GuidanceFrame::kEnu, "透传：输出世界系 = ENU");
     }
@@ -360,12 +374,10 @@ static void test_attitude() {
     //   ⇒ R2q(K) = [−0.5, 0.5, −0.5, 0.5]（已用独立数值程序验证 R(q)=K，偏差 0）
     {
         // 外部按 NED + FRD 给：无人机水平朝东 ⇒ 机体→NED = 绕 z_NED(下)、即"向北转东" +90°
-        const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0,
-                                 0.70710678118654752440};
+        const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440};
         double qout[4];
         GuidanceFrame wout = GuidanceFrame::kNed;
-        ok(convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "FRD→光轴系：返回成功");
+        ok(convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "FRD→光轴系：返回成功");
         const double expect[4] = {-0.5, 0.5, -0.5, 0.5};
         near_q(qout, expect, 1e-15, "FRD→光轴系：水平朝东 的手算例");
         // 三轴指向复核（用独立参考实现读 q 的列）
@@ -377,9 +389,7 @@ static void test_attitude() {
     // ---- 3.3  随机姿态 × 5 种外部口径 × 2 种世界系，与独立参考实现逐例比对 ----
     {
         const GuidanceFrame worlds[2] = {GuidanceFrame::kNed, GuidanceFrame::kEnu};
-        const GuidanceAttitudeFrame frames[5] = {GuidanceAttitudeFrame::kFrd, GuidanceAttitudeFrame::kFlu,
-                                         GuidanceAttitudeFrame::kCamFrd, GuidanceAttitudeFrame::kCamFlu,
-                                         GuidanceAttitudeFrame::kOpticalPassthrough};
+        const GuidanceAttitudeFrame frames[5] = {GuidanceAttitudeFrame::kFrd, GuidanceAttitudeFrame::kFlu, GuidanceAttitudeFrame::kCamFrd, GuidanceAttitudeFrame::kCamFlu, GuidanceAttitudeFrame::kOpticalPassthrough};
         double worst = 0.0;
         int cases = 0;
         for (int wi = 0; wi < 2; ++wi) {
@@ -389,10 +399,11 @@ static void test_attitude() {
                     random_quat(q_in);
                     double q_out[4];
                     GuidanceFrame wout = GuidanceFrame::kNed;
-                    const bool okc = convert_attitude(q_in, worlds[wi], frames[fi],
-                                                      q_out, wout);
+                    const bool okc = convert_attitude(q_in, worlds[wi], frames[fi], q_out, wout);
                     ok(okc, "  随机姿态换算必须成功");
-                    if (!okc) continue;
+                    if (!okc) {
+                        continue;
+                    }
                     ok(wout == GuidanceFrame::kEnu, "  输出世界系恒为 ENU");
 
                     Vec3 want[3];
@@ -400,7 +411,7 @@ static void test_attitude() {
                     for (int k = 0; k < 3; ++k) {
                         const Vec3 got = ref_axis_in_world(q_out, k);
                         const double d = norm(got - want[k]);
-                        if (d > worst) worst = d;
+                        worst = std::max(d, worst);
                         ++cases;
                         if (d > 1e-12) {
                             ok(false, "  随机姿态：光轴系三轴与参考不一致");
@@ -410,7 +421,7 @@ static void test_attitude() {
                     }
                 }
             }
-          }
+        }
         std::printf("  （随机姿态交叉比对 %d 例，最大偏差 %.3g）\n", cases, worst);
     }
 
@@ -420,8 +431,12 @@ static void test_attitude() {
     {
         double q_in[4];
         random_quat(q_in);
-        double q_a[4], q_b[4], q_c[4];
-        GuidanceFrame wa = GuidanceFrame::kNed, wb = GuidanceFrame::kNed, wc = GuidanceFrame::kNed;
+        double q_a[4];
+        double q_b[4];
+        double q_c[4];
+        GuidanceFrame wa = GuidanceFrame::kNed;
+        GuidanceFrame wb = GuidanceFrame::kNed;
+        GuidanceFrame wc = GuidanceFrame::kNed;
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kCamFrd, q_a, wa);
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kCamFlu, q_b, wb);
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kOpticalPassthrough, q_c, wc);
@@ -436,28 +451,21 @@ static void test_attitude() {
         const double qid[4] = {1, 0, 0, 0};
         double qout[4];
         GuidanceFrame wout = GuidanceFrame::kNed;
-        ok(convert_attitude(qid, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "恒等姿态换算成功");
-        near_vec(ref_axis_in_world(qout, 2), Vec3(0, 1, 0), 1e-12,
-                 "恒等 FRD：光轴指向北(ENU +y)");
-        near_vec(ref_axis_in_world(qout, 0), Vec3(1, 0, 0), 1e-12,
-                 "恒等 FRD：光轴系+x(机右) 指向东(ENU +x)");
-        near_vec(ref_axis_in_world(qout, 1), Vec3(0, 0, -1), 1e-12,
-                 "恒等 FRD：光轴系+y(机下) 指向下(ENU −z)");
+        ok(convert_attitude(qid, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "恒等姿态换算成功");
+        near_vec(ref_axis_in_world(qout, 2), Vec3(0, 1, 0), 1e-12, "恒等 FRD：光轴指向北(ENU +y)");
+        near_vec(ref_axis_in_world(qout, 0), Vec3(1, 0, 0), 1e-12, "恒等 FRD：光轴系+x(机右) 指向东(ENU +x)");
+        near_vec(ref_axis_in_world(qout, 1), Vec3(0, 0, -1), 1e-12, "恒等 FRD：光轴系+y(机下) 指向下(ENU −z)");
 
         // ENU + FLU 对齐（x=东 y=北 z=上）：光轴(机头) 指向东 ⇒ ENU +x
         double qout2[4];
         GuidanceFrame wout2 = GuidanceFrame::kNed;
-        ok(convert_attitude(qid, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kFlu, qout2, wout2),
-           "ENU+FLU 恒等姿态换算成功");
-        near_vec(ref_axis_in_world(qout2, 2), Vec3(1, 0, 0), 1e-12,
-                 "恒等 FLU：光轴指向东(ENU +x)");
+        ok(convert_attitude(qid, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kFlu, qout2, wout2), "ENU+FLU 恒等姿态换算成功");
+        near_vec(ref_axis_in_world(qout2, 2), Vec3(1, 0, 0), 1e-12, "恒等 FLU：光轴指向东(ENU +x)");
     }
 
     // ---- 3.6  手性检查：所有口径都必须是正规旋转（det = +1），不能是镜像 ----
     {
-        const GuidanceAttitudeFrame frames[4] = {GuidanceAttitudeFrame::kFrd, GuidanceAttitudeFrame::kFlu,
-                                         GuidanceAttitudeFrame::kCamFrd, GuidanceAttitudeFrame::kCamFlu};
+        const GuidanceAttitudeFrame frames[4] = {GuidanceAttitudeFrame::kFrd, GuidanceAttitudeFrame::kFlu, GuidanceAttitudeFrame::kCamFrd, GuidanceAttitudeFrame::kCamFlu};
         for (int fi = 0; fi < 4; ++fi) {
             Vec3 e[3];
             ref_optical_axes_in_body(fi, frames, e);
@@ -472,36 +480,28 @@ static void test_attitude() {
         GuidanceFrame wout = GuidanceFrame::kEnu;
 
         const double q_zero[4] = {0, 0, 0, 0};
-        ok(!convert_attitude(q_zero, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "零四元数被拒（没有姿态信息）");
+        ok(!convert_attitude(q_zero, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "零四元数被拒（没有姿态信息）");
         near_q(qout, kIdentityQuat, 0.0, "  被拒时输出单位四元数");
         ok(wout == GuidanceFrame::kNed, "  被拒时不谎报已转换（world_out 不变）");
 
         const double q_nan[4] = {1.0, 0.0, std::numeric_limits<double>::quiet_NaN(), 0.0};
-        ok(!convert_attitude(q_nan, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "含 NaN 的四元数被拒");
+        ok(!convert_attitude(q_nan, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "含 NaN 的四元数被拒");
 
         const double q_huge[4] = {1e9, 0.0, 0.0, 0.0};
-        ok(!convert_attitude(q_huge, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "量级离谱（|q|=1e9）被判为非四元数并拒绝");
+        ok(!convert_attitude(q_huge, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "量级离谱（|q|=1e9）被判为非四元数并拒绝");
 
         //  未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
-        const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5};   // |q| = 0.7071
-        ok(convert_attitude(q_scaled, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "未归一化（|q|=0.707）被接受");
-        const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0,
-                                  -0.70710678118654752440};
+        const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5};  // |q| = 0.7071
+        ok(convert_attitude(q_scaled, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "未归一化（|q|=0.707）被接受");
+        const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0, -0.70710678118654752440};
         double q_ref[4];
         GuidanceFrame wr = GuidanceFrame::kNed;
         convert_attitude(q_unit, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_ref, wr);
         near_q(qout, q_ref, 1e-15, "  归一化后与单位四元数结果完全一致");
 
         const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
-        ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-           "轻微未归一化被接受");
-        near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] +
-                       qout[2] * qout[2] + qout[3] * qout[3]),
-             1.0, 1e-15, "  归一化后 |q| = 1");
+        ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "轻微未归一化被接受");
+        near(std::sqrt((qout[0] * qout[0]) + (qout[1] * qout[1]) + (qout[2] * qout[2]) + (qout[3] * qout[3])), 1.0, 1e-15, "  归一化后 |q| = 1");
     }
 
     // ---- 3.8 normalize_quat ----
@@ -523,9 +523,9 @@ static void test_attitude() {
     // ---- 3.9 便捷包装 attitude_from_ned_frd ----
     {
         // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
-        const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0,
-                                 0.70710678118654752440};
-        double q_direct[4], q_wrap[4];
+        const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440};
+        double q_direct[4];
+        double q_wrap[4];
         GuidanceFrame w = GuidanceFrame::kNed;
         convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
@@ -535,186 +535,195 @@ static void test_attitude() {
         //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
         //    "taking address of temporary array"。（WSL 实测）
         const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
-        near_q(q_wrap, q_expect, 1e-15,
-               "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
+        near_q(q_wrap, q_expect, 1e-15, "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
+    }
+    // ---- 3.7 非法输入必须被拒；"未归一化但方向合理"必须被接受 ----
+    {
+        double qout[4];
+        GuidanceFrame wout = GuidanceFrame::kEnu;
+
+        const double q_zero[4] = {0, 0, 0, 0};
+        ok(!convert_attitude(q_zero, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "零四元数被拒（没有姿态信息）");
+        near_q(qout, kIdentityQuat, 0.0, "  被拒时输出单位四元数");
+        ok(wout == GuidanceFrame::kNed, "  被拒时不谎报已转换（world_out 不变）");
+
+        const double q_nan[4] = {1.0, 0.0, std::numeric_limits<double>::quiet_NaN(), 0.0};
+        ok(!convert_attitude(q_nan, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "含 NaN 的四元数被拒");
+
+        const double q_huge[4] = {1e9, 0.0, 0.0, 0.0};
+        ok(!convert_attitude(q_huge, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "量级离谱（|q|=1e9）被判为非四元数并拒绝");
+
+        // ★ 未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
+        const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5};  // |q| = 0.7071
+        ok(convert_attitude(q_scaled, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "未归一化（|q|=0.707）被接受");
+        const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0, -0.70710678118654752440};
+        double q_ref[4];
+        GuidanceFrame wr = GuidanceFrame::kNed;
+        convert_attitude(q_unit, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_ref, wr);
+        near_q(qout, q_ref, 1e-15, "  归一化后与单位四元数结果完全一致");
+
+        const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
+        ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "轻微未归一化被接受");
+        near(std::sqrt((qout[0] * qout[0]) + (qout[1] * qout[1]) + (qout[2] * qout[2]) + (qout[3] * qout[3])), 1.0, 1e-15, "  归一化后 |q| = 1");
     }
 
-  // ---- 3.7 非法输入必须被拒；"未归一化但方向合理"必须被接受 ----
-  {
-    double qout[4];
-    GuidanceFrame wout = GuidanceFrame::kEnu;
+    // ---- 3.8 normalize_quat ----
+    {
+        double q[4] = {0, 0, 0, 5};
+        const double n = normalize_quat(q);
+        near(n, 5.0, 0.0, "normalize_quat 返回归一化前模长");
+        // ⚠ normalize_quat 是**原地**归一化 ⇒ 不能拿 q 与单位四元数比"是否没变"
+        near_vec(Vec3(q[0], q[1], q[2]), Vec3(0, 0, 0), 1e-15, "  归一化后矢量部分为 0");
+        near(q[3], 1.0, 1e-15, "  归一化后 q[3] = 1（原地写回）");
+        double z[4] = {0, 0, 0, 0};
+        near(normalize_quat(z), 0.0, 0.0, "零四元数返回 0");
+        near_q(z, kIdentityQuat, 0.0, "  零四元数 → 单位四元数（不是 NaN）");
+        double nanq[4] = {std::numeric_limits<double>::quiet_NaN(), 0, 0, 0};
+        near(normalize_quat(nanq), 0.0, 0.0, "NaN 四元数返回 0");
+        near_q(nanq, kIdentityQuat, 0.0, "  NaN → 单位四元数");
+    }
 
-    const double q_zero[4] = {0, 0, 0, 0};
-    ok(!convert_attitude(q_zero, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-       "零四元数被拒（没有姿态信息）");
-    near_q(qout, kIdentityQuat, 0.0, "  被拒时输出单位四元数");
-    ok(wout == GuidanceFrame::kNed, "  被拒时不谎报已转换（world_out 不变）");
-
-    const double q_nan[4] = {1.0, 0.0, std::numeric_limits<double>::quiet_NaN(),
-                             0.0};
-    ok(!convert_attitude(q_nan, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-       "含 NaN 的四元数被拒");
-
-    const double q_huge[4] = {1e9, 0.0, 0.0, 0.0};
-    ok(!convert_attitude(q_huge, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-       "量级离谱（|q|=1e9）被判为非四元数并拒绝");
-
-    // ★ 未归一化但**方向合理**：必须接受并归一化（外推/插值的常见情形）
-    const double q_scaled[4] = {0.5, 0.0, 0.0, -0.5}; // |q| = 0.7071
-    ok(convert_attitude(q_scaled, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-       "未归一化（|q|=0.707）被接受");
-    const double q_unit[4] = {0.70710678118654752440, 0.0, 0.0,
-                              -0.70710678118654752440};
-    double q_ref[4];
-    GuidanceFrame wr = GuidanceFrame::kNed;
-    convert_attitude(q_unit, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_ref, wr);
-    near_q(qout, q_ref, 1e-15, "  归一化后与单位四元数结果完全一致");
-
-    const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
-    ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout),
-       "轻微未归一化被接受");
-    near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] + qout[2] * qout[2] +
-                   qout[3] * qout[3]),
-         1.0, 1e-15, "  归一化后 |q| = 1");
-  }
-
-  // ---- 3.8 normalize_quat ----
-  {
-    double q[4] = {0, 0, 0, 5};
-    const double n = normalize_quat(q);
-    near(n, 5.0, 0.0, "normalize_quat 返回归一化前模长");
-    // ⚠ normalize_quat 是**原地**归一化 ⇒ 不能拿 q 与单位四元数比"是否没变"
-    near_vec(Vec3(q[0], q[1], q[2]), Vec3(0, 0, 0), 1e-15,
-             "  归一化后矢量部分为 0");
-    near(q[3], 1.0, 1e-15, "  归一化后 q[3] = 1（原地写回）");
-    double z[4] = {0, 0, 0, 0};
-    near(normalize_quat(z), 0.0, 0.0, "零四元数返回 0");
-    near_q(z, kIdentityQuat, 0.0, "  零四元数 → 单位四元数（不是 NaN）");
-    double nanq[4] = {std::numeric_limits<double>::quiet_NaN(), 0, 0, 0};
-    near(normalize_quat(nanq), 0.0, 0.0, "NaN 四元数返回 0");
-    near_q(nanq, kIdentityQuat, 0.0, "  NaN → 单位四元数");
-  }
-
-  // ---- 3.9 便捷包装 attitude_from_ned_frd ----
-  {
-    // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
-    const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0,
-                             0.70710678118654752440};
-    double q_direct[4], q_wrap[4];
-    GuidanceFrame w = GuidanceFrame::kNed;
-    convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
-    ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
-    near_q(q_wrap, q_direct, 1e-15,
-           "attitude_from_ned_frd = convert_attitude(NED, FRD)");
-    // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
-    // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
-    //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
-    //    "taking address of temporary array"。（2026-10-20 WSL 实测）
-    const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
-    near_q(q_wrap, q_expect, 1e-15,
-           "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
-  }
+    // ---- 3.9 便捷包装 attitude_from_ned_frd ----
+    {
+        // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
+        const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440};
+        double q_direct[4];
+        double q_wrap[4];
+        GuidanceFrame w = GuidanceFrame::kNed;
+        convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
+        ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
+        near_q(q_wrap, q_direct, 1e-15, "attitude_from_ned_frd = convert_attitude(NED, FRD)");
+        // 与 3.2 的手工算例互证：同一物理姿态 ⇒ 同一四元数（含 ±q 等价）
+        // ⚠ 不要写 (const double[4]){...}：那是 GNU 复合字面量扩展，
+        //    项目用 -std=c++17（CMAKE_CXX_EXTENSIONS=OFF）⇒ Linux GCC 会报
+        //    "taking address of temporary array"。（2026-10-20 WSL 实测）
+        const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
+        near_q(q_wrap, q_expect, 1e-15, "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
+    }
 }
 
 // ============================================================
 //  4.  与 guidance_libs 交叉验证（两份四元数实现必须一致）
 // ============================================================
 static void test_quat_cross_check() {
-  section("4. 四元数旋转：与 guidance_libs 交叉验证 + 语义差异锁定");
+    section("4. 四元数旋转：与 guidance_libs 交叉验证 + 语义差异锁定");
 
-  // ---- 4.1 本层的 R(q)·v 必须与独立参考实现（矩阵写法）一致 ----
-  {
-    double worst = 0.0;
-    int n = 0;
-    for (int trial = 0; trial < 200; ++trial) {
-      double q[4];
-      random_quat(q);
-      const Vec3 v(rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0,
-                   rnd01() * 10.0 - 5.0);
-
-      const Vec3 a = rotate_vec_by_quat(q, v); // 被测：本层实现
-      const Vec3 b = ref_rotate(q, v);         // 参考：矩阵写法
-      const double d = norm(a - b);
-      if (d > worst)
-        worst = d;
-      ++n;
-      if (d > 1e-13)
-        ok(false, "rotate_vec_by_quat 与参考实现不一致");
-    }
-  }
-
-    // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
-    //
-    // 这一节原本是为了排查一个"看似是转置"的怀疑，最终用完整矩阵对比证明：
-    //   **仓库的 quat_rotate_vec 是标准 R(q)·v，不是转置。**
-    // 把三条独立路径钉在一起，防止以后有人改坏其中任一实现：
-    //   ① sensor.cpp 的 quat_rotate_vec   ② 本层 rotate_vec_by_quat   ③ 本测试的矩阵写法
+    // ---- 4.1 本层的 R(q)·v 必须与独立参考实现（矩阵写法）一致 ----
     {
-        double q90[4];
-        quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);   // 绕 +z 转 +90°
-
-        // 三条路径对同一输入必须给出同一结果
-        const Vec3 a = quat_rotate_vec(q90, Vec3(1, 0, 0));          // ①
-        const Vec3 b = rotate_vec_by_quat(q90, Vec3(1, 0, 0));       // ②
-        const Vec3 c = ref_rotate(q90, Vec3(1, 0, 0));               // ③
-        near_vec(a, c, 1e-15, "① 仓库 quat_rotate_vec = ③ 矩阵参考");
-        near_vec(b, c, 1e-15, "② 本层 rotate_vec_by_quat = ③ 矩阵参考");
-        // 解析值：绕 +z 转 90° 把 +x 送到 +y
-        near_vec(c, Vec3(0, 1, 0), 1e-15, "绕 +z 转 90°：(1,0,0) → (0,1,0)");
-        // 逆旋转把 +x 送到 −y
-        near_vec(rotate_vec_by_quat_inv(q90, Vec3(1, 0, 0)), Vec3(0, -1, 0), 1e-15,
-                 "本层逆旋转：(1,0,0) → (0,−1,0)");
-        near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)),
-                 rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15,
-                 "仓库实现 = 本层实现（同一数学定义）");
-
-        // 逐例三方比对
-        double worst_ab = 0.0, worst_bc = 0.0;
+        double worst = 0.0;
         int n = 0;
         for (int trial = 0; trial < 200; ++trial) {
             double q[4];
             random_quat(q);
-            const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
-            const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
-            const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
-            if (dab > worst_ab) worst_ab = dab;
-            if (dbc > worst_bc) worst_bc = dbc;
+            const Vec3 v((rnd01() * 10.0) - 5.0, (rnd01() * 10.0) - 5.0, (rnd01() * 10.0) - 5.0);
+
+            const Vec3 a = rotate_vec_by_quat(q, v);  // 被测：本层实现
+            const Vec3 b = ref_rotate(q, v);          // 参考：矩阵写法
+            const double d = norm(a - b);
+            worst = std::max(d, worst);
             ++n;
-            if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+            if (d > 1e-13) {
+                ok(false, "rotate_vec_by_quat 与参考实现不一致");
+            }
         }
-        std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n",
-                    n, worst_ab, worst_bc);
+
+        // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
+        //
+        // 这一节原本是为了排查一个"看似是转置"的怀疑，最终用完整矩阵对比证明：
+        //   **仓库的 quat_rotate_vec 是标准 R(q)·v，不是转置。**
+        // 把三条独立路径钉在一起，防止以后有人改坏其中任一实现：
+        //   ① sensor.cpp 的 quat_rotate_vec   ② 本层 rotate_vec_by_quat   ③ 本测试的矩阵写法
+        {
+            double q90[4];
+            quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);  // 绕 +z 转 +90°
+
+            // 三条路径对同一输入必须给出同一结果
+            const Vec3 a = quat_rotate_vec(q90, Vec3(1, 0, 0));     // ①
+            const Vec3 b = rotate_vec_by_quat(q90, Vec3(1, 0, 0));  // ②
+            const Vec3 c = ref_rotate(q90, Vec3(1, 0, 0));          // ③
+            near_vec(a, c, 1e-15, "① 仓库 quat_rotate_vec = ③ 矩阵参考");
+            near_vec(b, c, 1e-15, "② 本层 rotate_vec_by_quat = ③ 矩阵参考");
+            // 解析值：绕 +z 转 90° 把 +x 送到 +y
+            near_vec(c, Vec3(0, 1, 0), 1e-15, "绕 +z 转 90°：(1,0,0) → (0,1,0)");
+            // 逆旋转把 +x 送到 −y
+            near_vec(rotate_vec_by_quat_inv(q90, Vec3(1, 0, 0)), Vec3(0, -1, 0), 1e-15, "本层逆旋转：(1,0,0) → (0,−1,0)");
+            near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)), rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15, "仓库实现 = 本层实现（同一数学定义）");
+
+            // 逐例三方比对
+            double worst_ab = 0.0;
+            double worst_bc = 0.0;
+            int n = 0;
+            for (int trial = 0; trial < 200; ++trial) {
+                double q[4];
+                random_quat(q);
+                const Vec3 v((rnd01() * 4.0) - 2.0, (rnd01() * 4.0) - 2.0, (rnd01() * 4.0) - 2.0);
+                const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
+                const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
+                worst_ab = std::max(dab, worst_ab);
+                worst_bc = std::max(dbc, worst_bc);
+                ++n;
+                if (dab > 1e-13 || dbc > 1e-13) {
+                    ok(false, "三方四元数旋转实现不一致");
+                }
+            }
+            std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
+        }
+
+        // ---- 4.3 单位四元数 / 恒等 ----
+        {
+            const double qid[4] = {1, 0, 0, 0};
+            near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：v 不变");
+            near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：逆旋转也不变");
+
+            // 旋转保模长、正交（RᵀR = I）
+            double q[4];
+            random_quat(q);
+            const Vec3 v(1.5, -2.5, 3.5);
+            near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
+            near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14, "R(q)ᵀ·R(q)·v = v（可逆）");
+
+            // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
+            double q90[4];
+            quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
+            near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
+            near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
+
+            // 共轭
+            double qc[4];
+            quat_conjugate(q, qc);
+            // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+            const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+            near_q(qc, q_conj, 0.0, "共轭定义");
+        }
+        std::printf("  （本层 vs 独立矩阵参考 %d 例，最大偏差 %.3g）\n", n, worst);
     }
 
-  // ---- 4.3 单位四元数 / 恒等 ----
-  {
-    const double qid[4] = {1, 0, 0, 0};
-    near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
-             "恒等四元数：v 不变");
-    near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0,
-             "恒等四元数：逆旋转也不变");
+    // ---- 4.3 单位四元数 / 恒等 ----
+    {
+        const double qid[4] = {1, 0, 0, 0};
+        near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：v 不变");
+        near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：逆旋转也不变");
 
-    // 旋转保模长、正交（RᵀR = I）
-    double q[4];
-    random_quat(q);
-    const Vec3 v(1.5, -2.5, 3.5);
-    near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
-    near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14,
-             "R(q)ᵀ·R(q)·v = v（可逆）");
+        // 旋转保模长、正交（RᵀR = I）
+        double q[4];
+        random_quat(q);
+        const Vec3 v(1.5, -2.5, 3.5);
+        near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
+        near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14, "R(q)ᵀ·R(q)·v = v（可逆）");
 
-    // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
-    double q90[4];
-    quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
-    near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
-    near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
+        // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
+        double q90[4];
+        quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
+        near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
+        near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
 
-    // 共轭
-    double qc[4];
-    quat_conjugate(q, qc);
-    // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
-    const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
-    near_q(qc, q_conj, 0.0, "共轭定义");
-  }
+        // 共轭
+        double qc[4];
+        quat_conjugate(q, qc);
+        // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+        const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+        near_q(qc, q_conj, 0.0, "共轭定义");
+    }
 }
 
 // ============================================================
@@ -725,8 +734,7 @@ static void test_fill_state() {
 
     // ---- 5.1 fill_ins ----
     {
-        static const double kCamFacingEast[4] = {0.70710678118654752440, -0.70710678118654752440,
-                                                 0.0, 0.0};
+        static const double kCamFacingEast[4] = {0.70710678118654752440, -0.70710678118654752440, 0.0, 0.0};
         GuidanceState st;
         // NED：北 10、东 20、上 30（NED z = −30）
         const Vec3 p_ned(10.0, 20.0, -30.0);
@@ -735,13 +743,11 @@ static void test_fill_state() {
         fill_ins(st, p_ned, v_ned, q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd);
         near_vec(st.p_M, Vec3(20.0, 10.0, 30.0), 0.0, "p_M：NED→ENU");
         near_vec(st.v_M, Vec3(2.0, 1.0, 3.0), 0.0, "v_M：NED→ENU");
-        near_q(st.q, kCamFacingEast, 1e-12,
-               "q：FRD→光轴系（恒等 FRD ⇒ 循环置换）");
+        near_q(st.q, kCamFacingEast, 1e-12, "q：FRD→光轴系（恒等 FRD ⇒ 循环置换）");
 
         // 已经就是内部口径：应当原样
         GuidanceState st2;
-        fill_ins(st2, Vec3(1, 2, 3), Vec3(4, 5, 6), q_frd, GuidanceFrame::kEnu,
-                 GuidanceAttitudeFrame::kOpticalPassthrough);
+        fill_ins(st2, Vec3(1, 2, 3), Vec3(4, 5, 6), q_frd, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kOpticalPassthrough);
         near_vec(st2.p_M, Vec3(1, 2, 3), 0.0, "内部口径位置原样");
         near_vec(st2.v_M, Vec3(4, 5, 6), 0.0, "内部口径速度原样");
         near_q(st2.q, q_frd, 1e-15, "内部口径姿态原样");
@@ -749,11 +755,9 @@ static void test_fill_state() {
         // has_position / has_attitude = false 时不写
         GuidanceState st3;
         st3.p_M = Vec3(9, 9, 9);
-        fill_ins(st3, Vec3(1, 1, 1), Vec3(0, 0, 0), q_frd, GuidanceFrame::kNed,
-                 GuidanceAttitudeFrame::kFrd, /*has_position=*/false, /*has_attitude=*/false);
+        fill_ins(st3, Vec3(1, 1, 1), Vec3(0, 0, 0), q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, /*has_position=*/false, /*has_attitude=*/false);
         near_vec(st3.p_M, Vec3(9, 9, 9), 0.0, "has_position=false 不覆盖位置");
-        near_q(st3.q, kIdentityQuat, 0.0,
-               "has_attitude=false 不覆盖姿态（保持默认单位四元数）");
+        near_q(st3.q, kIdentityQuat, 0.0, "has_attitude=false 不覆盖姿态（保持默认单位四元数）");
         near_vec(st3.v_M, Vec3(0, 0, 0), 0.0, "速度无 has_ 开关，总是写");
     }
 
@@ -761,10 +765,9 @@ static void test_fill_state() {
     {
         GuidanceState st;
         // NED 下的视线（机→目标）：北 0、东 300、上 0 ⇒ ENU 应为 (300, 0, 0)
-        const uint32_t f1 = fill_target(st, Vec3(0.0, 300.0, 0.0), GuidanceFrame::kNed,
-                                        true, 300.0, false, Vec3{});
-        ok((f1 & kHaveLos) != 0u, "fill_target 填了 los_hat");
-        ok((f1 & kHaveRange) != 0u, "fill_target 填了 range");
+        const uint32_t f1 = fill_target(st, Vec3(0.0, 300.0, 0.0), GuidanceFrame::kNed, true, 300.0, false, Vec3{});
+        ok((f1 & kHaveLos) != 0U, "fill_target 填了 los_hat");
+        ok((f1 & kHaveRange) != 0U, "fill_target 填了 range");
         near_vec(st.los_hat, Vec3(1, 0, 0), 1e-15, "los_hat：NED→ENU（已单位化）");
         near(st.range, 300.0, 0.0, "range 原样");
         ok(st.valid, "目标存在 ⇒ valid");
@@ -790,16 +793,14 @@ static void test_fill_state() {
 
         // 目标速度（真值法才有）
         GuidanceState st5;
-        const uint32_t f5 = fill_target(st5, Vec3(1, 0, 0), GuidanceFrame::kEnu, true, 5.0,
-                                        true, Vec3(0, 0, -9.8));
-        ok((f5 & kHaveVT) != 0u, "fill_target 填了 v_T");
+        const uint32_t f5 = fill_target(st5, Vec3(1, 0, 0), GuidanceFrame::kEnu, true, 5.0, true, Vec3(0, 0, -9.8));
+        ok((f5 & kHaveVT) != 0U, "fill_target 填了 v_T");
         near_vec(st5.v_T, Vec3(0, 0, -9.8), 0.0, "  v_T 原样（已在 ENU）");
 
         // 缺 range：仍应可用（PPN 不需距离）
         GuidanceState st6;
-        const uint32_t f6 = fill_target(st6, Vec3(1, 0, 0), GuidanceFrame::kEnu, false, 0.0,
-                                        false, Vec3{});
-        ok((f6 & kHaveRange) == 0u, "无测距 ⇒ 未填 range");
+        const uint32_t f6 = fill_target(st6, Vec3(1, 0, 0), GuidanceFrame::kEnu, false, 0.0, false, Vec3{});
+        ok((f6 & kHaveRange) == 0U, "无测距 ⇒ 未填 range");
         ok(st6.valid, "  无测距仍算有效帧（PPN 不含距离项）");
     }
 
@@ -807,8 +808,7 @@ static void test_fill_state() {
     {
         GuidanceState st;
         fill_target_accel(st, Vec3(0.0, 0.0, -9.8), GuidanceFrame::kNed, true);
-        near_vec(st.a_T_perp, Vec3(0.0, 0.0, 9.8), 0.0,
-                 "a_T_perp：NED 的重力(−z) → ENU 的 −z");
+        near_vec(st.a_T_perp, Vec3(0.0, 0.0, 9.8), 0.0, "a_T_perp：NED 的重力(−z) → ENU 的 −z");
         GuidanceState st2;
         st2.a_T_perp = Vec3(7, 7, 7);
         fill_target_accel(st2, Vec3(1, 1, 1), GuidanceFrame::kNed, false);
@@ -820,10 +820,10 @@ static void test_fill_state() {
         GuidanceRawFrame raw;
         raw.world = GuidanceFrame::kNed;
         raw.att = GuidanceAttitudeFrame::kFrd;
-        raw.ins.p = Vec3(10.0, 20.0, -30.0);      // NED
+        raw.ins.p = Vec3(10.0, 20.0, -30.0);  // NED
         raw.ins.v = Vec3(1.0, 2.0, -3.0);
         raw.ins.q[0] = 1.0;
-        raw.target.los = Vec3(0.0, 300.0, 0.0);   // NED，未单位化
+        raw.target.los = Vec3(0.0, 300.0, 0.0);  // NED，未单位化
         raw.target.has_range = true;
         raw.target.range_m = 300.0;
 
@@ -838,7 +838,7 @@ static void test_fill_state() {
     // ---- 5.5 输出换算 ----
     {
         PureGuidanceCmd cmd;
-        cmd.a_cmd = Vec3(1.0, 2.0, -3.0);        // ENU
+        cmd.a_cmd = Vec3(1.0, 2.0, -3.0);  // ENU
         double xyz[3];
         cmd_accel_to_ned(cmd, xyz);
         near(xyz[0], 2.0, 0.0, "指令出：a_NED.x = a_ENU.y（东→NED y）");
@@ -870,7 +870,9 @@ static void test_upstream_simulator() {
     ref.p_M = Vec3(0.0, 0.0, 100.0);
     ref.v_M = Vec3(20.0, 0.0, 0.0);
     ref.q[0] = -0.5;
-    ref.q[1] = 0.5; ref.q[2] = -0.5; ref.q[3] = 0.5;
+    ref.q[1] = 0.5;
+    ref.q[2] = -0.5;
+    ref.q[3] = 0.5;
     ref.los_hat = Vec3(1.0, 0.0, 0.0);
     ref.range = 300.0;
     ref.valid = true;
@@ -886,7 +888,9 @@ static void test_upstream_simulator() {
         raw.ins.v = Vec3(0.0, 20.0, 0.0);
         // 姿态：水平朝东的 FRD 四元数（绕 NED 下轴、即"北→东" +90°）
         raw.ins.q[0] = 0.70710678118654752440;
-        raw.ins.q[1] = 0.0; raw.ins.q[2] = 0.0; raw.ins.q[3] = 0.70710678118654752440;
+        raw.ins.q[1] = 0.0;
+        raw.ins.q[2] = 0.0;
+        raw.ins.q[3] = 0.70710678118654752440;
         // 视线：ENU (1,0,0) → NED (北 0, 东 1, 下 0)，故意不单位化（×123.4）
         raw.target.los = Vec3(0.0, 123.4, 0.0);
         raw.target.has_range = true;
@@ -908,8 +912,10 @@ static void test_upstream_simulator() {
         raw.att = GuidanceAttitudeFrame::kOpticalPassthrough;
         raw.ins.p = ref.p_M;
         raw.ins.v = ref.v_M;
-        for (int i = 0; i < 4; ++i) raw.ins.q[i] = ref.q[i];
-        raw.target.los = Vec3(300.0, 0.0, 0.0);   // 未单位化
+        for (int i = 0; i < 4; ++i) {
+            raw.ins.q[i] = ref.q[i];
+        }
+        raw.target.los = Vec3(300.0, 0.0, 0.0);  // 未单位化
         raw.target.has_range = true;
         raw.target.range_m = 300.0;
 
@@ -957,7 +963,7 @@ static void test_upstream_simulator() {
         raw.target.has_range = true;
         raw.target.range_m = 300.0;
         raw.target.has_vT = true;
-        raw.target.vT = Vec3(0.0, 5.0, 0.0);      // NED：向东北飞 5 m/s
+        raw.target.vT = Vec3(0.0, 5.0, 0.0);  // NED：向东北飞 5 m/s
 
         GuidanceState st = to_guidance_state(raw);
         near_vec(st.v_T, Vec3(5.0, 0.0, 0.0), 1e-12, "口径D：v_T NED→ENU");
@@ -985,7 +991,9 @@ static void test_checks() {
         st.q[0] = 1.0;
 
         const GuidanceReport rep = check_guidance_state(st);
-        if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
+        if (!rep.ok()) {
+            std::printf("%s\n", rep.detail().c_str());
+        }
         ok(rep.ok(), "正常 state 无 error");
         ok(rep.n_error == 0, "  错误计数为 0");
     }
@@ -995,7 +1003,7 @@ static void test_checks() {
         GuidanceState st;
         st.los_hat = Vec3(1, 0, 0);
         st.range = 10.0;
-        st.q[0] = 2.0;                              // |q| = 2
+        st.q[0] = 2.0;  // |q| = 2
         const GuidanceReport rep = check_guidance_state(st);
         ok(!rep.ok(), "|q|=2 被判不通过");
         ok(rep.has(GuidanceCheckCode::kQuatNotUnit), "  且 code = kQuatNotUnit");
@@ -1009,8 +1017,7 @@ static void test_checks() {
         ok(!check_guidance_state(st).ok(), "|los_hat|=300 被判不通过");
         ok(check_guidance_state(st).has(GuidanceCheckCode::kLosNotUnit), "  code = kLosNotUnit");
         // 允许"不要求单位矢量"的宽松模式（给非单位矢量上游用）
-        ok(check_guidance_state(st, /*expected_los_units=*/false).ok(),
-           "  宽松模式下只要求非零");
+        ok(check_guidance_state(st, /*expected_los_units=*/false).ok(), "  宽松模式下只要求非零");
         GuidanceState z;
         z.los_hat = Vec3{};
         z.range = 10.0;
@@ -1052,8 +1059,7 @@ static void test_checks() {
         GuidanceState good;
         good.los_hat = Vec3(1, 0, 0);
         good.range = 10.0;
-        ok(check_guidance_state(good).detail().find("全部通过") != std::string::npos,
-           "全过时给出'全部通过'");
+        ok(check_guidance_state(good).detail().find("全部通过") != std::string::npos, "全过时给出'全部通过'");
     }
 
     // ---- 7.7 cmd 检查：限幅自洽 ----
@@ -1077,13 +1083,11 @@ static void test_checks() {
 
         PureGuidanceCmd mismatch = cmd;
         mismatch.a_cmd_norm = 99.0;
-        ok(check_guidance_cmd(mismatch).has(GuidanceCheckCode::kCmdNormMismatch),
-           "|a_cmd| 与 a_cmd_norm 不一致被抓");
+        ok(check_guidance_cmd(mismatch).has(GuidanceCheckCode::kCmdNormMismatch), "|a_cmd| 与 a_cmd_norm 不一致被抓");
 
         PureGuidanceCmd fake_sat = cmd;
-        fake_sat.sat = true;                    // 声称饱和，实际没超限
-        ok(!check_guidance_cmd(fake_sat, 10.0, true).ok(),
-           "sat=true 但限幅前未超限被抓");
+        fake_sat.sat = true;  // 声称饱和，实际没超限
+        ok(!check_guidance_cmd(fake_sat, 10.0, true).ok(), "sat=true 但限幅前未超限被抓");
 
         PureGuidanceCmd search;
         search.mode = PureGuidanceMode::SEARCH;
@@ -1104,7 +1108,7 @@ static void test_checks() {
         st.range = 100.0;
         st.valid = true;
         st.v_M = Vec3(20.0, 0.0, 0.0);
-        st.v_T = Vec3(-5.0, 3.0, 0.0);          // 有横向相对运动 ⇒ ω ≠ 0
+        st.v_T = Vec3(-5.0, 3.0, 0.0);  // 有横向相对运动 ⇒ ω ≠ 0
         st.q[0] = 1.0;
 
         GuidanceParams pp;
@@ -1117,14 +1121,16 @@ static void test_checks() {
         ok(cmd.mode == PureGuidanceMode::PN, "PPN 闭环：mode = PN");
         ok(norm(cmd.a_cmd) > 0.0, "PPN 闭环：有非零指令");
         const GuidanceReport rep = check_frame(st, cmd, pp.a_max, true);
-        if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
+        if (!rep.ok()) {
+            std::printf("%s\n", rep.detail().c_str());
+        }
         ok(rep.ok(), "PPN 闭环：state+cmd 不变量全部成立");
         ok(invariants_hold(st, cmd, pp.a_max, true), "invariants_hold() 一致");
 
         // 违反限幅的构造必须被 invariants_hold 抓到
         GuidanceState st2 = st;
         GuidanceParams pp2 = pp;
-        pp2.a_max = 0.5;                        // 强行把上限压到很小 ⇒ 必然饱和
+        pp2.a_max = 0.5;  // 强行把上限压到很小 ⇒ 必然饱和
         GuidanceMemory mem2;
         const PureGuidanceCmd cmd2 = guidance_step(st2, pp2, mem2);
         ok(cmd2.sat, "  小 a_max 触发饱和");
@@ -1161,7 +1167,7 @@ static void test_quick_check() {
 
     // ---- 9.1 正常帧通过，且不写 first_bad ----
     {
-        GuidanceCheckCode code = GuidanceCheckCode::kRangeNegative;   // 故意先填一个错的值
+        GuidanceCheckCode code = GuidanceCheckCode::kRangeNegative;  // 故意先填一个错的值
         ok(quick_check(good, &code), "正常帧通过");
         ok(code == GuidanceCheckCode::kRangeNegative, "  通过时不动 first_bad");
         ok(quick_check(good), "不传 first_bad 也能用");
@@ -1170,14 +1176,14 @@ static void test_quick_check() {
     // ---- 9.2 各类脏数据：必须 false 且 code 正确 ----
     {
         GuidanceState st = good;
-        st.los_hat = Vec3(3, 0, 0);                   // 上游没单位化
+        st.los_hat = Vec3(3, 0, 0);  // 上游没单位化
         GuidanceCheckCode c = GuidanceCheckCode::kOk;
         ok(!quick_check(st, &c), "|los_hat|=3 不通过");
         ok(c == GuidanceCheckCode::kLosNotUnit, "  code = kLosNotUnit");
     }
     {
         GuidanceState st = good;
-        st.q[0] = 2.0;                                // |q| = 2
+        st.q[0] = 2.0;  // |q| = 2
         GuidanceCheckCode c = GuidanceCheckCode::kOk;
         ok(!quick_check(st, &c), "|q|=2 不通过");
         ok(c == GuidanceCheckCode::kQuatNotUnit, "  code = kQuatNotUnit");
@@ -1191,7 +1197,7 @@ static void test_quick_check() {
     }
     {
         GuidanceState st = good;
-        st.los_hat = Vec3{};                          // 零矢量：没有方向可言
+        st.los_hat = Vec3{};  // 零矢量：没有方向可言
         GuidanceCheckCode c = GuidanceCheckCode::kOk;
         ok(!quick_check(st, &c), "零矢量视线不通过");
         ok(c == GuidanceCheckCode::kLosZero, "  code = kLosZero");
@@ -1205,20 +1211,22 @@ static void test_quick_check() {
     }
     {
         GuidanceState st = good;
-        st.range = 0.0;                               // range≈0 只是 warning
+        st.range = 0.0;  // range≈0 只是 warning
         ok(quick_check(st), "range=0 仍通过（warning 不算硬条件）");
     }
 
     // ---- 9.3  与完整体检的一致性：error 级判定必须**完全等价** ----
     {
         GuidanceState f[7];
-        for (int i = 0; i < 7; ++i) f[i] = good;
-        f[1].los_hat = Vec3(3, 0, 0);                 // 未单位化
-        f[2].q[0] = 2.0;                              // |q| 错
-        f[3].range = -1.0;                            // 负距离
-        f[4].los_hat = Vec3{};                        // 零视线
+        for (int i = 0; i < 7; ++i) {
+            f[i] = good;
+        }
+        f[1].los_hat = Vec3(3, 0, 0);  // 未单位化
+        f[2].q[0] = 2.0;               // |q| 错
+        f[3].range = -1.0;             // 负距离
+        f[4].los_hat = Vec3{};         // 零视线
         f[5].v_M = Vec3(0, std::numeric_limits<double>::infinity(), 0);
-        f[6].t = -1.0;                                // 负时间 —— 只是 warning！
+        f[6].t = -1.0;  // 负时间 —— 只是 warning！
 
         bool same = true;
         for (int i = 0; i < 7; ++i) {
@@ -1226,34 +1234,34 @@ static void test_quick_check() {
             const bool full = check_guidance_state(f[i]).n_error == 0;
             if (quick != full) {
                 same = false;
-                std::printf("  第 %d 帧不一致：quick=%d full=%d\n", i, (int)quick,
-                            (int)full);
+                std::printf("  第 %d 帧不一致：quick=%d full=%d\n", i, (int)quick, (int)full);
             }
         }
         ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
-        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(),
-           "  负时间（warning 级）两边都放行");
+        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(), "  负时间（warning 级）两边都放行");
+        ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
+        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(), "  负时间（warning 级）两边都放行");
     }
-  }
+}
 
 // ============================================================
 //  main
 // ============================================================
 int main() {
-  std::printf("数据对齐适配层单元测试 test_state_adapter\n");
-  std::printf("（内部口径：ENU + 四元数[w,x,y,z] + 秒 + SI + 光轴系）\n");
+    std::printf("数据对齐适配层单元测试 test_state_adapter\n");
+    std::printf("（内部口径：ENU + 四元数[w,x,y,z] + 秒 + SI + 光轴系）\n");
 
-  test_frame_conversion();
-  test_time();
-  test_attitude();
-  test_quat_cross_check();
-  test_fill_state();
-  test_upstream_simulator();
-  test_checks();
-  test_quick_check();
+    test_frame_conversion();
+    test_time();
+    test_attitude();
+    test_quat_cross_check();
+    test_fill_state();
+    test_upstream_simulator();
+    test_checks();
+    test_quick_check();
 
-  std::printf("\n----------------------------------------\n");
-  std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
-  std::printf("%s\n", (g_fail == 0) ? "ALL PASS" : "SOME TESTS FAILED");
-  return (g_fail == 0) ? 0 : 1;
+    std::printf("\n----------------------------------------\n");
+    std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);
+    std::printf("%s\n", (g_fail == 0) ? "ALL PASS" : "SOME TESTS FAILED");
+    return (g_fail == 0) ? 0 : 1;
 }

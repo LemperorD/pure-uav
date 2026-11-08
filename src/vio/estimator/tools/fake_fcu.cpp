@@ -13,10 +13,11 @@
 // 真飞机接上后，同样的 ODOMETRY 字段应该和这里的汇总一致；这一步能把
 // "上位机发送成功" 和 "飞控真的融合" 分开验证。
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <poll.h>
-#include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -26,18 +27,20 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
 
 #include "common/mavlink.h"
-
 #include "odom_tool_core.hpp"
 
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int) { g_stop.store(true); }
+void onSigint(int /*unused*/) {
+    g_stop.store(true);
+}
 
 int64_t steadyNowNs() {
     using namespace std::chrono;
@@ -59,10 +62,16 @@ void usage(const char* argv0) {
 
 bool makePty(int& master, std::string& slave_path) {
     master = ::posix_openpt(O_RDWR | O_NOCTTY);
-    if (master < 0) return false;
-    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
+    if (master < 0) {
+        return false;
+    }
+    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) {
+        return false;
+    }
     const char* name = ::ptsname(master);
-    if (name == nullptr) return false;
+    if (name == nullptr) {
+        return false;
+    }
     slave_path = name;
     const int flags = ::fcntl(master, F_GETFL, 0);
     ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
@@ -77,7 +86,9 @@ bool writeAll(int fd, const uint8_t* buf, size_t len) {
             off += static_cast<size_t>(n);
             continue;
         }
-        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         return false;
     }
     return true;
@@ -110,7 +121,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        } else if (a == "--link") {
+        }
+        if (a == "--link") {
             link_path = need("--link");
         } else if (a == "--duration") {
             duration = std::stod(need("--duration"));
@@ -146,13 +158,12 @@ int main(int argc, char** argv) {
         device = link_path;
     }
     std::printf("[fake_fcu] 模拟飞控串口: %s\n", device.c_str());
-    std::printf("[fake_fcu] 心跳: sysid=1 compid=1 %s；IMU: 200 Hz\n",
-                armed ? "已解锁" : "未解锁");
+    std::printf("[fake_fcu] 心跳: sysid=1 compid=1 %s；IMU: 200 Hz\n", armed ? "已解锁" : "未解锁");
     std::printf("[fake_fcu] 上位机端请跑：odometry_sender --serial %s --rate 30\n", device.c_str());
     std::fflush(stdout);
 
     const int64_t t0_ns = steadyNowNs();
-    uint64_t fcu_us = 1000000;   // 从 1.0 s 开始，避免 0 被当成"无效时间戳"
+    uint64_t fcu_us = 1000000;  // 从 1.0 s 开始，避免 0 被当成"无效时间戳"
     int64_t next_imu_ns = t0_ns;
     int64_t next_hb_ns = t0_ns;
     const int64_t imu_period_ns = 5000000;  // 200 Hz
@@ -169,8 +180,7 @@ int main(int argc, char** argv) {
 
     while (!g_stop.load()) {
         const int64_t now = steadyNowNs();
-        if (duration > 0.0 &&
-            static_cast<double>(now - t0_ns) * 1e-9 >= duration) {
+        if (duration > 0.0 && static_cast<double>(now - t0_ns) * 1e-9 >= duration) {
             break;
         }
 
@@ -178,26 +188,20 @@ int main(int argc, char** argv) {
         if (now >= next_imu_ns) {
             mavlink_message_t m;
             mavlink_msg_highres_imu_pack(
-                /*sysid=*/1, /*compid=*/1, &m, fcu_us,
-                0.0f, 0.0f, 9.80665f,        // 静止：机体 z 轴 +g（FRD）
-                0.0f, 0.0f, 0.0f,
-                NAN, NAN, NAN,
-                0.0f, 0.0f, 0.0f, 0.0f,
-                0, 0);
+                /*sysid=*/1, /*compid=*/1, &m, fcu_us, 0.0F, 0.0F, 9.80665F,  // 静止：机体 z 轴 +g（FRD）
+                0.0F, 0.0F, 0.0F, NAN, NAN, NAN, 0.0F, 0.0F, 0.0F, 0.0F, 0, 0);
             sendMsg(master, m);
             fcu_us += 5000;
             next_imu_ns += imu_period_ns;
-            if (next_imu_ns < now - 1000000000LL) next_imu_ns = now;  // 落后太多就重对齐
+            if (next_imu_ns < now - 1000000000LL) {
+                next_imu_ns = now;  // 落后太多就重对齐
+            }
         }
 
         // 1 Hz HEARTBEAT
         if (now >= next_hb_ns) {
             mavlink_message_t m;
-            mavlink_msg_heartbeat_pack(
-                1, 1, &m, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                armed ? (MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
-                      : MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                0, MAV_STATE_ACTIVE);
+            mavlink_msg_heartbeat_pack(1, 1, &m, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, armed ? (MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED) : MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0, MAV_STATE_ACTIVE);
             sendMsg(master, m);
             next_hb_ns += 1000000000LL;
         }
@@ -206,23 +210,25 @@ int main(int argc, char** argv) {
         struct pollfd pfd{};
         pfd.fd = master;
         pfd.events = POLLIN;
-        if (::poll(&pfd, 1, 1) > 0 && (pfd.revents & POLLIN)) {
+        if (::poll(&pfd, 1, 1) > 0 && ((pfd.revents & POLLIN) != 0)) {
             const ssize_t n = ::read(master, buf, sizeof(buf));
-            if (raw_fp != nullptr && n > 0) std::fwrite(buf, 1, static_cast<size_t>(n), raw_fp);
+            if (raw_fp != nullptr && n > 0) {
+                std::fwrite(buf, 1, static_cast<size_t>(n), raw_fp);
+            }
             for (ssize_t i = 0; i < n; ++i) {
                 mavlink_message_t m{};
-                if (!mavlink_parse_char(MAVLINK_COMM_2, buf[i], &m, &status)) continue;
-                if (m.msgid != MAVLINK_MSG_ID_ODOMETRY) continue;
+                if (mavlink_parse_char(MAVLINK_COMM_2, buf[i], &m, &status) == 0U) {
+                    continue;
+                }
+                if (m.msgid != MAVLINK_MSG_ID_ODOMETRY) {
+                    continue;
+                }
                 mavlink_odometry_t o{};
                 mavlink_msg_odometry_decode(&m, &o);
                 stats.add(o, 0);
                 ++odom_frames;
                 if (verbose) {
-                    std::printf("[fake_fcu] ODO #%llu t=%.3fs pos=(%.3f,%.3f,%.3f) q=%d reset=%u\n",
-                                static_cast<unsigned long long>(odom_frames),
-                                static_cast<double>(o.time_usec) * 1e-6, o.x, o.y, o.z,
-                                static_cast<int>(o.quality),
-                                static_cast<unsigned>(o.reset_counter));
+                    std::printf("[fake_fcu] ODO #%llu t=%.3fs pos=(%.3f,%.3f,%.3f) q=%d reset=%u\n", static_cast<unsigned long long>(odom_frames), static_cast<double>(o.time_usec) * 1e-6, o.x, o.y, o.z, static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter));
                     std::fflush(stdout);
                 }
             }
@@ -230,26 +236,21 @@ int main(int argc, char** argv) {
     }
 
     stats.countGaps();
-    std::printf("\n[fake_fcu] 收到 ODOMETRY %llu 帧，实测 %.1f Hz\n",
-                static_cast<unsigned long long>(stats.odometry), stats.rateHz());
+    std::printf("\n[fake_fcu] 收到 ODOMETRY %llu 帧，实测 %.1f Hz\n", static_cast<unsigned long long>(stats.odometry), stats.rateHz());
     if (stats.odometry > 0) {
-        std::printf("[fake_fcu] quality min/max = %d/%d，reset 变化 %llu 次\n",
-                    static_cast<int>(stats.min_quality), static_cast<int>(stats.max_quality),
-                    static_cast<unsigned long long>(stats.reset_changes));
-        std::printf("[fake_fcu] 时间戳倒退 %llu 次，坐标系异常 %llu 帧，超长间隔 %llu 个\n",
-                    static_cast<unsigned long long>(stats.time_backwards),
-                    static_cast<unsigned long long>(stats.bad_frame),
-                    static_cast<unsigned long long>(stats.gaps));
-        std::printf("[fake_fcu] %s\n",
-                    (stats.time_backwards == 0 && stats.bad_frame == 0 && stats.bad_quat == 0)
-                        ? "✅ 字段结构正常（这一步只证明“上位机→链路”没问题；融合要看真飞控日志）"
-                        : "⚠️ 有异常帧，先查编码/时间基准");
+        std::printf("[fake_fcu] quality min/max = %d/%d，reset 变化 %llu 次\n", static_cast<int>(stats.min_quality), static_cast<int>(stats.max_quality), static_cast<unsigned long long>(stats.reset_changes));
+        std::printf("[fake_fcu] 时间戳倒退 %llu 次，坐标系异常 %llu 帧，超长间隔 %llu 个\n", static_cast<unsigned long long>(stats.time_backwards), static_cast<unsigned long long>(stats.bad_frame), static_cast<unsigned long long>(stats.gaps));
+        std::printf("[fake_fcu] %s\n", (stats.time_backwards == 0 && stats.bad_frame == 0 && stats.bad_quat == 0) ? "✅ 字段结构正常（这一步只证明“上位机→链路”没问题；融合要看真飞控日志）" : "⚠️ 有异常帧，先查编码/时间基准");
     } else {
         std::printf("[fake_fcu] 没有收到 ODOMETRY：检查上位机是否在发、波特率/路径是否一致。\n");
     }
 
-    if (raw_fp != nullptr) std::fclose(raw_fp);
-    if (!link_path.empty()) ::unlink(link_path.c_str());
+    if (raw_fp != nullptr) {
+        std::fclose(raw_fp);
+    }
+    if (!link_path.empty()) {
+        ::unlink(link_path.c_str());
+    }
     ::close(master);
     return 0;
 }

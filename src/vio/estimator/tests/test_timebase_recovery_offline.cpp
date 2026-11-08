@@ -20,10 +20,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <opencv2/imgcodecs.hpp>
 #include <string>
 #include <vector>
-
-#include <opencv2/imgcodecs.hpp>
 
 #include "offline_dataset.hpp"
 #include "pure_uav/vio_estimator.hpp"
@@ -32,20 +31,21 @@ namespace {
 
 int g_failed = 0;
 
-#define CHECK(cond)                                                      \
-    do {                                                                 \
-        if (!(cond)) {                                                   \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
-            ++g_failed;                                                  \
-        }                                                                \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
 void usage(const char* argv0) {
-    std::printf("用法: %s --dataset DIR --config-dir DIR [选项]\n"
-                "  --warmup-frames N   初始化后先稳定多少帧再模拟重启（默认 150）\n"
-                "  --max-after N       重启后最多回放多少帧（默认 600）\n"
-                "  --quiet\n",
-                argv0);
+    std::printf(
+        "用法: %s --dataset DIR --config-dir DIR [选项]\n"
+        "  --warmup-frames N   初始化后先稳定多少帧再模拟重启（默认 150）\n"
+        "  --max-after N       重启后最多回放多少帧（默认 600）\n"
+        "  --quiet\n",
+        argv0);
 }
 
 }  // namespace
@@ -99,8 +99,7 @@ int main(int argc, char** argv) {
     }
     const auto& images = dataset.images();
     const auto& imu = dataset.imu();
-    std::printf("数据集: %s（图像 %zu 帧，IMU %zu 帧）\n", dataset.dir().c_str(), images.size(),
-                imu.size());
+    std::printf("数据集: %s（图像 %zu 帧，IMU %zu 帧）\n", dataset.dir().c_str(), images.size(), imu.size());
 
     pure_uav::VioEstimator::Options opt;
     opt.config_dir = config_dir;
@@ -143,8 +142,7 @@ int main(int argc, char** argv) {
                 CHECK(!est.zuptEnabled());
                 CHECK(!est.initialized());
                 CHECK(!est.publishable());
-                std::printf("[reset] 第 %zu 帧：模拟飞控重启，后续时间戳平移 %lld us\n", k,
-                            static_cast<long long>(ts_offset_us));
+                std::printf("[reset] 第 %zu 帧：模拟飞控重启，后续时间戳平移 %lld us\n", k, static_cast<long long>(ts_offset_us));
                 // 这一帧起按新时间基喂
             }
         }
@@ -152,7 +150,9 @@ int main(int argc, char** argv) {
         // 喂 IMU（时间戳按需要平移）
         while (imu_idx < imu.size() && imu[imu_idx].timestamp_us <= img.timestamp_us) {
             pure_uav::ImuSample s = imu[imu_idx];
-            if (reset_done) s.timestamp_us -= static_cast<uint64_t>(ts_offset_us);
+            if (reset_done) {
+                s.timestamp_us -= static_cast<uint64_t>(ts_offset_us);
+            }
             est.feedImu(s);
             ++imu_idx;
         }
@@ -162,30 +162,34 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "[WARN] 读图失败: %s\n", img.path.c_str());
             continue;
         }
-        const uint64_t shifted_ts =
-            reset_done ? img.timestamp_us - static_cast<uint64_t>(ts_offset_us) : img.timestamp_us;
+        const uint64_t shifted_ts = reset_done ? img.timestamp_us - static_cast<uint64_t>(ts_offset_us) : img.timestamp_us;
         est.feedImage(gray, shifted_ts);
-        if (reset_done) ++frames_after_reset;
+        if (reset_done) {
+            ++frames_after_reset;
+        }
 
         if (reset_done && est.initialized()) {
             if (!reinit_observed) {
                 reinit_observed = true;
                 first_new_base_ts = est.lastPoseTimestampUs();
-                std::printf("[reinit] 重启后第 %d 帧重新初始化：首次位姿时间戳 %llu us"
-                            "（旧时间基是 %.1f s 量级）\n",
-                            frames_after_reset,
-                            static_cast<unsigned long long>(first_new_base_ts),
-                            static_cast<double>(img.timestamp_us) * 1e-6);
+                std::printf(
+                    "[reinit] 重启后第 %d 帧重新初始化：首次位姿时间戳 %llu us"
+                    "（旧时间基是 %.1f s 量级）\n",
+                    frames_after_reset, static_cast<unsigned long long>(first_new_base_ts), static_cast<double>(img.timestamp_us) * 1e-6);
                 CHECK(est.publishable());
                 CHECK(!est.zuptEnabled());
             }
             ++frames_after_reinit;
             pure_uav::VisionPose p;
             if (est.getLatestPose(p)) {
-                if (last_shifted_ts != 0 && p.timestamp_us <= last_shifted_ts) monotonic_ok = false;
+                if (last_shifted_ts != 0 && p.timestamp_us <= last_shifted_ts) {
+                    monotonic_ok = false;
+                }
                 last_shifted_ts = p.timestamp_us;
             }
-            if (frames_after_reinit >= max_after) break;
+            if (frames_after_reinit >= max_after) {
+                break;
+            }
         }
 
         if (reset_done && !reinit_observed && frames_after_reset > 4000) {
@@ -198,12 +202,9 @@ int main(int argc, char** argv) {
     std::printf("\n===== 结果 =====\n");
     std::printf("  模拟重启帧      : %d\n", reset_frame);
     std::printf("  重启后回放帧数  : %d\n", frames_after_reset);
-    std::printf("  重新初始化      : %s（重启后 %d 帧）\n", reinit_observed ? "是" : "否",
-                frames_after_reinit);
-    std::printf("  rebuildCount    : %d → %d\n", rebuild_before,
-                static_cast<int>(est.rebuildCount()));
-    std::printf("  新时间基首帧    : %llu us\n",
-                static_cast<unsigned long long>(first_new_base_ts));
+    std::printf("  重新初始化      : %s（重启后 %d 帧）\n", reinit_observed ? "是" : "否", frames_after_reinit);
+    std::printf("  rebuildCount    : %d → %d\n", rebuild_before, static_cast<int>(est.rebuildCount()));
+    std::printf("  新时间基首帧    : %llu us\n", static_cast<unsigned long long>(first_new_base_ts));
     std::printf("  位姿时间戳单调  : %s\n", monotonic_ok ? "是" : "否");
 
     CHECK(reset_frame >= 0);

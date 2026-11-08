@@ -65,16 +65,16 @@ namespace mavlink_units {
 //  §0  常量
 // ============================================================================
 
-inline constexpr double kPi    = 3.14159265358979323846;
+inline constexpr double kPi = 3.14159265358979323846;
 inline constexpr double kTwoPi = 6.28318530717958647692;
 
 // 换算因子（显式列出，避免调用方到处写魔法数）
 // 说明：`cdeg→rad` 用**一步到位**的合并常数（只舍入一次），比 `cdeg*1e-2*kDegToRad`
 //       少一次舍入；其余换算在 .cpp 里用**除以精确的 10 的幂**实现（比乘倒数更准）。
-inline constexpr double kDegToRad  = kPi / 180.0;      // deg  → rad
-inline constexpr double kRadToDeg  = 180.0 / kPi;      // rad  → deg
-inline constexpr double kCDegToRad = kPi / 18000.0;    // cdeg → rad
-inline constexpr double kRadToCDeg = 18000.0 / kPi;    // rad  → cdeg
+inline constexpr double kDegToRad = kPi / 180.0;     // deg  → rad
+inline constexpr double kRadToDeg = 180.0 / kPi;     // rad  → deg
+inline constexpr double kCDegToRad = kPi / 18000.0;  // cdeg → rad
+inline constexpr double kRadToCDeg = 18000.0 / kPi;  // rad  → cdeg
 
 // ============================================================================
 //  §1  长度
@@ -99,12 +99,12 @@ double m_s_to_cm_s(double m_s) noexcept;
 double deg_to_rad(double deg) noexcept;
 double rad_to_deg(double rad) noexcept;
 
-double cdeg_to_rad(double cdeg) noexcept;   // MAVLink 的 degrees*100
+double cdeg_to_rad(double cdeg) noexcept;  // MAVLink 的 degrees*100
 double rad_to_cdeg(double rad) noexcept;
 double cdeg_to_deg(double cdeg) noexcept;
 double deg_to_cdeg(double deg) noexcept;
 
-double deg_e7_to_deg(double deg_e7) noexcept;   // MAVLink 的 lat/lon
+double deg_e7_to_deg(double deg_e7) noexcept;  // MAVLink 的 lat/lon
 double deg_to_deg_e7(double deg) noexcept;
 
 // ============================================================================
@@ -180,16 +180,16 @@ int32_t deg_to_deg_e7_round(double deg) noexcept;
 //  §8  哨兵值（MAVLink 的 invalid 约定）
 // ============================================================================
 
-inline constexpr uint16_t kInvalidU16 = 0xFFFFu;      // hdg / cog / vel / eph / epv ...
-inline constexpr int32_t  kInt32Max   = 0x7FFFFFFF;   // 2147483647
+inline constexpr uint16_t kInvalidU16 = 0xFFFFU;  // hdg / cog / vel / eph / epv ...
+inline constexpr int32_t kInt32Max = 0x7FFFFFFF;  // 2147483647
 
 // hdg / cog 是否有效（规范：invalid = UINT16_MAX）。
 bool is_valid_heading_cdeg(uint16_t raw_cdeg) noexcept;
 
 // 带哨兵检查的安全换算。返回 false = 原始字段无效，**out_* 不被写入**。
 // 这样调用方可以写：if (heading_cdeg_to_rad(msg.hdg, hdg_rad)) { 使用 hdg_rad; }
-bool heading_cdeg_to_rad(uint16_t raw_cdeg, double &out_rad) noexcept;
-bool heading_cdeg_to_deg(uint16_t raw_cdeg, double &out_deg) noexcept;
+bool heading_cdeg_to_rad(uint16_t raw_cdeg, double& out_rad) noexcept;
+bool heading_cdeg_to_deg(uint16_t raw_cdeg, double& out_deg) noexcept;
 
 // lat/lon 的"防御性"有效性检查。
 // ⚠⚠ 规范**没有**为 lat/lon 定义 invalid 哨兵 —— 有效性应由 `fix_type`（GPS_RAW_INT）

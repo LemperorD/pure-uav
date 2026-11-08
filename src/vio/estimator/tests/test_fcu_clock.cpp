@@ -25,22 +25,20 @@ int main() {
 
     // 用真实 CLOCK_MONOTONIC 构造最近 10 秒的样本（样本覆盖到"现在"附近）。
     using namespace std::chrono;
-    const int64_t now_ns =
-        duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+    const int64_t now_ns = duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
     constexpr int kSamples = 2000;
     const int64_t sample_span_ns = (kSamples - 1) * 5000LL * 1000LL;  // 5 ms 间隔
     const int64_t base_host_ns = now_ns - sample_span_ns;
     const int64_t base_imu_us = 100000;
-    const double true_offset_ns = static_cast<double>(base_host_ns - base_imu_us * 1000);
+    const auto true_offset_ns = static_cast<double>(base_host_ns - (base_imu_us * 1000));
 
     std::mt19937 rng(42);
     std::uniform_real_distribution<double> jitter_us(0.0, 2000.0);
 
     for (int i = 0; i < kSamples; ++i) {
-        const int64_t imu_us = base_imu_us + static_cast<int64_t>(i) * 5000;  // 200 Hz
+        const int64_t imu_us = base_imu_us + (static_cast<int64_t>(i) * 5000);  // 200 Hz
         // 到达延迟：0~2 ms（单向延迟，所以 offset 只会偏大）
-        const int64_t host_ns = imu_us * 1000 + static_cast<int64_t>(true_offset_ns) +
-                                static_cast<int64_t>(jitter_us(rng) * 1000.0);
+        const int64_t host_ns = (imu_us * 1000) + static_cast<int64_t>(true_offset_ns) + static_cast<int64_t>(jitter_us(rng) * 1000.0);
         const auto r = clock.addSample(host_ns, static_cast<uint64_t>(imu_us));
         if (r != FcuClock::AddResult::kOk) {
             std::fprintf(stderr, "FAIL 正常样本被判定为非 kOk\n");
@@ -70,8 +68,7 @@ int main() {
     }
 
     // 偏移估计应接近真值 + 最小延迟（<2ms 偏差）
-    const double off_err_ms =
-        std::fabs(static_cast<double>(clock.offsetNs()) - true_offset_ns) / 1e6;
+    const double off_err_ms = std::fabs(static_cast<double>(clock.offsetNs()) - true_offset_ns) / 1e6;
     std::printf("偏移估计误差: %.3f ms\n", off_err_ms);
     if (off_err_ms > 2.0) {
         std::fprintf(stderr, "FAIL 偏移估计误差过大: %.3f ms\n", off_err_ms);
@@ -109,14 +106,11 @@ int main() {
     //---------------------------------------------------------------------------
     {
         const uint64_t fcu_before_reboot_us = clock.lastImuTimestampUs();
-        const uint64_t reboot_boot_us = 1075000;  // 重启后 1.075 s
+        const uint64_t reboot_boot_us = 1075000;              // 重启后 1.075 s
         const int64_t host_at_reboot_ns = now_ns + 10000000;  // 重启帧此时到达
         const auto r = clock.addSample(host_at_reboot_ns, reboot_boot_us);
         if (r != FcuClock::AddResult::kTimebaseReset) {
-            std::fprintf(stderr,
-                         "FAIL 飞控重启（%llu us → %llu us）未判 kTimebaseReset\n",
-                         static_cast<unsigned long long>(fcu_before_reboot_us),
-                         static_cast<unsigned long long>(reboot_boot_us));
+            std::fprintf(stderr, "FAIL 飞控重启（%llu us → %llu us）未判 kTimebaseReset\n", static_cast<unsigned long long>(fcu_before_reboot_us), static_cast<unsigned long long>(reboot_boot_us));
             g_failures++;
         }
         if (clock.valid()) {
@@ -124,8 +118,7 @@ int main() {
             g_failures++;
         }
         if (clock.sampleCount() != 1) {
-            std::fprintf(stderr, "FAIL 时间基重置后应只剩新基的 1 帧，实际 %zu\n",
-                         clock.sampleCount());
+            std::fprintf(stderr, "FAIL 时间基重置后应只剩新基的 1 帧，实际 %zu\n", clock.sampleCount());
             g_failures++;
         }
         if (clock.timebaseResetCount() != 1) {
@@ -135,8 +128,8 @@ int main() {
 
         // 新时间基重新累积 30 帧（≈150 ms），映射必须落在新基附近，而不是旧的 303 s。
         for (int i = 1; i <= 30; ++i) {
-            const int64_t imu_us = static_cast<int64_t>(reboot_boot_us) + i * 5000;
-            const int64_t host_ns = host_at_reboot_ns + i * 5000LL * 1000LL;
+            const int64_t imu_us = static_cast<int64_t>(reboot_boot_us) + (i * 5000);
+            const int64_t host_ns = host_at_reboot_ns + (i * 5000LL * 1000LL);
             const auto rr = clock.addSample(host_ns, static_cast<uint64_t>(imu_us));
             if (rr != FcuClock::AddResult::kOk) {
                 std::fprintf(stderr, "FAIL 新时间基样本被误判（i=%d）\n", i);
@@ -148,7 +141,7 @@ int main() {
             g_failures++;
         }
         uint64_t mapped = 0;
-        const int64_t probe_host_ns = host_at_reboot_ns + 30 * 5000LL * 1000LL;
+        const int64_t probe_host_ns = host_at_reboot_ns + (30 * 5000LL * 1000LL);
         if (!clock.hostToFcuUs(probe_host_ns, mapped)) {
             std::fprintf(stderr, "FAIL 新时间基 hostToFcuUs 返回 false\n");
             g_failures++;

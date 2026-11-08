@@ -13,7 +13,7 @@
 namespace pure_uav {
 
 class PoseLogger {
-public:
+  public:
     PoseLogger() = default;
     ~PoseLogger();
 
@@ -27,9 +27,11 @@ public:
 
     void close();
 
-    bool isOpen() const { return csv_.is_open() || tum_.is_open(); }
+    bool isOpen() const {
+        return csv_.is_open() || tum_.is_open();
+    }
 
-private:
+  private:
     std::ofstream csv_;
     std::ofstream tum_;
 };

@@ -9,13 +9,12 @@
 
 #pragma once
 
+#include <Eigen/Dense>
 #include <cstdint>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
-
-#include <Eigen/Dense>
-#include <opencv2/core.hpp>
 
 #include "pure_uav/vio_health.hpp"
 #include "pure_uav/vio_types.hpp"
@@ -25,7 +24,7 @@
 namespace pure_uav {
 
 class VioEstimator {
-public:
+  public:
     // VisionPose.timestamp_us 用哪个时刻：
     //   IMU   ：状态对应的 IMU 时间 = 相机时间 + timeshift_cam_imu。
     //           与 OpenVINS ROS 节点发布的 poseimu.header.stamp 一致（推荐）。
@@ -44,6 +43,9 @@ public:
 
         // 打印初始化/配置信息
         bool verbose = true;
+        // Embedded runtime: route status through snapshots, silence worker console output.
+        // Defaults preserve the standalone vio_live behavior.
+        bool quiet_runtime = false;
 
         // 是否让 OpenVINS 在线估计相机-IMU 时移（初值仍取配置里的 timeshift_cam_imu）。
         // 实时链路相机时间戳是“主机到达时间”，标定时移不一定完全适用，可打开它让滤波器自己修。
@@ -67,11 +69,11 @@ public:
         bool init_vel_zero = false;
 
         /// 静止判定阈值（只用于 init_vel_zero 的门限）
-        double init_still_acc_thresh = 0.30;     // ||a||-g 小于它算静
-        double init_still_gyro_dps = 10.0;       // |w| 中位小于它算静
+        double init_still_acc_thresh = 0.30;  // ||a||-g 小于它算静
+        double init_still_gyro_dps = 10.0;    // |w| 中位小于它算静
 
         /// 深度查询：算出"每帧最深处理时间"等统计时用（可空）
-        void *unused_pad = nullptr;
+        void* unused_pad = nullptr;
 
         // 静态初始化：要求先静止 init_window_time 秒，用静止段的加速度计均值定重力方向。
         // 动态初始化在运动窗口里分离加速度和重力，倾角误差通常 1~3°；
@@ -92,8 +94,8 @@ public:
     VioEstimator(const VioEstimator&) = delete;
     VioEstimator& operator=(const VioEstimator&) = delete;
 
-    bool ok() const;
-    const std::string& error() const;
+    [[nodiscard]] bool ok() const;
+    [[nodiscard]] const std::string& error() const;
 
     // 喂一帧 IMU。timestamp_us 必须单调递增。
     void feedImu(const ImuSample& imu);
@@ -104,23 +106,21 @@ public:
 
     /// 【2026-10-21】喂一帧深度（毫米，深度相机坐标）。必须紧邻 feedImage 之前调用。
     /// 只在 Options::use_depth_init 打开时生效。
-    void setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx, double fy,
-                       double cx, double cy, const double R_c2d[9] = nullptr,
-                       const double t_c2d_m[3] = nullptr);
+    void setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx, double fy, double cx, double cy, const double R_c2d[9] = nullptr, const double t_c2d_m[3] = nullptr);
 
-    bool initialized() const;
+    [[nodiscard]] bool initialized() const;
 
     // 最近一帧 VisionPose（已初始化后才有）。无结果返回 false。
     bool getLatestPose(VisionPose& pose) const;
 
     // ---- 运行时失效保护 ----
     // 这一帧是否应该把位姿发给飞控。LOST 期间恒为 false（含重建估计器期间）。
-    bool publishable() const;
+    [[nodiscard]] bool publishable() const;
     // 当前健康报告（特征数、距上次更新多久、状态、恢复次数……）
-    HealthReport healthReport() const;
-    VioHealthState healthState() const;
+    [[nodiscard]] HealthReport healthReport() const;
+    [[nodiscard]] VioHealthState healthState() const;
     // 已经进入过 LOST 并完成重建的次数
-    int recoveryCount() const;
+    [[nodiscard]] int recoveryCount() const;
 
     /// 【2026-10-29】飞控时间基变了（飞控重启 / 串口重连 / IMU 时间戳大幅回退）：
     /// 立即丢弃旧时间基的估计，按新时间基从头初始化。
@@ -136,16 +136,14 @@ public:
     // MSCKF 更新诊断：calls=更新调用次数，feat_in=进入更新的特征数，
     // chi2_rej=被卡方门限拒掉的数，updates=真正执行的更新次数，rows=压缩后残差行数。
     // 用来区分"没特征可用"和"有特征但全被门限拒了"。
-    void msckfStats(long long &calls, long long &feat_in, long long &chi2_rej,
-                    long long &updates, long long &rows,
-                    long long &clean_drop, long long &tri_drop) const;
-    int imageCount() const;
-    int poseCount() const;
-    uint64_t lastPoseTimestampUs() const;
+    void msckfStats(long long& calls, long long& feat_in, long long& chi2_rej, long long& updates, long long& rows, long long& clean_drop, long long& tri_drop) const;
+    [[nodiscard]] int imageCount() const;
+    [[nodiscard]] int poseCount() const;
+    [[nodiscard]] uint64_t lastPoseTimestampUs() const;
     // 估计器所属线程读取；图像需要 IMU 覆盖到 t_camera + 此偏移。
-    double cameraTimeOffsetSec() const;
-    double initializedTimeSec() const;  // OpenVINS 初始化时刻（输入时钟的秒）
-    const VisionPoseConvert& converter() const;
+    [[nodiscard]] double cameraTimeOffsetSec() const;
+    [[nodiscard]] double initializedTimeSec() const;  // OpenVINS 初始化时刻（输入时钟的秒）
+    [[nodiscard]] const VisionPoseConvert& converter() const;
 
     // 最近一帧 OpenVINS 原始状态（global 系，供回归对照/调试）。
     // q_GtoI 为 OpenVINS 的 JPL 四元数顺序 [x,y,z,w]。
@@ -163,12 +161,12 @@ public:
     // ---- 纯可视化（不参与估计）----
     // 主前端这一帧跟踪到的像素点。长度 = 该点已连续跟踪的帧数。
     struct TrackedPoint {
-        float u = 0.f;
-        float v = 0.f;
+        float u = 0.F;
+        float v = 0.F;
         int length = 0;
     };
     // 只能在调用 feedImage() 的同一线程里用（不做加锁，避免 30 Hz 无谓开销）。
-    const std::vector<TrackedPoint>& trackedPoints() const;
+    [[nodiscard]] const std::vector<TrackedPoint>& trackedPoints() const;
 
     // ---- 倾角自检（判断"这条轨迹还能不能信"的直接指标）----
     // 把滤波器自己认为的重力方向和加速度计实测的重力方向比一比。
@@ -180,14 +178,14 @@ public:
         bool valid = false;
         double deg = 0.0;
     };
-    TiltCheck tiltCheck() const;
+    [[nodiscard]] TiltCheck tiltCheck() const;
 
     /// 【2026-10-25】运行期开关零速更新（要求 config 里 try_zupt: true）。
     /// 上层按"飞控是否解锁"自动切：地面上开（静止时钉住速度），空中关（防悬停误判）。
     // 开关在 LOST / 时间基恢复引起的重建后保持；与 feedImu()/feedImage() 同线程调用。
     void setZuptEnabled(bool enable);
     // 当前实例的运行期开关状态；配置 try_zupt 仍决定是否创建零速更新器。
-    bool zuptEnabled() const;
+    [[nodiscard]] bool zuptEnabled() const;
 
     // ---- 运动有效性自检（判断"这次测试到底有没有平移"）----
     // 单目 VIO 靠平移拿视差，没有视差就三角化不出来。实测（2026-10-21）：
@@ -195,16 +193,16 @@ public:
     //   走路（离线数据集）  ||a|-g| 中位 0.156~0.211  -> 三角化成功率 0.121~0.130
     // 返回值 = ||a|| - g 的滑动中位（单位 m/s²），不是瞬时值。
     // 经验判据：< 0.10 基本是原地转，测不出东西；> 0.15 才算真有平移。
-    double linAccelDev() const;
+    [[nodiscard]] double linAccelDev() const;
     // 最近一次 MSCKF 更新的「三角化成功率」= tri_ok / feat_in（0 表示完全没有测量）
-    double triangulationRate() const;
+    [[nodiscard]] double triangulationRate() const;
 
     /// 累计"用深度初始化特征"的个数（诊断：>0 说明深度路径真的在跑）
-    long long depthUsed() const;
+    [[nodiscard]] long long depthUsed() const;
 
     /// 估计器重建（重锚定）次数——作为 MAVLink ODOMETRY 的 reset_counter 发给飞控，
     /// 否则飞控会把重建后的位姿跳变当成真实运动。
-    long long rebuildCount() const;
+    [[nodiscard]] long long rebuildCount() const;
 
     /// 深度一致性：特征数 / 平均中位重投影误差(px) / 6 档直方图(<1 <2 <5 <10 <25 >=25)
     void depthErrStats(long long& n, double& mean_px, long long hist[6]) const;
@@ -212,8 +210,7 @@ public:
     /// 没有样本时返回 -1。健康门限和状态行都用这个，不要再用均值。
     double recentDepthErrMedianPx(double now_s);
 
-
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

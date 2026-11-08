@@ -10,8 +10,7 @@
 #include "guidance_flight_types.hpp"
 #include "guidance_types.hpp"
 
-namespace pure_uav {
-namespace app {
+namespace pure_uav::app {
 
 // 短别名：宿主侧代码用 flight:: 前缀引用制导飞行外壳的类型。
 namespace flight = pure_uav::guidance::flight;
@@ -22,5 +21,4 @@ struct GuidanceAppParams {
     flight::GuidanceLoopConfig loop;
 };
 
-}  // namespace app
-}  // namespace pure_uav
+}  // namespace pure_uav::app

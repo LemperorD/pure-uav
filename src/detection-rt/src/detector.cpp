@@ -6,16 +6,14 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <opencv2/core.hpp>
 #include <thread>
 #include <utility>
-
-#include <opencv2/core.hpp>
 
 #include "pure_uav/detection/yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 namespace {
 
 // awnn 是进程级全局状态，只允许一个 Detector 实例。
@@ -60,8 +58,8 @@ struct Detector::Impl {
 
     void onCameraFrame(const CameraFrame& frame) {
         {
-            std::lock_guard<std::mutex> lk(frame_mu);
-            latest_bgr = frame.bgr;   // cv::Mat 浅拷贝（引用计数），数据仍归本槽所有
+            std::scoped_lock lk(frame_mu);
+            latest_bgr = frame.bgr;  // cv::Mat 浅拷贝（引用计数），数据仍归本槽所有
             latest_host_us = frame.host_us;
             latest_device_us = frame.device_us;
             latest_seq = frame.seq;
@@ -76,28 +74,34 @@ struct Detector::Impl {
         PostprocessParams pp;
         while (running.load(std::memory_order_relaxed)) {
             cv::Mat bgr;
-            uint64_t host_us = 0, device_us = 0, seq = 0;
+            uint64_t host_us = 0;
+            uint64_t device_us = 0;
+            uint64_t seq = 0;
             int64_t monotonic_ns = 0;
             {
                 std::unique_lock<std::mutex> lk(frame_mu);
-                frame_cv.wait(lk, [this] {
-                    return !running.load(std::memory_order_relaxed) || has_frame;
-                });
-                if (!running.load(std::memory_order_relaxed)) break;
-                if (!has_frame) continue;
+                frame_cv.wait(lk, [this] { return !running.load(std::memory_order_relaxed) || has_frame; });
+                if (!running.load(std::memory_order_relaxed)) {
+                    break;
+                }
+                if (!has_frame) {
+                    continue;
+                }
                 bgr = latest_bgr;
                 host_us = latest_host_us;
                 device_us = latest_device_us;
                 seq = latest_seq;
                 monotonic_ns = latest_monotonic_ns;
-                has_frame = false;   // 消费掉，始终只处理最新一帧
+                has_frame = false;  // 消费掉，始终只处理最新一帧
             }
-            if (bgr.empty()) continue;
+            if (bgr.empty()) {
+                continue;
+            }
 
             YoloOutputView view;
             std::string error;
             if (!backend.infer(bgr, view, error)) {
-                std::lock_guard<std::mutex> lk(result_mu);
+                std::scoped_lock lk(result_mu);
                 last_infer_error = error;
                 continue;
             }
@@ -120,7 +124,7 @@ struct Detector::Impl {
             postprocess(view, pp, r);
 
             {
-                std::lock_guard<std::mutex> lk(result_mu);
+                std::scoped_lock lk(result_mu);
                 latest = r;
                 latest_result_bgr = bgr;
                 result_new = true;
@@ -132,12 +136,17 @@ struct Detector::Impl {
     }
 };
 
-Detector::Detector() : impl_(std::make_unique<Impl>()) {}
+Detector::Detector() : impl_(std::make_unique<Impl>()) {
+}
 
-Detector::~Detector() { stop(); }
+Detector::~Detector() {
+    stop();
+}
 
 bool Detector::start(const DetectorConfig& cfg, std::string& error) {
-    if (impl_->running.load()) return true;
+    if (impl_->running.load()) {
+        return true;
+    }
 
     // 只允许一个 Detector 实例（awnn 全局状态）
     if (g_instance_used.exchange(true)) {
@@ -146,7 +155,9 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
     }
 
     impl_->cfg = cfg;
-    if (impl_->cfg.max_det <= 0) impl_->cfg.max_det = 300;
+    if (impl_->cfg.max_det <= 0) {
+        impl_->cfg.max_det = 300;
+    }
     impl_->cfg.max_det = std::min(impl_->cfg.max_det, kMaxDetections);
     if (impl_->cfg.imgsz != 640) {
         error = "只支持 imgsz=640，收到 " + std::to_string(impl_->cfg.imgsz);
@@ -160,22 +171,20 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
         return false;
     }
 
-    if (!cfg.external_camera && !impl_->camera.start(cfg.camera,
-                             [this](const CameraFrame& f) { impl_->onCameraFrame(f); },
-                             &error)) {
+    if (!impl_->camera.start(cfg.camera, [this](const CameraFrame& f) { impl_->onCameraFrame(f); }, &error)) {
         impl_->backend.release();
         g_instance_used.store(false);
         return false;
     }
 
     {
-        std::lock_guard<std::mutex> lk(impl_->frame_mu);
+        std::scoped_lock lk(impl_->frame_mu);
         impl_->has_frame = false;
         impl_->captured = 0;
         impl_->latest_bgr.release();
     }
     {
-        std::lock_guard<std::mutex> lk(impl_->result_mu);
+        std::scoped_lock lk(impl_->result_mu);
         impl_->latest = FrameResult{};
         impl_->latest_result_bgr.release();
         impl_->result_new = false;
@@ -191,9 +200,10 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
     return true;
 }
 
-void Detector::submitFrame(const cv::Mat& bgr, uint64_t host_us,
-                           uint64_t device_us, uint64_t seq, int64_t host_monotonic_ns) {
-    if (!impl_->cfg.external_camera || !impl_->running.load() || bgr.empty()) return;
+void Detector::submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us, uint64_t seq, int64_t host_monotonic_ns) {
+    if (!impl_->cfg.external_camera || !impl_->running.load() || bgr.empty()) {
+        return;
+    }
     CameraFrame frame;
     frame.bgr = bgr;
     frame.host_us = host_us;
@@ -204,9 +214,13 @@ void Detector::submitFrame(const cv::Mat& bgr, uint64_t host_us,
 }
 
 void Detector::stop() {
-    if (!impl_) return;
+    if (!impl_) {
+        return;
+    }
     if (!impl_->running.load() && !impl_->infer_thread.joinable()) {
-        if (impl_->alive.load()) impl_->alive.store(false);
+        if (impl_->alive.load()) {
+            impl_->alive.store(false);
+        }
         return;
     }
 
@@ -215,17 +229,19 @@ void Detector::stop() {
 
     // 先停相机（join 采集线程），之后不再有回调写帧槽
     impl_->camera.stop();
-    if (impl_->infer_thread.joinable()) impl_->infer_thread.join();
+    if (impl_->infer_thread.joinable()) {
+        impl_->infer_thread.join();
+    }
 
     impl_->backend.release();
     {
-        std::lock_guard<std::mutex> lk(impl_->frame_mu);
+        std::scoped_lock lk(impl_->frame_mu);
         impl_->latest_bgr.release();
         impl_->has_frame = false;
     }
 
     {
-        std::lock_guard<std::mutex> lk(impl_->result_mu);
+        std::scoped_lock lk(impl_->result_mu);
         impl_->latest_result_bgr.release();
     }
 
@@ -233,21 +249,29 @@ void Detector::stop() {
     g_instance_used.store(false);
 }
 
-bool Detector::running() const { return impl_ && impl_->running.load(); }
+bool Detector::running() const {
+    return impl_ && impl_->running.load();
+}
 
-bool Detector::alive() const { return impl_ && impl_->alive.load(); }
+bool Detector::alive() const {
+    return impl_ && impl_->alive.load();
+}
 
 bool Detector::poll(FrameResult& out) {
-    std::lock_guard<std::mutex> lk(impl_->result_mu);
-    if (!impl_->result_new) return false;
+    std::scoped_lock lk(impl_->result_mu);
+    if (!impl_->result_new) {
+        return false;
+    }
     out = impl_->latest;
     impl_->result_new = false;
     return true;
 }
 
 bool Detector::latest_frame(cv::Mat& out) const {
-    std::lock_guard<std::mutex> lk(impl_->result_mu);
-    if (impl_->latest_result_bgr.empty()) return false;
+    std::scoped_lock lk(impl_->result_mu);
+    if (impl_->latest_result_bgr.empty()) {
+        return false;
+    }
     out = impl_->latest_result_bgr;
     return true;
 }
@@ -257,12 +281,12 @@ DetectorStats Detector::stats() const {
     const double elapsed = std::max(1e-6, nowSeconds() - impl_->start_sec);
 
     {
-        std::lock_guard<std::mutex> lk(impl_->frame_mu);
+        std::scoped_lock lk(impl_->frame_mu);
         s.capture_frames = impl_->captured;
         s.capture_fps = static_cast<double>(impl_->captured) / elapsed;
     }
     {
-        std::lock_guard<std::mutex> lk(impl_->result_mu);
+        std::scoped_lock lk(impl_->result_mu);
         s.process_frames = impl_->processed;
         s.process_fps = static_cast<double>(impl_->processed) / elapsed;
         s.avg_infer_ms = impl_->processed > 0 ? impl_->infer_sum_ms / static_cast<double>(impl_->processed) : 0.0;
@@ -278,5 +302,4 @@ std::string Detector::modelInfo() const {
     return impl_ ? impl_->backend.info() : std::string();
 }
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection
