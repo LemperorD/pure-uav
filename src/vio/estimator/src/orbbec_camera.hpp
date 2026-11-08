@@ -94,7 +94,10 @@ public:
     OrbbecCamera(const OrbbecCamera&) = delete;
     OrbbecCamera& operator=(const OrbbecCamera&) = delete;
 
-    bool start(const Config& cfg, FrameCallback callback, std::string* error);
+    /// 可选彩色回调与灰度回调在同一采集线程执行；BGR 像素由 cv::Mat 共享持有，不得修改。
+    using ColorCallback = std::function<void(const cv::Mat& bgr, int64_t host_ns)>;
+    bool start(const Config& cfg, FrameCallback callback, std::string* error,
+               ColorCallback color_callback = {});
     void stop();
 
     /// 深度相机内参（fx,fy,cx,cy）与到彩色的平移（mm）。没开深度流时全 0。

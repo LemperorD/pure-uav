@@ -21,6 +21,7 @@ struct DetectionBox {
 struct FrameResult {
     uint64_t host_us;       // 帧到达主机的 Unix µs
     uint64_t device_us;     // 相机设备时间戳（仅诊断）
+    int64_t host_monotonic_ns = 0; // 共享采集路径的 steady_clock 时刻；旧采集器为 0
     uint64_t seq;           // 相机帧序号，单调递增
     int      width, height; // 原始图像尺寸
     int      count;         // 有效框数量

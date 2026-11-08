@@ -57,6 +57,7 @@ cv::Mat frameToGray(const std::shared_ptr<ob::ColorFrame>& frame) {
 struct OrbbecCamera::Impl {
     Config cfg;
     FrameCallback callback;
+    ColorCallback color_callback;
     std::unique_ptr<ob::Pipeline> pipe;
     std::thread thread;
     std::atomic<bool> running{false};
@@ -103,12 +104,14 @@ struct OrbbecCamera::Impl {
 OrbbecCamera::OrbbecCamera() = default;
 OrbbecCamera::~OrbbecCamera() { stop(); }
 
-bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error) {
+bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error,
+                         ColorCallback color_callback) {
     if (impl_ && impl_->running.load()) return true;
 
     auto impl = std::make_unique<Impl>();
     impl->cfg = cfg;
     impl->callback = std::move(callback);
+    impl->color_callback = std::move(color_callback);
 
     try {
         impl->pipe = std::make_unique<ob::Pipeline>();
@@ -701,7 +704,23 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     sys_us = static_cast<int64_t>(color->systemTimeStampUs());
                 } catch (...) {
                 }
-                cv::Mat gray = frameToGray(color);
+                cv::Mat bgr, gray;
+                if (impl->color_callback) {
+                    const int w = color->width(), h = color->height();
+                    if (color->format() == OB_FORMAT_MJPG) {
+                        cv::Mat raw(1, static_cast<int>(color->dataSize()), CV_8UC1, color->data());
+                        bgr = cv::imdecode(raw, cv::IMREAD_COLOR);
+                    } else if (color->format() == OB_FORMAT_RGB) {
+                        cv::Mat rgb(h, w, CV_8UC3, color->data());
+                        cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+                    } else if (color->format() == OB_FORMAT_YUYV) {
+                        cv::Mat yuyv(h, w, CV_8UC2, color->data());
+                        cv::cvtColor(yuyv, bgr, cv::COLOR_YUV2BGR_YUYV);
+                    }
+                    if (!bgr.empty()) cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+                } else {
+                    gray = frameToGray(color);
+                }
                 if (gray.empty()) continue;
                 //---------------------------------------------------------------
                 // 运行中重测光：滞回 + 限速（最多每 2 s 调一次）
@@ -785,6 +804,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 }
 
                 if (impl->callback) impl->callback(gray, depth_mm, host_ns, sys_us, depth_dev_us);
+                if (impl->color_callback) impl->color_callback(bgr, host_ns);
             }
         } catch (const ob::Error& e) {
             std::fprintf(stderr, "[Orbbec] 采集异常: %s %s\n", e.getName(), e.getMessage());

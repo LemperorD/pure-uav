@@ -17,8 +17,9 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_flight_types.hpp         类型 / 契约 / GuidanceCameraModel / GuidanceLoopConfig
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
-src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两个功能目录）
-  main.cpp                         通信示例（全局 main）
+src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
+  main.cpp                         并发机载主流程（通信 / 共享相机 / 检测 / VIO / 制导）
+  runtime/                         有界图像队列、飞控数据/指令换算
   startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
   startup/guidance_application.{hpp,cpp}  CLI + 参数加载/校验/打印 + 模式分发
@@ -26,7 +27,7 @@ src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两�
 ```
 
 依赖方向：
-- `main → communicate`（通信示例）；
+- `main → communicate / vio_camera / pure_vio_core / detection_rt / guidance_application`（并发机载）；
 - `guidance_example → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`。
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
@@ -50,7 +51,7 @@ src/app/（宿主应用与入口，pure_uav::app；顶层只留 main.cpp，两�
 ./bin/guidance_example --config=guidance.yaml --print-params
 ```
 
-> `./bin/main` 是通信示例，会等待飞控心跳，不跑上述制导流程。
+> `./bin/main` 同时启动机载通信、共享相机、检测、VIO 和制导线程；上述仿真与回放仍由独立 `guidance_example` 运行。机载配置见 [usage.md](usage.md)。
 
 参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 
@@ -181,8 +182,8 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 
 | 项 | 依赖 |
 | --- | --- |
-| `mavlink_ins_source.cpp` / `mavlink_sink.cpp`（真机数据入口/出口） | 通信示例已进 main；真机数据源/出口待实现 |
-| `VisionTargetSource`（接检测） | 检测组接口（像素 + 距离 + 曝光时戳） |
+| 真机数据入口/出口 | 已在 main 的 InsSource / CommandSink 接入共享 Communicator |
+| 检测目标源 | 已在 main 的 TargetSource 接入像素检测与采集时间映射；测距待接入 |
 | `SimTruthInsSource` / `SimTruthTargetSource`（XTDrone2 真值） | 仿真桥 |
 | 端到端打点（t0 取数 → t3 发出，P50/P95/max） | ✅ 已完成（§20） |
 | 环形缓冲黑匣子（循环内零 I/O） | ✅ 已完成（§21） |

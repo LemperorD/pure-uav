@@ -181,3 +181,11 @@ los_hat = normalize(d_world)
 - 改坐标/姿态/时间约定 → 同步本文档、`guidance::adapter`、相关测试；
 - 不要在业务代码里再做一次 NED/ENU 或 FRD/光轴换算；
 - 新增外部口径 → 先加枚举 + 独立参考实现 + 测试，再接线。
+
+### 机载共享采集时间戳
+
+检测 `FrameResult.host_us` 保留 Unix µs 语义；新增 `host_monotonic_ns` 是相机采集时的
+`steady_clock` ns，外部共享相机模式完整传递，原独立采集路径为 0。
+`main` 通过 `FcuClock` 将它映射到飞控 IMU/boot 时钟，不能直接把 Unix µs 当成 boot µs。
+`DetectorConfig.external_camera=true` 时仅启动推理线程；宿主通过 `submitFrame` 投递不可变 BGR 帧，
+停止时先停止相机投递再调用 `Detector::stop()`。
