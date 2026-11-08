@@ -3,22 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK = 12915 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK 12915
 
-using mavlink_open_drone_id_message_pack_t = struct __mavlink_open_drone_id_message_pack_t {
-    uint8_t target_system;       /*<  System ID (0 for broadcast).*/
-    uint8_t target_component;    /*<  Component ID (0 for broadcast).*/
-    uint8_t id_or_mac[20];       /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
-    uint8_t single_message_size; /*< [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.*/
-    uint8_t msg_pack_size;       /*<  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.*/
-    uint8_t messages[225];       /*<  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.*/
-};
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN = 249, MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_MIN_LEN = 249, MAVLINK_MSG_ID_12915_LEN = 249, MAVLINK_MSG_ID_12915_MIN_LEN = 249 };
+typedef struct __mavlink_open_drone_id_message_pack_t {
+ uint8_t target_system; /*<  System ID (0 for broadcast).*/
+ uint8_t target_component; /*<  Component ID (0 for broadcast).*/
+ uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+ uint8_t single_message_size; /*< [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.*/
+ uint8_t msg_pack_size; /*<  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.*/
+ uint8_t messages[225]; /*<  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.*/
+} mavlink_open_drone_id_message_pack_t;
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_CRC = 94, MAVLINK_MSG_ID_12915_CRC = 94 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN 249
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_MIN_LEN 249
+#define MAVLINK_MSG_ID_12915_LEN 249
+#define MAVLINK_MSG_ID_12915_MIN_LEN 249
 
-enum { MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_MESSAGES_LEN = 225 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_CRC 94
+#define MAVLINK_MSG_ID_12915_CRC 94
+
+#define MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_ID_OR_MAC_LEN 20
+#define MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_MESSAGES_LEN 225
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_MESSAGE_PACK { \
@@ -55,7 +61,7 @@ enum { MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -97,7 +103,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_pack(uint32_t syst
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -142,7 +148,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_pack_status(uint32
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -223,7 +229,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_encode_status(uint
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -317,7 +323,7 @@ static inline uint8_t mavlink_msg_open_drone_id_message_pack_get_target_componen
 /**
  * @brief Get field id_or_mac from open_drone_id_message_pack message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  */
 static inline uint16_t mavlink_msg_open_drone_id_message_pack_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {
@@ -374,10 +380,11 @@ static inline void mavlink_msg_open_drone_id_message_pack_decode(const mavlink_m
         memset(open_drone_id_message_pack, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN);
     memcpy(open_drone_id_message_pack, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_message_pack->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

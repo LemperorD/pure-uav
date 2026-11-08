@@ -3,12 +3,12 @@
  *  @see http://mavlink.org
  */
 #pragma once
- 
+
 #ifndef MAVLINK_VERSION_H
 #define MAVLINK_VERSION_H
 
 #define MAVLINK_BUILD_DATE "Mon Oct 12 2026"
 #define MAVLINK_WIRE_PROTOCOL_VERSION "2.0"
-enum { MAVLINK_MAX_DIALECT_PAYLOAD_SIZE = 255 };
+#define MAVLINK_MAX_DIALECT_PAYLOAD_SIZE 255
 
 #endif // MAVLINK_VERSION_H

@@ -3,17 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SET_MODE = 11 };
+#define MAVLINK_MSG_ID_SET_MODE 11
 
-using mavlink_set_mode_t = struct __mavlink_set_mode_t {
-    uint32_t custom_mode;  /*<  The new autopilot-specific mode. This field can be ignored by an autopilot.*/
-    uint8_t target_system; /*<  The system setting the mode*/
-    uint8_t base_mode;     /*<  The new base mode.*/
-};
 
-enum { MAVLINK_MSG_ID_SET_MODE_LEN = 6, MAVLINK_MSG_ID_SET_MODE_MIN_LEN = 6, MAVLINK_MSG_ID_11_LEN = 6, MAVLINK_MSG_ID_11_MIN_LEN = 6 };
+typedef struct __mavlink_set_mode_t {
+ uint32_t custom_mode; /*<  The new autopilot-specific mode. This field can be ignored by an autopilot.*/
+ uint8_t target_system; /*<  The system setting the mode*/
+ uint8_t base_mode; /*<  The new base mode.*/
+} mavlink_set_mode_t;
 
-enum { MAVLINK_MSG_ID_SET_MODE_CRC = 89, MAVLINK_MSG_ID_11_CRC = 89 };
+#define MAVLINK_MSG_ID_SET_MODE_LEN 6
+#define MAVLINK_MSG_ID_SET_MODE_MIN_LEN 6
+#define MAVLINK_MSG_ID_11_LEN 6
+#define MAVLINK_MSG_ID_11_MIN_LEN 6
+
+#define MAVLINK_MSG_ID_SET_MODE_CRC 89
+#define MAVLINK_MSG_ID_11_CRC 89
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SET_MODE { \
@@ -298,10 +305,11 @@ static inline void mavlink_msg_set_mode_decode(const mavlink_message_t* msg, mav
         memset(set_mode, 0, MAVLINK_MSG_ID_SET_MODE_LEN);
     memcpy(set_mode, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         set_mode->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

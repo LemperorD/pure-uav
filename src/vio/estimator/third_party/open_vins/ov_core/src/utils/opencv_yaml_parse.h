@@ -106,9 +106,7 @@ public:
    * @brief Check to see if all parameters were read succesfully
    * @return True if we found all parameters
    */
-  [[nodiscard]] bool successful() const {
-      return all_params_found_successfully;
-  }
+  bool successful() const { return all_params_found_successfully; }
 
   /**
    * @brief Custom parser for the ESTIMATOR parameters.
@@ -550,9 +548,8 @@ private:
   template <class T> void parse_config_yaml(const std::string &node_name, T &node_result, bool required = true) {
 
     // Directly return if the config hasn't been opened
-    if (config == nullptr) {
-        return;
-    }
+    if (config == nullptr)
+      return;
 
     // Else lets get the one from the config
     try {
@@ -583,9 +580,8 @@ private:
   void parse_external_yaml(const std::string &external_node_name, const std::string &sensor_name, const std::string &node_name,
                            T &node_result, bool required = true) {
     // Directly return if the config hasn't been opened
-    if (config == nullptr) {
-        return;
-    }
+    if (config == nullptr)
+      return;
 
     // Create the path the external yaml file
     std::string path;

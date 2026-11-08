@@ -74,9 +74,8 @@ public:
         size_t camid = campairs.first;
         auto it0 = std::find(feat->timestamps.at(camid).begin(), feat->timestamps.at(camid).end(), time0);
         auto it1 = std::find(feat->timestamps.at(camid).begin(), feat->timestamps.at(camid).end(), time1);
-        if (it0 == feat->timestamps.at(camid).end() || it1 == feat->timestamps.at(camid).end()) {
-            continue;
-        }
+        if (it0 == feat->timestamps.at(camid).end() || it1 == feat->timestamps.at(camid).end())
+          continue;
         auto idx0 = std::distance(feat->timestamps.at(camid).begin(), it0);
         auto idx1 = std::distance(feat->timestamps.at(camid).begin(), it1);
 
@@ -130,9 +129,8 @@ public:
       for (auto &campairs : feat.second->timestamps) {
 
         // Skip if only one observation
-        if (campairs.second.size() < 2) {
-            continue;
-        }
+        if (campairs.second.size() < 2)
+          continue;
 
         // Now lets calculate the disparity (assumes time array is monotonic)
         size_t camid = campairs.first;
@@ -155,9 +153,8 @@ public:
         }
 
         // If we found both an old and a new time, then we are good!
-        if (!found0 || !found1) {
-            continue;
-        }
+        if (!found0 || !found1)
+          continue;
         disparities.push_back((uv1 - uv0).norm());
       }
     }

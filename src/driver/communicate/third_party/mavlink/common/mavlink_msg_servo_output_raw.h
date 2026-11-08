@@ -3,33 +3,39 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SERVO_OUTPUT_RAW = 36 };
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW 36
 
-MAVPACKED(typedef struct MavlinkServoOutputRawT {
-    uint32_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint16_t servo1_raw;  /*< [us] Servo output 1 value*/
-    uint16_t servo2_raw;  /*< [us] Servo output 2 value*/
-    uint16_t servo3_raw;  /*< [us] Servo output 3 value*/
-    uint16_t servo4_raw;  /*< [us] Servo output 4 value*/
-    uint16_t servo5_raw;  /*< [us] Servo output 5 value*/
-    uint16_t servo6_raw;  /*< [us] Servo output 6 value*/
-    uint16_t servo7_raw;  /*< [us] Servo output 7 value*/
-    uint16_t servo8_raw;  /*< [us] Servo output 8 value*/
-    uint8_t port;         /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
-    uint16_t servo9_raw;  /*< [us] Servo output 9 value*/
-    uint16_t servo10_raw; /*< [us] Servo output 10 value*/
-    uint16_t servo11_raw; /*< [us] Servo output 11 value*/
-    uint16_t servo12_raw; /*< [us] Servo output 12 value*/
-    uint16_t servo13_raw; /*< [us] Servo output 13 value*/
-    uint16_t servo14_raw; /*< [us] Servo output 14 value*/
-    uint16_t servo15_raw; /*< [us] Servo output 15 value*/
-    uint16_t servo16_raw; /*< [us] Servo output 16 value*/
-})
-mavlink_servo_output_raw_t;
+MAVPACKED(
+typedef struct __mavlink_servo_output_raw_t {
+ uint32_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint16_t servo1_raw; /*< [us] Servo output 1 value*/
+ uint16_t servo2_raw; /*< [us] Servo output 2 value*/
+ uint16_t servo3_raw; /*< [us] Servo output 3 value*/
+ uint16_t servo4_raw; /*< [us] Servo output 4 value*/
+ uint16_t servo5_raw; /*< [us] Servo output 5 value*/
+ uint16_t servo6_raw; /*< [us] Servo output 6 value*/
+ uint16_t servo7_raw; /*< [us] Servo output 7 value*/
+ uint16_t servo8_raw; /*< [us] Servo output 8 value*/
+ uint8_t port; /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
+ uint16_t servo9_raw; /*< [us] Servo output 9 value*/
+ uint16_t servo10_raw; /*< [us] Servo output 10 value*/
+ uint16_t servo11_raw; /*< [us] Servo output 11 value*/
+ uint16_t servo12_raw; /*< [us] Servo output 12 value*/
+ uint16_t servo13_raw; /*< [us] Servo output 13 value*/
+ uint16_t servo14_raw; /*< [us] Servo output 14 value*/
+ uint16_t servo15_raw; /*< [us] Servo output 15 value*/
+ uint16_t servo16_raw; /*< [us] Servo output 16 value*/
+}) mavlink_servo_output_raw_t;
 
-enum { MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_LEN = 37, MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_MIN_LEN = 21, MAVLINK_MSG_ID_36_LEN = 37, MAVLINK_MSG_ID_36_MIN_LEN = 21 };
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_LEN 37
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_MIN_LEN 21
+#define MAVLINK_MSG_ID_36_LEN 37
+#define MAVLINK_MSG_ID_36_MIN_LEN 21
 
-enum { MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_CRC = 222, MAVLINK_MSG_ID_36_CRC = 222 };
+#define MAVLINK_MSG_ID_SERVO_OUTPUT_RAW_CRC 222
+#define MAVLINK_MSG_ID_36_CRC 222
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SERVO_OUTPUT_RAW { \

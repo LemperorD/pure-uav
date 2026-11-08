@@ -107,7 +107,7 @@ public:
   /**
    * @brief Default constructor
    */
-  BsplineSE3() = default;
+  BsplineSE3() {}
 
   /**
    * @brief Will feed in a series of poses that we will then convert into control points.
@@ -154,9 +154,7 @@ public:
                         Eigen::Vector3d &v_IinG, Eigen::Vector3d &alpha_IinI, Eigen::Vector3d &a_IinG);
 
   /// Returns the simulation start time that we should start simulating from
-  double get_start_time() const {
-      return timestamp_start;
-  }
+  double get_start_time() { return timestamp_start; }
 
 protected:
   /// Uniform sampling time for our control points
@@ -166,7 +164,8 @@ protected:
   double timestamp_start;
 
   /// Type defintion of our aligned eigen4d matrix: https://eigen.tuxfamily.org/dox/group__TopicStlContainers.html
-  using AlignedEigenMat4d = std::map<double, Eigen::Matrix4d, std::less<double>, Eigen::aligned_allocator<std::pair<const double, Eigen::Matrix4d>>>;
+  typedef std::map<double, Eigen::Matrix4d, std::less<double>, Eigen::aligned_allocator<std::pair<const double, Eigen::Matrix4d>>>
+      AlignedEigenMat4d;
 
   /// Our control SE3 control poses (R_ItoG, p_IinG)
   AlignedEigenMat4d control_points;
@@ -185,7 +184,8 @@ protected:
    * @param pose1 SE(3) pose of the second pose
    * @return False if we are unable to find bounding poses
    */
-  static bool find_bounding_poses(double timestamp, const AlignedEigenMat4d& poses, double& t0, Eigen::Matrix4d& pose0, double& t1, Eigen::Matrix4d& pose1);
+  static bool find_bounding_poses(const double timestamp, const AlignedEigenMat4d &poses, double &t0, Eigen::Matrix4d &pose0, double &t1,
+                                  Eigen::Matrix4d &pose1);
 
   /**
    * @brief Will find two older poses and two newer poses for the current timestamp
@@ -202,7 +202,9 @@ protected:
    * @param pose3 SE(3) pose of the fourth pose
    * @return False if we are unable to find bounding poses
    */
-  static bool find_bounding_control_points(double timestamp, const AlignedEigenMat4d& poses, double& t0, Eigen::Matrix4d& pose0, double& t1, Eigen::Matrix4d& pose1, double& t2, Eigen::Matrix4d& pose2, double& t3, Eigen::Matrix4d& pose3);
+  static bool find_bounding_control_points(const double timestamp, const AlignedEigenMat4d &poses, double &t0, Eigen::Matrix4d &pose0,
+                                           double &t1, Eigen::Matrix4d &pose1, double &t2, Eigen::Matrix4d &pose2, double &t3,
+                                           Eigen::Matrix4d &pose3);
 };
 
 } // namespace ov_core

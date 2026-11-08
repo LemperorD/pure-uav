@@ -3,30 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIGHRES_IMU = 105 };
+#define MAVLINK_MSG_ID_HIGHRES_IMU 105
 
-using mavlink_highres_imu_t = struct __mavlink_highres_imu_t {
-    uint64_t time_usec;      /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float xacc;              /*< [m/s/s] X acceleration*/
-    float yacc;              /*< [m/s/s] Y acceleration*/
-    float zacc;              /*< [m/s/s] Z acceleration*/
-    float xgyro;             /*< [rad/s] Angular speed around X axis*/
-    float ygyro;             /*< [rad/s] Angular speed around Y axis*/
-    float zgyro;             /*< [rad/s] Angular speed around Z axis*/
-    float xmag;              /*< [gauss] X Magnetic field*/
-    float ymag;              /*< [gauss] Y Magnetic field*/
-    float zmag;              /*< [gauss] Z Magnetic field*/
-    float abs_pressure;      /*< [hPa] Absolute pressure*/
-    float diff_pressure;     /*< [hPa] Differential pressure*/
-    float pressure_alt;      /*<  Altitude calculated from pressure*/
-    float temperature;       /*< [degC] Temperature*/
-    uint16_t fields_updated; /*<  Bitmap for fields that have updated since last message*/
-    uint8_t id;              /*<  Id. Ids are numbered from 0 and map to IMUs numbered from 1 (e.g. IMU1 will have a message with id=0)*/
-};
 
-enum { MAVLINK_MSG_ID_HIGHRES_IMU_LEN = 63, MAVLINK_MSG_ID_HIGHRES_IMU_MIN_LEN = 62, MAVLINK_MSG_ID_105_LEN = 63, MAVLINK_MSG_ID_105_MIN_LEN = 62 };
+typedef struct __mavlink_highres_imu_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float xacc; /*< [m/s/s] X acceleration*/
+ float yacc; /*< [m/s/s] Y acceleration*/
+ float zacc; /*< [m/s/s] Z acceleration*/
+ float xgyro; /*< [rad/s] Angular speed around X axis*/
+ float ygyro; /*< [rad/s] Angular speed around Y axis*/
+ float zgyro; /*< [rad/s] Angular speed around Z axis*/
+ float xmag; /*< [gauss] X Magnetic field*/
+ float ymag; /*< [gauss] Y Magnetic field*/
+ float zmag; /*< [gauss] Z Magnetic field*/
+ float abs_pressure; /*< [hPa] Absolute pressure*/
+ float diff_pressure; /*< [hPa] Differential pressure*/
+ float pressure_alt; /*<  Altitude calculated from pressure*/
+ float temperature; /*< [degC] Temperature*/
+ uint16_t fields_updated; /*<  Bitmap for fields that have updated since last message*/
+ uint8_t id; /*<  Id. Ids are numbered from 0 and map to IMUs numbered from 1 (e.g. IMU1 will have a message with id=0)*/
+} mavlink_highres_imu_t;
 
-enum { MAVLINK_MSG_ID_HIGHRES_IMU_CRC = 93, MAVLINK_MSG_ID_105_CRC = 93 };
+#define MAVLINK_MSG_ID_HIGHRES_IMU_LEN 63
+#define MAVLINK_MSG_ID_HIGHRES_IMU_MIN_LEN 62
+#define MAVLINK_MSG_ID_105_LEN 63
+#define MAVLINK_MSG_ID_105_MIN_LEN 62
+
+#define MAVLINK_MSG_ID_HIGHRES_IMU_CRC 93
+#define MAVLINK_MSG_ID_105_CRC 93
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIGHRES_IMU { \

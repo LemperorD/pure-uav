@@ -13,10 +13,10 @@ namespace onnxruntime_float16 {
 namespace detail {
 
 enum class endian {
-#ifdef _WIN32
-    little = 0,
-    big = 1,
-    native = little,
+#if defined(_WIN32)
+  little = 0,
+  big = 1,
+  native = little,
 #elif defined(__GNUC__) || defined(__clang__)
   little = __ORDER_LITTLE_ENDIAN__,
   big = __ORDER_BIG_ENDIAN__,
@@ -49,22 +49,22 @@ struct Float16Impl {
   /// Converts float16 to float
   /// </summary>
   /// <returns>float representation of float16 value</returns>
-  [[nodiscard]] float ToFloatImpl() const noexcept;
+  float ToFloatImpl() const noexcept;
 
   /// <summary>
   /// Creates an instance that represents absolute value.
   /// </summary>
   /// <returns>Absolute value</returns>
-  [[nodiscard]] uint16_t AbsImpl() const noexcept {
-      return static_cast<uint16_t>(val & ~kSignMask);
+  uint16_t AbsImpl() const noexcept {
+    return static_cast<uint16_t>(val & ~kSignMask);
   }
 
   /// <summary>
   /// Creates a new instance with the sign flipped.
   /// </summary>
   /// <returns>Flipped sign instance</returns>
-  [[nodiscard]] uint16_t NegateImpl() const noexcept {
-      return IsNaN() ? val : static_cast<uint16_t>(val ^ kSignMask);
+  uint16_t NegateImpl() const noexcept {
+    return IsNaN() ? val : static_cast<uint16_t>(val ^ kSignMask);
   }
 
  public:
@@ -87,96 +87,92 @@ struct Float16Impl {
   /// Checks if the value is negative
   /// </summary>
   /// <returns>true if negative</returns>
-  [[nodiscard]] bool IsNegative() const noexcept {
-      return static_cast<int16_t>(val) < 0;
+  bool IsNegative() const noexcept {
+    return static_cast<int16_t>(val) < 0;
   }
 
   /// <summary>
   /// Tests if the value is NaN
   /// </summary>
   /// <returns>true if NaN</returns>
-  [[nodiscard]] bool IsNaN() const noexcept {
-      return AbsImpl() > kPositiveInfinityBits;
+  bool IsNaN() const noexcept {
+    return AbsImpl() > kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is finite
   /// </summary>
   /// <returns>true if finite</returns>
-  [[nodiscard]] bool IsFinite() const noexcept {
-      return AbsImpl() < kPositiveInfinityBits;
+  bool IsFinite() const noexcept {
+    return AbsImpl() < kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value represents positive infinity.
   /// </summary>
   /// <returns>true if positive infinity</returns>
-  [[nodiscard]] bool IsPositiveInfinity() const noexcept {
-      return val == kPositiveInfinityBits;
+  bool IsPositiveInfinity() const noexcept {
+    return val == kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value represents negative infinity
   /// </summary>
   /// <returns>true if negative infinity</returns>
-  [[nodiscard]] bool IsNegativeInfinity() const noexcept {
-      return val == kNegativeInfinityBits;
+  bool IsNegativeInfinity() const noexcept {
+    return val == kNegativeInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is either positive or negative infinity.
   /// </summary>
   /// <returns>True if absolute value is infinity</returns>
-  [[nodiscard]] bool IsInfinity() const noexcept {
-      return AbsImpl() == kPositiveInfinityBits;
+  bool IsInfinity() const noexcept {
+    return AbsImpl() == kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is NaN or zero. Useful for comparisons.
   /// </summary>
   /// <returns>True if NaN or zero.</returns>
-  [[nodiscard]] bool IsNaNOrZero() const noexcept {
-      auto abs = AbsImpl();
-      return (abs == 0 || abs > kPositiveInfinityBits);
+  bool IsNaNOrZero() const noexcept {
+    auto abs = AbsImpl();
+    return (abs == 0 || abs > kPositiveInfinityBits);
   }
 
   /// <summary>
   /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
   /// </summary>
   /// <returns>True if so</returns>
-  [[nodiscard]] bool IsNormal() const noexcept {
-      auto abs = AbsImpl();
-      return (abs < kPositiveInfinityBits)           // is finite
-             && (abs != 0)                           // is not zero
-             && ((abs & kBiasedExponentMask) != 0);  // is not subnormal (has a non-zero exponent)
+  bool IsNormal() const noexcept {
+    auto abs = AbsImpl();
+    return (abs < kPositiveInfinityBits)           // is finite
+           && (abs != 0)                           // is not zero
+           && ((abs & kBiasedExponentMask) != 0);  // is not subnormal (has a non-zero exponent)
   }
 
   /// <summary>
   /// Tests if the value is subnormal (denormal).
   /// </summary>
   /// <returns>True if so</returns>
-  [[nodiscard]] bool IsSubnormal() const noexcept {
-      auto abs = AbsImpl();
-      return (abs < kPositiveInfinityBits)           // is finite
-             && (abs != 0)                           // is not zero
-             && ((abs & kBiasedExponentMask) == 0);  // is subnormal (has a zero exponent)
+  bool IsSubnormal() const noexcept {
+    auto abs = AbsImpl();
+    return (abs < kPositiveInfinityBits)           // is finite
+           && (abs != 0)                           // is not zero
+           && ((abs & kBiasedExponentMask) == 0);  // is subnormal (has a zero exponent)
   }
 
   /// <summary>
   /// Creates an instance that represents absolute value.
   /// </summary>
   /// <returns>Absolute value</returns>
-  [[nodiscard]] Derived Abs() const noexcept {
-      return Derived::FromBits(AbsImpl());
-  }
+  Derived Abs() const noexcept { return Derived::FromBits(AbsImpl()); }
 
   /// <summary>
   /// Creates a new instance with the sign flipped.
   /// </summary>
   /// <returns>Flipped sign instance</returns>
-  [[nodiscard]] Derived Negate() const noexcept {
-      return Derived::FromBits(NegateImpl());
-  }
+  Derived Negate() const noexcept { return Derived::FromBits(NegateImpl()); }
 
   /// <summary>
   /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check
@@ -213,7 +209,7 @@ struct Float16Impl {
       // says they should be equal, even if the signs differ.
       return left_is_negative && !AreZero(*this, rhs);
     }
-    return (val != rhs.val) && (((val < rhs.val) ^ left_is_negative) != 0);
+    return (val != rhs.val) && ((val < rhs.val) ^ left_is_negative);
   }
 };
 
@@ -247,51 +243,51 @@ union float32_bits {
 }  // namespace detail
 
 template <class Derived>
-constexpr uint16_t Float16Impl<Derived>::ToUint16Impl(float v) noexcept {
-    detail::float32_bits f{};
-    f.f = v;
+inline constexpr uint16_t Float16Impl<Derived>::ToUint16Impl(float v) noexcept {
+  detail::float32_bits f{};
+  f.f = v;
 
-    constexpr detail::float32_bits f32infty = {255 << 23};
-    constexpr detail::float32_bits f16max = {(127 + 16) << 23};
-    constexpr detail::float32_bits denorm_magic = {((127 - 15) + (23 - 10) + 1) << 23};
-    constexpr unsigned int sign_mask = 0x80000000U;
-    auto val = static_cast<uint16_t>(0x0U);
+  constexpr detail::float32_bits f32infty = {255 << 23};
+  constexpr detail::float32_bits f16max = {(127 + 16) << 23};
+  constexpr detail::float32_bits denorm_magic = {((127 - 15) + (23 - 10) + 1) << 23};
+  constexpr unsigned int sign_mask = 0x80000000u;
+  uint16_t val = static_cast<uint16_t>(0x0u);
 
-    unsigned int sign = f.u & sign_mask;
-    f.u ^= sign;
+  unsigned int sign = f.u & sign_mask;
+  f.u ^= sign;
 
-    // NOTE all the integer compares in this function can be safely
-    // compiled into signed compares since all operands are below
-    // 0x80000000. Important if you want fast straight SSE2 code
-    // (since there's no unsigned PCMPGTD).
+  // NOTE all the integer compares in this function can be safely
+  // compiled into signed compares since all operands are below
+  // 0x80000000. Important if you want fast straight SSE2 code
+  // (since there's no unsigned PCMPGTD).
 
-    if (f.u >= f16max.u) {                           // result is Inf or NaN (all exponent bits set)
-        val = (f.u > f32infty.u) ? 0x7e00 : 0x7c00;  // NaN->qNaN and Inf->Inf
-    } else {                                         // (De)normalized number or zero
-        if (f.u < (113 << 23)) {                     // resulting FP16 is subnormal or zero
-            // use a magic value to align our 10 mantissa bits at the bottom of
-            // the float. as long as FP addition is round-to-nearest-even this
-            // just works.
-            f.f += denorm_magic.f;
+  if (f.u >= f16max.u) {                         // result is Inf or NaN (all exponent bits set)
+    val = (f.u > f32infty.u) ? 0x7e00 : 0x7c00;  // NaN->qNaN and Inf->Inf
+  } else {                                       // (De)normalized number or zero
+    if (f.u < (113 << 23)) {                     // resulting FP16 is subnormal or zero
+      // use a magic value to align our 10 mantissa bits at the bottom of
+      // the float. as long as FP addition is round-to-nearest-even this
+      // just works.
+      f.f += denorm_magic.f;
 
-            // and one integer subtract of the bias later, we have our final float!
-            val = static_cast<uint16_t>(f.u - denorm_magic.u);
-        } else {
-            unsigned int mant_odd = (f.u >> 13) & 1;  // resulting mantissa is odd
+      // and one integer subtract of the bias later, we have our final float!
+      val = static_cast<uint16_t>(f.u - denorm_magic.u);
+    } else {
+      unsigned int mant_odd = (f.u >> 13) & 1;  // resulting mantissa is odd
 
-            // update exponent, rounding bias part 1
-            // Equivalent to `f.u += ((unsigned int)(15 - 127) << 23) + 0xfff`, but
-            // without arithmetic overflow.
-            f.u += 0xc8000fffU;
-            // rounding bias part 2
-            f.u += mant_odd;
-            // take the bits!
-            val = static_cast<uint16_t>(f.u >> 13);
-        }
+      // update exponent, rounding bias part 1
+      // Equivalent to `f.u += ((unsigned int)(15 - 127) << 23) + 0xfff`, but
+      // without arithmetic overflow.
+      f.u += 0xc8000fffU;
+      // rounding bias part 2
+      f.u += mant_odd;
+      // take the bits!
+      val = static_cast<uint16_t>(f.u >> 13);
     }
+  }
 
-    val |= static_cast<uint16_t>(sign >> 16);
-    return val;
+  val |= static_cast<uint16_t>(sign >> 16);
+  return val;
 }
 
 template <class Derived>
@@ -340,22 +336,22 @@ struct BFloat16Impl {
   /// Converts bfloat16 to float
   /// </summary>
   /// <returns>float representation of bfloat16 value</returns>
-  [[nodiscard]] float ToFloatImpl() const noexcept;
+  float ToFloatImpl() const noexcept;
 
   /// <summary>
   /// Creates an instance that represents absolute value.
   /// </summary>
   /// <returns>Absolute value</returns>
-  [[nodiscard]] uint16_t AbsImpl() const noexcept {
-      return static_cast<uint16_t>(val & ~kSignMask);
+  uint16_t AbsImpl() const noexcept {
+    return static_cast<uint16_t>(val & ~kSignMask);
   }
 
   /// <summary>
   /// Creates a new instance with the sign flipped.
   /// </summary>
   /// <returns>Flipped sign instance</returns>
-  [[nodiscard]] uint16_t NegateImpl() const noexcept {
-      return IsNaN() ? val : static_cast<uint16_t>(val ^ kSignMask);
+  uint16_t NegateImpl() const noexcept {
+    return IsNaN() ? val : static_cast<uint16_t>(val ^ kSignMask);
   }
 
  public:
@@ -379,96 +375,92 @@ struct BFloat16Impl {
   /// Checks if the value is negative
   /// </summary>
   /// <returns>true if negative</returns>
-  [[nodiscard]] bool IsNegative() const noexcept {
-      return static_cast<int16_t>(val) < 0;
+  bool IsNegative() const noexcept {
+    return static_cast<int16_t>(val) < 0;
   }
 
   /// <summary>
   /// Tests if the value is NaN
   /// </summary>
   /// <returns>true if NaN</returns>
-  [[nodiscard]] bool IsNaN() const noexcept {
-      return AbsImpl() > kPositiveInfinityBits;
+  bool IsNaN() const noexcept {
+    return AbsImpl() > kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is finite
   /// </summary>
   /// <returns>true if finite</returns>
-  [[nodiscard]] bool IsFinite() const noexcept {
-      return AbsImpl() < kPositiveInfinityBits;
+  bool IsFinite() const noexcept {
+    return AbsImpl() < kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value represents positive infinity.
   /// </summary>
   /// <returns>true if positive infinity</returns>
-  [[nodiscard]] bool IsPositiveInfinity() const noexcept {
-      return val == kPositiveInfinityBits;
+  bool IsPositiveInfinity() const noexcept {
+    return val == kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value represents negative infinity
   /// </summary>
   /// <returns>true if negative infinity</returns>
-  [[nodiscard]] bool IsNegativeInfinity() const noexcept {
-      return val == kNegativeInfinityBits;
+  bool IsNegativeInfinity() const noexcept {
+    return val == kNegativeInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is either positive or negative infinity.
   /// </summary>
   /// <returns>True if absolute value is infinity</returns>
-  [[nodiscard]] bool IsInfinity() const noexcept {
-      return AbsImpl() == kPositiveInfinityBits;
+  bool IsInfinity() const noexcept {
+    return AbsImpl() == kPositiveInfinityBits;
   }
 
   /// <summary>
   /// Tests if the value is NaN or zero. Useful for comparisons.
   /// </summary>
   /// <returns>True if NaN or zero.</returns>
-  [[nodiscard]] bool IsNaNOrZero() const noexcept {
-      auto abs = AbsImpl();
-      return (abs == 0 || abs > kPositiveInfinityBits);
+  bool IsNaNOrZero() const noexcept {
+    auto abs = AbsImpl();
+    return (abs == 0 || abs > kPositiveInfinityBits);
   }
 
   /// <summary>
   /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
   /// </summary>
   /// <returns>True if so</returns>
-  [[nodiscard]] bool IsNormal() const noexcept {
-      auto abs = AbsImpl();
-      return (abs < kPositiveInfinityBits)           // is finite
-             && (abs != 0)                           // is not zero
-             && ((abs & kBiasedExponentMask) != 0);  // is not subnormal (has a non-zero exponent)
+  bool IsNormal() const noexcept {
+    auto abs = AbsImpl();
+    return (abs < kPositiveInfinityBits)           // is finite
+           && (abs != 0)                           // is not zero
+           && ((abs & kBiasedExponentMask) != 0);  // is not subnormal (has a non-zero exponent)
   }
 
   /// <summary>
   /// Tests if the value is subnormal (denormal).
   /// </summary>
   /// <returns>True if so</returns>
-  [[nodiscard]] bool IsSubnormal() const noexcept {
-      auto abs = AbsImpl();
-      return (abs < kPositiveInfinityBits)           // is finite
-             && (abs != 0)                           // is not zero
-             && ((abs & kBiasedExponentMask) == 0);  // is subnormal (has a zero exponent)
+  bool IsSubnormal() const noexcept {
+    auto abs = AbsImpl();
+    return (abs < kPositiveInfinityBits)           // is finite
+           && (abs != 0)                           // is not zero
+           && ((abs & kBiasedExponentMask) == 0);  // is subnormal (has a zero exponent)
   }
 
   /// <summary>
   /// Creates an instance that represents absolute value.
   /// </summary>
   /// <returns>Absolute value</returns>
-  [[nodiscard]] Derived Abs() const noexcept {
-      return Derived::FromBits(AbsImpl());
-  }
+  Derived Abs() const noexcept { return Derived::FromBits(AbsImpl()); }
 
   /// <summary>
   /// Creates a new instance with the sign flipped.
   /// </summary>
   /// <returns>Flipped sign instance</returns>
-  [[nodiscard]] Derived Negate() const noexcept {
-      return Derived::FromBits(NegateImpl());
-  }
+  Derived Negate() const noexcept { return Derived::FromBits(NegateImpl()); }
 
   /// <summary>
   /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check

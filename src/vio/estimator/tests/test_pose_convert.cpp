@@ -29,7 +29,7 @@ void expectVec(const Eigen::Vector3d& got, const Eigen::Vector3d& want, double t
 }
 
 void expectQuatIdentity(const pure_uav::VisionPose& p, const char* what) {
-    const double s = (p.q[0] >= 0.0F) ? 1.0 : -1.0;
+    const double s = (p.q[0] >= 0.0f) ? 1.0 : -1.0;
     expectNear(s * p.q[0], 1.0, 1e-5, what);
     expectNear(s * p.q[1], 0.0, 1e-5, what);
     expectNear(s * p.q[2], 0.0, 1e-5, what);
@@ -88,9 +88,8 @@ void testYawAndTranslation() {
     expectVec(Eigen::Vector3d(p.vx, p.vy, p.vz), Eigen::Vector3d(1.0, 0.0, 0.0), 1e-6, "yaw90 v_body");
 
     // q：相对初始化机头转了 +90°（世界 z 向上），在机体系里表现为绕 z 轴 -90°
-    const double c = std::cos(M_PI / 4.0);
-    const double s = std::sin(M_PI / 4.0);
-    const double sign = (p.q[0] >= 0.0F) ? 1.0 : -1.0;
+    const double c = std::cos(M_PI / 4.0), s = std::sin(M_PI / 4.0);
+    const double sign = (p.q[0] >= 0.0f) ? 1.0 : -1.0;
     expectNear(sign * p.q[0], c, 1e-5, "yaw90 qw");
     expectNear(sign * p.q[3], -s, 1e-5, "yaw90 qz");
 }
@@ -104,7 +103,7 @@ void testTiltedInit() {
     conv.reset(R_BtoG0.transpose(), Eigen::Vector3d::Zero());
 
     auto p0 = conv.convert(1.0, R_BtoG0.transpose(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
-    const double sign = (p0.q[0] >= 0.0F) ? 1.0 : -1.0;
+    const double sign = (p0.q[0] >= 0.0f) ? 1.0 : -1.0;
     expectNear(sign * p0.q[0], std::cos(roll / 2.0), 1e-5, "tilt init qw");
     expectNear(sign * p0.q[1], std::sin(roll / 2.0), 1e-5, "tilt init qx");
     expectVec(Eigen::Vector3d(p0.x, p0.y, p0.z), Eigen::Vector3d::Zero(), 1e-6, "tilt init p");

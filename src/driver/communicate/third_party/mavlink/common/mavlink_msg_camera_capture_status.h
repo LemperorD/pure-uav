@@ -3,23 +3,29 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS = 262 };
+#define MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS 262
 
-MAVPACKED(typedef struct MavlinkCameraCaptureStatusT {
-    uint32_t time_boot_ms;      /*< [ms] Timestamp (time since system boot).*/
-    float image_interval;       /*< [s] Image capture interval*/
-    uint32_t recording_time_ms; /*< [ms] Elapsed time since recording started (0: Not supported/available). A GCS should compute recording time and use non-zero values of this field to correct any discrepancy.*/
-    float available_capacity;   /*< [MiB] Available storage capacity.*/
-    uint8_t image_status;       /*<  Current status of image capturing (0: idle, 1: capture in progress, 2: interval set but idle, 3: interval set and capture in progress)*/
-    uint8_t video_status;       /*<  Current status of video capturing (0: idle, 1: capture in progress)*/
-    int32_t image_count;        /*<  Total number of images captured ('forever', or until reset using MAV_CMD_STORAGE_FORMAT).*/
-    uint8_t camera_device_id;   /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-})
-mavlink_camera_capture_status_t;
+MAVPACKED(
+typedef struct __mavlink_camera_capture_status_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ float image_interval; /*< [s] Image capture interval*/
+ uint32_t recording_time_ms; /*< [ms] Elapsed time since recording started (0: Not supported/available). A GCS should compute recording time and use non-zero values of this field to correct any discrepancy.*/
+ float available_capacity; /*< [MiB] Available storage capacity.*/
+ uint8_t image_status; /*<  Current status of image capturing (0: idle, 1: capture in progress, 2: interval set but idle, 3: interval set and capture in progress)*/
+ uint8_t video_status; /*<  Current status of video capturing (0: idle, 1: capture in progress)*/
+ int32_t image_count; /*<  Total number of images captured ('forever', or until reset using MAV_CMD_STORAGE_FORMAT).*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+}) mavlink_camera_capture_status_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_LEN = 23, MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_MIN_LEN = 18, MAVLINK_MSG_ID_262_LEN = 23, MAVLINK_MSG_ID_262_MIN_LEN = 18 };
+#define MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_LEN 23
+#define MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_MIN_LEN 18
+#define MAVLINK_MSG_ID_262_LEN 23
+#define MAVLINK_MSG_ID_262_MIN_LEN 18
 
-enum { MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_CRC = 12, MAVLINK_MSG_ID_262_CRC = 12 };
+#define MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS_CRC 12
+#define MAVLINK_MSG_ID_262_CRC 12
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_CAPTURE_STATUS { \

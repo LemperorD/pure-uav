@@ -14,7 +14,8 @@
 #include "libobsensor/ObSensor.hpp"
 #include "libobsensor/hpp/Error.hpp"
 
-namespace pure_uav::detection {
+namespace pure_uav {
+namespace detection {
 namespace {
 
 uint64_t unixNowUs() {
@@ -36,9 +37,7 @@ std::string profileListString(const std::shared_ptr<ob::StreamProfileList>& list
         } catch (const std::exception&) {
             continue;
         }
-        if (!vp) {
-            continue;
-        }
+        if (!vp) continue;
         os << " " << vp->width() << "x" << vp->height() << "@" << vp->fps() << "f" << formatCode(vp->format());
     }
     return os.str();
@@ -66,7 +65,7 @@ cv::Mat colorFrameToBgr(const std::shared_ptr<ob::ColorFrame>& frame) {
         cv::cvtColor(yuyv, bgr, cv::COLOR_YUV2BGR_YUYV);
         return bgr;
     }
-    return {};
+    return cv::Mat();
 }
 
 }  // namespace
@@ -92,27 +91,19 @@ struct CameraSource::Impl {
             } catch (const std::exception&) {
                 break;
             }
-            if (!frameset) {
-                continue;
-            }
+            if (!frameset) continue;
 
             auto color = frameset->colorFrame();
-            if (!color) {
-                continue;
-            }
+            if (!color) continue;
 
             // host_us 为到达主机的 Unix 微秒；强制单调递增，避免系统时钟回调造成倒退。
             uint64_t host_us = unixNowUs();
-            if (host_us <= last_host_us) {
-                host_us = last_host_us + 1;
-            }
+            if (host_us <= last_host_us) host_us = last_host_us + 1;
             last_host_us = host_us;
             const uint64_t device_us = color->timeStampUs();
 
             cv::Mat bgr = colorFrameToBgr(color);
-            if (bgr.empty() || bgr.type() != CV_8UC3) {
-                continue;
-            }
+            if (bgr.empty() || bgr.type() != CV_8UC3) continue;
 
             CameraFrame frame;
             frame.bgr = std::move(bgr);
@@ -120,9 +111,7 @@ struct CameraSource::Impl {
             frame.device_us = device_us;
             frame.seq = seq.fetch_add(1, std::memory_order_relaxed) + 1;
 
-            if (callback) {
-                callback(frame);
-            }
+            if (callback) callback(frame);
         }
     }
 };
@@ -135,9 +124,7 @@ CameraSource::~CameraSource() {
 }
 
 bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string* error) {
-    if (impl_->running.load()) {
-        return true;
-    }
+    if (impl_->running.load()) return true;
 
     impl_->cfg = cfg;
     impl_->callback = std::move(cb);
@@ -168,7 +155,7 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
         }
 
         if (!profile) {
-            if (error != nullptr) {
+            if (error) {
                 *error = "找不到 " + std::to_string(cfg.width) + "x" + std::to_string(cfg.height) + "@" + std::to_string(cfg.fps) + "fps 的彩色 profile（MJPG/RGB/YUYV 均不可用）";
                 *error += "；可用彩色 profile:" + profileListString(profiles);
             }
@@ -188,13 +175,9 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
         impl_->thread = std::thread([this] { impl_->captureLoop(); });
         return true;
     } catch (const ob::Error& e) {
-        if (error != nullptr) {
-            *error = std::string("Orbbec: ") + e.getMessage();
-        }
+        if (error) *error = std::string("Orbbec: ") + e.getMessage();
     } catch (const std::exception& e) {
-        if (error != nullptr) {
-            *error = std::string("Orbbec: ") + e.what();
-        }
+        if (error) *error = std::string("Orbbec: ") + e.what();
     }
 
     // 失败时把流停掉，避免相机被占着导致下一次重试打不开。
@@ -212,13 +195,9 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
 }
 
 void CameraSource::stop() {
-    if (!impl_) {
-        return;
-    }
+    if (!impl_) return;
     impl_->running.store(false);
-    if (impl_->thread.joinable()) {
-        impl_->thread.join();
-    }
+    if (impl_->thread.joinable()) impl_->thread.join();
     if (impl_->pipe) {
         try {
             impl_->pipe->stop();
@@ -240,4 +219,5 @@ std::string CameraSource::activeProfile() const {
     return impl_ ? impl_->profile : std::string();
 }
 
-}  // namespace pure_uav::detection
+}  // namespace detection
+}  // namespace pure_uav

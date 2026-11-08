@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MOUNT_ORIENTATION = 265 };
+#define MAVLINK_MSG_ID_MOUNT_ORIENTATION 265
 
-using mavlink_mount_orientation_t = struct __mavlink_mount_orientation_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    float roll;            /*< [deg] Roll in global frame (set to NaN for invalid).*/
-    float pitch;           /*< [deg] Pitch in global frame (set to NaN for invalid).*/
-    float yaw;             /*< [deg] Yaw relative to vehicle (set to NaN for invalid).*/
-    float yaw_absolute;    /*< [deg] Yaw in absolute frame relative to Earth's North, north is 0 (set to NaN for invalid).*/
-};
 
-enum { MAVLINK_MSG_ID_MOUNT_ORIENTATION_LEN = 20, MAVLINK_MSG_ID_MOUNT_ORIENTATION_MIN_LEN = 16, MAVLINK_MSG_ID_265_LEN = 20, MAVLINK_MSG_ID_265_MIN_LEN = 16 };
+typedef struct __mavlink_mount_orientation_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ float roll; /*< [deg] Roll in global frame (set to NaN for invalid).*/
+ float pitch; /*< [deg] Pitch in global frame (set to NaN for invalid).*/
+ float yaw; /*< [deg] Yaw relative to vehicle (set to NaN for invalid).*/
+ float yaw_absolute; /*< [deg] Yaw in absolute frame relative to Earth's North, north is 0 (set to NaN for invalid).*/
+} mavlink_mount_orientation_t;
 
-enum { MAVLINK_MSG_ID_MOUNT_ORIENTATION_CRC = 26, MAVLINK_MSG_ID_265_CRC = 26 };
+#define MAVLINK_MSG_ID_MOUNT_ORIENTATION_LEN 20
+#define MAVLINK_MSG_ID_MOUNT_ORIENTATION_MIN_LEN 16
+#define MAVLINK_MSG_ID_265_LEN 20
+#define MAVLINK_MSG_ID_265_MIN_LEN 16
+
+#define MAVLINK_MSG_ID_MOUNT_ORIENTATION_CRC 26
+#define MAVLINK_MSG_ID_265_CRC 26
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MOUNT_ORIENTATION { \

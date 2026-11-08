@@ -99,9 +99,8 @@ public:
    * @param oldest_time Time that we can discard measurements before (in IMU clock)
    */
   void clean_old_imu_measurements(double oldest_time) {
-      if (oldest_time < 0) {
-          return;
-      }
+    if (oldest_time < 0)
+      return;
     auto it0 = imu_data.begin();
     while (it0 != imu_data.end()) {
       if (it0->timestamp < oldest_time) {

@@ -46,7 +46,7 @@ public:
    */
   CamBase(int width, int height) : _width(width), _height(height) {}
 
-  virtual ~CamBase() = default;
+  virtual ~CamBase() {}
 
   /**
    * @brief This will set and update the camera calibration values.
@@ -94,11 +94,10 @@ public:
    * @return 2d vector of normalized coordinates
    */
   Eigen::Vector2d undistort_d(const Eigen::Vector2d &uv_dist) {
-      Eigen::Vector2f ept1;
-      Eigen::Vector2f ept2;
-      ept1 = uv_dist.cast<float>();
-      ept2 = undistort_f(ept1);
-      return ept2.cast<double>();
+    Eigen::Vector2f ept1, ept2;
+    ept1 = uv_dist.cast<float>();
+    ept2 = undistort_f(ept1);
+    return ept2.cast<double>();
   }
 
   /**
@@ -107,14 +106,13 @@ public:
    * @return 2d vector of normalized coordinates
    */
   cv::Point2f undistort_cv(const cv::Point2f &uv_dist) {
-      Eigen::Vector2f ept1;
-      Eigen::Vector2f ept2;
-      ept1 << uv_dist.x, uv_dist.y;
-      ept2 = undistort_f(ept1);
-      cv::Point2f pt_out;
-      pt_out.x = ept2(0);
-      pt_out.y = ept2(1);
-      return pt_out;
+    Eigen::Vector2f ept1, ept2;
+    ept1 << uv_dist.x, uv_dist.y;
+    ept2 = undistort_f(ept1);
+    cv::Point2f pt_out;
+    pt_out.x = ept2(0);
+    pt_out.y = ept2(1);
+    return pt_out;
   }
 
   /**
@@ -130,11 +128,10 @@ public:
    * @return 2d vector of raw uv coordinate
    */
   Eigen::Vector2d distort_d(const Eigen::Vector2d &uv_norm) {
-      Eigen::Vector2f ept1;
-      Eigen::Vector2f ept2;
-      ept1 = uv_norm.cast<float>();
-      ept2 = distort_f(ept1);
-      return ept2.cast<double>();
+    Eigen::Vector2f ept1, ept2;
+    ept1 = uv_norm.cast<float>();
+    ept2 = distort_f(ept1);
+    return ept2.cast<double>();
   }
 
   /**
@@ -143,14 +140,13 @@ public:
    * @return 2d vector of raw uv coordinate
    */
   cv::Point2f distort_cv(const cv::Point2f &uv_norm) {
-      Eigen::Vector2f ept1;
-      Eigen::Vector2f ept2;
-      ept1 << uv_norm.x, uv_norm.y;
-      ept2 = distort_f(ept1);
-      cv::Point2f pt_out;
-      pt_out.x = ept2(0);
-      pt_out.y = ept2(1);
-      return pt_out;
+    Eigen::Vector2f ept1, ept2;
+    ept1 << uv_norm.x, uv_norm.y;
+    ept2 = distort_f(ept1);
+    cv::Point2f pt_out;
+    pt_out.x = ept2(0);
+    pt_out.y = ept2(1);
+    return pt_out;
   }
 
   /**
@@ -171,14 +167,10 @@ public:
   cv::Vec4d get_D() { return camera_d_OPENCV; }
 
   /// Gets the width of the camera images
-  int w() const {
-      return _width;
-  }
+  int w() { return _width; }
 
   /// Gets the height of the camera images
-  int h() const {
-      return _height;
-  }
+  int h() { return _height; }
 
 protected:
   // Cannot construct the base camera class, needs a distortion model

@@ -3,20 +3,25 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GPS_INJECT_DATA = 123 };
+#define MAVLINK_MSG_ID_GPS_INJECT_DATA 123
 
-using mavlink_gps_inject_data_t = struct __mavlink_gps_inject_data_t {
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t len;              /*< [bytes] Data length*/
-    uint8_t data[110];        /*<  Raw data (110 is enough for 12 satellites of RTCMv2)*/
-};
 
-enum { MAVLINK_MSG_ID_GPS_INJECT_DATA_LEN = 113, MAVLINK_MSG_ID_GPS_INJECT_DATA_MIN_LEN = 113, MAVLINK_MSG_ID_123_LEN = 113, MAVLINK_MSG_ID_123_MIN_LEN = 113 };
+typedef struct __mavlink_gps_inject_data_t {
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t len; /*< [bytes] Data length*/
+ uint8_t data[110]; /*<  Raw data (110 is enough for 12 satellites of RTCMv2)*/
+} mavlink_gps_inject_data_t;
 
-enum { MAVLINK_MSG_ID_GPS_INJECT_DATA_CRC = 250, MAVLINK_MSG_ID_123_CRC = 250 };
+#define MAVLINK_MSG_ID_GPS_INJECT_DATA_LEN 113
+#define MAVLINK_MSG_ID_GPS_INJECT_DATA_MIN_LEN 113
+#define MAVLINK_MSG_ID_123_LEN 113
+#define MAVLINK_MSG_ID_123_MIN_LEN 113
 
-enum { MAVLINK_MSG_GPS_INJECT_DATA_FIELD_DATA_LEN = 110 };
+#define MAVLINK_MSG_ID_GPS_INJECT_DATA_CRC 250
+#define MAVLINK_MSG_ID_123_CRC 250
+
+#define MAVLINK_MSG_GPS_INJECT_DATA_FIELD_DATA_LEN 110
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GPS_INJECT_DATA { \
@@ -318,10 +323,11 @@ static inline void mavlink_msg_gps_inject_data_decode(const mavlink_message_t* m
         memset(gps_inject_data, 0, MAVLINK_MSG_ID_GPS_INJECT_DATA_LEN);
     memcpy(gps_inject_data, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gps_inject_data->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

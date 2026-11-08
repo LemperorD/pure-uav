@@ -3,20 +3,25 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SETUP_SIGNING = 256 };
+#define MAVLINK_MSG_ID_SETUP_SIGNING 256
 
-using mavlink_setup_signing_t = struct __mavlink_setup_signing_t {
-    uint64_t initial_timestamp; /*<  initial timestamp*/
-    uint8_t target_system;      /*<  system id of the target*/
-    uint8_t target_component;   /*<  component ID of the target*/
-    uint8_t secret_key[32];     /*<  signing key*/
-};
 
-enum { MAVLINK_MSG_ID_SETUP_SIGNING_LEN = 42, MAVLINK_MSG_ID_SETUP_SIGNING_MIN_LEN = 42, MAVLINK_MSG_ID_256_LEN = 42, MAVLINK_MSG_ID_256_MIN_LEN = 42 };
+typedef struct __mavlink_setup_signing_t {
+ uint64_t initial_timestamp; /*<  initial timestamp*/
+ uint8_t target_system; /*<  system id of the target*/
+ uint8_t target_component; /*<  component ID of the target*/
+ uint8_t secret_key[32]; /*<  signing key*/
+} mavlink_setup_signing_t;
 
-enum { MAVLINK_MSG_ID_SETUP_SIGNING_CRC = 71, MAVLINK_MSG_ID_256_CRC = 71 };
+#define MAVLINK_MSG_ID_SETUP_SIGNING_LEN 42
+#define MAVLINK_MSG_ID_SETUP_SIGNING_MIN_LEN 42
+#define MAVLINK_MSG_ID_256_LEN 42
+#define MAVLINK_MSG_ID_256_MIN_LEN 42
 
-enum { MAVLINK_MSG_SETUP_SIGNING_FIELD_SECRET_KEY_LEN = 32 };
+#define MAVLINK_MSG_ID_SETUP_SIGNING_CRC 71
+#define MAVLINK_MSG_ID_256_CRC 71
+
+#define MAVLINK_MSG_SETUP_SIGNING_FIELD_SECRET_KEY_LEN 32
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SETUP_SIGNING { \
@@ -318,10 +323,11 @@ static inline void mavlink_msg_setup_signing_decode(const mavlink_message_t* msg
         memset(setup_signing, 0, MAVLINK_MSG_ID_SETUP_SIGNING_LEN);
     memcpy(setup_signing, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         setup_signing->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -3,33 +3,40 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE = 146 };
+#define MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE 146
 
-using mavlink_control_system_state_t = struct __mavlink_control_system_state_t {
-    uint64_t time_usec;    /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float x_acc;           /*< [m/s/s] X acceleration in body frame*/
-    float y_acc;           /*< [m/s/s] Y acceleration in body frame*/
-    float z_acc;           /*< [m/s/s] Z acceleration in body frame*/
-    float x_vel;           /*< [m/s] X velocity in body frame*/
-    float y_vel;           /*< [m/s] Y velocity in body frame*/
-    float z_vel;           /*< [m/s] Z velocity in body frame*/
-    float x_pos;           /*< [m] X position in local frame*/
-    float y_pos;           /*< [m] Y position in local frame*/
-    float z_pos;           /*< [m] Z position in local frame*/
-    float airspeed;        /*< [m/s] Airspeed, set to -1 if unknown*/
-    float vel_variance[3]; /*<  Variance of body velocity estimate*/
-    float pos_variance[3]; /*<  Variance in local position*/
-    float q[4];            /*<  The attitude, represented as Quaternion*/
-    float roll_rate;       /*< [rad/s] Angular rate in roll axis*/
-    float pitch_rate;      /*< [rad/s] Angular rate in pitch axis*/
-    float yaw_rate;        /*< [rad/s] Angular rate in yaw axis*/
-};
 
-enum { MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_LEN = 100, MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_MIN_LEN = 100, MAVLINK_MSG_ID_146_LEN = 100, MAVLINK_MSG_ID_146_MIN_LEN = 100 };
+typedef struct __mavlink_control_system_state_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float x_acc; /*< [m/s/s] X acceleration in body frame*/
+ float y_acc; /*< [m/s/s] Y acceleration in body frame*/
+ float z_acc; /*< [m/s/s] Z acceleration in body frame*/
+ float x_vel; /*< [m/s] X velocity in body frame*/
+ float y_vel; /*< [m/s] Y velocity in body frame*/
+ float z_vel; /*< [m/s] Z velocity in body frame*/
+ float x_pos; /*< [m] X position in local frame*/
+ float y_pos; /*< [m] Y position in local frame*/
+ float z_pos; /*< [m] Z position in local frame*/
+ float airspeed; /*< [m/s] Airspeed, set to -1 if unknown*/
+ float vel_variance[3]; /*<  Variance of body velocity estimate*/
+ float pos_variance[3]; /*<  Variance in local position*/
+ float q[4]; /*<  The attitude, represented as Quaternion*/
+ float roll_rate; /*< [rad/s] Angular rate in roll axis*/
+ float pitch_rate; /*< [rad/s] Angular rate in pitch axis*/
+ float yaw_rate; /*< [rad/s] Angular rate in yaw axis*/
+} mavlink_control_system_state_t;
 
-enum { MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_CRC = 103, MAVLINK_MSG_ID_146_CRC = 103 };
+#define MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_LEN 100
+#define MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_MIN_LEN 100
+#define MAVLINK_MSG_ID_146_LEN 100
+#define MAVLINK_MSG_ID_146_MIN_LEN 100
 
-enum { MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_VEL_VARIANCE_LEN = 3, MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_POS_VARIANCE_LEN = 3, MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_Q_LEN = 4 };
+#define MAVLINK_MSG_ID_CONTROL_SYSTEM_STATE_CRC 103
+#define MAVLINK_MSG_ID_146_CRC 103
+
+#define MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_VEL_VARIANCE_LEN 3
+#define MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_POS_VARIANCE_LEN 3
+#define MAVLINK_MSG_CONTROL_SYSTEM_STATE_FIELD_Q_LEN 4
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CONTROL_SYSTEM_STATE { \

@@ -88,7 +88,7 @@ public:
   TrackBase(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
             HistogramMethod histmethod);
 
-  virtual ~TrackBase() = default;
+  virtual ~TrackBase() {}
 
   /**
    * @brief Process a new image
@@ -135,20 +135,18 @@ public:
 
   /// Getter method for active features in the last frame (observations per camera)
   std::unordered_map<size_t, std::vector<cv::KeyPoint>> get_last_obs() {
-      std::scoped_lock lckv(mtx_last_vars);
-      return pts_last;
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    return pts_last;
   }
 
   /// Getter method for active features in the last frame (ids per camera)
   std::unordered_map<size_t, std::vector<size_t>> get_last_ids() {
-      std::scoped_lock lckv(mtx_last_vars);
-      return ids_last;
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    return ids_last;
   }
 
   /// Getter method for number of active features
-  int get_num_features() const {
-      return num_features;
-  }
+  int get_num_features() { return num_features; }
 
   /// Setter method for number of active features
   void set_num_features(int _num_features) { num_features = _num_features; }

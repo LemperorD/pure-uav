@@ -21,15 +21,17 @@
 
 #include "UpdaterMSCKF.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/math/distributions/chi_squared.hpp>
+#include <functional>
 #include <cstdlib>
 #include <fstream>
-#include <functional>
 #include <iomanip>
-#include <memory>
+
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
 
 #include "UpdaterHelper.h"
+
 #include "feat/Feature.h"
 #include "feat/FeatureInitializer.h"
 #include "state/State.h"
@@ -38,6 +40,9 @@
 #include "utils/colors.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
+
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/math/distributions/chi_squared.hpp>
 
 using namespace ov_core;
 using namespace ov_type;
@@ -51,7 +56,7 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
   _options.sigma_pix_sq = std::pow(_options.sigma_pix, 2);
 
   // Save our feature initializer
-  initializer_feat = std::make_shared<ov_core::FeatureInitializer>(feat_init_options);
+  initializer_feat = std::shared_ptr<ov_core::FeatureInitializer>(new ov_core::FeatureInitializer(feat_init_options));
 
   // Initialize the chi squared test table with confidence level 0.95
   // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
@@ -64,19 +69,13 @@ UpdaterMSCKF::UpdaterMSCKF(UpdaterOptions &options, ov_core::FeatureInitializerO
 void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
 
   // Return if no features
-  if (feature_vec.empty()) {
-      return;
-  }
+  if (feature_vec.empty())
+    return;
   ++diag_calls;
   diag_feat_in += static_cast<long long>(feature_vec.size());
 
   // Start timing
-  boost::posix_time::ptime rT0;
-  boost::posix_time::ptime rT1;
-  boost::posix_time::ptime rT2;
-  boost::posix_time::ptime rT3;
-  boost::posix_time::ptime rT4;
-  boost::posix_time::ptime rT5;
+  boost::posix_time::ptime rT0, rT1, rT2, rT3, rT4, rT5;
   rT0 = boost::posix_time::microsec_clock::local_time();
 
   // 0. Get all timestamps our clones are at (and thus valid measurement times)
@@ -147,99 +146,85 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
         const float u0 = uv_list.front()(0);
         const float v0 = uv_list.front()(1);
         const float z_meas = UpdaterMSCKF::DepthLookup::fn(t_anchor, u0, v0);
-        if (z_meas > 0.05F && z_meas < 20.0F) {
-            auto it_cam = clones_cam.find(cam_id0);
-            if (it_cam != clones_cam.end()) {
-                auto it_clone = it_cam->second.find(t_anchor);
-                if (it_clone != it_cam->second.end()) {
-                    Eigen::Vector2d uv_d(u0, v0);
-                    Eigen::Vector2d uv_n = state->_cam_intrinsics_cameras.at(cam_id0)->undistort_d(uv_d);
-                    Eigen::Vector3d b(uv_n(0), uv_n(1), 1.0);
-                    const Eigen::Matrix3d& R_GtoA = it_clone->second.Rot();
-                    const Eigen::Vector3d& p_AinG = it_clone->second.pos();
-                    // p_FinG = p_AinG + R_GtoA^T * (b * Z)
-                    (*it1)->p_FinG = p_AinG + R_GtoA.transpose() * (b * static_cast<double>(z_meas));
-                    ++diag_depth_used;
+        if (z_meas > 0.05f && z_meas < 20.0f) {
+          auto it_cam = clones_cam.find(cam_id0);
+          if (it_cam != clones_cam.end()) {
+            auto it_clone = it_cam->second.find(t_anchor);
+            if (it_clone != it_cam->second.end()) {
+              Eigen::Vector2d uv_d(u0, v0);
+              Eigen::Vector2d uv_n = state->_cam_intrinsics_cameras.at(cam_id0)->undistort_d(uv_d);
+              Eigen::Vector3d b(uv_n(0), uv_n(1), 1.0);
+              const Eigen::Matrix3d &R_GtoA = it_clone->second.Rot();
+              const Eigen::Vector3d &p_AinG = it_clone->second.pos();
+              // p_FinG = p_AinG + R_GtoA^T * (b * Z)
+              (*it1)->p_FinG = p_AinG + R_GtoA.transpose() * (b * static_cast<double>(z_meas));
+              ++diag_depth_used;
 
-                    //=================================================================
-                    // 【2026-10-21 诊断】深度一致性：把"由深度构造的三维点"重新投影回
-                    // 它在窗口内的**所有**观测，看重投影误差。
-                    //   误差 ~1-2 px  → 深度关联是对的
-                    //   误差几十 px   → 深度采到了别的表面（深度不连续处的典型症状）
-                    // 这正是"尺度爆炸"最可能的来源，所以必须量出来。
-                    //=================================================================
-                    {
-                        std::vector<double> errs;
-                        for (const auto& pair : (*it1)->timestamps) {
-                            const size_t cid = pair.first;
-                            auto itc = clones_cam.find(cid);
-                            if (itc == clones_cam.end()) {
-                                continue;
-                            }
-                            auto iti = state->_cam_intrinsics_cameras.find(cid);
-                            if (iti == state->_cam_intrinsics_cameras.end()) {
-                                continue;
-                            }
-                            const auto& uvs_c = (*it1)->uvs.at(cid);
-                            const auto& ts_c = pair.second;
-                            for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
-                                auto itcl = itc->second.find(ts_c[k]);
-                                if (itcl == itc->second.end()) {
-                                    continue;
-                                }
-                                const Eigen::Vector3d P_C = itcl->second.Rot() * ((*it1)->p_FinG - itcl->second.pos());
-                                if (P_C.z() < 0.1) {
-                                    continue;
-                                }
-                                const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
-                                const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
-                                const double du = uv_projected(0) - uvs_c[k](0);
-                                const double dv = uv_projected(1) - uvs_c[k](1);
-                                errs.push_back(std::sqrt((du * du) + (dv * dv)));
-                            }
-                        }
-                        if (!errs.empty()) {
-                            std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
-                            const double med = errs[errs.size() / 2];
-                            // 逐特征导出（时间 + 中位重投影误差），用来区分
-                            // "一开始就错（深度关联问题）" 和 "后来越来越错（滤波器先歪了）"
-                            static std::ofstream derr_of;
-                            static bool derr_checked = false;
-                            if (!derr_checked) {
-                                derr_checked = true;
-                                const char* dp = std::getenv("OV_DIAG_DEPTHERR");
-                                if (dp != nullptr && dp[0] != '\0') {
-                                    derr_of.open(dp, std::ios::out | std::ios::trunc);
-                                    derr_of << "t_anchor,errmodel_reproj_px,nobs\n";
-                                    derr_of.flush();
-                                }
-                            }
-                            if (derr_of.is_open()) {
-                                derr_of << std::fixed << std::setprecision(6) << t_anchor << "," << med << "," << errs.size() << "\n";
-                            }
-                            ++diag_deperr_n;
-                            diag_deperr_sum += med;
-                            if (med < 1.0) {
-                                ++diag_deperr_hist[0];
-                            } else if (med < 2.0) {
-                                ++diag_deperr_hist[1];
-                            } else if (med < 5.0) {
-                                ++diag_deperr_hist[2];
-                            } else if (med < 10.0) {
-                                ++diag_deperr_hist[3];
-                            } else if (med < 25.0) {
-                                ++diag_deperr_hist[4];
-                            } else {
-                                ++diag_deperr_hist[5];
-                            }
-                        }
-                    }
-
-                    ++diag_tri_ok;
-                    it1++;
-                    continue;  // 跳过三角化和精化
+              //=================================================================
+              // 【2026-10-21 诊断】深度一致性：把"由深度构造的三维点"重新投影回
+              // 它在窗口内的**所有**观测，看重投影误差。
+              //   误差 ~1-2 px  → 深度关联是对的
+              //   误差几十 px   → 深度采到了别的表面（深度不连续处的典型症状）
+              // 这正是"尺度爆炸"最可能的来源，所以必须量出来。
+              //=================================================================
+              {
+                std::vector<double> errs;
+                for (const auto &pair : (*it1)->timestamps) {
+                  const size_t cid = pair.first;
+                  auto itc = clones_cam.find(cid);
+                  if (itc == clones_cam.end()) continue;
+                  auto iti = state->_cam_intrinsics_cameras.find(cid);
+                  if (iti == state->_cam_intrinsics_cameras.end()) continue;
+                  const auto &uvs_c = (*it1)->uvs.at(cid);
+                  const auto &ts_c = pair.second;
+                  for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
+                    auto itcl = itc->second.find(ts_c[k]);
+                    if (itcl == itc->second.end()) continue;
+                    const Eigen::Vector3d P_C =
+                        itcl->second.Rot() * ((*it1)->p_FinG - itcl->second.pos());
+                    if (P_C.z() < 0.1) continue;
+                    const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
+                    const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
+                    const double du = uv_projected(0) - uvs_c[k](0);
+                    const double dv = uv_projected(1) - uvs_c[k](1);
+                    errs.push_back(std::sqrt(du * du + dv * dv));
+                  }
                 }
+                if (!errs.empty()) {
+                  std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
+                  const double med = errs[errs.size() / 2];
+                  // 逐特征导出（时间 + 中位重投影误差），用来区分
+                  // "一开始就错（深度关联问题）" 和 "后来越来越错（滤波器先歪了）"
+                  static std::ofstream derr_of;
+                  static bool derr_checked = false;
+                  if (!derr_checked) {
+                    derr_checked = true;
+                    const char *dp = std::getenv("OV_DIAG_DEPTHERR");
+                    if (dp != nullptr && dp[0] != '\0') {
+                      derr_of.open(dp, std::ios::out | std::ios::trunc);
+                      derr_of << "t_anchor,errmodel_reproj_px,nobs\n";
+                      derr_of.flush();
+                    }
+                  }
+                  if (derr_of.is_open())
+                    derr_of << std::fixed << std::setprecision(6) << t_anchor << "," << med << ","
+                            << errs.size() << "\n";
+                  ++diag_deperr_n;
+                  diag_deperr_sum += med;
+                  if (med < 1.0) ++diag_deperr_hist[0];
+                  else if (med < 2.0) ++diag_deperr_hist[1];
+                  else if (med < 5.0) ++diag_deperr_hist[2];
+                  else if (med < 10.0) ++diag_deperr_hist[3];
+                  else if (med < 25.0) ++diag_deperr_hist[4];
+                  else ++diag_deperr_hist[5];
+                }
+              }
+
+              ++diag_tri_ok;
+              it1++;
+              continue;   // 跳过三角化和精化
             }
+          }
         }
       }
     }
@@ -261,11 +246,10 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     // Remove the feature if not a success
     if (!success_tri || !success_refine) {
       ++diag_tri_drop;
-      if (!success_tri) {
-          ++diag_tri_fail_tri;
-      } else {
-          ++diag_tri_fail_refine;
-      }
+      if (!success_tri)
+        ++diag_tri_fail_tri;
+      else
+        ++diag_tri_fail_refine;
       (*it1)->to_delete = true;
       it1 = feature_vec.erase(it1);
       continue;
@@ -277,10 +261,10 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
-  for (auto& i : feature_vec) {
-      for (const auto& pair : i->timestamps) {
-          max_meas_size += 2 * i->timestamps[pair.first].size();
-      }
+  for (size_t i = 0; i < feature_vec.size(); i++) {
+    for (const auto &pair : feature_vec.at(i)->timestamps) {
+      max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    }
   }
 
   // Calculate max possible state size (i.e. the size of our covariance)
@@ -304,9 +288,8 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     return e ? std::atoi(e) : 0;
   }();
   min_accepted_per_frame = min_accept_env;
-  if (eff_chi2_mult < 0.0) {
-      eff_chi2_mult = _options.chi2_multipler;
-  }
+  if (eff_chi2_mult < 0.0)
+    eff_chi2_mult = _options.chi2_multipler;
   const double cur_mult = eff_chi2_mult;
   const long long ok_before = diag_chi2_ok;
 
@@ -369,8 +352,9 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
       const auto &uv_vec = feat.uvs.begin()->second;
       const auto &ts_vec = feat.timestamps.begin()->second;
       const int nobs = (int)std::min(uv_vec.size(), ts_vec.size());
-      for (int k = 0; k < nobs && (2 * k) + 1 < res.rows(); k++) {
-          feat_of << std::fixed << std::setprecision(6) << ts_vec[k] << ',' << uv_vec[k](0) << ',' << uv_vec[k](1) << ',' << res(2 * k) << ',' << res((2 * k) + 1) << '\n';
+      for (int k = 0; k < nobs && 2 * k + 1 < res.rows(); k++) {
+        feat_of << std::fixed << std::setprecision(6) << ts_vec[k] << ',' << uv_vec[k](0) << ',' << uv_vec[k](1) << ','
+                << res(2 * k) << ',' << res(2 * k + 1) << '\n';
       }
     }
 
@@ -464,8 +448,8 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
-  for (auto& f : feature_vec) {
-      f->to_delete = true;
+  for (size_t f = 0; f < feature_vec.size(); f++) {
+    feature_vec[f]->to_delete = true;
   }
 
   // 【2026-10-21】根据这一帧实际通过的数量调整下一帧的门限

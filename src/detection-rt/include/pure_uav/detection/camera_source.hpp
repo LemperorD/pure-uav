@@ -42,7 +42,7 @@ class CameraSource {
     /// 打开彩色流并启动采集线程。
     /// @param[out] error 失败原因（含可用 profile 列表）
     /// @return 成功为 true；已在运行时直接返回 true。
-    static bool start(const CameraConfig& cfg, FrameCallback cb, std::string* error);
+    bool start(const CameraConfig& cfg, FrameCallback cb, std::string* error);
 
     /// 停止采集并释放相机；可重复调用。
     void stop();
@@ -50,7 +50,7 @@ class CameraSource {
     [[nodiscard]] bool running() const;
 
     /// 已打开的实际 profile（"WxH@FPS fmtF"）；未启动时为空。
-    static [[nodiscard]] std::string activeProfile();
+    [[nodiscard]] std::string activeProfile() const;
 
   private:
     struct Impl;

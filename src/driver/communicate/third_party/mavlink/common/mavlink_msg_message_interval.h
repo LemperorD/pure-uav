@@ -3,16 +3,23 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MESSAGE_INTERVAL = 244 };
+#define MAVLINK_MSG_ID_MESSAGE_INTERVAL 244
 
-using mavlink_message_interval_t = struct __mavlink_message_interval_t {
-    int32_t interval_us; /*< [us] The interval between two messages. A value of -1 indicates this stream is disabled, 0 indicates it is not available, > 0 indicates the interval at which it is sent.*/
-    uint16_t message_id; /*<  The ID of the requested MAVLink message. v1.0 is limited to 254 messages.*/
-};
 
-enum { MAVLINK_MSG_ID_MESSAGE_INTERVAL_LEN = 6, MAVLINK_MSG_ID_MESSAGE_INTERVAL_MIN_LEN = 6, MAVLINK_MSG_ID_244_LEN = 6, MAVLINK_MSG_ID_244_MIN_LEN = 6 };
+typedef struct __mavlink_message_interval_t {
+ int32_t interval_us; /*< [us] The interval between two messages. A value of -1 indicates this stream is disabled, 0 indicates it is not available, > 0 indicates the interval at which it is sent.*/
+ uint16_t message_id; /*<  The ID of the requested MAVLink message. v1.0 is limited to 254 messages.*/
+} mavlink_message_interval_t;
 
-enum { MAVLINK_MSG_ID_MESSAGE_INTERVAL_CRC = 95, MAVLINK_MSG_ID_244_CRC = 95 };
+#define MAVLINK_MSG_ID_MESSAGE_INTERVAL_LEN 6
+#define MAVLINK_MSG_ID_MESSAGE_INTERVAL_MIN_LEN 6
+#define MAVLINK_MSG_ID_244_LEN 6
+#define MAVLINK_MSG_ID_244_MIN_LEN 6
+
+#define MAVLINK_MSG_ID_MESSAGE_INTERVAL_CRC 95
+#define MAVLINK_MSG_ID_244_CRC 95
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MESSAGE_INTERVAL { \

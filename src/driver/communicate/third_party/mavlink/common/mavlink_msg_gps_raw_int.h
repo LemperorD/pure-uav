@@ -3,31 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GPS_RAW_INT = 24 };
+#define MAVLINK_MSG_ID_GPS_RAW_INT 24
 
-MAVPACKED(typedef struct MavlinkGpsRawIntT {
-    uint64_t time_usec;         /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    int32_t lat;                /*< [degE7] Latitude (WGS84, EGM96 ellipsoid)*/
-    int32_t lon;                /*< [degE7] Longitude (WGS84, EGM96 ellipsoid)*/
-    int32_t alt;                /*< [mm] Altitude (MSL). Positive for up. Note that virtually all GPS modules provide the MSL altitude in addition to the WGS84 altitude.*/
-    uint16_t eph;               /*<  GPS HDOP horizontal dilution of position (unitless * 100). If unknown, set to: UINT16_MAX*/
-    uint16_t epv;               /*<  GPS VDOP vertical dilution of position (unitless * 100). If unknown, set to: UINT16_MAX*/
-    uint16_t vel;               /*< [cm/s] GPS ground speed. If unknown, set to: UINT16_MAX*/
-    uint16_t cog;               /*< [cdeg] Course over ground (NOT heading, but direction of movement) in degrees * 100, 0.0..359.99 degrees. If unknown, set to: UINT16_MAX*/
-    uint8_t fix_type;           /*<  GPS fix type.*/
-    uint8_t satellites_visible; /*<  Number of satellites visible. If unknown, set to UINT8_MAX*/
-    int32_t alt_ellipsoid;      /*< [mm] Altitude (above WGS84, EGM96 ellipsoid). Positive for up.*/
-    uint32_t h_acc;             /*< [mm] Position uncertainty.*/
-    uint32_t v_acc;             /*< [mm] Altitude uncertainty.*/
-    uint32_t vel_acc;           /*< [mm/s] Speed uncertainty.*/
-    uint32_t hdg_acc;           /*< [degE5] Heading / track uncertainty*/
-    uint16_t yaw;               /*< [cdeg] Yaw in earth frame from north. Use 0 if this GPS does not provide yaw. Use UINT16_MAX if this GPS is configured to provide yaw and is currently unable to provide it. Use 36000 for north.*/
-})
-mavlink_gps_raw_int_t;
+MAVPACKED(
+typedef struct __mavlink_gps_raw_int_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ int32_t lat; /*< [degE7] Latitude (WGS84, EGM96 ellipsoid)*/
+ int32_t lon; /*< [degE7] Longitude (WGS84, EGM96 ellipsoid)*/
+ int32_t alt; /*< [mm] Altitude (MSL). Positive for up. Note that virtually all GPS modules provide the MSL altitude in addition to the WGS84 altitude.*/
+ uint16_t eph; /*<  GPS HDOP horizontal dilution of position (unitless * 100). If unknown, set to: UINT16_MAX*/
+ uint16_t epv; /*<  GPS VDOP vertical dilution of position (unitless * 100). If unknown, set to: UINT16_MAX*/
+ uint16_t vel; /*< [cm/s] GPS ground speed. If unknown, set to: UINT16_MAX*/
+ uint16_t cog; /*< [cdeg] Course over ground (NOT heading, but direction of movement) in degrees * 100, 0.0..359.99 degrees. If unknown, set to: UINT16_MAX*/
+ uint8_t fix_type; /*<  GPS fix type.*/
+ uint8_t satellites_visible; /*<  Number of satellites visible. If unknown, set to UINT8_MAX*/
+ int32_t alt_ellipsoid; /*< [mm] Altitude (above WGS84, EGM96 ellipsoid). Positive for up.*/
+ uint32_t h_acc; /*< [mm] Position uncertainty.*/
+ uint32_t v_acc; /*< [mm] Altitude uncertainty.*/
+ uint32_t vel_acc; /*< [mm/s] Speed uncertainty.*/
+ uint32_t hdg_acc; /*< [degE5] Heading / track uncertainty*/
+ uint16_t yaw; /*< [cdeg] Yaw in earth frame from north. Use 0 if this GPS does not provide yaw. Use UINT16_MAX if this GPS is configured to provide yaw and is currently unable to provide it. Use 36000 for north.*/
+}) mavlink_gps_raw_int_t;
 
-enum { MAVLINK_MSG_ID_GPS_RAW_INT_LEN = 52, MAVLINK_MSG_ID_GPS_RAW_INT_MIN_LEN = 30, MAVLINK_MSG_ID_24_LEN = 52, MAVLINK_MSG_ID_24_MIN_LEN = 30 };
+#define MAVLINK_MSG_ID_GPS_RAW_INT_LEN 52
+#define MAVLINK_MSG_ID_GPS_RAW_INT_MIN_LEN 30
+#define MAVLINK_MSG_ID_24_LEN 52
+#define MAVLINK_MSG_ID_24_MIN_LEN 30
 
-enum { MAVLINK_MSG_ID_GPS_RAW_INT_CRC = 24, MAVLINK_MSG_ID_24_CRC = 24 };
+#define MAVLINK_MSG_ID_GPS_RAW_INT_CRC 24
+#define MAVLINK_MSG_ID_24_CRC 24
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GPS_RAW_INT { \

@@ -22,8 +22,6 @@
 #ifndef OV_INIT_DYNAMICINITIALIZER_H
 #define OV_INIT_DYNAMICINITIALIZER_H
 
-#include <utility>
-
 #include "init/InertialInitializerOptions.h"
 
 namespace ov_core {
@@ -69,8 +67,9 @@ public:
    * @param db Feature tracker database with all features in it
    * @param imu_data_ Shared pointer to our IMU vector of historical information
    */
-  explicit DynamicInitializer(InertialInitializerOptions params_, std::shared_ptr<ov_core::FeatureDatabase> db, std::shared_ptr<std::vector<ov_core::ImuData>> imu_data_) : params(std::move(params_)), _db(std::move(db)), imu_data(std::move(imu_data_)) {
-  }
+  explicit DynamicInitializer(const InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db,
+                              std::shared_ptr<std::vector<ov_core::ImuData>> imu_data_)
+      : params(params_), _db(db), imu_data(imu_data_) {}
 
   /**
    * @brief Try to get the initialized system

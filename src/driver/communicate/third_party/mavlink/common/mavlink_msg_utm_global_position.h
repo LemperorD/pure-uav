@@ -3,34 +3,39 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_UTM_GLOBAL_POSITION = 340 };
+#define MAVLINK_MSG_ID_UTM_GLOBAL_POSITION 340
 
-using mavlink_utm_global_position_t = struct __mavlink_utm_global_position_t {
-    uint64_t time;        /*< [us] Time of applicability of position (microseconds since UNIX epoch).*/
-    int32_t lat;          /*< [degE7] Latitude (WGS84)*/
-    int32_t lon;          /*< [degE7] Longitude (WGS84)*/
-    int32_t alt;          /*< [mm] Altitude (WGS84)*/
-    int32_t relative_alt; /*< [mm] Altitude above ground*/
-    int32_t next_lat;     /*< [degE7] Next waypoint, latitude (WGS84)*/
-    int32_t next_lon;     /*< [degE7] Next waypoint, longitude (WGS84)*/
-    int32_t next_alt;     /*< [mm] Next waypoint, altitude (WGS84)*/
-    int16_t vx;           /*< [cm/s] Ground X speed (latitude, positive north)*/
-    int16_t vy;           /*< [cm/s] Ground Y speed (longitude, positive east)*/
-    int16_t vz;           /*< [cm/s] Ground Z speed (altitude, positive down)*/
-    uint16_t h_acc;       /*< [mm] Horizontal position uncertainty (standard deviation)*/
-    uint16_t v_acc;       /*< [mm] Altitude uncertainty (standard deviation)*/
-    uint16_t vel_acc;     /*< [cm/s] Speed uncertainty (standard deviation)*/
-    uint16_t update_rate; /*< [cs] Time until next update. Set to 0 if unknown or in data driven mode.*/
-    uint8_t uas_id[18];   /*<  Unique UAS ID.*/
-    uint8_t flight_state; /*<  Flight state*/
-    uint8_t flags;        /*<  Bitwise OR combination of the data available flags.*/
-};
 
-enum { MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_LEN = 70, MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_MIN_LEN = 70, MAVLINK_MSG_ID_340_LEN = 70, MAVLINK_MSG_ID_340_MIN_LEN = 70 };
+typedef struct __mavlink_utm_global_position_t {
+ uint64_t time; /*< [us] Time of applicability of position (microseconds since UNIX epoch).*/
+ int32_t lat; /*< [degE7] Latitude (WGS84)*/
+ int32_t lon; /*< [degE7] Longitude (WGS84)*/
+ int32_t alt; /*< [mm] Altitude (WGS84)*/
+ int32_t relative_alt; /*< [mm] Altitude above ground*/
+ int32_t next_lat; /*< [degE7] Next waypoint, latitude (WGS84)*/
+ int32_t next_lon; /*< [degE7] Next waypoint, longitude (WGS84)*/
+ int32_t next_alt; /*< [mm] Next waypoint, altitude (WGS84)*/
+ int16_t vx; /*< [cm/s] Ground X speed (latitude, positive north)*/
+ int16_t vy; /*< [cm/s] Ground Y speed (longitude, positive east)*/
+ int16_t vz; /*< [cm/s] Ground Z speed (altitude, positive down)*/
+ uint16_t h_acc; /*< [mm] Horizontal position uncertainty (standard deviation)*/
+ uint16_t v_acc; /*< [mm] Altitude uncertainty (standard deviation)*/
+ uint16_t vel_acc; /*< [cm/s] Speed uncertainty (standard deviation)*/
+ uint16_t update_rate; /*< [cs] Time until next update. Set to 0 if unknown or in data driven mode.*/
+ uint8_t uas_id[18]; /*<  Unique UAS ID.*/
+ uint8_t flight_state; /*<  Flight state*/
+ uint8_t flags; /*<  Bitwise OR combination of the data available flags.*/
+} mavlink_utm_global_position_t;
 
-enum { MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_CRC = 99, MAVLINK_MSG_ID_340_CRC = 99 };
+#define MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_LEN 70
+#define MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_MIN_LEN 70
+#define MAVLINK_MSG_ID_340_LEN 70
+#define MAVLINK_MSG_ID_340_MIN_LEN 70
 
-enum { MAVLINK_MSG_UTM_GLOBAL_POSITION_FIELD_UAS_ID_LEN = 18 };
+#define MAVLINK_MSG_ID_UTM_GLOBAL_POSITION_CRC 99
+#define MAVLINK_MSG_ID_340_CRC 99
+
+#define MAVLINK_MSG_UTM_GLOBAL_POSITION_FIELD_UAS_ID_LEN 18
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_UTM_GLOBAL_POSITION { \

@@ -27,14 +27,14 @@ class OfflineDataset {
   public:
     bool load(const std::string& dataset_dir, std::string* error);
 
-    [[nodiscard]] const std::vector<DatasetImage>& images() const {
+    const std::vector<DatasetImage>& images() const {
         return images_;
     }
-    [[nodiscard]] const std::vector<ImuSample>& imu() const {
+    const std::vector<ImuSample>& imu() const {
         return imu_;
     }
 
-    [[nodiscard]] const std::string& dir() const {
+    const std::string& dir() const {
         return dir_;
     }
 

@@ -16,9 +16,7 @@
 
 namespace {
 void check(bool ok) {
-    if (!ok) {
-        throw std::runtime_error("onboard runtime regression failed");
-    }
+    if (!ok) throw std::runtime_error("onboard runtime regression failed");
 }
 std::mutex gate_mutex;
 std::condition_variable gate;
@@ -30,12 +28,12 @@ namespace pure_uav::detection {
 struct CameraSource::Impl {};
 CameraSource::CameraSource() = default;
 CameraSource::~CameraSource() = default;
-bool CameraSource::start(const CameraConfig& /*unused*/, FrameCallback /*unused*/, std::string* /*unused*/) {
+bool CameraSource::start(const CameraConfig&, FrameCallback, std::string*) {
     throw std::runtime_error("external mode must not open a camera");
 }
 void CameraSource::stop() {
 }
-std::string CameraSource::activeProfile() {
+std::string CameraSource::activeProfile() const {
     return {};
 }
 struct YoloCpu::Impl {
@@ -44,20 +42,18 @@ struct YoloCpu::Impl {
 YoloCpu::YoloCpu() : impl_(std::make_unique<Impl>()) {
 }
 YoloCpu::~YoloCpu() = default;
-bool YoloCpu::load(const std::string& /*unused*/, int /*unused*/, std::string& /*unused*/) {
+bool YoloCpu::load(const std::string&, int, std::string&) {
     return true;
 }
-bool YoloCpu::infer(const cv::Mat& image, YoloOutputView& out, std::string& /*unused*/) {
+bool YoloCpu::infer(const cv::Mat& image, YoloOutputView& out, std::string&) {
     {
         std::unique_lock<std::mutex> lock(gate_mutex);
         entered = true;
         gate.notify_all();
-        if (!gate.wait_for(lock, std::chrono::seconds(3), [] { return released; })) {
-            return false;
-        }
+        if (!gate.wait_for(lock, std::chrono::seconds(3), [] { return released; })) return false;
     }
     check(!image.empty() && image.at<cv::Vec3b>(0, 0)[0] == 7);
-    static const float output[] = {320, 240, 40, 20, 0.9F, 0.1F};
+    static const float output[] = {320, 240, 40, 20, 0.9f, 0.1f};
     out.data = output;
     out.channels = 6;
     out.anchors = 1;
@@ -81,13 +77,10 @@ void testQueue() {
     check(queue.pop(value) && value == 3 && !queue.pop(value));
     std::atomic<bool> done{false};
     std::thread producer([&] {
-        for (int i = 1; i <= 10000; ++i) {
-            queue.push(i);
-        }
+        for (int i = 1; i <= 10000; ++i) queue.push(i);
         done = true;
     });
-    int previous = 0;
-    int consumed = 0;
+    int previous = 0, consumed = 0;
     while (!done.load()) {
         if (queue.pop(value)) {
             check(value > previous);
@@ -124,7 +117,7 @@ void testExternalDetector() {
     detector.submitFrame(frame, 102, 202, 3, 302);
     frame.release();
     {
-        std::scoped_lock lock(gate_mutex);
+        std::lock_guard<std::mutex> lock(gate_mutex);
         released = true;
     }
     gate.notify_all();
@@ -132,9 +125,7 @@ void testExternalDetector() {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline) {
         detector.poll(result);
-        if (result.seq == 3) {
-            break;
-        }
+        if (result.seq == 3) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     check(result.seq == 3 && result.host_us == 102 && result.device_us == 202 && result.host_monotonic_ns == 302);
@@ -183,7 +174,7 @@ void testPixelOnlyGuidance() {
             sample.v = Vec3{5, 0, 0};
             return true;
         }
-        [[nodiscard]] bool alive() const override {
+        bool alive() const override {
             return true;
         }
     } ins;
@@ -199,7 +190,7 @@ void testPixelOnlyGuidance() {
             sample.v_px = 240;
             return true;
         }
-        [[nodiscard]] bool alive() const override {
+        bool alive() const override {
             return true;
         }
     } target;
@@ -211,9 +202,7 @@ void testPixelOnlyGuidance() {
     params.loop.cam.cy = 240;
     // 相机 Z 向前，机体 X 向前。
     const double rotation[] = {0, 0, 1, 1, 0, 0, 0, 1, 0};
-    for (int i = 0; i < 9; ++i) {
-        params.loop.cam.R_body_cam[i] = rotation[i];
-    }
+    for (int i = 0; i < 9; ++i) params.loop.cam.R_body_cam[i] = rotation[i];
     flight::GuidanceNullSink sink;
     flight::GuidanceLoop loop(params.guidance, params.loop, ins, target, sink);
     check(loop.init());
@@ -234,7 +223,7 @@ int main() {
         return 0;
     } catch (const std::exception& error) {
         {
-            std::scoped_lock lock(gate_mutex);
+            std::lock_guard<std::mutex> lock(gate_mutex);
             released = true;
         }
         gate.notify_all();

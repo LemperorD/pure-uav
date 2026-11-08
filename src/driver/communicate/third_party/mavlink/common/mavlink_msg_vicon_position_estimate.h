@@ -3,24 +3,29 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE = 104 };
+#define MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE 104
 
-using mavlink_vicon_position_estimate_t = struct __mavlink_vicon_position_estimate_t {
-    uint64_t usec;        /*< [us] Timestamp (UNIX time or time since system boot)*/
-    float x;              /*< [m] Global X position*/
-    float y;              /*< [m] Global Y position*/
-    float z;              /*< [m] Global Z position*/
-    float roll;           /*< [rad] Roll angle*/
-    float pitch;          /*< [rad] Pitch angle*/
-    float yaw;            /*< [rad] Yaw angle*/
-    float covariance[21]; /*<  Row-major representation of 6x6 pose cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
-};
 
-enum { MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_LEN = 116, MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_MIN_LEN = 32, MAVLINK_MSG_ID_104_LEN = 116, MAVLINK_MSG_ID_104_MIN_LEN = 32 };
+typedef struct __mavlink_vicon_position_estimate_t {
+ uint64_t usec; /*< [us] Timestamp (UNIX time or time since system boot)*/
+ float x; /*< [m] Global X position*/
+ float y; /*< [m] Global Y position*/
+ float z; /*< [m] Global Z position*/
+ float roll; /*< [rad] Roll angle*/
+ float pitch; /*< [rad] Pitch angle*/
+ float yaw; /*< [rad] Yaw angle*/
+ float covariance[21]; /*<  Row-major representation of 6x6 pose cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
+} mavlink_vicon_position_estimate_t;
 
-enum { MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_CRC = 56, MAVLINK_MSG_ID_104_CRC = 56 };
+#define MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_LEN 116
+#define MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_MIN_LEN 32
+#define MAVLINK_MSG_ID_104_LEN 116
+#define MAVLINK_MSG_ID_104_MIN_LEN 32
 
-enum { MAVLINK_MSG_VICON_POSITION_ESTIMATE_FIELD_COVARIANCE_LEN = 21 };
+#define MAVLINK_MSG_ID_VICON_POSITION_ESTIMATE_CRC 56
+#define MAVLINK_MSG_ID_104_CRC 56
+
+#define MAVLINK_MSG_VICON_POSITION_ESTIMATE_FIELD_COVARIANCE_LEN 21
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VICON_POSITION_ESTIMATE { \

@@ -3,21 +3,25 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_PARAM_REQUEST_READ = 20 };
+#define MAVLINK_MSG_ID_PARAM_REQUEST_READ 20
 
-using mavlink_param_request_read_t = struct __mavlink_param_request_read_t {
-    int16_t param_index;      /*<  Parameter index. Send -1 to use the param ID field as identifier (else the param id will be ignored)*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    char
-        param_id[16]; /*<  Onboard parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
-};
 
-enum { MAVLINK_MSG_ID_PARAM_REQUEST_READ_LEN = 20, MAVLINK_MSG_ID_PARAM_REQUEST_READ_MIN_LEN = 20, MAVLINK_MSG_ID_20_LEN = 20, MAVLINK_MSG_ID_20_MIN_LEN = 20 };
+typedef struct __mavlink_param_request_read_t {
+ int16_t param_index; /*<  Parameter index. Send -1 to use the param ID field as identifier (else the param id will be ignored)*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ char param_id[16]; /*<  Onboard parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
+} mavlink_param_request_read_t;
 
-enum { MAVLINK_MSG_ID_PARAM_REQUEST_READ_CRC = 214, MAVLINK_MSG_ID_20_CRC = 214 };
+#define MAVLINK_MSG_ID_PARAM_REQUEST_READ_LEN 20
+#define MAVLINK_MSG_ID_PARAM_REQUEST_READ_MIN_LEN 20
+#define MAVLINK_MSG_ID_20_LEN 20
+#define MAVLINK_MSG_ID_20_MIN_LEN 20
 
-enum { MAVLINK_MSG_PARAM_REQUEST_READ_FIELD_PARAM_ID_LEN = 16 };
+#define MAVLINK_MSG_ID_PARAM_REQUEST_READ_CRC 214
+#define MAVLINK_MSG_ID_20_CRC 214
+
+#define MAVLINK_MSG_PARAM_REQUEST_READ_FIELD_PARAM_ID_LEN 16
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PARAM_REQUEST_READ { \
@@ -319,10 +323,11 @@ static inline void mavlink_msg_param_request_read_decode(const mavlink_message_t
         memset(param_request_read, 0, MAVLINK_MSG_ID_PARAM_REQUEST_READ_LEN);
     memcpy(param_request_read, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         param_request_read->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

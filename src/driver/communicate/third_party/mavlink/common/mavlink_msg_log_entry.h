@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_LOG_ENTRY = 118 };
+#define MAVLINK_MSG_ID_LOG_ENTRY 118
 
-using mavlink_log_entry_t = struct __mavlink_log_entry_t {
-    uint32_t time_utc;     /*< [s] UTC timestamp of log since 1970, or 0 if not available*/
-    uint32_t size;         /*< [bytes] Size of the log (may be approximate)*/
-    uint16_t id;           /*<  Log id*/
-    uint16_t num_logs;     /*<  Total number of logs*/
-    uint16_t last_log_num; /*<  High log number*/
-};
 
-enum { MAVLINK_MSG_ID_LOG_ENTRY_LEN = 14, MAVLINK_MSG_ID_LOG_ENTRY_MIN_LEN = 14, MAVLINK_MSG_ID_118_LEN = 14, MAVLINK_MSG_ID_118_MIN_LEN = 14 };
+typedef struct __mavlink_log_entry_t {
+ uint32_t time_utc; /*< [s] UTC timestamp of log since 1970, or 0 if not available*/
+ uint32_t size; /*< [bytes] Size of the log (may be approximate)*/
+ uint16_t id; /*<  Log id*/
+ uint16_t num_logs; /*<  Total number of logs*/
+ uint16_t last_log_num; /*<  High log number*/
+} mavlink_log_entry_t;
 
-enum { MAVLINK_MSG_ID_LOG_ENTRY_CRC = 56, MAVLINK_MSG_ID_118_CRC = 56 };
+#define MAVLINK_MSG_ID_LOG_ENTRY_LEN 14
+#define MAVLINK_MSG_ID_LOG_ENTRY_MIN_LEN 14
+#define MAVLINK_MSG_ID_118_LEN 14
+#define MAVLINK_MSG_ID_118_MIN_LEN 14
+
+#define MAVLINK_MSG_ID_LOG_ENTRY_CRC 56
+#define MAVLINK_MSG_ID_118_CRC 56
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOG_ENTRY { \

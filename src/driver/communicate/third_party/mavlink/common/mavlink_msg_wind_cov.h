@@ -3,23 +3,30 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_WIND_COV = 231 };
+#define MAVLINK_MSG_ID_WIND_COV 231
 
-using mavlink_wind_cov_t = struct __mavlink_wind_cov_t {
-    uint64_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float wind_x;         /*< [m/s] Wind in North (NED) direction (NAN if unknown)*/
-    float wind_y;         /*< [m/s] Wind in East (NED) direction (NAN if unknown)*/
-    float wind_z;         /*< [m/s] Wind in down (NED) direction (NAN if unknown)*/
-    float var_horiz;      /*< [m/s] Variability of wind in XY, 1-STD estimated from a 1 Hz lowpassed wind estimate (NAN if unknown)*/
-    float var_vert;       /*< [m/s] Variability of wind in Z, 1-STD estimated from a 1 Hz lowpassed wind estimate (NAN if unknown)*/
-    float wind_alt;       /*< [m] Altitude (MSL) that this measurement was taken at (NAN if unknown)*/
-    float horiz_accuracy; /*< [m/s] Horizontal speed 1-STD accuracy (0 if unknown)*/
-    float vert_accuracy;  /*< [m/s] Vertical speed 1-STD accuracy (0 if unknown)*/
-};
 
-enum { MAVLINK_MSG_ID_WIND_COV_LEN = 40, MAVLINK_MSG_ID_WIND_COV_MIN_LEN = 40, MAVLINK_MSG_ID_231_LEN = 40, MAVLINK_MSG_ID_231_MIN_LEN = 40 };
+typedef struct __mavlink_wind_cov_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float wind_x; /*< [m/s] Wind in North (NED) direction (NAN if unknown)*/
+ float wind_y; /*< [m/s] Wind in East (NED) direction (NAN if unknown)*/
+ float wind_z; /*< [m/s] Wind in down (NED) direction (NAN if unknown)*/
+ float var_horiz; /*< [m/s] Variability of wind in XY, 1-STD estimated from a 1 Hz lowpassed wind estimate (NAN if unknown)*/
+ float var_vert; /*< [m/s] Variability of wind in Z, 1-STD estimated from a 1 Hz lowpassed wind estimate (NAN if unknown)*/
+ float wind_alt; /*< [m] Altitude (MSL) that this measurement was taken at (NAN if unknown)*/
+ float horiz_accuracy; /*< [m/s] Horizontal speed 1-STD accuracy (0 if unknown)*/
+ float vert_accuracy; /*< [m/s] Vertical speed 1-STD accuracy (0 if unknown)*/
+} mavlink_wind_cov_t;
 
-enum { MAVLINK_MSG_ID_WIND_COV_CRC = 105, MAVLINK_MSG_ID_231_CRC = 105 };
+#define MAVLINK_MSG_ID_WIND_COV_LEN 40
+#define MAVLINK_MSG_ID_WIND_COV_MIN_LEN 40
+#define MAVLINK_MSG_ID_231_LEN 40
+#define MAVLINK_MSG_ID_231_MIN_LEN 40
+
+#define MAVLINK_MSG_ID_WIND_COV_CRC 105
+#define MAVLINK_MSG_ID_231_CRC 105
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_WIND_COV { \

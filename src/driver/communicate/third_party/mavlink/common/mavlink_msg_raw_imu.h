@@ -3,27 +3,33 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_RAW_IMU = 27 };
+#define MAVLINK_MSG_ID_RAW_IMU 27
 
-MAVPACKED(typedef struct MavlinkRawImuT {
-    uint64_t time_usec;  /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    int16_t xacc;        /*<  X acceleration (raw)*/
-    int16_t yacc;        /*<  Y acceleration (raw)*/
-    int16_t zacc;        /*<  Z acceleration (raw)*/
-    int16_t xgyro;       /*<  Angular speed around X axis (raw)*/
-    int16_t ygyro;       /*<  Angular speed around Y axis (raw)*/
-    int16_t zgyro;       /*<  Angular speed around Z axis (raw)*/
-    int16_t xmag;        /*<  X Magnetic field (raw)*/
-    int16_t ymag;        /*<  Y Magnetic field (raw)*/
-    int16_t zmag;        /*<  Z Magnetic field (raw)*/
-    uint8_t id;          /*<  Id. Ids are numbered from 0 and map to IMUs numbered from 1 (e.g. IMU1 will have a message with id=0)*/
-    int16_t temperature; /*< [cdegC] Temperature, 0: IMU does not provide temperature values. If the IMU is at 0C it must send 1 (0.01C).*/
-})
-mavlink_raw_imu_t;
+MAVPACKED(
+typedef struct __mavlink_raw_imu_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ int16_t xacc; /*<  X acceleration (raw)*/
+ int16_t yacc; /*<  Y acceleration (raw)*/
+ int16_t zacc; /*<  Z acceleration (raw)*/
+ int16_t xgyro; /*<  Angular speed around X axis (raw)*/
+ int16_t ygyro; /*<  Angular speed around Y axis (raw)*/
+ int16_t zgyro; /*<  Angular speed around Z axis (raw)*/
+ int16_t xmag; /*<  X Magnetic field (raw)*/
+ int16_t ymag; /*<  Y Magnetic field (raw)*/
+ int16_t zmag; /*<  Z Magnetic field (raw)*/
+ uint8_t id; /*<  Id. Ids are numbered from 0 and map to IMUs numbered from 1 (e.g. IMU1 will have a message with id=0)*/
+ int16_t temperature; /*< [cdegC] Temperature, 0: IMU does not provide temperature values. If the IMU is at 0C it must send 1 (0.01C).*/
+}) mavlink_raw_imu_t;
 
-enum { MAVLINK_MSG_ID_RAW_IMU_LEN = 29, MAVLINK_MSG_ID_RAW_IMU_MIN_LEN = 26, MAVLINK_MSG_ID_27_LEN = 29, MAVLINK_MSG_ID_27_MIN_LEN = 26 };
+#define MAVLINK_MSG_ID_RAW_IMU_LEN 29
+#define MAVLINK_MSG_ID_RAW_IMU_MIN_LEN 26
+#define MAVLINK_MSG_ID_27_LEN 29
+#define MAVLINK_MSG_ID_27_MIN_LEN 26
 
-enum { MAVLINK_MSG_ID_RAW_IMU_CRC = 144, MAVLINK_MSG_ID_27_CRC = 144 };
+#define MAVLINK_MSG_ID_RAW_IMU_CRC 144
+#define MAVLINK_MSG_ID_27_CRC 144
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RAW_IMU { \

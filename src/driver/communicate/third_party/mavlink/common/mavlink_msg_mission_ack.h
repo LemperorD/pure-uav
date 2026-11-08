@@ -3,25 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MISSION_ACK = 47 };
+#define MAVLINK_MSG_ID_MISSION_ACK 47
 
-using mavlink_mission_ack_t = struct __mavlink_mission_ack_t {
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t type;             /*<  Mission result.*/
-    uint8_t mission_type;     /*<  Mission type.*/
-    uint32_t opaque_id;       /*<  Id of new on-vehicle mission, fence, or rally point plan (on upload to vehicle).
-                 The id is calculated and returned by a vehicle when a new plan is uploaded by a GCS.
-                 The only requirement on the id is that it must change when there is any change to the on-vehicle plan type (there is no requirement that the id be globally unique).
-                 0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
-                 0 if plan ids are not supported.
-                 The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-               */
-};
 
-enum { MAVLINK_MSG_ID_MISSION_ACK_LEN = 8, MAVLINK_MSG_ID_MISSION_ACK_MIN_LEN = 3, MAVLINK_MSG_ID_47_LEN = 8, MAVLINK_MSG_ID_47_MIN_LEN = 3 };
+typedef struct __mavlink_mission_ack_t {
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t type; /*<  Mission result.*/
+ uint8_t mission_type; /*<  Mission type.*/
+ uint32_t opaque_id; /*<  Id of new on-vehicle mission, fence, or rally point plan (on upload to vehicle).
+        The id is calculated and returned by a vehicle when a new plan is uploaded by a GCS.
+        The only requirement on the id is that it must change when there is any change to the on-vehicle plan type (there is no requirement that the id be globally unique).
+        0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
+        0 if plan ids are not supported.
+        The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
+      */
+} mavlink_mission_ack_t;
 
-enum { MAVLINK_MSG_ID_MISSION_ACK_CRC = 153, MAVLINK_MSG_ID_47_CRC = 153 };
+#define MAVLINK_MSG_ID_MISSION_ACK_LEN 8
+#define MAVLINK_MSG_ID_MISSION_ACK_MIN_LEN 3
+#define MAVLINK_MSG_ID_47_LEN 8
+#define MAVLINK_MSG_ID_47_MIN_LEN 3
+
+#define MAVLINK_MSG_ID_MISSION_ACK_CRC 153
+#define MAVLINK_MSG_ID_47_CRC 153
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_ACK { \
@@ -64,7 +71,7 @@ enum { MAVLINK_MSG_ID_MISSION_ACK_CRC = 153, MAVLINK_MSG_ID_47_CRC = 153 };
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-      
+
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack(uint32_t system_id, uint8_t component_id, mavlink_message_t* msg,
@@ -111,7 +118,7 @@ static inline uint16_t mavlink_msg_mission_ack_pack(uint32_t system_id, uint8_t 
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-      
+
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack_status(uint32_t system_id, uint8_t component_id, mavlink_status_t *_status, mavlink_message_t* msg,
@@ -161,7 +168,7 @@ static inline uint16_t mavlink_msg_mission_ack_pack_status(uint32_t system_id, u
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-      
+
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack_chan(uint32_t system_id, uint8_t component_id, uint8_t chan,
@@ -247,7 +254,7 @@ static inline uint16_t mavlink_msg_mission_ack_encode_status(uint32_t system_id,
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-      
+
  */
 #ifdef MAVLINK_USE_CONVENIENCE_FUNCTIONS
 
@@ -364,7 +371,7 @@ static inline uint8_t mavlink_msg_mission_ack_get_mission_type(const mavlink_mes
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-      
+
  */
 static inline uint32_t mavlink_msg_mission_ack_get_opaque_id(const mavlink_message_t* msg)
 {
@@ -390,10 +397,11 @@ static inline void mavlink_msg_mission_ack_decode(const mavlink_message_t* msg, 
         memset(mission_ack, 0, MAVLINK_MSG_ID_MISSION_ACK_LEN);
     memcpy(mission_ack, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         mission_ack->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

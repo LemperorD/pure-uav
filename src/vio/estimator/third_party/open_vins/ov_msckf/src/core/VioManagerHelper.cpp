@@ -81,9 +81,9 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
   // Note that we lock on the queue since we could have finished an update
   // And are using this queue to propagate the state forward. We should wait in this case
   if (thread_init_running) {
-      std::scoped_lock lck(camera_queue_init_mtx);
-      camera_queue_init.push_back(message.timestamp);
-      return false;
+    std::lock_guard<std::mutex> lck(camera_queue_init_mtx);
+    camera_queue_init.push_back(message.timestamp);
+    return false;
   }
 
   // If the thread was a success, then return success!
@@ -167,12 +167,12 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 
       // Remove any camera times that are order then the initialized time
       // This can happen if the initialization has taken a while to perform
-      std::scoped_lock lck(camera_queue_init_mtx);
+      std::lock_guard<std::mutex> lck(camera_queue_init_mtx);
       std::vector<double> camera_timestamps_to_init;
-      for (double i : camera_queue_init) {
-          if (i > timestamp) {
-              camera_timestamps_to_init.push_back(i);
-          }
+      for (size_t i = 0; i < camera_queue_init.size(); i++) {
+        if (camera_queue_init.at(i) > timestamp) {
+          camera_timestamps_to_init.push_back(camera_queue_init.at(i));
+        }
       }
 
       // Now we have initialized we will propagate the state to the current timestep
@@ -191,7 +191,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       auto init_rT2 = boost::posix_time::microsec_clock::local_time();
       PRINT_DEBUG(YELLOW "[init]: failed initialization in %.4f seconds\n" RESET, (init_rT2 - init_rT1).total_microseconds() * 1e-6);
       thread_init_success = false;
-      std::scoped_lock lck(camera_queue_init_mtx);
+      std::lock_guard<std::mutex> lck(camera_queue_init_mtx);
       camera_queue_init.clear();
     }
 
@@ -212,9 +212,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
 void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message) {
 
   // Start timing
-  boost::posix_time::ptime retri_rT1;
-  boost::posix_time::ptime retri_rT2;
-  boost::posix_time::ptime retri_rT3;
+  boost::posix_time::ptime retri_rT1, retri_rT2, retri_rT3;
   retri_rT1 = boost::posix_time::microsec_clock::local_time();
 
   // Clear old active track data
@@ -328,9 +326,8 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
   retri_rT2 = boost::posix_time::microsec_clock::local_time();
 
   // Return if no features
-  if (active_tracks_posinG.empty() && state->_features_SLAM.empty()) {
-      return;
-  }
+  if (active_tracks_posinG.empty() && state->_features_SLAM.empty())
+    return;
 
   // Append our SLAM features we have
   for (const auto &feat : state->_features_SLAM) {
@@ -367,9 +364,8 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
 
     // For now skip features not seen from current frame
     // TODO: should we publish other features not tracked in cam0??
-    if (feat_uvs_in_cam0.find(feat.first) == feat_uvs_in_cam0.end()) {
-        continue;
-    }
+    if (feat_uvs_in_cam0.find(feat.first) == feat_uvs_in_cam0.end())
+      continue;
 
     // Calculate the depth of the feature in the current frame
     // Project SLAM feature and non-cam0 features into the current frame of reference
@@ -415,9 +411,8 @@ void VioManager::retriangulate_active_tracks(const ov_core::CameraData &message)
 cv::Mat VioManager::get_historical_viz_image() {
 
   // Return if not ready yet
-  if (state == nullptr || trackFEATS == nullptr) {
-      return {};
-  }
+  if (state == nullptr || trackFEATS == nullptr)
+    return cv::Mat();
 
   // Build an id-list of what features we should highlight (i.e. SLAM)
   std::vector<size_t> highlighted_ids;
@@ -444,9 +439,8 @@ cv::Mat VioManager::get_historical_viz_image() {
 std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
   std::vector<Eigen::Vector3d> slam_feats;
   for (auto &f : state->_features_SLAM) {
-      if ((int)f.first <= 4 * state->_options.max_aruco_features) {
-          continue;
-      }
+    if ((int)f.first <= 4 * state->_options.max_aruco_features)
+      continue;
     if (ov_type::LandmarkRepresentation::is_relative_representation(f.second->_feat_representation)) {
       // Assert that we have an anchor pose for this feature
       assert(f.second->_anchor_cam_id != -1);
@@ -457,7 +451,7 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
       Eigen::Matrix<double, 3, 3> R_GtoI = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->Rot();
       Eigen::Matrix<double, 3, 1> p_IinG = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->pos();
       // Feature in the global frame
-      slam_feats.emplace_back(R_GtoI.transpose() * R_ItoC.transpose() * (f.second->get_xyz(false) - p_IinC) + p_IinG);
+      slam_feats.push_back(R_GtoI.transpose() * R_ItoC.transpose() * (f.second->get_xyz(false) - p_IinC) + p_IinG);
     } else {
       slam_feats.push_back(f.second->get_xyz(false));
     }
@@ -468,9 +462,8 @@ std::vector<Eigen::Vector3d> VioManager::get_features_SLAM() {
 std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
   std::vector<Eigen::Vector3d> aruco_feats;
   for (auto &f : state->_features_SLAM) {
-      if ((int)f.first > 4 * state->_options.max_aruco_features) {
-          continue;
-      }
+    if ((int)f.first > 4 * state->_options.max_aruco_features)
+      continue;
     if (ov_type::LandmarkRepresentation::is_relative_representation(f.second->_feat_representation)) {
       // Assert that we have an anchor pose for this feature
       assert(f.second->_anchor_cam_id != -1);
@@ -481,7 +474,7 @@ std::vector<Eigen::Vector3d> VioManager::get_features_ARUCO() {
       Eigen::Matrix<double, 3, 3> R_GtoI = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->Rot();
       Eigen::Matrix<double, 3, 1> p_IinG = state->_clones_IMU.at(f.second->_anchor_clone_timestamp)->pos();
       // Feature in the global frame
-      aruco_feats.emplace_back(R_GtoI.transpose() * R_ItoC.transpose() * (f.second->get_xyz(false) - p_IinC) + p_IinG);
+      aruco_feats.push_back(R_GtoI.transpose() * R_ItoC.transpose() * (f.second->get_xyz(false) - p_IinC) + p_IinG);
     } else {
       aruco_feats.push_back(f.second->get_xyz(false));
     }

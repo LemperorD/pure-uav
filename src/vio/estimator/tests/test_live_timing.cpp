@@ -7,9 +7,7 @@
 #include "live_timing.hpp"
 
 void check(bool c, const char* why) {
-    if (!c) {
-        throw std::runtime_error(why);
-    }
+    if (!c) throw std::runtime_error(why);
 }
 int main() {
     try {
@@ -17,13 +15,12 @@ int main() {
         FcuClock clock;
         pure_uav::ImuTimestampFilter filter;
         const int64_t host0 = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-        uint64_t previous = 0;
-        uint64_t output = 0;
+        uint64_t previous = 0, output = 0;
         int resets = 0;
         // 使用生产时钟和去抖器组成的实际处理链：正常 200Hz 后向前跳 120 秒。
         for (int i = 0; i < 300; ++i) {
-            const uint64_t raw = 1000000ULL + (i * 5000ULL) + (i >= 100 ? 120000000ULL : 0);
-            const auto result = clock.addSample(host0 + (i * 5000000LL), raw);
+            const uint64_t raw = 1000000ULL + i * 5000ULL + (i >= 100 ? 120000000ULL : 0);
+            const auto result = clock.addSample(host0 + i * 5000000LL, raw);
             if (result == FcuClock::AddResult::kTimebaseReset) {
                 ++resets;
                 filter.reset();
@@ -32,9 +29,7 @@ int main() {
             }
             check(result != FcuClock::AddResult::kOutOfOrder, "ordered IMU rejected");
             check(filter.filter(raw, 5000, output), "normal IMU rejected");
-            if (previous != 0u) {
-                check(output > previous && output - previous < 6000, "clock jump leaked into IMU propagation");
-            }
+            if (previous) check(output > previous && output - previous < 6000, "clock jump leaked into IMU propagation");
             previous = output;
         }
         check(resets == 1, "forward clock jump was not detected exactly once");

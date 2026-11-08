@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_VIBRATION = 241 };
+#define MAVLINK_MSG_ID_VIBRATION 241
 
-using mavlink_vibration_t = struct __mavlink_vibration_t {
-    uint64_t time_usec;  /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float vibration_x;   /*<  Vibration levels on X-axis*/
-    float vibration_y;   /*<  Vibration levels on Y-axis*/
-    float vibration_z;   /*<  Vibration levels on Z-axis*/
-    uint32_t clipping_0; /*<  first accelerometer clipping count*/
-    uint32_t clipping_1; /*<  second accelerometer clipping count*/
-    uint32_t clipping_2; /*<  third accelerometer clipping count*/
-};
 
-enum { MAVLINK_MSG_ID_VIBRATION_LEN = 32, MAVLINK_MSG_ID_VIBRATION_MIN_LEN = 32, MAVLINK_MSG_ID_241_LEN = 32, MAVLINK_MSG_ID_241_MIN_LEN = 32 };
+typedef struct __mavlink_vibration_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float vibration_x; /*<  Vibration levels on X-axis*/
+ float vibration_y; /*<  Vibration levels on Y-axis*/
+ float vibration_z; /*<  Vibration levels on Z-axis*/
+ uint32_t clipping_0; /*<  first accelerometer clipping count*/
+ uint32_t clipping_1; /*<  second accelerometer clipping count*/
+ uint32_t clipping_2; /*<  third accelerometer clipping count*/
+} mavlink_vibration_t;
 
-enum { MAVLINK_MSG_ID_VIBRATION_CRC = 90, MAVLINK_MSG_ID_241_CRC = 90 };
+#define MAVLINK_MSG_ID_VIBRATION_LEN 32
+#define MAVLINK_MSG_ID_VIBRATION_MIN_LEN 32
+#define MAVLINK_MSG_ID_241_LEN 32
+#define MAVLINK_MSG_ID_241_MIN_LEN 32
+
+#define MAVLINK_MSG_ID_VIBRATION_CRC 90
+#define MAVLINK_MSG_ID_241_CRC 90
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VIBRATION { \

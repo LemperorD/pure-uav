@@ -3,24 +3,31 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ESTIMATOR_STATUS = 230 };
+#define MAVLINK_MSG_ID_ESTIMATOR_STATUS 230
 
-using mavlink_estimator_status_t = struct __mavlink_estimator_status_t {
-    uint64_t time_usec;       /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float vel_ratio;          /*<  Velocity innovation test ratio*/
-    float pos_horiz_ratio;    /*<  Horizontal position innovation test ratio*/
-    float pos_vert_ratio;     /*<  Vertical position innovation test ratio*/
-    float mag_ratio;          /*<  Magnetometer innovation test ratio*/
-    float hagl_ratio;         /*<  Height above terrain innovation test ratio*/
-    float tas_ratio;          /*<  True airspeed innovation test ratio*/
-    float pos_horiz_accuracy; /*< [m] Horizontal position 1-STD accuracy relative to the EKF local origin*/
-    float pos_vert_accuracy;  /*< [m] Vertical position 1-STD accuracy relative to the EKF local origin*/
-    uint16_t flags;           /*<  Bitmap indicating which EKF outputs are valid.*/
-};
 
-enum { MAVLINK_MSG_ID_ESTIMATOR_STATUS_LEN = 42, MAVLINK_MSG_ID_ESTIMATOR_STATUS_MIN_LEN = 42, MAVLINK_MSG_ID_230_LEN = 42, MAVLINK_MSG_ID_230_MIN_LEN = 42 };
+typedef struct __mavlink_estimator_status_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float vel_ratio; /*<  Velocity innovation test ratio*/
+ float pos_horiz_ratio; /*<  Horizontal position innovation test ratio*/
+ float pos_vert_ratio; /*<  Vertical position innovation test ratio*/
+ float mag_ratio; /*<  Magnetometer innovation test ratio*/
+ float hagl_ratio; /*<  Height above terrain innovation test ratio*/
+ float tas_ratio; /*<  True airspeed innovation test ratio*/
+ float pos_horiz_accuracy; /*< [m] Horizontal position 1-STD accuracy relative to the EKF local origin*/
+ float pos_vert_accuracy; /*< [m] Vertical position 1-STD accuracy relative to the EKF local origin*/
+ uint16_t flags; /*<  Bitmap indicating which EKF outputs are valid.*/
+} mavlink_estimator_status_t;
 
-enum { MAVLINK_MSG_ID_ESTIMATOR_STATUS_CRC = 163, MAVLINK_MSG_ID_230_CRC = 163 };
+#define MAVLINK_MSG_ID_ESTIMATOR_STATUS_LEN 42
+#define MAVLINK_MSG_ID_ESTIMATOR_STATUS_MIN_LEN 42
+#define MAVLINK_MSG_ID_230_LEN 42
+#define MAVLINK_MSG_ID_230_MIN_LEN 42
+
+#define MAVLINK_MSG_ID_ESTIMATOR_STATUS_CRC 163
+#define MAVLINK_MSG_ID_230_CRC 163
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ESTIMATOR_STATUS { \

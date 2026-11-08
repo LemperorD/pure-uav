@@ -3,26 +3,33 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIL_OPTICAL_FLOW = 114 };
+#define MAVLINK_MSG_ID_HIL_OPTICAL_FLOW 114
 
-using mavlink_hil_optical_flow_t = struct __mavlink_hil_optical_flow_t {
-    uint64_t time_usec;              /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint32_t integration_time_us;    /*< [us] Integration time. Divide integrated_x and integrated_y by the integration time to obtain average flow. The integration time also indicates the.*/
-    float integrated_x;              /*< [rad] Flow in radians around X axis (Sensor RH rotation about the X axis induces a positive flow. Sensor linear motion along the positive Y axis induces a negative flow.)*/
-    float integrated_y;              /*< [rad] Flow in radians around Y axis (Sensor RH rotation about the Y axis induces a positive flow. Sensor linear motion along the positive X axis induces a positive flow.)*/
-    float integrated_xgyro;          /*< [rad] RH rotation around X axis*/
-    float integrated_ygyro;          /*< [rad] RH rotation around Y axis*/
-    float integrated_zgyro;          /*< [rad] RH rotation around Z axis*/
-    uint32_t time_delta_distance_us; /*< [us] Time since the distance was sampled.*/
-    float distance;                  /*< [m] Distance to the center of the flow field. Positive value (including zero): distance known. Negative value: Unknown distance.*/
-    int16_t temperature;             /*< [cdegC] Temperature*/
-    uint8_t sensor_id;               /*<  Sensor ID*/
-    uint8_t quality;                 /*<  Optical flow quality / confidence. 0: no valid flow, 255: maximum quality*/
-};
 
-enum { MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_LEN = 44, MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_MIN_LEN = 44, MAVLINK_MSG_ID_114_LEN = 44, MAVLINK_MSG_ID_114_MIN_LEN = 44 };
+typedef struct __mavlink_hil_optical_flow_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint32_t integration_time_us; /*< [us] Integration time. Divide integrated_x and integrated_y by the integration time to obtain average flow. The integration time also indicates the.*/
+ float integrated_x; /*< [rad] Flow in radians around X axis (Sensor RH rotation about the X axis induces a positive flow. Sensor linear motion along the positive Y axis induces a negative flow.)*/
+ float integrated_y; /*< [rad] Flow in radians around Y axis (Sensor RH rotation about the Y axis induces a positive flow. Sensor linear motion along the positive X axis induces a positive flow.)*/
+ float integrated_xgyro; /*< [rad] RH rotation around X axis*/
+ float integrated_ygyro; /*< [rad] RH rotation around Y axis*/
+ float integrated_zgyro; /*< [rad] RH rotation around Z axis*/
+ uint32_t time_delta_distance_us; /*< [us] Time since the distance was sampled.*/
+ float distance; /*< [m] Distance to the center of the flow field. Positive value (including zero): distance known. Negative value: Unknown distance.*/
+ int16_t temperature; /*< [cdegC] Temperature*/
+ uint8_t sensor_id; /*<  Sensor ID*/
+ uint8_t quality; /*<  Optical flow quality / confidence. 0: no valid flow, 255: maximum quality*/
+} mavlink_hil_optical_flow_t;
 
-enum { MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_CRC = 237, MAVLINK_MSG_ID_114_CRC = 237 };
+#define MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_LEN 44
+#define MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_MIN_LEN 44
+#define MAVLINK_MSG_ID_114_LEN 44
+#define MAVLINK_MSG_ID_114_MIN_LEN 44
+
+#define MAVLINK_MSG_ID_HIL_OPTICAL_FLOW_CRC 237
+#define MAVLINK_MSG_ID_114_CRC 237
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIL_OPTICAL_FLOW { \

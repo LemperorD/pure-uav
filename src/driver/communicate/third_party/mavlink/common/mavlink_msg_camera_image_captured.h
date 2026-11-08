@@ -3,27 +3,33 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED = 263 };
+#define MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED 263
 
-using mavlink_camera_image_captured_t = struct __mavlink_camera_image_captured_t {
-    uint64_t time_utc;     /*< [us] Timestamp (time since UNIX epoch) in UTC. 0 for unknown.*/
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    int32_t lat;           /*< [degE7] Latitude where image was taken*/
-    int32_t lon;           /*< [degE7] Longitude where capture was taken*/
-    int32_t alt;           /*< [mm] Altitude (MSL) where image was taken*/
-    int32_t relative_alt;  /*< [mm] Altitude above ground*/
-    float q[4];            /*<  Quaternion of camera orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
-    int32_t image_index;   /*<  Zero based index of this image (i.e. a new image will have index CAMERA_CAPTURE_STATUS.image count -1)*/
-    uint8_t camera_id;     /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id). Field name is usually camera_device_id.*/
-    int8_t capture_result; /*<  Image was captured successfully (MAV_BOOL_TRUE). Values not equal to 0 or 1 are invalid.*/
-    char file_url[205];    /*<  URL of image taken. Either local storage or http://foo.jpg if camera provides an HTTP interface.*/
-};
 
-enum { MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_LEN = 255, MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_MIN_LEN = 255, MAVLINK_MSG_ID_263_LEN = 255, MAVLINK_MSG_ID_263_MIN_LEN = 255 };
+typedef struct __mavlink_camera_image_captured_t {
+ uint64_t time_utc; /*< [us] Timestamp (time since UNIX epoch) in UTC. 0 for unknown.*/
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ int32_t lat; /*< [degE7] Latitude where image was taken*/
+ int32_t lon; /*< [degE7] Longitude where capture was taken*/
+ int32_t alt; /*< [mm] Altitude (MSL) where image was taken*/
+ int32_t relative_alt; /*< [mm] Altitude above ground*/
+ float q[4]; /*<  Quaternion of camera orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
+ int32_t image_index; /*<  Zero based index of this image (i.e. a new image will have index CAMERA_CAPTURE_STATUS.image count -1)*/
+ uint8_t camera_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id). Field name is usually camera_device_id.*/
+ int8_t capture_result; /*<  Image was captured successfully (MAV_BOOL_TRUE). Values not equal to 0 or 1 are invalid.*/
+ char file_url[205]; /*<  URL of image taken. Either local storage or http://foo.jpg if camera provides an HTTP interface.*/
+} mavlink_camera_image_captured_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_CRC = 133, MAVLINK_MSG_ID_263_CRC = 133 };
+#define MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_LEN 255
+#define MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_MIN_LEN 255
+#define MAVLINK_MSG_ID_263_LEN 255
+#define MAVLINK_MSG_ID_263_MIN_LEN 255
 
-enum { MAVLINK_MSG_CAMERA_IMAGE_CAPTURED_FIELD_Q_LEN = 4, MAVLINK_MSG_CAMERA_IMAGE_CAPTURED_FIELD_FILE_URL_LEN = 205 };
+#define MAVLINK_MSG_ID_CAMERA_IMAGE_CAPTURED_CRC 133
+#define MAVLINK_MSG_ID_263_CRC 133
+
+#define MAVLINK_MSG_CAMERA_IMAGE_CAPTURED_FIELD_Q_LEN 4
+#define MAVLINK_MSG_CAMERA_IMAGE_CAPTURED_FIELD_FILE_URL_LEN 205
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_IMAGE_CAPTURED { \

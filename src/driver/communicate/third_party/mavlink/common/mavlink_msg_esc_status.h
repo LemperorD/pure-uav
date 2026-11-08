@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ESC_STATUS = 291 };
+#define MAVLINK_MSG_ID_ESC_STATUS 291
 
-using mavlink_esc_status_t = struct __mavlink_esc_status_t {
-    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude the number.*/
-    int32_t rpm[4];     /*< [rpm] Reported motor RPM from each ESC (negative for reverse rotation).*/
-    float voltage[4];   /*< [V] Voltage measured from each ESC.*/
-    float current[4];   /*< [A] Current measured from each ESC.*/
-    uint8_t index;      /*<  Index of the first ESC in this message (ESC are indexed in motor order). minValue = 0, maxValue = 60, increment = 4.*/
-};
 
-enum { MAVLINK_MSG_ID_ESC_STATUS_LEN = 57, MAVLINK_MSG_ID_ESC_STATUS_MIN_LEN = 57, MAVLINK_MSG_ID_291_LEN = 57, MAVLINK_MSG_ID_291_MIN_LEN = 57 };
+typedef struct __mavlink_esc_status_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude the number.*/
+ int32_t rpm[4]; /*< [rpm] Reported motor RPM from each ESC (negative for reverse rotation).*/
+ float voltage[4]; /*< [V] Voltage measured from each ESC.*/
+ float current[4]; /*< [A] Current measured from each ESC.*/
+ uint8_t index; /*<  Index of the first ESC in this message (ESC are indexed in motor order). minValue = 0, maxValue = 60, increment = 4.*/
+} mavlink_esc_status_t;
 
-enum { MAVLINK_MSG_ID_ESC_STATUS_CRC = 10, MAVLINK_MSG_ID_291_CRC = 10 };
+#define MAVLINK_MSG_ID_ESC_STATUS_LEN 57
+#define MAVLINK_MSG_ID_ESC_STATUS_MIN_LEN 57
+#define MAVLINK_MSG_ID_291_LEN 57
+#define MAVLINK_MSG_ID_291_MIN_LEN 57
 
-enum { MAVLINK_MSG_ESC_STATUS_FIELD_RPM_LEN = 4, MAVLINK_MSG_ESC_STATUS_FIELD_VOLTAGE_LEN = 4, MAVLINK_MSG_ESC_STATUS_FIELD_CURRENT_LEN = 4 };
+#define MAVLINK_MSG_ID_ESC_STATUS_CRC 10
+#define MAVLINK_MSG_ID_291_CRC 10
+
+#define MAVLINK_MSG_ESC_STATUS_FIELD_RPM_LEN 4
+#define MAVLINK_MSG_ESC_STATUS_FIELD_VOLTAGE_LEN 4
+#define MAVLINK_MSG_ESC_STATUS_FIELD_CURRENT_LEN 4
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ESC_STATUS { \

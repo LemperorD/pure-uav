@@ -18,9 +18,7 @@ int main() {
     }
 
     printf("等待心跳...\n");
-    while (!comm.isConnected()) {
-        usleep(100000);
-    }
+    while (!comm.isConnected()) usleep(100000);
     printf("已连接，固件：%s，当前模式：%s (0x%08X)\n", comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), comm.getCustomMode());
 
     // 离板控制模式：ArduPilot=GUIDED(4)，PX4=OFFBOARD(0x00060000)

@@ -3,31 +3,38 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_VERSION = 148 };
+#define MAVLINK_MSG_ID_AUTOPILOT_VERSION 148
 
-using mavlink_autopilot_version_t = struct __mavlink_autopilot_version_t {
-    uint64_t capabilities;                /*<  Bitmap of capabilities*/
-    uint64_t uid;                         /*<  UID if provided by hardware (see uid2)*/
-    uint32_t flight_sw_version;           /*<  Firmware version number.
-                     The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-                   */
-    uint32_t middleware_sw_version;       /*<  Middleware version number*/
-    uint32_t os_sw_version;               /*<  Operating system version number*/
-    uint32_t board_version;               /*<  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at
-                                             https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt*/
-    uint16_t vendor_id;                   /*<  ID of the board vendor*/
-    uint16_t product_id;                  /*<  ID of the product*/
-    uint8_t flight_custom_version[8];     /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
-    uint8_t middleware_custom_version[8]; /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
-    uint8_t os_custom_version[8];         /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
-    uint8_t uid2[18];                     /*<  UID if provided by hardware (supersedes the uid field. If this is non-zero, use this field, otherwise use uid)*/
-};
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_VERSION_LEN = 78, MAVLINK_MSG_ID_AUTOPILOT_VERSION_MIN_LEN = 60, MAVLINK_MSG_ID_148_LEN = 78, MAVLINK_MSG_ID_148_MIN_LEN = 60 };
+typedef struct __mavlink_autopilot_version_t {
+ uint64_t capabilities; /*<  Bitmap of capabilities*/
+ uint64_t uid; /*<  UID if provided by hardware (see uid2)*/
+ uint32_t flight_sw_version; /*<  Firmware version number.
+        The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
+      */
+ uint32_t middleware_sw_version; /*<  Middleware version number*/
+ uint32_t os_sw_version; /*<  Operating system version number*/
+ uint32_t board_version; /*<  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt*/
+ uint16_t vendor_id; /*<  ID of the board vendor*/
+ uint16_t product_id; /*<  ID of the product*/
+ uint8_t flight_custom_version[8]; /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
+ uint8_t middleware_custom_version[8]; /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
+ uint8_t os_custom_version[8]; /*<  Custom version field, commonly the first 8 bytes of the git hash. This is not an unique identifier, but should allow to identify the commit using the main version number even for very large code bases.*/
+ uint8_t uid2[18]; /*<  UID if provided by hardware (supersedes the uid field. If this is non-zero, use this field, otherwise use uid)*/
+} mavlink_autopilot_version_t;
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_VERSION_CRC = 178, MAVLINK_MSG_ID_148_CRC = 178 };
+#define MAVLINK_MSG_ID_AUTOPILOT_VERSION_LEN 78
+#define MAVLINK_MSG_ID_AUTOPILOT_VERSION_MIN_LEN 60
+#define MAVLINK_MSG_ID_148_LEN 78
+#define MAVLINK_MSG_ID_148_MIN_LEN 60
 
-enum { MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_FLIGHT_CUSTOM_VERSION_LEN = 8, MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_MIDDLEWARE_CUSTOM_VERSION_LEN = 8, MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_OS_CUSTOM_VERSION_LEN = 8, MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_UID2_LEN = 18 };
+#define MAVLINK_MSG_ID_AUTOPILOT_VERSION_CRC 178
+#define MAVLINK_MSG_ID_148_CRC 178
+
+#define MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_FLIGHT_CUSTOM_VERSION_LEN 8
+#define MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_MIDDLEWARE_CUSTOM_VERSION_LEN 8
+#define MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_OS_CUSTOM_VERSION_LEN 8
+#define MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_UID2_LEN 18
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AUTOPILOT_VERSION { \
@@ -77,7 +84,7 @@ enum { MAVLINK_MSG_AUTOPILOT_VERSION_FIELD_FLIGHT_CUSTOM_VERSION_LEN = 8, MAVLIN
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-      
+
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -139,7 +146,7 @@ static inline uint16_t mavlink_msg_autopilot_version_pack(uint32_t system_id, ui
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-      
+
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -204,7 +211,7 @@ static inline uint16_t mavlink_msg_autopilot_version_pack_status(uint32_t system
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-      
+
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -305,7 +312,7 @@ static inline uint16_t mavlink_msg_autopilot_version_encode_status(uint32_t syst
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-      
+
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -432,7 +439,7 @@ static inline uint64_t mavlink_msg_autopilot_version_get_capabilities(const mavl
  *
  * @return  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-      
+
  */
 static inline uint32_t mavlink_msg_autopilot_version_get_flight_sw_version(const mavlink_message_t* msg)
 {

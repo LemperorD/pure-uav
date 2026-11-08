@@ -3,21 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_PARAM_EXT_VALUE = 322 };
+#define MAVLINK_MSG_ID_PARAM_EXT_VALUE 322
 
-using mavlink_param_ext_value_t = struct __mavlink_param_ext_value_t {
-    uint16_t param_count;  /*<  Total number of parameters*/
-    uint16_t param_index;  /*<  Index of this parameter*/
-    char param_id[16];     /*<  Parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
-    char param_value[128]; /*<  Parameter value. Raw bytes, interpreted according to param_type; not a text string.*/
-    uint8_t param_type;    /*<  Parameter type.*/
-};
 
-enum { MAVLINK_MSG_ID_PARAM_EXT_VALUE_LEN = 149, MAVLINK_MSG_ID_PARAM_EXT_VALUE_MIN_LEN = 149, MAVLINK_MSG_ID_322_LEN = 149, MAVLINK_MSG_ID_322_MIN_LEN = 149 };
+typedef struct __mavlink_param_ext_value_t {
+ uint16_t param_count; /*<  Total number of parameters*/
+ uint16_t param_index; /*<  Index of this parameter*/
+ char param_id[16]; /*<  Parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
+ char param_value[128]; /*<  Parameter value. Raw bytes, interpreted according to param_type; not a text string.*/
+ uint8_t param_type; /*<  Parameter type.*/
+} mavlink_param_ext_value_t;
 
-enum { MAVLINK_MSG_ID_PARAM_EXT_VALUE_CRC = 243, MAVLINK_MSG_ID_322_CRC = 243 };
+#define MAVLINK_MSG_ID_PARAM_EXT_VALUE_LEN 149
+#define MAVLINK_MSG_ID_PARAM_EXT_VALUE_MIN_LEN 149
+#define MAVLINK_MSG_ID_322_LEN 149
+#define MAVLINK_MSG_ID_322_MIN_LEN 149
 
-enum { MAVLINK_MSG_PARAM_EXT_VALUE_FIELD_PARAM_ID_LEN = 16, MAVLINK_MSG_PARAM_EXT_VALUE_FIELD_PARAM_VALUE_LEN = 128 };
+#define MAVLINK_MSG_ID_PARAM_EXT_VALUE_CRC 243
+#define MAVLINK_MSG_ID_322_CRC 243
+
+#define MAVLINK_MSG_PARAM_EXT_VALUE_FIELD_PARAM_ID_LEN 16
+#define MAVLINK_MSG_PARAM_EXT_VALUE_FIELD_PARAM_VALUE_LEN 128
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PARAM_EXT_VALUE { \

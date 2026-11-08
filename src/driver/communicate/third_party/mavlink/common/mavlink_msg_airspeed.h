@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AIRSPEED = 295 };
+#define MAVLINK_MSG_ID_AIRSPEED 295
 
-using mavlink_airspeed_t = struct __mavlink_airspeed_t {
-    float airspeed;      /*< [m/s] Calibrated airspeed (CAS).*/
-    float raw_press;     /*< [hPa] Raw differential pressure.*/
-    int16_t temperature; /*< [cdegC] Temperature.*/
-    uint8_t id;          /*<  Sensor ID.*/
-    uint8_t flags;       /*<  Airspeed sensor flags.*/
-};
 
-enum { MAVLINK_MSG_ID_AIRSPEED_LEN = 12, MAVLINK_MSG_ID_AIRSPEED_MIN_LEN = 12, MAVLINK_MSG_ID_295_LEN = 12, MAVLINK_MSG_ID_295_MIN_LEN = 12 };
+typedef struct __mavlink_airspeed_t {
+ float airspeed; /*< [m/s] Calibrated airspeed (CAS).*/
+ float raw_press; /*< [hPa] Raw differential pressure.*/
+ int16_t temperature; /*< [cdegC] Temperature.*/
+ uint8_t id; /*<  Sensor ID.*/
+ uint8_t flags; /*<  Airspeed sensor flags.*/
+} mavlink_airspeed_t;
 
-enum { MAVLINK_MSG_ID_AIRSPEED_CRC = 234, MAVLINK_MSG_ID_295_CRC = 234 };
+#define MAVLINK_MSG_ID_AIRSPEED_LEN 12
+#define MAVLINK_MSG_ID_AIRSPEED_MIN_LEN 12
+#define MAVLINK_MSG_ID_295_LEN 12
+#define MAVLINK_MSG_ID_295_MIN_LEN 12
+
+#define MAVLINK_MSG_ID_AIRSPEED_CRC 234
+#define MAVLINK_MSG_ID_295_CRC 234
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AIRSPEED { \

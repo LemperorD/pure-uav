@@ -3,18 +3,25 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TIMESYNC = 111 };
+#define MAVLINK_MSG_ID_TIMESYNC 111
 
-using mavlink_timesync_t = struct __mavlink_timesync_t {
-    int64_t tc1;              /*< [ns] Time sync timestamp 1. Syncing: 0. Responding: Timestamp of responding component.*/
-    int64_t ts1;              /*< [ns] Time sync timestamp 2. Timestamp of syncing component (mirrored in response).*/
-    uint8_t target_system;    /*<  Target system id. Request: 0 (broadcast) or id of specific system. Response must contain system id of the requesting component.*/
-    uint8_t target_component; /*<  Target component id. Request: 0 (broadcast) or id of specific component. Response must contain component id of the requesting component.*/
-};
 
-enum { MAVLINK_MSG_ID_TIMESYNC_LEN = 18, MAVLINK_MSG_ID_TIMESYNC_MIN_LEN = 16, MAVLINK_MSG_ID_111_LEN = 18, MAVLINK_MSG_ID_111_MIN_LEN = 16 };
+typedef struct __mavlink_timesync_t {
+ int64_t tc1; /*< [ns] Time sync timestamp 1. Syncing: 0. Responding: Timestamp of responding component.*/
+ int64_t ts1; /*< [ns] Time sync timestamp 2. Timestamp of syncing component (mirrored in response).*/
+ uint8_t target_system; /*<  Target system id. Request: 0 (broadcast) or id of specific system. Response must contain system id of the requesting component.*/
+ uint8_t target_component; /*<  Target component id. Request: 0 (broadcast) or id of specific component. Response must contain component id of the requesting component.*/
+} mavlink_timesync_t;
 
-enum { MAVLINK_MSG_ID_TIMESYNC_CRC = 34, MAVLINK_MSG_ID_111_CRC = 34 };
+#define MAVLINK_MSG_ID_TIMESYNC_LEN 18
+#define MAVLINK_MSG_ID_TIMESYNC_MIN_LEN 16
+#define MAVLINK_MSG_ID_111_LEN 18
+#define MAVLINK_MSG_ID_111_MIN_LEN 16
+
+#define MAVLINK_MSG_ID_TIMESYNC_CRC 34
+#define MAVLINK_MSG_ID_111_CRC 34
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TIMESYNC { \
@@ -326,10 +333,11 @@ static inline void mavlink_msg_timesync_decode(const mavlink_message_t* msg, mav
         memset(timesync, 0, MAVLINK_MSG_ID_TIMESYNC_LEN);
     memcpy(timesync, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         timesync->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

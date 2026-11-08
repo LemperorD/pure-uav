@@ -1,5 +1,3 @@
-#include <algorithm>
-
 #pragma once
 
 /*
@@ -13,22 +11,22 @@
  * Copyright (c) 1995 - 2001 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
- * 
+ *
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * 3. Neither the name of the Institute nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -55,14 +53,14 @@ namespace mavlink {
 #define MAVLINK_HELPER
 #endif
 
-using mavlink_sha256_ctx = struct {
+typedef struct {
     union {
         unsigned char save_bytes[64];
         uint32_t save_u32[16];
     } u;
     uint32_t counter[8];
-    uint32_t sz;  // accumulated size in bytes (not bits!)
-};
+    uint32_t sz; // accumulated size in bytes (not bits!)
+} mavlink_sha256_ctx;
 
 #define Ch(x,y,z) (((x) & (y)) ^ ((~(x)) & (z)))
 #define Maj(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
@@ -108,14 +106,7 @@ MAVLINK_HELPER void mavlink_sha256_init(mavlink_sha256_ctx *m)
 
 static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
 {
-    uint32_t AA;
-    uint32_t BB;
-    uint32_t CC;
-    uint32_t DD;
-    uint32_t EE;
-    uint32_t FF;
-    uint32_t GG;
-    uint32_t HH;
+    uint32_t AA, BB, CC, DD, EE, FF, GG, HH;
     int i;
 
     // use the 16-word input as a ring buffer to compute the message schedule
@@ -123,7 +114,7 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
     uint32_t *s = m->u.save_u32;
     // first we pack the 64 input bytes into 16 words over the top of the bytes;
     // these are the first 16 message schedule entries
-    auto* b = (unsigned char*)s;  // cast s to not violate strict aliasing
+    unsigned char *b = (unsigned char*)s; // cast s to not violate strict aliasing
     for (i = 0; i < 16; i++) {
         uint32_t w = 0;
         w |= (((uint32_t)*b++)<<24); // bytes are always packed big-endian
@@ -144,9 +135,7 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
     HH = m->counter[7];
 
     for (i = 0; i < 64; i++) {
-        uint32_t T1;
-        uint32_t T2;
-        uint32_t data;
+        uint32_t T1, T2, data;
 
         if (i < 16) {
             data = s[i];
@@ -158,7 +147,7 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
 
         T1 = HH + Sigma1(EE) + Ch(EE, FF, GG) + mavlink_sha256_constant_256[i] + data;
         T2 = Sigma0(AA) + Maj(AA,BB,CC);
-                             
+
         HH = GG;
         GG = FF;
         FF = EE;
@@ -181,14 +170,16 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
 
 MAVLINK_HELPER void mavlink_sha256_update(mavlink_sha256_ctx *m, const void *v, uint32_t len)
 {
-    const auto* p = (const unsigned char*)v;
+    const unsigned char *p = (const unsigned char *)v;
     uint32_t offset;
 
     offset = m->sz % 64;
     m->sz += len;
     while(len > 0){
         uint32_t l = 64 - offset;
-        l = std::min(len, l);
+        if (len < l) {
+            l = len;
+        }
         memcpy(m->u.save_bytes + offset, p, l);
         offset += l;
         p += l;
@@ -205,9 +196,7 @@ MAVLINK_HELPER void mavlink_sha256_update(mavlink_sha256_ctx *m, const void *v, 
  */
 MAVLINK_HELPER void mavlink_sha256_final_48(mavlink_sha256_ctx *m, uint8_t result[6])
 {
-    uint32_t c0;
-    uint32_t c1;
-    uint32_t bit_length;
+    uint32_t c0, c1, bit_length;
     unsigned offset = m->sz % 64;
     bit_length = m->sz * 8;
 

@@ -3,31 +3,36 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM = 12904 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM 12904
 
-using mavlink_open_drone_id_system_t = struct __mavlink_open_drone_id_system_t {
-    int32_t operator_latitude;      /*< [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).*/
-    int32_t operator_longitude;     /*< [degE7] Longitude of the operator. If unknown: 0 (both Lat/Lon).*/
-    float area_ceiling;             /*< [m] Area Operations Ceiling relative to WGS84. If unknown: -1000 m. Used only for swarms/multiple UA.*/
-    float area_floor;               /*< [m] Area Operations Floor relative to WGS84. If unknown: -1000 m. Used only for swarms/multiple UA.*/
-    float operator_altitude_geo;    /*< [m] Geodetic altitude of the operator relative to WGS84. If unknown: -1000 m.*/
-    uint32_t timestamp;             /*< [s] 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
-    uint16_t area_count;            /*<  Number of aircraft in the area, group or formation (default 1). Used only for swarms/multiple UA.*/
-    uint16_t area_radius;           /*< [m] Radius of the cylindrical area of the group or formation (default 0). Used only for swarms/multiple UA.*/
-    uint8_t target_system;          /*<  System ID (0 for broadcast).*/
-    uint8_t target_component;       /*<  Component ID (0 for broadcast).*/
-    uint8_t id_or_mac[20];          /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
-    uint8_t operator_location_type; /*<  Specifies the operator location type.*/
-    uint8_t classification_type;    /*<  Specifies the classification type of the UA.*/
-    uint8_t category_eu;            /*<  When classification_type is MAV_ODID_CLASSIFICATION_TYPE_EU, specifies the category of the UA.*/
-    uint8_t class_eu;               /*<  When classification_type is MAV_ODID_CLASSIFICATION_TYPE_EU, specifies the class of the UA.*/
-};
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_LEN = 54, MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_MIN_LEN = 54, MAVLINK_MSG_ID_12904_LEN = 54, MAVLINK_MSG_ID_12904_MIN_LEN = 54 };
+typedef struct __mavlink_open_drone_id_system_t {
+ int32_t operator_latitude; /*< [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).*/
+ int32_t operator_longitude; /*< [degE7] Longitude of the operator. If unknown: 0 (both Lat/Lon).*/
+ float area_ceiling; /*< [m] Area Operations Ceiling relative to WGS84. If unknown: -1000 m. Used only for swarms/multiple UA.*/
+ float area_floor; /*< [m] Area Operations Floor relative to WGS84. If unknown: -1000 m. Used only for swarms/multiple UA.*/
+ float operator_altitude_geo; /*< [m] Geodetic altitude of the operator relative to WGS84. If unknown: -1000 m.*/
+ uint32_t timestamp; /*< [s] 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
+ uint16_t area_count; /*<  Number of aircraft in the area, group or formation (default 1). Used only for swarms/multiple UA.*/
+ uint16_t area_radius; /*< [m] Radius of the cylindrical area of the group or formation (default 0). Used only for swarms/multiple UA.*/
+ uint8_t target_system; /*<  System ID (0 for broadcast).*/
+ uint8_t target_component; /*<  Component ID (0 for broadcast).*/
+ uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+ uint8_t operator_location_type; /*<  Specifies the operator location type.*/
+ uint8_t classification_type; /*<  Specifies the classification type of the UA.*/
+ uint8_t category_eu; /*<  When classification_type is MAV_ODID_CLASSIFICATION_TYPE_EU, specifies the category of the UA.*/
+ uint8_t class_eu; /*<  When classification_type is MAV_ODID_CLASSIFICATION_TYPE_EU, specifies the class of the UA.*/
+} mavlink_open_drone_id_system_t;
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_CRC = 77, MAVLINK_MSG_ID_12904_CRC = 77 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_LEN 54
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_MIN_LEN 54
+#define MAVLINK_MSG_ID_12904_LEN 54
+#define MAVLINK_MSG_ID_12904_MIN_LEN 54
 
-enum { MAVLINK_MSG_OPEN_DRONE_ID_SYSTEM_FIELD_ID_OR_MAC_LEN = 20 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_CRC 77
+#define MAVLINK_MSG_ID_12904_CRC 77
+
+#define MAVLINK_MSG_OPEN_DRONE_ID_SYSTEM_FIELD_ID_OR_MAC_LEN 20
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_SYSTEM { \
@@ -82,7 +87,7 @@ enum { MAVLINK_MSG_OPEN_DRONE_ID_SYSTEM_FIELD_ID_OR_MAC_LEN = 20 };
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -151,7 +156,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_pack(uint32_t system_id,
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -223,7 +228,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_pack_status(uint32_t sys
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -331,7 +336,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_encode_status(uint32_t s
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -470,7 +475,7 @@ static inline uint8_t mavlink_msg_open_drone_id_system_get_target_component(cons
 /**
  * @brief Get field id_or_mac from open_drone_id_system message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  */
 static inline uint16_t mavlink_msg_open_drone_id_system_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {
@@ -626,10 +631,11 @@ static inline void mavlink_msg_open_drone_id_system_decode(const mavlink_message
         memset(open_drone_id_system, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_LEN);
     memcpy(open_drone_id_system, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_system->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

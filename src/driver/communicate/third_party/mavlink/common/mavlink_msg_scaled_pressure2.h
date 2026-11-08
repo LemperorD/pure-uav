@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SCALED_PRESSURE2 = 137 };
+#define MAVLINK_MSG_ID_SCALED_PRESSURE2 137
 
-using mavlink_scaled_pressure2_t = struct __mavlink_scaled_pressure2_t {
-    uint32_t time_boot_ms;          /*< [ms] Timestamp (time since system boot).*/
-    float press_abs;                /*< [hPa] Absolute pressure*/
-    float press_diff;               /*< [hPa] Differential pressure*/
-    int16_t temperature;            /*< [cdegC] Absolute pressure temperature*/
-    int16_t temperature_press_diff; /*< [cdegC] Differential pressure temperature (0, if not available). Report values of 0 (or 1) as 1 cdegC.*/
-};
 
-enum { MAVLINK_MSG_ID_SCALED_PRESSURE2_LEN = 16, MAVLINK_MSG_ID_SCALED_PRESSURE2_MIN_LEN = 14, MAVLINK_MSG_ID_137_LEN = 16, MAVLINK_MSG_ID_137_MIN_LEN = 14 };
+typedef struct __mavlink_scaled_pressure2_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ float press_abs; /*< [hPa] Absolute pressure*/
+ float press_diff; /*< [hPa] Differential pressure*/
+ int16_t temperature; /*< [cdegC] Absolute pressure temperature*/
+ int16_t temperature_press_diff; /*< [cdegC] Differential pressure temperature (0, if not available). Report values of 0 (or 1) as 1 cdegC.*/
+} mavlink_scaled_pressure2_t;
 
-enum { MAVLINK_MSG_ID_SCALED_PRESSURE2_CRC = 195, MAVLINK_MSG_ID_137_CRC = 195 };
+#define MAVLINK_MSG_ID_SCALED_PRESSURE2_LEN 16
+#define MAVLINK_MSG_ID_SCALED_PRESSURE2_MIN_LEN 14
+#define MAVLINK_MSG_ID_137_LEN 16
+#define MAVLINK_MSG_ID_137_MIN_LEN 14
+
+#define MAVLINK_MSG_ID_SCALED_PRESSURE2_CRC 195
+#define MAVLINK_MSG_ID_137_CRC 195
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SCALED_PRESSURE2 { \

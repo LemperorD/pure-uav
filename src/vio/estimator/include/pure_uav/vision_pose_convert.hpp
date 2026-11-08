@@ -35,7 +35,7 @@ struct PoseConvertOptions {
 
 class VisionPoseConvert {
   public:
-    explicit VisionPoseConvert(PoseConvertOptions options = PoseConvertOptions());
+    explicit VisionPoseConvert(const PoseConvertOptions& options = PoseConvertOptions());
 
     // 锁存 LOCAL_FRD 的原点/朝向。应在第一次拿到已初始化状态时调用一次。
     //   R_GtoI0 : 初始化时刻 global→IMU 的旋转（OpenVINS 的 q_GtoI 对应矩阵）

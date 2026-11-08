@@ -53,15 +53,14 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
   }
 
   // First lets collect a window of IMU readings from the newest measurement to the oldest
-  std::vector<ImuData> window_1to0;
-  std::vector<ImuData> window_2to1;
+  std::vector<ImuData> window_1to0, window_2to1;
   for (const ImuData &data : *imu_data) {
-      if (data.timestamp > newesttime - (0.5 * params.init_window_time) && data.timestamp <= newesttime - (0.0 * params.init_window_time)) {
-          window_1to0.push_back(data);
-      }
-      if (data.timestamp > newesttime - (1.0 * params.init_window_time) && data.timestamp <= newesttime - (0.5 * params.init_window_time)) {
-          window_2to1.push_back(data);
-      }
+    if (data.timestamp > newesttime - 0.5 * params.init_window_time && data.timestamp <= newesttime - 0.0 * params.init_window_time) {
+      window_1to0.push_back(data);
+    }
+    if (data.timestamp > newesttime - 1.0 * params.init_window_time && data.timestamp <= newesttime - 0.5 * params.init_window_time) {
+      window_2to1.push_back(data);
+    }
   }
 
   // Return if both of these failed

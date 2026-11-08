@@ -3,22 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAN_FILTER_MODIFY = 388 };
+#define MAVLINK_MSG_ID_CAN_FILTER_MODIFY 388
 
-using mavlink_can_filter_modify_t = struct __mavlink_can_filter_modify_t {
-    uint16_t ids[16];         /*<  filter IDs, length num_ids*/
-    uint8_t target_system;    /*<  System ID.*/
-    uint8_t target_component; /*<  Component ID.*/
-    uint8_t bus;              /*<  bus number*/
-    uint8_t operation;        /*<  what operation to perform on the filter list. See CAN_FILTER_OP enum.*/
-    uint8_t num_ids;          /*<  number of IDs in filter list*/
-};
 
-enum { MAVLINK_MSG_ID_CAN_FILTER_MODIFY_LEN = 37, MAVLINK_MSG_ID_CAN_FILTER_MODIFY_MIN_LEN = 37, MAVLINK_MSG_ID_388_LEN = 37, MAVLINK_MSG_ID_388_MIN_LEN = 37 };
+typedef struct __mavlink_can_filter_modify_t {
+ uint16_t ids[16]; /*<  filter IDs, length num_ids*/
+ uint8_t target_system; /*<  System ID.*/
+ uint8_t target_component; /*<  Component ID.*/
+ uint8_t bus; /*<  bus number*/
+ uint8_t operation; /*<  what operation to perform on the filter list. See CAN_FILTER_OP enum.*/
+ uint8_t num_ids; /*<  number of IDs in filter list*/
+} mavlink_can_filter_modify_t;
 
-enum { MAVLINK_MSG_ID_CAN_FILTER_MODIFY_CRC = 8, MAVLINK_MSG_ID_388_CRC = 8 };
+#define MAVLINK_MSG_ID_CAN_FILTER_MODIFY_LEN 37
+#define MAVLINK_MSG_ID_CAN_FILTER_MODIFY_MIN_LEN 37
+#define MAVLINK_MSG_ID_388_LEN 37
+#define MAVLINK_MSG_ID_388_MIN_LEN 37
 
-enum { MAVLINK_MSG_CAN_FILTER_MODIFY_FIELD_IDS_LEN = 16 };
+#define MAVLINK_MSG_ID_CAN_FILTER_MODIFY_CRC 8
+#define MAVLINK_MSG_ID_388_CRC 8
+
+#define MAVLINK_MSG_CAN_FILTER_MODIFY_FIELD_IDS_LEN 16
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAN_FILTER_MODIFY { \
@@ -374,10 +379,11 @@ static inline void mavlink_msg_can_filter_modify_decode(const mavlink_message_t*
         memset(can_filter_modify, 0, MAVLINK_MSG_ID_CAN_FILTER_MODIFY_LEN);
     memcpy(can_filter_modify, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         can_filter_modify->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

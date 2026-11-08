@@ -3,43 +3,46 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS = 332 };
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS 332
 
-using mavlink_trajectory_representation_waypoints_t = struct __mavlink_trajectory_representation_waypoints_t {
-    uint64_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float pos_x[5];       /*< [m] X-coordinate of waypoint, set to NaN if not being used*/
-    float pos_y[5];       /*< [m] Y-coordinate of waypoint, set to NaN if not being used*/
-    float pos_z[5];       /*< [m] Z-coordinate of waypoint, set to NaN if not being used*/
-    float vel_x[5];       /*< [m/s] X-velocity of waypoint, set to NaN if not being used*/
-    float vel_y[5];       /*< [m/s] Y-velocity of waypoint, set to NaN if not being used*/
-    float vel_z[5];       /*< [m/s] Z-velocity of waypoint, set to NaN if not being used*/
-    float acc_x[5];       /*< [m/s/s] X-acceleration of waypoint, set to NaN if not being used*/
-    float acc_y[5];       /*< [m/s/s] Y-acceleration of waypoint, set to NaN if not being used*/
-    float acc_z[5];       /*< [m/s/s] Z-acceleration of waypoint, set to NaN if not being used*/
-    float pos_yaw[5];     /*< [rad] Yaw angle, set to NaN if not being used*/
-    float vel_yaw[5];     /*< [rad/s] Yaw rate, set to NaN if not being used*/
-    uint16_t command[5];  /*<  MAV_CMD command id of waypoint, set to UINT16_MAX if not being used.*/
-    uint8_t valid_points; /*<  Number of valid points (up-to 5 waypoints are possible)*/
-};
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_LEN = 239, MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_MIN_LEN = 239, MAVLINK_MSG_ID_332_LEN = 239, MAVLINK_MSG_ID_332_MIN_LEN = 239 };
+typedef struct __mavlink_trajectory_representation_waypoints_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float pos_x[5]; /*< [m] X-coordinate of waypoint, set to NaN if not being used*/
+ float pos_y[5]; /*< [m] Y-coordinate of waypoint, set to NaN if not being used*/
+ float pos_z[5]; /*< [m] Z-coordinate of waypoint, set to NaN if not being used*/
+ float vel_x[5]; /*< [m/s] X-velocity of waypoint, set to NaN if not being used*/
+ float vel_y[5]; /*< [m/s] Y-velocity of waypoint, set to NaN if not being used*/
+ float vel_z[5]; /*< [m/s] Z-velocity of waypoint, set to NaN if not being used*/
+ float acc_x[5]; /*< [m/s/s] X-acceleration of waypoint, set to NaN if not being used*/
+ float acc_y[5]; /*< [m/s/s] Y-acceleration of waypoint, set to NaN if not being used*/
+ float acc_z[5]; /*< [m/s/s] Z-acceleration of waypoint, set to NaN if not being used*/
+ float pos_yaw[5]; /*< [rad] Yaw angle, set to NaN if not being used*/
+ float vel_yaw[5]; /*< [rad/s] Yaw rate, set to NaN if not being used*/
+ uint16_t command[5]; /*<  MAV_CMD command id of waypoint, set to UINT16_MAX if not being used.*/
+ uint8_t valid_points; /*<  Number of valid points (up-to 5 waypoints are possible)*/
+} mavlink_trajectory_representation_waypoints_t;
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_CRC = 236, MAVLINK_MSG_ID_332_CRC = 236 };
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_LEN 239
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_MIN_LEN 239
+#define MAVLINK_MSG_ID_332_LEN 239
+#define MAVLINK_MSG_ID_332_MIN_LEN 239
 
-enum {
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_X_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_Y_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_Z_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_X_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_Y_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_Z_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_X_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_Y_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_Z_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_YAW_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_YAW_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_COMMAND_LEN = 5
-};
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_WAYPOINTS_CRC 236
+#define MAVLINK_MSG_ID_332_CRC 236
+
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_X_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_Y_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_Z_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_X_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_Y_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_Z_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_X_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_Y_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_ACC_Z_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_POS_YAW_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_VEL_YAW_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_WAYPOINTS_FIELD_COMMAND_LEN 5
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TRAJECTORY_REPRESENTATION_WAYPOINTS { \

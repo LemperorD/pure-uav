@@ -3,20 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HEARTBEAT = 0 };
+#define MAVLINK_MSG_ID_HEARTBEAT 0
 
-using mavlink_heartbeat_t = struct __mavlink_heartbeat_t {
-    uint32_t custom_mode;    /*<  A bitfield for use for autopilot-specific flags*/
-    uint8_t type;            /*<  Vehicle or component type. For a flight controller component the vehicle type (quadrotor, helicopter, etc.). For other components the component type (e.g. camera, gimbal, etc.). This should be used in preference to component id for identifying the component type.*/
-    uint8_t autopilot;       /*<  Autopilot type / class. Use MAV_AUTOPILOT_INVALID for components that are not flight controllers.*/
-    uint8_t base_mode;       /*<  System mode bitmap.*/
-    uint8_t system_status;   /*<  System status flag.*/
-    uint8_t mavlink_version; /*<  MAVLink version, not writable by user, gets added by protocol because of magic data type: uint8_t_mavlink_version*/
-};
 
-enum { MAVLINK_MSG_ID_HEARTBEAT_LEN = 9, MAVLINK_MSG_ID_HEARTBEAT_MIN_LEN = 9, MAVLINK_MSG_ID_0_LEN = 9, MAVLINK_MSG_ID_0_MIN_LEN = 9 };
+typedef struct __mavlink_heartbeat_t {
+ uint32_t custom_mode; /*<  A bitfield for use for autopilot-specific flags*/
+ uint8_t type; /*<  Vehicle or component type. For a flight controller component the vehicle type (quadrotor, helicopter, etc.). For other components the component type (e.g. camera, gimbal, etc.). This should be used in preference to component id for identifying the component type.*/
+ uint8_t autopilot; /*<  Autopilot type / class. Use MAV_AUTOPILOT_INVALID for components that are not flight controllers.*/
+ uint8_t base_mode; /*<  System mode bitmap.*/
+ uint8_t system_status; /*<  System status flag.*/
+ uint8_t mavlink_version; /*<  MAVLink version, not writable by user, gets added by protocol because of magic data type: uint8_t_mavlink_version*/
+} mavlink_heartbeat_t;
 
-enum { MAVLINK_MSG_ID_HEARTBEAT_CRC = 50, MAVLINK_MSG_ID_0_CRC = 50 };
+#define MAVLINK_MSG_ID_HEARTBEAT_LEN 9
+#define MAVLINK_MSG_ID_HEARTBEAT_MIN_LEN 9
+#define MAVLINK_MSG_ID_0_LEN 9
+#define MAVLINK_MSG_ID_0_MIN_LEN 9
+
+#define MAVLINK_MSG_ID_HEARTBEAT_CRC 50
+#define MAVLINK_MSG_ID_0_CRC 50
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HEARTBEAT { \

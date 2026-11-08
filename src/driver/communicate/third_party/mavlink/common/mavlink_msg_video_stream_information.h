@@ -3,32 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION = 269 };
+#define MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION 269
 
-MAVPACKED(typedef struct MavlinkVideoStreamInformationT {
-    float framerate;          /*< [Hz] Frame rate.*/
-    uint32_t bitrate;         /*< [bits/s] Bit rate.*/
-    uint16_t flags;           /*<  Bitmap of stream status flags.*/
-    uint16_t resolution_h;    /*< [pix] Horizontal resolution.*/
-    uint16_t resolution_v;    /*< [pix] Vertical resolution.*/
-    uint16_t rotation;        /*< [deg] Video image rotation clockwise.*/
-    uint16_t hfov;            /*< [deg] Horizontal Field of view.*/
-    uint8_t stream_id;        /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
-    uint8_t count;            /*<  Number of streams available.*/
-    uint8_t type;             /*<  Type of stream.*/
-    char name[32];            /*<  Stream name.*/
-    char uri[160];            /*<  Video stream URI (TCP, RTSP or SRT URI ground station should connect to) or port number (UDP port ground station should listen to).*/
-    uint8_t encoding;         /*<  Encoding of stream.*/
-    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-    uint16_t vfov;            /*< [cdeg] Vertical field of view (0 if unknown).*/
-})
-mavlink_video_stream_information_t;
+MAVPACKED(
+typedef struct __mavlink_video_stream_information_t {
+ float framerate; /*< [Hz] Frame rate.*/
+ uint32_t bitrate; /*< [bits/s] Bit rate.*/
+ uint16_t flags; /*<  Bitmap of stream status flags.*/
+ uint16_t resolution_h; /*< [pix] Horizontal resolution.*/
+ uint16_t resolution_v; /*< [pix] Vertical resolution.*/
+ uint16_t rotation; /*< [deg] Video image rotation clockwise.*/
+ uint16_t hfov; /*< [deg] Horizontal Field of view.*/
+ uint8_t stream_id; /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
+ uint8_t count; /*<  Number of streams available.*/
+ uint8_t type; /*<  Type of stream.*/
+ char name[32]; /*<  Stream name.*/
+ char uri[160]; /*<  Video stream URI (TCP, RTSP or SRT URI ground station should connect to) or port number (UDP port ground station should listen to).*/
+ uint8_t encoding; /*<  Encoding of stream.*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+ uint16_t vfov; /*< [cdeg] Vertical field of view (0 if unknown).*/
+}) mavlink_video_stream_information_t;
 
-enum { MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_LEN = 217, MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_MIN_LEN = 213, MAVLINK_MSG_ID_269_LEN = 217, MAVLINK_MSG_ID_269_MIN_LEN = 213 };
+#define MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_LEN 217
+#define MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_MIN_LEN 213
+#define MAVLINK_MSG_ID_269_LEN 217
+#define MAVLINK_MSG_ID_269_MIN_LEN 213
 
-enum { MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_CRC = 109, MAVLINK_MSG_ID_269_CRC = 109 };
+#define MAVLINK_MSG_ID_VIDEO_STREAM_INFORMATION_CRC 109
+#define MAVLINK_MSG_ID_269_CRC 109
 
-enum { MAVLINK_MSG_VIDEO_STREAM_INFORMATION_FIELD_NAME_LEN = 32, MAVLINK_MSG_VIDEO_STREAM_INFORMATION_FIELD_URI_LEN = 160 };
+#define MAVLINK_MSG_VIDEO_STREAM_INFORMATION_FIELD_NAME_LEN 32
+#define MAVLINK_MSG_VIDEO_STREAM_INFORMATION_FIELD_URI_LEN 160
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VIDEO_STREAM_INFORMATION { \

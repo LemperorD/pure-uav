@@ -67,11 +67,10 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
 
   // Lock this data feed for this camera
   size_t cam_id = message.sensor_ids.at(msg_id);
-  std::scoped_lock lck(mtx_feeds.at(cam_id));
+  std::lock_guard<std::mutex> lck(mtx_feeds.at(cam_id));
 
   // Histogram equalize
-  cv::Mat img;
-  cv::Mat mask;
+  cv::Mat img, mask;
   if (histogram_method == HistogramMethod::HISTOGRAM) {
     cv::equalizeHist(message.images.at(msg_id), img);
   } else if (histogram_method == HistogramMethod::CLAHE) {
@@ -90,7 +89,7 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
     std::vector<size_t> good_ids_left;
     cv::Mat good_desc_left;
     perform_detection_monocular(img, mask, good_left, good_desc_left, good_ids_left);
-    std::scoped_lock lckv(mtx_last_vars);
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
     img_last[cam_id] = img;
     img_mask_last[cam_id] = mask;
     pts_last[cam_id] = good_left;
@@ -130,10 +129,10 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
 
     // Loop through all left matches, and find the old "train" id
     int idll = -1;
-    for (auto& j : matches_ll) {
-        if (j.trainIdx == (int)i) {
-            idll = j.queryIdx;
-        }
+    for (size_t j = 0; j < matches_ll.size(); j++) {
+      if (matches_ll[j].trainIdx == (int)i) {
+        idll = matches_ll[j].queryIdx;
+      }
     }
 
     // Then lets replace the current ID with the old ID if found
@@ -160,12 +159,12 @@ void TrackDescriptor::feed_monocular(const CameraData &message, size_t msg_id) {
 
   // Move forward in time
   {
-      std::scoped_lock lckv(mtx_last_vars);
-      img_last[cam_id] = img;
-      img_mask_last[cam_id] = mask;
-      pts_last[cam_id] = good_left;
-      ids_last[cam_id] = good_ids_left;
-      desc_last[cam_id] = good_desc_left;
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_last[cam_id] = img;
+    img_mask_last[cam_id] = mask;
+    pts_last[cam_id] = good_left;
+    ids_last[cam_id] = good_ids_left;
+    desc_last[cam_id] = good_desc_left;
   }
   rT5 = boost::posix_time::microsec_clock::local_time();
 
@@ -190,10 +189,7 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
   std::lock_guard<std::mutex> lck2(mtx_feeds.at(cam_id_right));
 
   // Histogram equalize images
-  cv::Mat img_left;
-  cv::Mat img_right;
-  cv::Mat mask_left;
-  cv::Mat mask_right;
+  cv::Mat img_left, img_right, mask_left, mask_right;
   if (histogram_method == HistogramMethod::HISTOGRAM) {
     cv::equalizeHist(message.images.at(msg_id_left), img_left);
     cv::equalizeHist(message.images.at(msg_id_right), img_right);
@@ -212,34 +208,29 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
 
   // If we are the first frame (or have lost tracking), initialize our descriptors
   if (pts_last[cam_id_left].empty() || pts_last[cam_id_right].empty()) {
-      std::vector<cv::KeyPoint> good_left;
-      std::vector<cv::KeyPoint> good_right;
-      std::vector<size_t> good_ids_left;
-      std::vector<size_t> good_ids_right;
-      cv::Mat good_desc_left;
-      cv::Mat good_desc_right;
-      perform_detection_stereo(img_left, img_right, mask_left, mask_right, good_left, good_right, good_desc_left, good_desc_right, cam_id_left, cam_id_right, good_ids_left, good_ids_right);
-      std::scoped_lock lckv(mtx_last_vars);
-      img_last[cam_id_left] = img_left;
-      img_last[cam_id_right] = img_right;
-      img_mask_last[cam_id_left] = mask_left;
-      img_mask_last[cam_id_right] = mask_right;
-      pts_last[cam_id_left] = good_left;
-      pts_last[cam_id_right] = good_right;
-      ids_last[cam_id_left] = good_ids_left;
-      ids_last[cam_id_right] = good_ids_right;
-      desc_last[cam_id_left] = good_desc_left;
-      desc_last[cam_id_right] = good_desc_right;
-      return;
+    std::vector<cv::KeyPoint> good_left, good_right;
+    std::vector<size_t> good_ids_left, good_ids_right;
+    cv::Mat good_desc_left, good_desc_right;
+    perform_detection_stereo(img_left, img_right, mask_left, mask_right, good_left, good_right, good_desc_left, good_desc_right,
+                             cam_id_left, cam_id_right, good_ids_left, good_ids_right);
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_last[cam_id_left] = img_left;
+    img_last[cam_id_right] = img_right;
+    img_mask_last[cam_id_left] = mask_left;
+    img_mask_last[cam_id_right] = mask_right;
+    pts_last[cam_id_left] = good_left;
+    pts_last[cam_id_right] = good_right;
+    ids_last[cam_id_left] = good_ids_left;
+    ids_last[cam_id_right] = good_ids_right;
+    desc_last[cam_id_left] = good_desc_left;
+    desc_last[cam_id_right] = good_desc_right;
+    return;
   }
 
   // Our new keypoints and descriptor for the new image
-  std::vector<cv::KeyPoint> pts_left_new;
-  std::vector<cv::KeyPoint> pts_right_new;
-  cv::Mat desc_left_new;
-  cv::Mat desc_right_new;
-  std::vector<size_t> ids_left_new;
-  std::vector<size_t> ids_right_new;
+  std::vector<cv::KeyPoint> pts_left_new, pts_right_new;
+  cv::Mat desc_left_new, desc_right_new;
+  std::vector<size_t> ids_left_new, ids_right_new;
 
   // First, extract new descriptors for this new image
   perform_detection_stereo(img_left, img_right, mask_left, mask_right, pts_left_new, pts_right_new, desc_left_new, desc_right_new,
@@ -247,8 +238,7 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
   rT2 = boost::posix_time::microsec_clock::local_time();
 
   // Our matches temporally
-  std::vector<cv::DMatch> matches_ll;
-  std::vector<cv::DMatch> matches_rr;
+  std::vector<cv::DMatch> matches_ll, matches_rr;
   parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
                   for (int i = range.start; i < range.end; i++) {
                     bool is_left = (i == 0);
@@ -261,12 +251,9 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
   rT3 = boost::posix_time::microsec_clock::local_time();
 
   // Get our "good tracks"
-  std::vector<cv::KeyPoint> good_left;
-  std::vector<cv::KeyPoint> good_right;
-  std::vector<size_t> good_ids_left;
-  std::vector<size_t> good_ids_right;
-  cv::Mat good_desc_left;
-  cv::Mat good_desc_right;
+  std::vector<cv::KeyPoint> good_left, good_right;
+  std::vector<size_t> good_ids_left, good_ids_right;
+  cv::Mat good_desc_left, good_desc_right;
 
   // Points must be of equal size
   assert(pts_last[cam_id_left].size() == pts_last[cam_id_right].size());
@@ -282,18 +269,18 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
 
     // Loop through all left matches, and find the old "train" id
     int idll = -1;
-    for (auto& j : matches_ll) {
-        if (j.trainIdx == (int)i) {
-            idll = j.queryIdx;
-        }
+    for (size_t j = 0; j < matches_ll.size(); j++) {
+      if (matches_ll[j].trainIdx == (int)i) {
+        idll = matches_ll[j].queryIdx;
+      }
     }
 
     // Loop through all left matches, and find the old "train" id
     int idrr = -1;
-    for (auto& j : matches_rr) {
-        if (j.trainIdx == (int)i) {
-            idrr = j.queryIdx;
-        }
+    for (size_t j = 0; j < matches_rr.size(); j++) {
+      if (matches_rr[j].trainIdx == (int)i) {
+        idrr = matches_rr[j].queryIdx;
+      }
     }
 
     // If we found a good stereo track from left to left, and right to right
@@ -342,17 +329,17 @@ void TrackDescriptor::feed_stereo(const CameraData &message, size_t msg_id_left,
 
   // Move forward in time
   {
-      std::scoped_lock lckv(mtx_last_vars);
-      img_last[cam_id_left] = img_left;
-      img_last[cam_id_right] = img_right;
-      img_mask_last[cam_id_left] = mask_left;
-      img_mask_last[cam_id_right] = mask_right;
-      pts_last[cam_id_left] = good_left;
-      pts_last[cam_id_right] = good_right;
-      ids_last[cam_id_left] = good_ids_left;
-      ids_last[cam_id_right] = good_ids_right;
-      desc_last[cam_id_left] = good_desc_left;
-      desc_last[cam_id_right] = good_desc_right;
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_last[cam_id_left] = img_left;
+    img_last[cam_id_right] = img_right;
+    img_mask_last[cam_id_left] = mask_left;
+    img_mask_last[cam_id_right] = mask_right;
+    pts_last[cam_id_left] = good_left;
+    pts_last[cam_id_right] = good_right;
+    ids_last[cam_id_left] = good_ids_left;
+    ids_last[cam_id_right] = good_ids_right;
+    desc_last[cam_id_left] = good_desc_left;
+    desc_last[cam_id_right] = good_desc_right;
   }
   rT5 = boost::posix_time::microsec_clock::local_time();
 
@@ -373,7 +360,7 @@ void TrackDescriptor::perform_detection_monocular(const cv::Mat &img0, const cv:
 
   // Extract our features (use FAST with griding)
   std::vector<cv::KeyPoint> pts0_ext;
-  GriderFast::perform_griding(img0, mask0, pts0_ext, num_features, grid_x, grid_y, threshold, true);
+  Grider_FAST::perform_griding(img0, mask0, pts0_ext, num_features, grid_x, grid_y, threshold, true);
 
   // For all new points, extract their descriptors
   cv::Mat desc0_ext;
@@ -401,9 +388,8 @@ void TrackDescriptor::perform_detection_monocular(const cv::Mat &img0, const cv:
       continue;
     }
     // Check if this keypoint is near another point
-    if (grid_2d.at<uint8_t>(y_grid, x_grid) > 127) {
-        continue;
-    }
+    if (grid_2d.at<uint8_t>(y_grid, x_grid) > 127)
+      continue;
     // Else we are good, append our keypoints and descriptors
     pts0.push_back(pts0_ext.at(i));
     desc0.push_back(desc0_ext.row((int)i));
@@ -424,14 +410,13 @@ void TrackDescriptor::perform_detection_stereo(const cv::Mat &img0, const cv::Ma
   assert(pts1.empty());
 
   // Extract our features (use FAST with griding), and their descriptors
-  std::vector<cv::KeyPoint> pts0_ext;
-  std::vector<cv::KeyPoint> pts1_ext;
-  cv::Mat desc0_ext;
-  cv::Mat desc1_ext;
+  std::vector<cv::KeyPoint> pts0_ext, pts1_ext;
+  cv::Mat desc0_ext, desc1_ext;
   parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
                   for (int i = range.start; i < range.end; i++) {
                     bool is_left = (i == 0);
-                    GriderFast::perform_griding(is_left ? img0 : img1, is_left ? mask0 : mask1, is_left ? pts0_ext : pts1_ext, num_features, grid_x, grid_y, threshold, true);
+                    Grider_FAST::perform_griding(is_left ? img0 : img1, is_left ? mask0 : mask1, is_left ? pts0_ext : pts1_ext,
+                                                 num_features, grid_x, grid_y, threshold, true);
                     (is_left ? orb0 : orb1)->compute(is_left ? img0 : img1, is_left ? pts0_ext : pts1_ext, is_left ? desc0_ext : desc1_ext);
                   }
                 }));
@@ -449,44 +434,46 @@ void TrackDescriptor::perform_detection_stereo(const cv::Mat &img0, const cv::Ma
   cv::Mat grid_2d_1 = cv::Mat::zeros(size1, CV_8UC1);
 
   // For all good matches, lets append to our returned vectors
-  for (auto& matche : matches) {
-      // Get our ids
-      int index_pt0 = matche.queryIdx;
-      int index_pt1 = matche.trainIdx;
+  for (size_t i = 0; i < matches.size(); i++) {
 
-      // Get current left/right keypoint, check that it is in bounds
-      cv::KeyPoint kpt0 = pts0_ext.at(index_pt0);
-      cv::KeyPoint kpt1 = pts1_ext.at(index_pt1);
-      int x0 = (int)kpt0.pt.x;
-      int y0 = (int)kpt0.pt.y;
-      int x0_grid = (int)(kpt0.pt.x / (float)min_px_dist);
-      int y0_grid = (int)(kpt0.pt.y / (float)min_px_dist);
-      if (x0_grid < 0 || x0_grid >= size0.width || y0_grid < 0 || y0_grid >= size0.height || x0 < 0 || x0 >= img0.cols || y0 < 0 || y0 >= img0.rows) {
-          continue;
-      }
-      int x1 = (int)kpt1.pt.x;
-      int y1 = (int)kpt1.pt.y;
-      int x1_grid = (int)(kpt1.pt.x / (float)min_px_dist);
-      int y1_grid = (int)(kpt1.pt.y / (float)min_px_dist);
-      if (x1_grid < 0 || x1_grid >= size1.width || y1_grid < 0 || y1_grid >= size1.height || x1 < 0 || x1 >= img0.cols || y1 < 0 || y1 >= img0.rows) {
-          continue;
-      }
+    // Get our ids
+    int index_pt0 = matches.at(i).queryIdx;
+    int index_pt1 = matches.at(i).trainIdx;
 
-      // Check if this keypoint is near another point
-      if (grid_2d_0.at<uint8_t>(y0_grid, x0_grid) > 127 || grid_2d_1.at<uint8_t>(y1_grid, x1_grid) > 127) {
-          continue;
-      }
+    // Get current left/right keypoint, check that it is in bounds
+    cv::KeyPoint kpt0 = pts0_ext.at(index_pt0);
+    cv::KeyPoint kpt1 = pts1_ext.at(index_pt1);
+    int x0 = (int)kpt0.pt.x;
+    int y0 = (int)kpt0.pt.y;
+    int x0_grid = (int)(kpt0.pt.x / (float)min_px_dist);
+    int y0_grid = (int)(kpt0.pt.y / (float)min_px_dist);
+    if (x0_grid < 0 || x0_grid >= size0.width || y0_grid < 0 || y0_grid >= size0.height || x0 < 0 || x0 >= img0.cols || y0 < 0 ||
+        y0 >= img0.rows) {
+      continue;
+    }
+    int x1 = (int)kpt1.pt.x;
+    int y1 = (int)kpt1.pt.y;
+    int x1_grid = (int)(kpt1.pt.x / (float)min_px_dist);
+    int y1_grid = (int)(kpt1.pt.y / (float)min_px_dist);
+    if (x1_grid < 0 || x1_grid >= size1.width || y1_grid < 0 || y1_grid >= size1.height || x1 < 0 || x1 >= img0.cols || y1 < 0 ||
+        y1 >= img0.rows) {
+      continue;
+    }
 
-      // Append our keypoints and descriptors
-      pts0.push_back(pts0_ext[index_pt0]);
-      pts1.push_back(pts1_ext[index_pt1]);
-      desc0.push_back(desc0_ext.row(index_pt0));
-      desc1.push_back(desc1_ext.row(index_pt1));
+    // Check if this keypoint is near another point
+    if (grid_2d_0.at<uint8_t>(y0_grid, x0_grid) > 127 || grid_2d_1.at<uint8_t>(y1_grid, x1_grid) > 127)
+      continue;
 
-      // Set our IDs to be unique IDs here, will later replace with corrected ones, after temporal matching
-      size_t temp = ++currid;
-      ids0.push_back(temp);
-      ids1.push_back(temp);
+    // Append our keypoints and descriptors
+    pts0.push_back(pts0_ext[index_pt0]);
+    pts1.push_back(pts1_ext[index_pt1]);
+    desc0.push_back(desc0_ext.row(index_pt0));
+    desc1.push_back(desc1_ext.row(index_pt1));
+
+    // Set our IDs to be unique IDs here, will later replace with corrected ones, after temporal matching
+    size_t temp = ++currid;
+    ids0.push_back(temp);
+    ids1.push_back(temp);
   }
 }
 
@@ -494,8 +481,7 @@ void TrackDescriptor::robust_match(const std::vector<cv::KeyPoint> &pts0, const 
                                    const cv::Mat &desc1, size_t id0, size_t id1, std::vector<cv::DMatch> &matches) {
 
   // Our 1to2 and 2to1 match vectors
-  std::vector<std::vector<cv::DMatch>> matches0to1;
-  std::vector<std::vector<cv::DMatch>> matches1to0;
+  std::vector<std::vector<cv::DMatch>> matches0to1, matches1to0;
 
   // Match descriptors (return 2 nearest neighbours)
   matcher->knnMatch(desc0, desc1, matches0to1, 2);
@@ -510,26 +496,23 @@ void TrackDescriptor::robust_match(const std::vector<cv::KeyPoint> &pts0, const 
   robust_symmetry_test(matches0to1, matches1to0, matches_good);
 
   // Convert points into points for RANSAC
-  std::vector<cv::Point2f> pts0_rsc;
-  std::vector<cv::Point2f> pts1_rsc;
-  for (auto& i : matches_good) {
-      // Get our ids
-      int index_pt0 = i.queryIdx;
-      int index_pt1 = i.trainIdx;
-      // Push back just the 2d point
-      pts0_rsc.push_back(pts0[index_pt0].pt);
-      pts1_rsc.push_back(pts1[index_pt1].pt);
+  std::vector<cv::Point2f> pts0_rsc, pts1_rsc;
+  for (size_t i = 0; i < matches_good.size(); i++) {
+    // Get our ids
+    int index_pt0 = matches_good.at(i).queryIdx;
+    int index_pt1 = matches_good.at(i).trainIdx;
+    // Push back just the 2d point
+    pts0_rsc.push_back(pts0[index_pt0].pt);
+    pts1_rsc.push_back(pts1[index_pt1].pt);
   }
 
   // If we don't have enough points for ransac just return empty
-  if (pts0_rsc.size() < 10) {
-      return;
-  }
+  if (pts0_rsc.size() < 10)
+    return;
 
   // Normalize these points, so we can then do ransac
   // We don't want to do ransac on distorted image uvs since the mapping is nonlinear
-  std::vector<cv::Point2f> pts0_n;
-  std::vector<cv::Point2f> pts1_n;
+  std::vector<cv::Point2f> pts0_n, pts1_n;
   for (size_t i = 0; i < pts0_rsc.size(); i++) {
     pts0_n.push_back(camera_calib.at(id0)->undistort_cv(pts0_rsc.at(i)));
     pts1_n.push_back(camera_calib.at(id1)->undistort_cv(pts1_rsc.at(i)));
@@ -545,28 +528,27 @@ void TrackDescriptor::robust_match(const std::vector<cv::KeyPoint> &pts0, const 
   // Loop through all good matches, and only append ones that have passed RANSAC
   for (size_t i = 0; i < matches_good.size(); i++) {
     // Skip if bad ransac id
-    if (mask_rsc[i] != 1) {
-        continue;
-    }
+    if (mask_rsc[i] != 1)
+      continue;
     // Else, lets append this match to the return array!
     matches.push_back(matches_good.at(i));
   }
 }
 
-void TrackDescriptor::robust_ratio_test(std::vector<std::vector<cv::DMatch>>& matches) const {
-    // Loop through all matches
-    for (auto& match : matches) {
-        // If 2 NN has been identified, else remove this feature
-        if (match.size() > 1) {
-            // check distance ratio, remove it if the ratio is larger
-            if (match[0].distance / match[1].distance > knn_ratio) {
-                match.clear();
-            }
-        } else {
-            // does not have 2 neighbours, so remove it
-            match.clear();
-        }
+void TrackDescriptor::robust_ratio_test(std::vector<std::vector<cv::DMatch>> &matches) {
+  // Loop through all matches
+  for (auto &match : matches) {
+    // If 2 NN has been identified, else remove this feature
+    if (match.size() > 1) {
+      // check distance ratio, remove it if the ratio is larger
+      if (match[0].distance / match[1].distance > knn_ratio) {
+        match.clear();
+      }
+    } else {
+      // does not have 2 neighbours, so remove it
+      match.clear();
     }
+  }
 }
 
 void TrackDescriptor::robust_symmetry_test(std::vector<std::vector<cv::DMatch>> &matches1, std::vector<std::vector<cv::DMatch>> &matches2,
@@ -574,19 +556,17 @@ void TrackDescriptor::robust_symmetry_test(std::vector<std::vector<cv::DMatch>> 
   // for all matches image 1 -> image 2
   for (auto &match1 : matches1) {
     // ignore deleted matches
-    if (match1.empty() || match1.size() < 2) {
-        continue;
-    }
+    if (match1.empty() || match1.size() < 2)
+      continue;
     // for all matches image 2 -> image 1
     for (auto &match2 : matches2) {
       // ignore deleted matches
-      if (match2.empty() || match2.size() < 2) {
-          continue;
-      }
+      if (match2.empty() || match2.size() < 2)
+        continue;
       // Match symmetry test
       if (match1[0].queryIdx == match2[0].trainIdx && match2[0].queryIdx == match1[0].trainIdx) {
         // add symmetrical match
-        good_matches.emplace_back(match1[0].queryIdx, match1[0].trainIdx, match1[0].distance);
+        good_matches.emplace_back(cv::DMatch(match1[0].queryIdx, match1[0].trainIdx, match1[0].distance));
         // next match in image 1 -> image 2
         break;
       }

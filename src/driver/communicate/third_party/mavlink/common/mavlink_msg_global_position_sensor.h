@@ -3,28 +3,34 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR = 296 };
+#define MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR 296
 
-using mavlink_global_position_sensor_t = struct __mavlink_global_position_sensor_t {
-    uint64_t time_usec;       /*< [us] Timestamp of message transmission (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint32_t processing_time; /*< [us] The time spent in processing the sensor data that is the basis for this position. The recipient can use this to improve time alignment of the data. This is the time between measurement (e.g. camera exposure time) and transmission of this message. Set to NaN if
-                                 not known.*/
-    int32_t lat;              /*< [degE7] Latitude (WGS84)*/
-    int32_t lon;              /*< [degE7] Longitude (WGS84)*/
-    float alt_ellipsoid;      /*< [m] Altitude (WGS84 elipsoid), preferred if available*/
-    float alt;                /*< [m] Altitude (MSL - position-system specific value) use if no alt_ellipsoid available*/
-    float eph;                /*< [m] Standard deviation of horizontal position error*/
-    float epv;                /*< [m] Standard deviation of vertical position error*/
-    uint8_t target_system;    /*<  System ID (ID of target system, normally autopilot and ground station).*/
-    uint8_t target_component; /*<  Component ID (normally 0 for broadcast).*/
-    uint8_t id;               /*<  Sensor ID*/
-    uint8_t source;           /*<  Source of position/estimate (such as GNSS, estimator, etc.)*/
-    uint8_t flags;            /*<  Status flags*/
-};
 
-enum { MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_LEN = 41, MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_MIN_LEN = 41, MAVLINK_MSG_ID_296_LEN = 41, MAVLINK_MSG_ID_296_MIN_LEN = 41 };
+typedef struct __mavlink_global_position_sensor_t {
+ uint64_t time_usec; /*< [us] Timestamp of message transmission (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint32_t processing_time; /*< [us] The time spent in processing the sensor data that is the basis for this position. The recipient can use this to improve time alignment of the data. This is the time between measurement (e.g. camera exposure time) and transmission of this message. Set to NaN if not known.*/
+ int32_t lat; /*< [degE7] Latitude (WGS84)*/
+ int32_t lon; /*< [degE7] Longitude (WGS84)*/
+ float alt_ellipsoid; /*< [m] Altitude (WGS84 elipsoid), preferred if available*/
+ float alt; /*< [m] Altitude (MSL - position-system specific value) use if no alt_ellipsoid available*/
+ float eph; /*< [m] Standard deviation of horizontal position error*/
+ float epv; /*< [m] Standard deviation of vertical position error*/
+ uint8_t target_system; /*<  System ID (ID of target system, normally autopilot and ground station).*/
+ uint8_t target_component; /*<  Component ID (normally 0 for broadcast).*/
+ uint8_t id; /*<  Sensor ID*/
+ uint8_t source; /*<  Source of position/estimate (such as GNSS, estimator, etc.)*/
+ uint8_t flags; /*<  Status flags*/
+} mavlink_global_position_sensor_t;
 
-enum { MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_CRC = 158, MAVLINK_MSG_ID_296_CRC = 158 };
+#define MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_LEN 41
+#define MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_MIN_LEN 41
+#define MAVLINK_MSG_ID_296_LEN 41
+#define MAVLINK_MSG_ID_296_MIN_LEN 41
+
+#define MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_CRC 158
+#define MAVLINK_MSG_ID_296_CRC 158
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GLOBAL_POSITION_SENSOR { \
@@ -579,10 +585,11 @@ static inline void mavlink_msg_global_position_sensor_decode(const mavlink_messa
         memset(global_position_sensor, 0, MAVLINK_MSG_ID_GLOBAL_POSITION_SENSOR_LEN);
     memcpy(global_position_sensor, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         global_position_sensor->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

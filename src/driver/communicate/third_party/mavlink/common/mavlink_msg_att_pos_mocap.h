@@ -3,22 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ATT_POS_MOCAP = 138 };
+#define MAVLINK_MSG_ID_ATT_POS_MOCAP 138
 
-using mavlink_att_pos_mocap_t = struct __mavlink_att_pos_mocap_t {
-    uint64_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float q[4];           /*<  Attitude quaternion (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
-    float x;              /*< [m] X position (NED)*/
-    float y;              /*< [m] Y position (NED)*/
-    float z;              /*< [m] Z position (NED)*/
-    float covariance[21]; /*<  Row-major representation of a pose 6x6 cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
-};
 
-enum { MAVLINK_MSG_ID_ATT_POS_MOCAP_LEN = 120, MAVLINK_MSG_ID_ATT_POS_MOCAP_MIN_LEN = 36, MAVLINK_MSG_ID_138_LEN = 120, MAVLINK_MSG_ID_138_MIN_LEN = 36 };
+typedef struct __mavlink_att_pos_mocap_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float q[4]; /*<  Attitude quaternion (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
+ float x; /*< [m] X position (NED)*/
+ float y; /*< [m] Y position (NED)*/
+ float z; /*< [m] Z position (NED)*/
+ float covariance[21]; /*<  Row-major representation of a pose 6x6 cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
+} mavlink_att_pos_mocap_t;
 
-enum { MAVLINK_MSG_ID_ATT_POS_MOCAP_CRC = 109, MAVLINK_MSG_ID_138_CRC = 109 };
+#define MAVLINK_MSG_ID_ATT_POS_MOCAP_LEN 120
+#define MAVLINK_MSG_ID_ATT_POS_MOCAP_MIN_LEN 36
+#define MAVLINK_MSG_ID_138_LEN 120
+#define MAVLINK_MSG_ID_138_MIN_LEN 36
 
-enum { MAVLINK_MSG_ATT_POS_MOCAP_FIELD_Q_LEN = 4, MAVLINK_MSG_ATT_POS_MOCAP_FIELD_COVARIANCE_LEN = 21 };
+#define MAVLINK_MSG_ID_ATT_POS_MOCAP_CRC 109
+#define MAVLINK_MSG_ID_138_CRC 109
+
+#define MAVLINK_MSG_ATT_POS_MOCAP_FIELD_Q_LEN 4
+#define MAVLINK_MSG_ATT_POS_MOCAP_FIELD_COVARIANCE_LEN 21
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ATT_POS_MOCAP { \

@@ -17,17 +17,13 @@
 namespace wire_test {
 using namespace std::chrono;
 inline void check(bool condition, const char* message) {
-    if (!condition) {
-        throw std::runtime_error(message);
-    }
+    if (!condition) throw std::runtime_error(message);
 }
 template <typename Predicate>
 bool waitFor(Predicate predicate, int timeout_ms = 1500) {
     const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
     do {
-        if (predicate()) {
-            return true;
-        }
+        if (predicate()) return true;
         std::this_thread::sleep_for(milliseconds(2));
     } while (steady_clock::now() < deadline);
     return predicate();
@@ -42,9 +38,7 @@ struct Pty {
         slave = ptsname(master);
     }
     ~Pty() {
-        if (master >= 0) {
-            ::close(master);
-        }
+        if (master >= 0) ::close(master);
     }
 };
 // 可替换的设备路径，用两对 PTY 模拟 USB 串口消失后重新出现。
@@ -59,7 +53,7 @@ struct DevicePath {
         path = directory + "/serial";
         pointTo(slave);
     }
-    void pointTo(const std::string& slave) const {
+    void pointTo(const std::string& slave) {
         ::unlink(path.c_str());
         check(::symlink(slave.c_str(), path.c_str()) == 0, "device symlink");
     }
@@ -75,13 +69,12 @@ inline void send(int fd, const mavlink_message_t& message) {
     const auto deadline = steady_clock::now() + milliseconds(500);
     while (offset < length && steady_clock::now() < deadline) {
         const auto n = ::write(fd, bytes + offset, length - offset);
-        if (n > 0) {
+        if (n > 0)
             offset += n;
-        } else if (n < 0 && (errno == EAGAIN || errno == EINTR)) {
+        else if (n < 0 && (errno == EAGAIN || errno == EINTR))
             std::this_thread::sleep_for(milliseconds(1));
-        } else {
+        else
             throw std::runtime_error("PTY write failed");
-        }
     }
     check(offset == length, "PTY write timed out");
 }
@@ -112,13 +105,9 @@ class Reader {
             for (ssize_t i = 0; i < n; ++i) {
                 mavlink_message_t out{};
                 mavlink_status_t status{};
-                if (mavlink_frame_char_buffer(&rx_, &status_, bytes[i], &out, &status) == MAVLINK_FRAMING_OK) {
-                    pending_.push_back(out);
-                }
+                if (mavlink_frame_char_buffer(&rx_, &status_, bytes[i], &out, &status) == MAVLINK_FRAMING_OK) pending_.push_back(out);
             }
-            if (n <= 0) {
-                std::this_thread::sleep_for(milliseconds(1));
-            }
+            if (n <= 0) std::this_thread::sleep_for(milliseconds(1));
         } while (!pending_.empty() || steady_clock::now() < deadline);
         return false;
     }

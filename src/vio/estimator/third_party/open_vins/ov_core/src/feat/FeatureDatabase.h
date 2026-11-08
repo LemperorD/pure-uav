@@ -57,7 +57,7 @@ public:
   /**
    * @brief Default constructor
    */
-  FeatureDatabase() = default;
+  FeatureDatabase() {}
 
   /**
    * @brief Get a specified feature
@@ -136,16 +136,16 @@ public:
    * @brief Returns the size of the feature database
    */
   size_t size() {
-      std::scoped_lock lck(mtx);
-      return features_idlookup.size();
+    std::lock_guard<std::mutex> lck(mtx);
+    return features_idlookup.size();
   }
 
   /**
    * @brief Returns the internal data (should not normally be used)
    */
   std::unordered_map<size_t, std::shared_ptr<Feature>> get_internal_data() {
-      std::scoped_lock lck(mtx);
-      return features_idlookup;
+    std::lock_guard<std::mutex> lck(mtx);
+    return features_idlookup;
   }
 
   /**

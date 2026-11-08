@@ -3,22 +3,29 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ISBD_LINK_STATUS = 335 };
+#define MAVLINK_MSG_ID_ISBD_LINK_STATUS 335
 
-using mavlink_isbd_link_status_t = struct __mavlink_isbd_link_status_t {
-    uint64_t timestamp;           /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint64_t last_heartbeat;      /*< [us] Timestamp of the last successful sbd session. The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint16_t failed_sessions;     /*<  Number of failed SBD sessions.*/
-    uint16_t successful_sessions; /*<  Number of successful SBD sessions.*/
-    uint8_t signal_quality;       /*<  Signal quality equal to the number of bars displayed on the ISU signal strength indicator. Range is 0 to 5, where 0 indicates no signal and 5 indicates maximum signal strength.*/
-    uint8_t ring_pending;         /*<  1: Ring call pending, 0: No call pending.*/
-    uint8_t tx_session_pending;   /*<  1: Transmission session pending, 0: No transmission session pending.*/
-    uint8_t rx_session_pending;   /*<  1: Receiving session pending, 0: No receiving session pending.*/
-};
 
-enum { MAVLINK_MSG_ID_ISBD_LINK_STATUS_LEN = 24, MAVLINK_MSG_ID_ISBD_LINK_STATUS_MIN_LEN = 24, MAVLINK_MSG_ID_335_LEN = 24, MAVLINK_MSG_ID_335_MIN_LEN = 24 };
+typedef struct __mavlink_isbd_link_status_t {
+ uint64_t timestamp; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint64_t last_heartbeat; /*< [us] Timestamp of the last successful sbd session. The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint16_t failed_sessions; /*<  Number of failed SBD sessions.*/
+ uint16_t successful_sessions; /*<  Number of successful SBD sessions.*/
+ uint8_t signal_quality; /*<  Signal quality equal to the number of bars displayed on the ISU signal strength indicator. Range is 0 to 5, where 0 indicates no signal and 5 indicates maximum signal strength.*/
+ uint8_t ring_pending; /*<  1: Ring call pending, 0: No call pending.*/
+ uint8_t tx_session_pending; /*<  1: Transmission session pending, 0: No transmission session pending.*/
+ uint8_t rx_session_pending; /*<  1: Receiving session pending, 0: No receiving session pending.*/
+} mavlink_isbd_link_status_t;
 
-enum { MAVLINK_MSG_ID_ISBD_LINK_STATUS_CRC = 225, MAVLINK_MSG_ID_335_CRC = 225 };
+#define MAVLINK_MSG_ID_ISBD_LINK_STATUS_LEN 24
+#define MAVLINK_MSG_ID_ISBD_LINK_STATUS_MIN_LEN 24
+#define MAVLINK_MSG_ID_335_LEN 24
+#define MAVLINK_MSG_ID_335_MIN_LEN 24
+
+#define MAVLINK_MSG_ID_ISBD_LINK_STATUS_CRC 225
+#define MAVLINK_MSG_ID_335_CRC 225
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ISBD_LINK_STATUS { \

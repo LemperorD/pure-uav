@@ -3,17 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SUPPORTED_TUNES = 401 };
+#define MAVLINK_MSG_ID_SUPPORTED_TUNES 401
 
-using mavlink_supported_tunes_t = struct __mavlink_supported_tunes_t {
-    uint32_t format;          /*<  Bitfield of supported tune formats.*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-};
 
-enum { MAVLINK_MSG_ID_SUPPORTED_TUNES_LEN = 6, MAVLINK_MSG_ID_SUPPORTED_TUNES_MIN_LEN = 6, MAVLINK_MSG_ID_401_LEN = 6, MAVLINK_MSG_ID_401_MIN_LEN = 6 };
+typedef struct __mavlink_supported_tunes_t {
+ uint32_t format; /*<  Bitfield of supported tune formats.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+} mavlink_supported_tunes_t;
 
-enum { MAVLINK_MSG_ID_SUPPORTED_TUNES_CRC = 183, MAVLINK_MSG_ID_401_CRC = 183 };
+#define MAVLINK_MSG_ID_SUPPORTED_TUNES_LEN 6
+#define MAVLINK_MSG_ID_SUPPORTED_TUNES_MIN_LEN 6
+#define MAVLINK_MSG_ID_401_LEN 6
+#define MAVLINK_MSG_ID_401_MIN_LEN 6
+
+#define MAVLINK_MSG_ID_SUPPORTED_TUNES_CRC 183
+#define MAVLINK_MSG_ID_401_CRC 183
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SUPPORTED_TUNES { \
@@ -298,10 +305,11 @@ static inline void mavlink_msg_supported_tunes_decode(const mavlink_message_t* m
         memset(supported_tunes, 0, MAVLINK_MSG_ID_SUPPORTED_TUNES_LEN);
     memcpy(supported_tunes, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         supported_tunes->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

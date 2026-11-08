@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_REQUEST_DATA_STREAM = 66 };
+#define MAVLINK_MSG_ID_REQUEST_DATA_STREAM 66
 
-using mavlink_request_data_stream_t = struct __mavlink_request_data_stream_t {
-    uint16_t req_message_rate; /*< [Hz] The requested message rate*/
-    uint8_t target_system;     /*<  The target requested to send the message stream.*/
-    uint8_t target_component;  /*<  The target requested to send the message stream.*/
-    uint8_t req_stream_id;     /*<  The ID of the requested data stream.*/
-    uint8_t start_stop;        /*<  1 to start sending, 0 to stop sending.*/
-};
 
-enum { MAVLINK_MSG_ID_REQUEST_DATA_STREAM_LEN = 6, MAVLINK_MSG_ID_REQUEST_DATA_STREAM_MIN_LEN = 6, MAVLINK_MSG_ID_66_LEN = 6, MAVLINK_MSG_ID_66_MIN_LEN = 6 };
+typedef struct __mavlink_request_data_stream_t {
+ uint16_t req_message_rate; /*< [Hz] The requested message rate*/
+ uint8_t target_system; /*<  The target requested to send the message stream.*/
+ uint8_t target_component; /*<  The target requested to send the message stream.*/
+ uint8_t req_stream_id; /*<  The ID of the requested data stream.*/
+ uint8_t start_stop; /*<  1 to start sending, 0 to stop sending.*/
+} mavlink_request_data_stream_t;
 
-enum { MAVLINK_MSG_ID_REQUEST_DATA_STREAM_CRC = 148, MAVLINK_MSG_ID_66_CRC = 148 };
+#define MAVLINK_MSG_ID_REQUEST_DATA_STREAM_LEN 6
+#define MAVLINK_MSG_ID_REQUEST_DATA_STREAM_MIN_LEN 6
+#define MAVLINK_MSG_ID_66_LEN 6
+#define MAVLINK_MSG_ID_66_MIN_LEN 6
+
+#define MAVLINK_MSG_ID_REQUEST_DATA_STREAM_CRC 148
+#define MAVLINK_MSG_ID_66_CRC 148
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_REQUEST_DATA_STREAM { \
@@ -354,10 +361,11 @@ static inline void mavlink_msg_request_data_stream_decode(const mavlink_message_
         memset(request_data_stream, 0, MAVLINK_MSG_ID_REQUEST_DATA_STREAM_LEN);
     memcpy(request_data_stream, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         request_data_stream->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

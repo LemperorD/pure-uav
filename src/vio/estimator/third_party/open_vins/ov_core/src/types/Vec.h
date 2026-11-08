@@ -41,7 +41,7 @@ public:
     _fej = Eigen::VectorXd::Zero(dim);
   }
 
-  ~Vec() override = default;
+  ~Vec() {}
 
   /**
    * @brief Implements the update operation through standard vector addition

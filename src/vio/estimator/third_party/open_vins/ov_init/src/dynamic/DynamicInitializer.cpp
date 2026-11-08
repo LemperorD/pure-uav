@@ -135,9 +135,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
 
     // This isn't a feature we should use if there are not enough measurements
     map_features_num_meas[feat.first] = (int)times.size();
-    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize) {
-        continue;
-    }
+    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize)
+      continue;
 
     // If we have enough measurements we should append this feature!
     for (auto const &tmp : times) {
@@ -230,7 +229,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   const bool use_single_depth = false;
   int size_feature = (use_single_depth) ? 1 : 3;
   int num_features = count_valid_features;
-  int system_size = (size_feature * num_features) + 3 + 3;
+  int system_size = size_feature * num_features + 3 + 3;
 
   // Make sure we have enough measurements to fully constrain the system
   if (num_measurements < system_size) {
@@ -241,8 +240,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // Now lets pre-integrate from the first time to the last
   assert(oldest_camera_time < newest_cam_time);
   double last_camera_timestamp = 0.0;
-  std::map<double, std::shared_ptr<ov_core::CpiV1>> map_camera_cpi_I0toIi;
-  std::map<double, std::shared_ptr<ov_core::CpiV1>> map_camera_cpi_IitoIi1;
+  std::map<double, std::shared_ptr<ov_core::CpiV1>> map_camera_cpi_I0toIi, map_camera_cpi_IitoIi1;
   for (auto const &timepair : map_camera_times) {
 
     // No preintegration at the first timestamp
@@ -318,9 +316,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   int idx_feat = 0;
   std::map<size_t, int> A_index_features;
   for (auto const &feat : features) {
-      if (map_features_num_meas[feat.first] < min_num_meas_to_optimize) {
-          continue;
-      }
+    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize)
+      continue;
     if (A_index_features.find(feat.first) == A_index_features.end()) {
       A_index_features.insert({feat.first, idx_feat});
       idx_feat += 1;
@@ -338,9 +335,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
 
         // Skip measurements we don't have poses for
         double time = feat.second->timestamps.at(cam_id).at(i);
-        if (map_camera_times.find(time) == map_camera_times.end()) {
-            continue;
-        }
+        if (map_camera_times.find(time) == map_camera_times.end())
+          continue;
 
         // Our measurement
         Eigen::Vector2d uv_norm;
@@ -375,8 +371,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
         } else {
           H_i.block(0, size_feature * A_index_features.at(feat.first), 2, 3) = Y; // feat
         }
-        H_i.block(0, (size_feature * num_features) + 0, 2, 3) = -DT * Y;            // vel
-        H_i.block(0, (size_feature * num_features) + 3, 2, 3) = 0.5 * DT * DT * Y;  // grav
+        H_i.block(0, size_feature * num_features + 0, 2, 3) = -DT * Y;            // vel
+        H_i.block(0, size_feature * num_features + 3, 2, 3) = 0.5 * DT * DT * Y;  // grav
 
         // Else lets append this to our system!
         A.block(index_meas, 0, 2, A.cols()) = H_i;
@@ -468,13 +464,13 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // Overwrite our state: [features, velocity, gravity]
   Eigen::VectorXd state_feat_vel = -A1A1_inv * A1.transpose() * A2 * state_grav + A1A1_inv * A1.transpose() * b;
   Eigen::MatrixXd x_hat = Eigen::MatrixXd::Zero(system_size, 1);
-  x_hat.block(0, 0, (size_feature * num_features) + 3, 1) = state_feat_vel;
-  x_hat.block((size_feature * num_features) + 3, 0, 3, 1) = state_grav;
-  Eigen::Vector3d v_I0inI0 = x_hat.block((size_feature * num_features) + 0, 0, 3, 1);
+  x_hat.block(0, 0, size_feature * num_features + 3, 1) = state_feat_vel;
+  x_hat.block(size_feature * num_features + 3, 0, 3, 1) = state_grav;
+  Eigen::Vector3d v_I0inI0 = x_hat.block(size_feature * num_features + 0, 0, 3, 1);
   PRINT_INFO("[init-d]: velocity in I0 was %.3f,%.3f,%.3f and |v| = %.4f\n", v_I0inI0(0), v_I0inI0(1), v_I0inI0(2), v_I0inI0.norm());
 
   // Check gravity magnitude to see if converged
-  Eigen::Vector3d gravity_inI0 = x_hat.block((size_feature * num_features) + 3, 0, 3, 1);
+  Eigen::Vector3d gravity_inI0 = x_hat.block(size_feature * num_features + 3, 0, 3, 1);
   double init_max_grav_difference = 1e-3;
   if (std::abs(gravity_inI0.norm() - params.gravity_mag) > init_max_grav_difference) {
     PRINT_WARNING(YELLOW "[init-d]: gravity did not converge (%.3f > %.3f)\n" RESET, std::abs(gravity_inI0.norm() - params.gravity_mag),
@@ -489,9 +485,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // ======================================================
 
   // Extract imu state elements
-  std::map<double, Eigen::VectorXd> ori_I0toIi;
-  std::map<double, Eigen::VectorXd> pos_IiinI0;
-  std::map<double, Eigen::VectorXd> vel_IiinI0;
+  std::map<double, Eigen::VectorXd> ori_I0toIi, pos_IiinI0, vel_IiinI0;
   for (auto const &timepair : map_camera_times) {
 
     // Timestamp of this pose
@@ -524,9 +518,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   count_valid_features = 0;
   std::map<size_t, Eigen::Vector3d> features_inI0;
   for (auto const &feat : features) {
-      if (map_features_num_meas[feat.first] < min_num_meas_to_optimize) {
-          continue;
-      }
+    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize)
+      continue;
     Eigen::Vector3d p_FinI0;
     if (size_feature == 1) {
       assert(false);
@@ -562,9 +555,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   Eigen::Vector4d q_GtoI0 = rot_2_quat(R_GtoI0);
   Eigen::Vector3d gravity;
   gravity << 0.0, 0.0, params.gravity_mag;
-  std::map<double, Eigen::VectorXd> ori_GtoIi;
-  std::map<double, Eigen::VectorXd> pos_IiinG;
-  std::map<double, Eigen::VectorXd> vel_IiinG;
+  std::map<double, Eigen::VectorXd> ori_GtoIi, pos_IiinG, vel_IiinG;
   std::map<size_t, Eigen::Vector3d> features_inG;
   for (auto const &timepair : map_camera_times) {
     ori_GtoIi[timepair.first] = quat_multiply(ori_I0toIi.at(timepair.first), q_GtoI0);
@@ -605,33 +596,24 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
 
   // Helper lambda that will free any memory we have allocated
   auto free_state_memory = [&]() {
-      for (auto const& ptr : ceres_vars_ori) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_pos) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_vel) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_bias_g) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_bias_a) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_feat) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_calib_cam2imu_ori) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_calib_cam2imu_pos) {
-          delete[] ptr;
-      }
-      for (auto const& ptr : ceres_vars_calib_cam_intrinsics) {
-          delete[] ptr;
-      }
+    for (auto const &ptr : ceres_vars_ori)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_pos)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_vel)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_bias_g)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_bias_a)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_feat)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_calib_cam2imu_ori)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_calib_cam2imu_pos)
+      delete[] ptr;
+    for (auto const &ptr : ceres_vars_calib_cam_intrinsics)
+      delete[] ptr;
   };
 
   // Set the optimization settings
@@ -687,7 +669,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
     }
 
     // Now actually create the parameter block in the ceres problem
-    auto* ceres_jplquat = new StateJplQuatLocal();
+    auto ceres_jplquat = new State_JPLQuatLocal();
     problem.AddParameterBlock(var_ori, 4, ceres_jplquat);
     problem.AddParameterBlock(var_pos, 3);
     problem.AddParameterBlock(var_vel, 3);
@@ -729,7 +711,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       x_types.emplace_back("vec3");
 
       // Append it to the problem
-      auto* factor_prior = new FactorGenericPrior(x_lin, x_types, prior_Info, prior_grad);
+      auto *factor_prior = new Factor_GenericPrior(x_lin, x_types, prior_Info, prior_grad);
       problem.AddResidualBlock(factor_prior, nullptr, factor_params);
     }
 
@@ -759,7 +741,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       factor_params.push_back(ceres_vars_vel.at(map_states.at(timestamp_k1)));
       factor_params.push_back(ceres_vars_bias_a.at(map_states.at(timestamp_k1)));
       factor_params.push_back(ceres_vars_pos.at(map_states.at(timestamp_k1)));
-      auto* factor_imu = new FactorImuCpIv1(cpi->DT, gravity, cpi->alpha_tau, cpi->beta_tau, cpi->q_k2tau, cpi->b_a_lin, cpi->b_w_lin, cpi->J_q, cpi->J_b, cpi->J_a, cpi->H_b, cpi->H_a, cpi->P_meas);
+      auto *factor_imu = new Factor_ImuCPIv1(cpi->DT, gravity, cpi->alpha_tau, cpi->beta_tau, cpi->q_k2tau, cpi->b_a_lin, cpi->b_w_lin,
+                                             cpi->J_q, cpi->J_b, cpi->J_a, cpi->H_b, cpi->H_a, cpi->P_meas);
       problem.AddResidualBlock(factor_imu, nullptr, factor_params);
     }
 
@@ -779,7 +762,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       for (int j = 0; j < 3; j++) {
         var_calib_pos[j] = params.camera_extrinsics.at(cam_id)(4 + j, 0);
       }
-      auto* ceres_calib_jplquat = new StateJplQuatLocal();
+      auto ceres_calib_jplquat = new State_JPLQuatLocal();
       problem.AddParameterBlock(var_calib_ori, 4, ceres_calib_jplquat);
       problem.AddParameterBlock(var_calib_pos, 3);
       map_calib_cam2imu.insert({cam_id, (int)ceres_vars_calib_cam2imu_ori.size()});
@@ -806,7 +789,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       x_types.emplace_back("quat");
       factor_params.push_back(var_calib_pos);
       x_types.emplace_back("vec3");
-      auto* factor_prior = new FactorGenericPrior(x_lin, x_types, prior_Info, prior_grad);
+      auto *factor_prior = new Factor_GenericPrior(x_lin, x_types, prior_Info, prior_grad);
       problem.AddResidualBlock(factor_prior, nullptr, factor_params);
       if (!params.init_dyn_mle_opt_calib) {
         problem.SetParameterBlockConstant(var_calib_ori);
@@ -837,7 +820,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
       std::vector<double *> factor_params;
       factor_params.push_back(var_calib_cam);
       x_types.emplace_back("vec8");
-      auto* factor_prior = new FactorGenericPrior(x_lin, x_types, prior_Info, prior_grad);
+      auto *factor_prior = new Factor_GenericPrior(x_lin, x_types, prior_Info, prior_grad);
       problem.AddResidualBlock(factor_prior, nullptr, factor_params);
       if (!params.init_dyn_mle_opt_calib) {
         problem.SetParameterBlockConstant(var_calib_cam);
@@ -849,13 +832,11 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // Then, append new feature observations factors seen from all cameras
   for (auto const &feat : features) {
     // Skip features that don't have enough measurements
-    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize) {
-        continue;
-    }
+    if (map_features_num_meas[feat.first] < min_num_meas_to_optimize)
+      continue;
     // Features can be removed if behind the camera!
-    if (features_inG.find(feat.first) == features_inG.end()) {
-        continue;
-    }
+    if (features_inG.find(feat.first) == features_inG.end())
+      continue;
     // Finally loop through each raw uv observation and append it as a factor
     for (auto const &camtime : feat.second->timestamps) {
 
@@ -869,9 +850,8 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
 
         // Skip measurements we don't have poses for
         double time = feat.second->timestamps.at(cam_id).at(i);
-        if (map_camera_times.find(time) == map_camera_times.end()) {
-            continue;
-        }
+        if (map_camera_times.find(time) == map_camera_times.end())
+          continue;
 
         // Our measurement
         Eigen::Vector2d uv_raw = feat.second->uvs.at(cam_id).at(i).block(0, 0, 2, 1).cast<double>();
@@ -896,7 +876,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
         factor_params.push_back(ceres_vars_calib_cam2imu_ori.at(map_calib_cam2imu.at(cam_id)));
         factor_params.push_back(ceres_vars_calib_cam2imu_pos.at(map_calib_cam2imu.at(cam_id)));
         factor_params.push_back(ceres_vars_calib_cam_intrinsics.at(map_calib_cam.at(cam_id)));
-        auto* factor_pinhole = new FactorImageReprojCalib(uv_raw, params.sigma_pix, is_fisheye);
+        auto *factor_pinhole = new Factor_ImageReprojCalib(uv_raw, params.sigma_pix, is_fisheye);
         // ceres::LossFunction *loss_function = nullptr;
         ceres::LossFunction *loss_function = new ceres::CauchyLoss(1.0);
         problem.AddResidualBlock(factor_pinhole, loss_function, factor_params);
@@ -1001,29 +981,29 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   std::vector<std::pair<const double *, const double *>> covariance_blocks;
   int state_index = map_states[newest_cam_time];
   // diagonals
-  covariance_blocks.emplace_back(ceres_vars_ori[state_index], ceres_vars_ori[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_pos[state_index], ceres_vars_pos[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_vel[state_index], ceres_vars_vel[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_bias_g[state_index], ceres_vars_bias_g[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_bias_a[state_index], ceres_vars_bias_a[state_index]);
+  covariance_blocks.push_back(std::make_pair(ceres_vars_ori[state_index], ceres_vars_ori[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_pos[state_index], ceres_vars_pos[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_vel[state_index], ceres_vars_vel[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_bias_g[state_index], ceres_vars_bias_g[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_bias_a[state_index], ceres_vars_bias_a[state_index]));
   // orientation
-  covariance_blocks.emplace_back(ceres_vars_ori[state_index], ceres_vars_pos[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_ori[state_index], ceres_vars_vel[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_ori[state_index], ceres_vars_bias_g[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_ori[state_index], ceres_vars_bias_a[state_index]);
+  covariance_blocks.push_back(std::make_pair(ceres_vars_ori[state_index], ceres_vars_pos[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_ori[state_index], ceres_vars_vel[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_ori[state_index], ceres_vars_bias_g[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_ori[state_index], ceres_vars_bias_a[state_index]));
   // position
-  covariance_blocks.emplace_back(ceres_vars_pos[state_index], ceres_vars_vel[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_pos[state_index], ceres_vars_bias_g[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_pos[state_index], ceres_vars_bias_a[state_index]);
+  covariance_blocks.push_back(std::make_pair(ceres_vars_pos[state_index], ceres_vars_vel[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_pos[state_index], ceres_vars_bias_g[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_pos[state_index], ceres_vars_bias_a[state_index]));
   // velocity
-  covariance_blocks.emplace_back(ceres_vars_vel[state_index], ceres_vars_bias_g[state_index]);
-  covariance_blocks.emplace_back(ceres_vars_vel[state_index], ceres_vars_bias_a[state_index]);
+  covariance_blocks.push_back(std::make_pair(ceres_vars_vel[state_index], ceres_vars_bias_g[state_index]));
+  covariance_blocks.push_back(std::make_pair(ceres_vars_vel[state_index], ceres_vars_bias_a[state_index]));
   // bias_g
-  covariance_blocks.emplace_back(ceres_vars_bias_g[state_index], ceres_vars_bias_a[state_index]);
+  covariance_blocks.push_back(std::make_pair(ceres_vars_bias_g[state_index], ceres_vars_bias_a[state_index]));
 
   // Finally, compute the covariance
   ceres::Covariance::Options options_cov;
-  options_cov.null_space_rank = static_cast<int>(!params.init_dyn_mle_opt_calib) * ((int)map_calib_cam2imu.size() * (6 + 8));
+  options_cov.null_space_rank = (!params.init_dyn_mle_opt_calib) * ((int)map_calib_cam2imu.size() * (6 + 8));
   options_cov.min_reciprocal_condition_number = params.init_dyn_min_rec_cond;
   // options_cov.algorithm_type = ceres::CovarianceAlgorithmType::DENSE_SVD;
   options_cov.apply_loss_function = true; // Better consistency if we use this

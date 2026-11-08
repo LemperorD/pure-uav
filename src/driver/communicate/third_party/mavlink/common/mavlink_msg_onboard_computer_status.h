@@ -3,52 +3,55 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS = 390 };
+#define MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS 390
 
-using mavlink_onboard_computer_status_t = struct __mavlink_onboard_computer_status_t {
-    uint64_t time_usec;         /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint32_t uptime;            /*< [ms] Time since system boot.*/
-    uint32_t ram_usage;         /*< [MiB] Amount of used RAM on the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t ram_total;         /*< [MiB] Total amount of RAM on the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t storage_type[4];   /*<  Storage type: 0: HDD, 1: SSD, 2: EMMC, 3: SD card (non-removable), 4: SD card (removable). A value of UINT32_MAX implies the field is unused.*/
-    uint32_t storage_usage[4];  /*< [MiB] Amount of used storage space on the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t storage_total[4];  /*< [MiB] Total amount of storage space on the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t link_type[6];      /*<  Link type: 0-9: UART, 10-19: Wired network, 20-29: Wifi, 30-39: Point-to-point proprietary, 40-49: Mesh proprietary*/
-    uint32_t link_tx_rate[6];   /*< [KiB/s] Network traffic from the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t link_rx_rate[6];   /*< [KiB/s] Network traffic to the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t link_tx_max[6];    /*< [KiB/s] Network capacity from the component system. A value of UINT32_MAX implies the field is unused.*/
-    uint32_t link_rx_max[6];    /*< [KiB/s] Network capacity to the component system. A value of UINT32_MAX implies the field is unused.*/
-    int16_t fan_speed[4];       /*< [rpm] Fan speeds. A value of INT16_MAX implies the field is unused.*/
-    uint8_t type;               /*<  Type of the onboard computer: 0: Mission computer primary, 1: Mission computer backup 1, 2: Mission computer backup 2, 3: Compute node, 4-5: Compute spares, 6-9: Payload computers.*/
-    uint8_t cpu_cores[8];       /*<  CPU usage on the component in percent (100 - idle). A value of UINT8_MAX implies the field is unused.*/
-    uint8_t cpu_combined[10];   /*<  Combined CPU usage as the last 10 slices of 100 MS (a histogram). This allows to identify spikes in load that max out the system, but only for a short amount of time. A value of UINT8_MAX implies the field is unused.*/
-    uint8_t gpu_cores[4];       /*<  GPU usage on the component in percent (100 - idle). A value of UINT8_MAX implies the field is unused.*/
-    uint8_t gpu_combined[10];   /*<  Combined GPU usage as the last 10 slices of 100 MS (a histogram). This allows to identify spikes in load that max out the system, but only for a short amount of time. A value of UINT8_MAX implies the field is unused.*/
-    int8_t temperature_board;   /*< [degC] Temperature of the board. A value of INT8_MAX implies the field is unused.*/
-    int8_t temperature_core[8]; /*< [degC] Temperature of the CPU core. A value of INT8_MAX implies the field is unused.*/
-    uint16_t status_flags;      /*<  Bitmap of status flags.*/
-};
 
-enum { MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_LEN = 240, MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_MIN_LEN = 238, MAVLINK_MSG_ID_390_LEN = 240, MAVLINK_MSG_ID_390_MIN_LEN = 238 };
+typedef struct __mavlink_onboard_computer_status_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint32_t uptime; /*< [ms] Time since system boot.*/
+ uint32_t ram_usage; /*< [MiB] Amount of used RAM on the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t ram_total; /*< [MiB] Total amount of RAM on the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t storage_type[4]; /*<  Storage type: 0: HDD, 1: SSD, 2: EMMC, 3: SD card (non-removable), 4: SD card (removable). A value of UINT32_MAX implies the field is unused.*/
+ uint32_t storage_usage[4]; /*< [MiB] Amount of used storage space on the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t storage_total[4]; /*< [MiB] Total amount of storage space on the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t link_type[6]; /*<  Link type: 0-9: UART, 10-19: Wired network, 20-29: Wifi, 30-39: Point-to-point proprietary, 40-49: Mesh proprietary*/
+ uint32_t link_tx_rate[6]; /*< [KiB/s] Network traffic from the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t link_rx_rate[6]; /*< [KiB/s] Network traffic to the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t link_tx_max[6]; /*< [KiB/s] Network capacity from the component system. A value of UINT32_MAX implies the field is unused.*/
+ uint32_t link_rx_max[6]; /*< [KiB/s] Network capacity to the component system. A value of UINT32_MAX implies the field is unused.*/
+ int16_t fan_speed[4]; /*< [rpm] Fan speeds. A value of INT16_MAX implies the field is unused.*/
+ uint8_t type; /*<  Type of the onboard computer: 0: Mission computer primary, 1: Mission computer backup 1, 2: Mission computer backup 2, 3: Compute node, 4-5: Compute spares, 6-9: Payload computers.*/
+ uint8_t cpu_cores[8]; /*<  CPU usage on the component in percent (100 - idle). A value of UINT8_MAX implies the field is unused.*/
+ uint8_t cpu_combined[10]; /*<  Combined CPU usage as the last 10 slices of 100 MS (a histogram). This allows to identify spikes in load that max out the system, but only for a short amount of time. A value of UINT8_MAX implies the field is unused.*/
+ uint8_t gpu_cores[4]; /*<  GPU usage on the component in percent (100 - idle). A value of UINT8_MAX implies the field is unused.*/
+ uint8_t gpu_combined[10]; /*<  Combined GPU usage as the last 10 slices of 100 MS (a histogram). This allows to identify spikes in load that max out the system, but only for a short amount of time. A value of UINT8_MAX implies the field is unused.*/
+ int8_t temperature_board; /*< [degC] Temperature of the board. A value of INT8_MAX implies the field is unused.*/
+ int8_t temperature_core[8]; /*< [degC] Temperature of the CPU core. A value of INT8_MAX implies the field is unused.*/
+ uint16_t status_flags; /*<  Bitmap of status flags.*/
+} mavlink_onboard_computer_status_t;
 
-enum { MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_CRC = 156, MAVLINK_MSG_ID_390_CRC = 156 };
+#define MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_LEN 240
+#define MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_MIN_LEN 238
+#define MAVLINK_MSG_ID_390_LEN 240
+#define MAVLINK_MSG_ID_390_MIN_LEN 238
 
-enum {
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_TYPE_LEN = 4,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_USAGE_LEN = 4,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_TOTAL_LEN = 4,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TYPE_LEN = 6,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TX_RATE_LEN = 6,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_RX_RATE_LEN = 6,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TX_MAX_LEN = 6,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_RX_MAX_LEN = 6,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_FAN_SPEED_LEN = 4,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_CPU_CORES_LEN = 8,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_CPU_COMBINED_LEN = 10,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_GPU_CORES_LEN = 4,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_GPU_COMBINED_LEN = 10,
-    MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_TEMPERATURE_CORE_LEN = 8
-};
+#define MAVLINK_MSG_ID_ONBOARD_COMPUTER_STATUS_CRC 156
+#define MAVLINK_MSG_ID_390_CRC 156
+
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_TYPE_LEN 4
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_USAGE_LEN 4
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_STORAGE_TOTAL_LEN 4
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TYPE_LEN 6
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TX_RATE_LEN 6
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_RX_RATE_LEN 6
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_TX_MAX_LEN 6
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_LINK_RX_MAX_LEN 6
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_FAN_SPEED_LEN 4
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_CPU_CORES_LEN 8
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_CPU_COMBINED_LEN 10
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_GPU_CORES_LEN 4
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_GPU_COMBINED_LEN 10
+#define MAVLINK_MSG_ONBOARD_COMPUTER_STATUS_FIELD_TEMPERATURE_CORE_LEN 8
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ONBOARD_COMPUTER_STATUS { \

@@ -3,25 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS = 275 };
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS 275
 
-using mavlink_camera_tracking_image_status_t = struct __mavlink_camera_tracking_image_status_t {
-    float point_x;            /*<  Current tracked point x value if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
-    float point_y;            /*<  Current tracked point y value if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
-    float radius;             /*<  Current tracked radius if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is image left, 1 is image right), NAN if unknown*/
-    float rec_top_x;          /*<  Current tracked rectangle top x value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
-    float rec_top_y;          /*<  Current tracked rectangle top y value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
-    float rec_bottom_x;       /*<  Current tracked rectangle bottom x value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
-    float rec_bottom_y;       /*<  Current tracked rectangle bottom y value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
-    uint8_t tracking_status;  /*<  Current tracking status*/
-    uint8_t tracking_mode;    /*<  Current tracking mode*/
-    uint8_t target_data;      /*<  Defines location of target data*/
-    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-};
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_LEN = 32, MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_MIN_LEN = 31, MAVLINK_MSG_ID_275_LEN = 32, MAVLINK_MSG_ID_275_MIN_LEN = 31 };
+typedef struct __mavlink_camera_tracking_image_status_t {
+ float point_x; /*<  Current tracked point x value if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
+ float point_y; /*<  Current tracked point y value if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
+ float radius; /*<  Current tracked radius if CAMERA_TRACKING_MODE_POINT (normalized 0..1, 0 is image left, 1 is image right), NAN if unknown*/
+ float rec_top_x; /*<  Current tracked rectangle top x value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
+ float rec_top_y; /*<  Current tracked rectangle top y value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
+ float rec_bottom_x; /*<  Current tracked rectangle bottom x value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is left, 1 is right), NAN if unknown*/
+ float rec_bottom_y; /*<  Current tracked rectangle bottom y value if CAMERA_TRACKING_MODE_RECTANGLE (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown*/
+ uint8_t tracking_status; /*<  Current tracking status*/
+ uint8_t tracking_mode; /*<  Current tracking mode*/
+ uint8_t target_data; /*<  Defines location of target data*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+} mavlink_camera_tracking_image_status_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_CRC = 126, MAVLINK_MSG_ID_275_CRC = 126 };
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_LEN 32
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_MIN_LEN 31
+#define MAVLINK_MSG_ID_275_LEN 32
+#define MAVLINK_MSG_ID_275_MIN_LEN 31
+
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_IMAGE_STATUS_CRC 126
+#define MAVLINK_MSG_ID_275_CRC 126
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_TRACKING_IMAGE_STATUS { \

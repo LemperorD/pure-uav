@@ -24,18 +24,14 @@ int main() {
             mavlink_message_t message{};
             const auto deadline = steady_clock::now() + milliseconds(800);
             while (steady_clock::now() < deadline && reader.next(message, 50)) {
-                if (message.msgid != MAVLINK_MSG_ID_COMMAND_LONG) {
-                    continue;
-                }
+                if (message.msgid != MAVLINK_MSG_ID_COMMAND_LONG) continue;
                 mavlink_command_long_t cmd{};
                 mavlink_msg_command_long_decode(&message, &cmd);
-                if (cmd.command != expected) {
-                    continue;
-                }
+                if (cmd.command != expected) continue;
                 check(cmd.target_system == 9 && cmd.target_component == 42, "command used wrong FC identity");
                 if (arm_value >= 0) {
                     check(cmd.param1 == arm_value, "wrong arm/disarm value");
-                    check(cmd.param2 == 0.0F, "ordinary arm/disarm forced safety override");
+                    check(cmd.param2 == 0.0f, "ordinary arm/disarm forced safety override");
                 }
                 mavlink_message_t ack{};
                 mavlink_msg_command_ack_pack(9, 42, &ack, expected, MAV_RESULT_ACCEPTED, 0, 0, 2, 1);
@@ -56,9 +52,7 @@ int main() {
         bool guidance = false;
         mavlink_message_t message{};
         while (reader.next(message, 100)) {
-            if (message.msgid != MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED) {
-                continue;
-            }
+            if (message.msgid != MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED) continue;
             mavlink_set_position_target_local_ned_t target{};
             mavlink_msg_set_position_target_local_ned_decode(&message, &target);
             check(target.target_system == 9 && target.target_component == 42, "guidance wrong target");

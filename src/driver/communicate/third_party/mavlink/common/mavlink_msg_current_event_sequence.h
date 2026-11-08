@@ -3,16 +3,23 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE = 411 };
+#define MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE 411
 
-using mavlink_current_event_sequence_t = struct __mavlink_current_event_sequence_t {
-    uint16_t sequence; /*<  Sequence number.*/
-    uint8_t flags;     /*<  Flag bitset.*/
-};
 
-enum { MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_LEN = 3, MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_MIN_LEN = 3, MAVLINK_MSG_ID_411_LEN = 3, MAVLINK_MSG_ID_411_MIN_LEN = 3 };
+typedef struct __mavlink_current_event_sequence_t {
+ uint16_t sequence; /*<  Sequence number.*/
+ uint8_t flags; /*<  Flag bitset.*/
+} mavlink_current_event_sequence_t;
 
-enum { MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_CRC = 106, MAVLINK_MSG_ID_411_CRC = 106 };
+#define MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_LEN 3
+#define MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_MIN_LEN 3
+#define MAVLINK_MSG_ID_411_LEN 3
+#define MAVLINK_MSG_ID_411_MIN_LEN 3
+
+#define MAVLINK_MSG_ID_CURRENT_EVENT_SEQUENCE_CRC 106
+#define MAVLINK_MSG_ID_411_CRC 106
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CURRENT_EVENT_SEQUENCE { \

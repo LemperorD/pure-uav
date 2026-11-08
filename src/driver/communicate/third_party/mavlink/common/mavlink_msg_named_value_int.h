@@ -3,19 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_NAMED_VALUE_INT = 252 };
+#define MAVLINK_MSG_ID_NAMED_VALUE_INT 252
 
-using mavlink_named_value_int_t = struct __mavlink_named_value_int_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    int32_t value;         /*<  Signed integer value*/
-    char name[10];         /*<  Name of the debug variable*/
-};
 
-enum { MAVLINK_MSG_ID_NAMED_VALUE_INT_LEN = 18, MAVLINK_MSG_ID_NAMED_VALUE_INT_MIN_LEN = 18, MAVLINK_MSG_ID_252_LEN = 18, MAVLINK_MSG_ID_252_MIN_LEN = 18 };
+typedef struct __mavlink_named_value_int_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ int32_t value; /*<  Signed integer value*/
+ char name[10]; /*<  Name of the debug variable*/
+} mavlink_named_value_int_t;
 
-enum { MAVLINK_MSG_ID_NAMED_VALUE_INT_CRC = 44, MAVLINK_MSG_ID_252_CRC = 44 };
+#define MAVLINK_MSG_ID_NAMED_VALUE_INT_LEN 18
+#define MAVLINK_MSG_ID_NAMED_VALUE_INT_MIN_LEN 18
+#define MAVLINK_MSG_ID_252_LEN 18
+#define MAVLINK_MSG_ID_252_MIN_LEN 18
 
-enum { MAVLINK_MSG_NAMED_VALUE_INT_FIELD_NAME_LEN = 10 };
+#define MAVLINK_MSG_ID_NAMED_VALUE_INT_CRC 44
+#define MAVLINK_MSG_ID_252_CRC 44
+
+#define MAVLINK_MSG_NAMED_VALUE_INT_FIELD_NAME_LEN 10
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_NAMED_VALUE_INT { \

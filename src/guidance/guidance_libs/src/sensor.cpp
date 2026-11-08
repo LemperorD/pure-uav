@@ -25,19 +25,15 @@ void Sensor::reset() {
 bool Sensor::project(const TruthState& truth, double& u, double& v, double& w_px) const {
     const Vec3 r_world = truth.p_T - truth.p_M;
     const Vec3 r_cam = quat_rotate_vec_inv(truth.q, r_world);  // 世界→机体(=相机)
-    if (r_cam.z <= 1e-6) {
-        return false;  // 在相机后方
-    }
+    if (r_cam.z <= 1e-6) return false;                         // 在相机后方
 
-    u = (cfg_.cam.fx * r_cam.x / r_cam.z) + cfg_.cam.cx;
-    v = (cfg_.cam.fy * r_cam.y / r_cam.z) + cfg_.cam.cy;
+    u = cfg_.cam.fx * r_cam.x / r_cam.z + cfg_.cam.cx;
+    v = cfg_.cam.fy * r_cam.y / r_cam.z + cfg_.cam.cy;
     if (u < 0.0 || u >= cfg_.cam.width || v < 0.0 || v >= cfg_.cam.height) {
         return false;  // 出视场
     }
     w_px = cfg_.cam.fx * cfg_.cam.target_size_m / r_cam.z;  // 框宽(px)
-    if (w_px < cfg_.cam.min_bbox_px) {
-        return false;  // 目标太小
-    }
+    if (w_px < cfg_.cam.min_bbox_px) return false;          // 目标太小
     return true;
 }
 
@@ -51,9 +47,7 @@ GuidanceState Sensor::observe(const TruthState& truth, double t) {
     // 惯导量（本仿真假定惯导总是好的）：自身速度 / 位置 / 姿态
     st.v_M = truth.v_M;
     st.p_M = truth.p_M;
-    for (int i = 0; i < 4; ++i) {
-        st.q[i] = truth.q[i];
-    }
+    for (int i = 0; i < 4; ++i) st.q[i] = truth.q[i];
 
     // ---------- IDEAL：真值透传 ----------
     if (cfg_.fidelity == SensorFidelity::IDEAL) {
@@ -72,9 +66,7 @@ GuidanceState Sensor::observe(const TruthState& truth, double t) {
     st.v_T = Vec3{};
     st.a_T_perp = Vec3{};
 
-    double u = 0.0;
-    double v = 0.0;
-    double w_px = 0.0;
+    double u = 0.0, v = 0.0, w_px = 0.0;
     if (!project(truth, u, v, w_px)) {
         ++stats_.lost;
         st.valid = false;  // 目标丢失 → 制导进 SEARCH
@@ -91,7 +83,7 @@ GuidanceState Sensor::observe(const TruthState& truth, double t) {
 
     // 测距：size 反推 R ≈ fx·s / w_px（再叠比例/系统误差）
     double R = cfg_.cam.fx * cfg_.cam.target_size_m / w_px;
-    R = (R * (1.0 + cfg_.range_scale_err)) + cfg_.range_bias;
+    R = R * (1.0 + cfg_.range_scale_err) + cfg_.range_bias;
     st.range = R;
 
     // λ̇：视线方向时序差分（真机唯一可得的做法，见讲义第 12 节）

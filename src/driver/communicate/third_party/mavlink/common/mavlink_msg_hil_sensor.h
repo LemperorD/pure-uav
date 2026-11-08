@@ -3,30 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIL_SENSOR = 107 };
+#define MAVLINK_MSG_ID_HIL_SENSOR 107
 
-using mavlink_hil_sensor_t = struct __mavlink_hil_sensor_t {
-    uint64_t time_usec;      /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float xacc;              /*< [m/s/s] X acceleration*/
-    float yacc;              /*< [m/s/s] Y acceleration*/
-    float zacc;              /*< [m/s/s] Z acceleration*/
-    float xgyro;             /*< [rad/s] Angular speed around X axis in body frame*/
-    float ygyro;             /*< [rad/s] Angular speed around Y axis in body frame*/
-    float zgyro;             /*< [rad/s] Angular speed around Z axis in body frame*/
-    float xmag;              /*< [gauss] X Magnetic field*/
-    float ymag;              /*< [gauss] Y Magnetic field*/
-    float zmag;              /*< [gauss] Z Magnetic field*/
-    float abs_pressure;      /*< [hPa] Absolute pressure*/
-    float diff_pressure;     /*< [hPa] Differential pressure (airspeed)*/
-    float pressure_alt;      /*<  Altitude calculated from pressure*/
-    float temperature;       /*< [degC] Temperature*/
-    uint32_t fields_updated; /*<  Bitmap for fields that have updated since last message*/
-    uint8_t id;              /*<  Sensor ID (zero indexed). Used for multiple sensor inputs*/
-};
 
-enum { MAVLINK_MSG_ID_HIL_SENSOR_LEN = 65, MAVLINK_MSG_ID_HIL_SENSOR_MIN_LEN = 64, MAVLINK_MSG_ID_107_LEN = 65, MAVLINK_MSG_ID_107_MIN_LEN = 64 };
+typedef struct __mavlink_hil_sensor_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float xacc; /*< [m/s/s] X acceleration*/
+ float yacc; /*< [m/s/s] Y acceleration*/
+ float zacc; /*< [m/s/s] Z acceleration*/
+ float xgyro; /*< [rad/s] Angular speed around X axis in body frame*/
+ float ygyro; /*< [rad/s] Angular speed around Y axis in body frame*/
+ float zgyro; /*< [rad/s] Angular speed around Z axis in body frame*/
+ float xmag; /*< [gauss] X Magnetic field*/
+ float ymag; /*< [gauss] Y Magnetic field*/
+ float zmag; /*< [gauss] Z Magnetic field*/
+ float abs_pressure; /*< [hPa] Absolute pressure*/
+ float diff_pressure; /*< [hPa] Differential pressure (airspeed)*/
+ float pressure_alt; /*<  Altitude calculated from pressure*/
+ float temperature; /*< [degC] Temperature*/
+ uint32_t fields_updated; /*<  Bitmap for fields that have updated since last message*/
+ uint8_t id; /*<  Sensor ID (zero indexed). Used for multiple sensor inputs*/
+} mavlink_hil_sensor_t;
 
-enum { MAVLINK_MSG_ID_HIL_SENSOR_CRC = 108, MAVLINK_MSG_ID_107_CRC = 108 };
+#define MAVLINK_MSG_ID_HIL_SENSOR_LEN 65
+#define MAVLINK_MSG_ID_HIL_SENSOR_MIN_LEN 64
+#define MAVLINK_MSG_ID_107_LEN 65
+#define MAVLINK_MSG_ID_107_MIN_LEN 64
+
+#define MAVLINK_MSG_ID_HIL_SENSOR_CRC 108
+#define MAVLINK_MSG_ID_107_CRC 108
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIL_SENSOR { \

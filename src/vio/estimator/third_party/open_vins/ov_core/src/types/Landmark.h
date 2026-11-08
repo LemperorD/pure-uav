@@ -93,7 +93,7 @@ public:
    * @param getfej Set to true to get the landmark FEJ value
    * @return Position of feature either in global or anchor frame
    */
-  [[nodiscard]] Eigen::Matrix<double, 3, 1> get_xyz(bool getfej) const;
+  Eigen::Matrix<double, 3, 1> get_xyz(bool getfej) const;
 
   /**
    * @brief Will set the current value based on the representation.

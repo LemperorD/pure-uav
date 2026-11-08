@@ -150,9 +150,7 @@ int main(int argc, char** argv) {
         // 喂 IMU（时间戳按需要平移）
         while (imu_idx < imu.size() && imu[imu_idx].timestamp_us <= img.timestamp_us) {
             pure_uav::ImuSample s = imu[imu_idx];
-            if (reset_done) {
-                s.timestamp_us -= static_cast<uint64_t>(ts_offset_us);
-            }
+            if (reset_done) s.timestamp_us -= static_cast<uint64_t>(ts_offset_us);
             est.feedImu(s);
             ++imu_idx;
         }
@@ -164,9 +162,7 @@ int main(int argc, char** argv) {
         }
         const uint64_t shifted_ts = reset_done ? img.timestamp_us - static_cast<uint64_t>(ts_offset_us) : img.timestamp_us;
         est.feedImage(gray, shifted_ts);
-        if (reset_done) {
-            ++frames_after_reset;
-        }
+        if (reset_done) ++frames_after_reset;
 
         if (reset_done && est.initialized()) {
             if (!reinit_observed) {
@@ -182,14 +178,10 @@ int main(int argc, char** argv) {
             ++frames_after_reinit;
             pure_uav::VisionPose p;
             if (est.getLatestPose(p)) {
-                if (last_shifted_ts != 0 && p.timestamp_us <= last_shifted_ts) {
-                    monotonic_ok = false;
-                }
+                if (last_shifted_ts != 0 && p.timestamp_us <= last_shifted_ts) monotonic_ok = false;
                 last_shifted_ts = p.timestamp_us;
             }
-            if (frames_after_reinit >= max_after) {
-                break;
-            }
+            if (frames_after_reinit >= max_after) break;
         }
 
         if (reset_done && !reinit_observed && frames_after_reset > 4000) {

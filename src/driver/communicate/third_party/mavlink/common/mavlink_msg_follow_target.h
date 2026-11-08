@@ -3,27 +3,36 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_FOLLOW_TARGET = 144 };
+#define MAVLINK_MSG_ID_FOLLOW_TARGET 144
 
-using mavlink_follow_target_t = struct __mavlink_follow_target_t {
-    uint64_t timestamp;       /*< [ms] Timestamp (time since system boot).*/
-    uint64_t custom_state;    /*<  button states or switches of a tracker device*/
-    int32_t lat;              /*< [degE7] Latitude (WGS84)*/
-    int32_t lon;              /*< [degE7] Longitude (WGS84)*/
-    float alt;                /*< [m] Altitude (MSL)*/
-    float vel[3];             /*< [m/s] Target velocity in MAV_FRAME_LOCAL_NED frame. (0,0,0) for unknown.*/
-    float acc[3];             /*< [m/s/s] Target linear acceleration in MAV_FRAME_LOCAL_NED frame. (0,0,0) for unknown.*/
-    float attitude_q[4];      /*<  Target orientation as a quaternion rotating from MAV_FRAME_BODY_FRD to MAV_FRAME_LOCAL_NED (w, x, y, z order, zero-rotation is [1, 0, 0, 0]). (0, 0, 0, 0) for unknown.*/
-    float rates[3];           /*< [rad/s] Target angular rates (roll, pitch, yaw) in MAV_FRAME_BODY_FRD frame. (0,0,0) for unknown.*/
-    float position_cov[3];    /*<  eph epv*/
-    uint8_t est_capabilities; /*<  Bitmask indicating which fields in this message contain valid data.*/
-};
 
-enum { MAVLINK_MSG_ID_FOLLOW_TARGET_LEN = 93, MAVLINK_MSG_ID_FOLLOW_TARGET_MIN_LEN = 93, MAVLINK_MSG_ID_144_LEN = 93, MAVLINK_MSG_ID_144_MIN_LEN = 93 };
+typedef struct __mavlink_follow_target_t {
+ uint64_t timestamp; /*< [ms] Timestamp (time since system boot).*/
+ uint64_t custom_state; /*<  button states or switches of a tracker device*/
+ int32_t lat; /*< [degE7] Latitude (WGS84)*/
+ int32_t lon; /*< [degE7] Longitude (WGS84)*/
+ float alt; /*< [m] Altitude (MSL)*/
+ float vel[3]; /*< [m/s] Target velocity in MAV_FRAME_LOCAL_NED frame. (0,0,0) for unknown.*/
+ float acc[3]; /*< [m/s/s] Target linear acceleration in MAV_FRAME_LOCAL_NED frame. (0,0,0) for unknown.*/
+ float attitude_q[4]; /*<  Target orientation as a quaternion rotating from MAV_FRAME_BODY_FRD to MAV_FRAME_LOCAL_NED (w, x, y, z order, zero-rotation is [1, 0, 0, 0]). (0, 0, 0, 0) for unknown.*/
+ float rates[3]; /*< [rad/s] Target angular rates (roll, pitch, yaw) in MAV_FRAME_BODY_FRD frame. (0,0,0) for unknown.*/
+ float position_cov[3]; /*<  eph epv*/
+ uint8_t est_capabilities; /*<  Bitmask indicating which fields in this message contain valid data.*/
+} mavlink_follow_target_t;
 
-enum { MAVLINK_MSG_ID_FOLLOW_TARGET_CRC = 127, MAVLINK_MSG_ID_144_CRC = 127 };
+#define MAVLINK_MSG_ID_FOLLOW_TARGET_LEN 93
+#define MAVLINK_MSG_ID_FOLLOW_TARGET_MIN_LEN 93
+#define MAVLINK_MSG_ID_144_LEN 93
+#define MAVLINK_MSG_ID_144_MIN_LEN 93
 
-enum { MAVLINK_MSG_FOLLOW_TARGET_FIELD_VEL_LEN = 3, MAVLINK_MSG_FOLLOW_TARGET_FIELD_ACC_LEN = 3, MAVLINK_MSG_FOLLOW_TARGET_FIELD_ATTITUDE_Q_LEN = 4, MAVLINK_MSG_FOLLOW_TARGET_FIELD_RATES_LEN = 3, MAVLINK_MSG_FOLLOW_TARGET_FIELD_POSITION_COV_LEN = 3 };
+#define MAVLINK_MSG_ID_FOLLOW_TARGET_CRC 127
+#define MAVLINK_MSG_ID_144_CRC 127
+
+#define MAVLINK_MSG_FOLLOW_TARGET_FIELD_VEL_LEN 3
+#define MAVLINK_MSG_FOLLOW_TARGET_FIELD_ACC_LEN 3
+#define MAVLINK_MSG_FOLLOW_TARGET_FIELD_ATTITUDE_Q_LEN 4
+#define MAVLINK_MSG_FOLLOW_TARGET_FIELD_RATES_LEN 3
+#define MAVLINK_MSG_FOLLOW_TARGET_FIELD_POSITION_COV_LEN 3
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FOLLOW_TARGET { \

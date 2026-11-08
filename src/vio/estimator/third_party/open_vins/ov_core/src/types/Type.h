@@ -44,7 +44,7 @@ public:
    */
   Type(int size_) { _size = size_; }
 
-  virtual ~Type() = default;
+  virtual ~Type(){};
 
   /**
    * @brief Sets id used to track location of variable in the filter covariance
@@ -59,16 +59,12 @@ public:
   /**
    * @brief Access to variable id (i.e. its location in the covariance)
    */
-  int id() const {
-      return _id;
-  }
+  int id() { return _id; }
 
   /**
    * @brief Access to variable size (i.e. its error state size)
    */
-  int size() const {
-      return _size;
-  }
+  int size() { return _size; }
 
   /**
    * @brief Update variable due to perturbation of error state
@@ -80,16 +76,12 @@ public:
   /**
    * @brief Access variable's estimate
    */
-  [[nodiscard]] virtual const Eigen::MatrixXd& value() const {
-      return _value;
-  }
+  virtual const Eigen::MatrixXd &value() const { return _value; }
 
   /**
    * @brief Access variable's first-estimate
    */
-  [[nodiscard]] virtual const Eigen::MatrixXd& fej() const {
-      return _fej;
-  }
+  virtual const Eigen::MatrixXd &fej() const { return _fej; }
 
   /**
    * @brief Overwrite value of state's estimate

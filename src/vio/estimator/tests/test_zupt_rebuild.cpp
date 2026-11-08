@@ -50,15 +50,13 @@ void checkLostRebuild(pure_uav::VioEstimator::Options options, const char* datas
         }
         estimator.feedImage(gray, image.timestamp_us);
         initialized = initialized || estimator.initialized();
-        if (estimator.rebuildCount() > 0) {
-            break;
-        }
+        if (estimator.rebuildCount() > 0) break;
     }
     CHECK(initialized);
     CHECK(estimator.rebuildCount() == 1);
     CHECK(!estimator.zuptEnabled());
     CHECK(!estimator.publishable());
-    std::printf("LOST rebuild: initialized=%d rebuilds=%lld ZUPT=%d\n", static_cast<int>(initialized), estimator.rebuildCount(), static_cast<int>(estimator.zuptEnabled()));
+    std::printf("LOST rebuild: initialized=%d rebuilds=%lld ZUPT=%d\n", initialized, static_cast<long long>(estimator.rebuildCount()), estimator.zuptEnabled());
 }
 }  // namespace
 
@@ -97,10 +95,8 @@ int main(int argc, char** argv) {
     estimator.resetForNewTimebase("test: armed again");
     CHECK(!estimator.zuptEnabled());
     CHECK(estimator.rebuildCount() == rebuilds + 4);
-    if (argc == 3) {
-        checkLostRebuild(options, argv[2]);
-    }
-    if (failures != 0) {
+    if (argc == 3) checkLostRebuild(options, argv[2]);
+    if (failures) {
         std::fprintf(stderr, "FAILED: %d checks\n", failures);
         return 1;
     }

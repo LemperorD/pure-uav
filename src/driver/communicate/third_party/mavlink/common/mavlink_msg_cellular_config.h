@@ -3,24 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CELLULAR_CONFIG = 336 };
+#define MAVLINK_MSG_ID_CELLULAR_CONFIG 336
 
-using mavlink_cellular_config_t = struct __mavlink_cellular_config_t {
-    uint8_t enable_lte; /*<  Enable/disable LTE. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
-    uint8_t enable_pin; /*<  Enable/disable PIN on the SIM card. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
-    char pin[16];       /*<  PIN sent to the SIM card. Blank when PIN is disabled. Empty when message is sent back as a response.*/
-    char new_pin[16];   /*<  New PIN when changing the PIN. Blank to leave it unchanged. Empty when message is sent back as a response.*/
-    char apn[32];       /*<  Name of the cellular APN. Blank to leave it unchanged. Current APN when sent back as a response.*/
-    char puk[16];       /*<  Required PUK code in case the user failed to authenticate 3 times with the PIN. Empty when message is sent back as a response.*/
-    uint8_t roaming;    /*<  Enable/disable roaming. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
-    uint8_t response;   /*<  Message acceptance response (sent back to GS).*/
-};
 
-enum { MAVLINK_MSG_ID_CELLULAR_CONFIG_LEN = 84, MAVLINK_MSG_ID_CELLULAR_CONFIG_MIN_LEN = 84, MAVLINK_MSG_ID_336_LEN = 84, MAVLINK_MSG_ID_336_MIN_LEN = 84 };
+typedef struct __mavlink_cellular_config_t {
+ uint8_t enable_lte; /*<  Enable/disable LTE. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
+ uint8_t enable_pin; /*<  Enable/disable PIN on the SIM card. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
+ char pin[16]; /*<  PIN sent to the SIM card. Blank when PIN is disabled. Empty when message is sent back as a response.*/
+ char new_pin[16]; /*<  New PIN when changing the PIN. Blank to leave it unchanged. Empty when message is sent back as a response.*/
+ char apn[32]; /*<  Name of the cellular APN. Blank to leave it unchanged. Current APN when sent back as a response.*/
+ char puk[16]; /*<  Required PUK code in case the user failed to authenticate 3 times with the PIN. Empty when message is sent back as a response.*/
+ uint8_t roaming; /*<  Enable/disable roaming. 0: setting unchanged, 1: disabled, 2: enabled. Current setting when sent back as a response.*/
+ uint8_t response; /*<  Message acceptance response (sent back to GS).*/
+} mavlink_cellular_config_t;
 
-enum { MAVLINK_MSG_ID_CELLULAR_CONFIG_CRC = 245, MAVLINK_MSG_ID_336_CRC = 245 };
+#define MAVLINK_MSG_ID_CELLULAR_CONFIG_LEN 84
+#define MAVLINK_MSG_ID_CELLULAR_CONFIG_MIN_LEN 84
+#define MAVLINK_MSG_ID_336_LEN 84
+#define MAVLINK_MSG_ID_336_MIN_LEN 84
 
-enum { MAVLINK_MSG_CELLULAR_CONFIG_FIELD_PIN_LEN = 16, MAVLINK_MSG_CELLULAR_CONFIG_FIELD_NEW_PIN_LEN = 16, MAVLINK_MSG_CELLULAR_CONFIG_FIELD_APN_LEN = 32, MAVLINK_MSG_CELLULAR_CONFIG_FIELD_PUK_LEN = 16 };
+#define MAVLINK_MSG_ID_CELLULAR_CONFIG_CRC 245
+#define MAVLINK_MSG_ID_336_CRC 245
+
+#define MAVLINK_MSG_CELLULAR_CONFIG_FIELD_PIN_LEN 16
+#define MAVLINK_MSG_CELLULAR_CONFIG_FIELD_NEW_PIN_LEN 16
+#define MAVLINK_MSG_CELLULAR_CONFIG_FIELD_APN_LEN 32
+#define MAVLINK_MSG_CELLULAR_CONFIG_FIELD_PUK_LEN 16
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CELLULAR_CONFIG { \

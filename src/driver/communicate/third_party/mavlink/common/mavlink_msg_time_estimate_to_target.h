@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET = 380 };
+#define MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET 380
 
-using mavlink_time_estimate_to_target_t = struct __mavlink_time_estimate_to_target_t {
-    int32_t safe_return;       /*< [s] Estimated time to complete the vehicle's configured "safe return" action from its current position (e.g. RTL, Smart RTL, etc.). -1 indicates that the vehicle is landed, or that no time estimate available.*/
-    int32_t land;              /*< [s] Estimated time for vehicle to complete the LAND action from its current position. -1 indicates that the vehicle is landed, or that no time estimate available.*/
-    int32_t mission_next_item; /*< [s] Estimated time for reaching/completing the currently active mission item. -1 means no time estimate available.*/
-    int32_t mission_end;       /*< [s] Estimated time for completing the current mission. -1 means no mission active and/or no estimate available.*/
-    int32_t commanded_action;  /*< [s] Estimated time for completing the current commanded action (i.e. Go To, Takeoff, Land, etc.). -1 means no action active and/or no estimate available.*/
-};
 
-enum { MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_LEN = 20, MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_MIN_LEN = 20, MAVLINK_MSG_ID_380_LEN = 20, MAVLINK_MSG_ID_380_MIN_LEN = 20 };
+typedef struct __mavlink_time_estimate_to_target_t {
+ int32_t safe_return; /*< [s] Estimated time to complete the vehicle's configured "safe return" action from its current position (e.g. RTL, Smart RTL, etc.). -1 indicates that the vehicle is landed, or that no time estimate available.*/
+ int32_t land; /*< [s] Estimated time for vehicle to complete the LAND action from its current position. -1 indicates that the vehicle is landed, or that no time estimate available.*/
+ int32_t mission_next_item; /*< [s] Estimated time for reaching/completing the currently active mission item. -1 means no time estimate available.*/
+ int32_t mission_end; /*< [s] Estimated time for completing the current mission. -1 means no mission active and/or no estimate available.*/
+ int32_t commanded_action; /*< [s] Estimated time for completing the current commanded action (i.e. Go To, Takeoff, Land, etc.). -1 means no action active and/or no estimate available.*/
+} mavlink_time_estimate_to_target_t;
 
-enum { MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_CRC = 232, MAVLINK_MSG_ID_380_CRC = 232 };
+#define MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_LEN 20
+#define MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_MIN_LEN 20
+#define MAVLINK_MSG_ID_380_LEN 20
+#define MAVLINK_MSG_ID_380_MIN_LEN 20
+
+#define MAVLINK_MSG_ID_TIME_ESTIMATE_TO_TARGET_CRC 232
+#define MAVLINK_MSG_ID_380_CRC 232
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TIME_ESTIMATE_TO_TARGET { \

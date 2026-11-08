@@ -3,25 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIL_CONTROLS = 91 };
+#define MAVLINK_MSG_ID_HIL_CONTROLS 91
 
-using mavlink_hil_controls_t = struct __mavlink_hil_controls_t {
-    uint64_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float roll_ailerons;  /*<  Control output -1 .. 1*/
-    float pitch_elevator; /*<  Control output -1 .. 1*/
-    float yaw_rudder;     /*<  Control output -1 .. 1*/
-    float throttle;       /*<  Throttle 0 .. 1*/
-    float aux1;           /*<  Aux 1, -1 .. 1*/
-    float aux2;           /*<  Aux 2, -1 .. 1*/
-    float aux3;           /*<  Aux 3, -1 .. 1*/
-    float aux4;           /*<  Aux 4, -1 .. 1*/
-    uint8_t mode;         /*<  System mode.*/
-    uint8_t nav_mode;     /*<  Navigation mode (MAV_NAV_MODE)*/
-};
 
-enum { MAVLINK_MSG_ID_HIL_CONTROLS_LEN = 42, MAVLINK_MSG_ID_HIL_CONTROLS_MIN_LEN = 42, MAVLINK_MSG_ID_91_LEN = 42, MAVLINK_MSG_ID_91_MIN_LEN = 42 };
+typedef struct __mavlink_hil_controls_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float roll_ailerons; /*<  Control output -1 .. 1*/
+ float pitch_elevator; /*<  Control output -1 .. 1*/
+ float yaw_rudder; /*<  Control output -1 .. 1*/
+ float throttle; /*<  Throttle 0 .. 1*/
+ float aux1; /*<  Aux 1, -1 .. 1*/
+ float aux2; /*<  Aux 2, -1 .. 1*/
+ float aux3; /*<  Aux 3, -1 .. 1*/
+ float aux4; /*<  Aux 4, -1 .. 1*/
+ uint8_t mode; /*<  System mode.*/
+ uint8_t nav_mode; /*<  Navigation mode (MAV_NAV_MODE)*/
+} mavlink_hil_controls_t;
 
-enum { MAVLINK_MSG_ID_HIL_CONTROLS_CRC = 63, MAVLINK_MSG_ID_91_CRC = 63 };
+#define MAVLINK_MSG_ID_HIL_CONTROLS_LEN 42
+#define MAVLINK_MSG_ID_HIL_CONTROLS_MIN_LEN 42
+#define MAVLINK_MSG_ID_91_LEN 42
+#define MAVLINK_MSG_ID_91_MIN_LEN 42
+
+#define MAVLINK_MSG_ID_HIL_CONTROLS_CRC 63
+#define MAVLINK_MSG_ID_91_CRC 63
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIL_CONTROLS { \

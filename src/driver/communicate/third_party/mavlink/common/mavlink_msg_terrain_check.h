@@ -3,16 +3,23 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TERRAIN_CHECK = 135 };
+#define MAVLINK_MSG_ID_TERRAIN_CHECK 135
 
-using mavlink_terrain_check_t = struct __mavlink_terrain_check_t {
-    int32_t lat; /*< [degE7] Latitude*/
-    int32_t lon; /*< [degE7] Longitude*/
-};
 
-enum { MAVLINK_MSG_ID_TERRAIN_CHECK_LEN = 8, MAVLINK_MSG_ID_TERRAIN_CHECK_MIN_LEN = 8, MAVLINK_MSG_ID_135_LEN = 8, MAVLINK_MSG_ID_135_MIN_LEN = 8 };
+typedef struct __mavlink_terrain_check_t {
+ int32_t lat; /*< [degE7] Latitude*/
+ int32_t lon; /*< [degE7] Longitude*/
+} mavlink_terrain_check_t;
 
-enum { MAVLINK_MSG_ID_TERRAIN_CHECK_CRC = 203, MAVLINK_MSG_ID_135_CRC = 203 };
+#define MAVLINK_MSG_ID_TERRAIN_CHECK_LEN 8
+#define MAVLINK_MSG_ID_TERRAIN_CHECK_MIN_LEN 8
+#define MAVLINK_MSG_ID_135_LEN 8
+#define MAVLINK_MSG_ID_135_MIN_LEN 8
+
+#define MAVLINK_MSG_ID_TERRAIN_CHECK_CRC 203
+#define MAVLINK_MSG_ID_135_CRC 203
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TERRAIN_CHECK { \

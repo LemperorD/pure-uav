@@ -12,15 +12,11 @@ namespace pure_uav {
 namespace {
 
 bool isHeader(const std::string& line) {
-    if (line.empty()) {
-        return true;
-    }
-    if (line[0] == '#') {
-        return true;
-    }
+    if (line.empty()) return true;
+    if (line[0] == '#') return true;
     // 第一个字段不是数字就认为是表头
     const char c = line[0];
-    return !(std::isdigit(static_cast<unsigned char>(c)) != 0) && c != '-';
+    return !(std::isdigit(static_cast<unsigned char>(c)) || c == '-');
 }
 
 std::vector<std::string> splitCsv(const std::string& line) {
@@ -40,9 +36,7 @@ bool toU64(const std::string& s, uint64_t& v) {
     try {
         size_t idx = 0;
         unsigned long long x = std::stoull(s, &idx);
-        if (idx != s.size()) {
-            return false;
-        }
+        if (idx != s.size()) return false;
         v = static_cast<uint64_t>(x);
         return true;
     } catch (...) {
@@ -72,15 +66,11 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
     const std::filesystem::path imu_csv = root / "imu.csv";
 
     if (!std::filesystem::exists(images_csv)) {
-        if (error != nullptr) {
-            *error = "找不到 " + images_csv.string();
-        }
+        if (error) *error = "找不到 " + images_csv.string();
         return false;
     }
     if (!std::filesystem::exists(imu_csv)) {
-        if (error != nullptr) {
-            *error = "找不到 " + imu_csv.string();
-        }
+        if (error) *error = "找不到 " + imu_csv.string();
         return false;
     }
 
@@ -88,27 +78,19 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
     {
         std::ifstream f(images_csv);
         if (!f.is_open()) {
-            if (error != nullptr) {
-                *error = "无法打开 " + images_csv.string();
-            }
+            if (error) *error = "无法打开 " + images_csv.string();
             return false;
         }
         std::string line;
         int line_no = 0;
         while (std::getline(f, line)) {
             line_no++;
-            if (isHeader(line)) {
-                continue;
-            }
+            if (isHeader(line)) continue;
             const auto cols = splitCsv(line);
-            if (cols.size() < 2) {
-                continue;
-            }
+            if (cols.size() < 2) continue;
             DatasetImage img;
             if (!toU64(cols[0], img.timestamp_us)) {
-                if (error != nullptr) {
-                    *error = "images.csv 第 " + std::to_string(line_no) + " 行时间戳非法";
-                }
+                if (error) *error = "images.csv 第 " + std::to_string(line_no) + " 行时间戳非法";
                 return false;
             }
             std::filesystem::path p(cols[1]);
@@ -121,33 +103,20 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
     {
         std::ifstream f(imu_csv);
         if (!f.is_open()) {
-            if (error != nullptr) {
-                *error = "无法打开 " + imu_csv.string();
-            }
+            if (error) *error = "无法打开 " + imu_csv.string();
             return false;
         }
         std::string line;
         int line_no = 0;
         while (std::getline(f, line)) {
             line_no++;
-            if (isHeader(line)) {
-                continue;
-            }
+            if (isHeader(line)) continue;
             const auto cols = splitCsv(line);
-            if (cols.size() < 7) {
-                continue;
-            }
+            if (cols.size() < 7) continue;
             ImuSample s;
-            double gx;
-            double gy;
-            double gz;
-            double ax;
-            double ay;
-            double az;
+            double gx, gy, gz, ax, ay, az;
             if (!toU64(cols[0], s.timestamp_us) || !toDouble(cols[1], gx) || !toDouble(cols[2], gy) || !toDouble(cols[3], gz) || !toDouble(cols[4], ax) || !toDouble(cols[5], ay) || !toDouble(cols[6], az)) {
-                if (error != nullptr) {
-                    *error = "imu.csv 第 " + std::to_string(line_no) + " 行格式非法";
-                }
+                if (error) *error = "imu.csv 第 " + std::to_string(line_no) + " 行格式非法";
                 return false;
             }
             s.gx = gx;
@@ -164,15 +133,11 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
     std::sort(imu_.begin(), imu_.end(), [](const ImuSample& a, const ImuSample& b) { return a.timestamp_us < b.timestamp_us; });
 
     if (images_.empty()) {
-        if (error != nullptr) {
-            *error = "数据集中没有图像";
-        }
+        if (error) *error = "数据集中没有图像";
         return false;
     }
     if (imu_.empty()) {
-        if (error != nullptr) {
-            *error = "数据集中没有 IMU 数据";
-        }
+        if (error) *error = "数据集中没有 IMU 数据";
         return false;
     }
     return true;

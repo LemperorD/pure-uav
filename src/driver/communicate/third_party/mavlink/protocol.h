@@ -3,7 +3,7 @@
 #include "string.h"
 #include "mavlink_types.h"
 
-/* 
+/*
    If you want MAVLink on a system that is native big-endian,
    you need to define NATIVE_BIG_ENDIAN
 */
@@ -97,10 +97,10 @@ static inline uint8_t mavlink_msg_target_field(uint32_t target_system)
     MAVLINK_HELPER uint8_t mavlink_msg_get_target_compid(const mavlink_message_t *msg, const mavlink_msg_entry_t *entry);
     MAVLINK_HELPER void mavlink_start_checksum(mavlink_message_t* msg);
     MAVLINK_HELPER void mavlink_update_checksum(mavlink_message_t* msg, uint8_t c);
-    MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg, 
+    MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
 						     mavlink_status_t* status,
-						     uint8_t c, 
-						     mavlink_message_t* r_message, 
+						     uint8_t c,
+						     mavlink_message_t* r_message,
 						     mavlink_status_t* r_mavlink_status);
     MAVLINK_HELPER uint8_t mavlink_frame_char(uint8_t chan, uint8_t c, mavlink_message_t* r_message, mavlink_status_t* r_mavlink_status);
     MAVLINK_HELPER uint8_t mavlink_parse_char(uint8_t chan, uint8_t c, mavlink_message_t* r_message, mavlink_status_t* r_mavlink_status);
@@ -126,15 +126,15 @@ static inline uint16_t mavlink_msg_get_send_buffer_length(const mavlink_message_
 	if (msg->magic == MAVLINK_STX_MAVLINK1) {
 		return msg->len + MAVLINK_CORE_HEADER_MAVLINK1_LEN+1 + 2;
 	}
-        uint16_t signature_len = ((msg->incompat_flags & MAVLINK_IFLAG_SIGNED) != 0) ? MAVLINK_SIGNATURE_BLOCK_LEN : 0;
-        uint16_t ext_header_len = 0;
-        if ((msg->incompat_flags & MAVLINK_IFLAG_SYSID32) != 0) {
-            ext_header_len += MAVLINK_SYSID32_HEADER_EXTRA;
-        }
-        if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
-            ext_header_len += MAVLINK_TARGET32_HEADER_EXTRA;
-        }
-        return msg->len + MAVLINK_NUM_NON_PAYLOAD_BYTES + ext_header_len + signature_len;
+    	uint16_t signature_len = (msg->incompat_flags & MAVLINK_IFLAG_SIGNED)?MAVLINK_SIGNATURE_BLOCK_LEN:0;
+	uint16_t ext_header_len = 0;
+	if (msg->incompat_flags & MAVLINK_IFLAG_SYSID32) {
+		ext_header_len += MAVLINK_SYSID32_HEADER_EXTRA;
+	}
+	if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+		ext_header_len += MAVLINK_TARGET32_HEADER_EXTRA;
+	}
+	return msg->len + MAVLINK_NUM_NON_PAYLOAD_BYTES + ext_header_len + signature_len;
 }
 
 #if MAVLINK_NEED_BYTE_SWAP
@@ -225,11 +225,11 @@ static inline void mav_array_memcpy(void *dest, const void *src, size_t n)
     // It would be nice to change such char[] types to uint8_t[] but that would change the
     // CRC_EXTRA.
 
-    if (src == nullptr) {
-        memset(dest, 0, n);
-    } else {
-        memcpy(dest, src, n);
-    }
+	if (src == NULL) {
+		memset(dest, 0, n);
+	} else {
+		memcpy(dest, src, n);
+	}
 }
 
 /*
@@ -335,21 +335,21 @@ _MAV_MSG_RETURN_TYPE(float)
 _MAV_MSG_RETURN_TYPE(double)
 #endif // MAVLINK_NEED_BYTE_SWAP
 
-static inline uint16_t _MAV_RETURN_char_array(const mavlink_message_t *msg, char *value, 
+static inline uint16_t _MAV_RETURN_char_array(const mavlink_message_t *msg, char *value,
 						     uint8_t array_length, uint8_t wire_offset)
 {
 	memcpy(value, &_MAV_PAYLOAD(msg)[wire_offset], array_length);
 	return array_length;
 }
 
-static inline uint16_t _MAV_RETURN_uint8_t_array(const mavlink_message_t *msg, uint8_t *value, 
+static inline uint16_t _MAV_RETURN_uint8_t_array(const mavlink_message_t *msg, uint8_t *value,
 							uint8_t array_length, uint8_t wire_offset)
 {
 	memcpy(value, &_MAV_PAYLOAD(msg)[wire_offset], array_length);
 	return array_length;
 }
 
-static inline uint16_t _MAV_RETURN_int8_t_array(const mavlink_message_t *msg, int8_t *value, 
+static inline uint16_t _MAV_RETURN_int8_t_array(const mavlink_message_t *msg, int8_t *value,
 						       uint8_t array_length, uint8_t wire_offset)
 {
 	memcpy(value, &_MAV_PAYLOAD(msg)[wire_offset], array_length);

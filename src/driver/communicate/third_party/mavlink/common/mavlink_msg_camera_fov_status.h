@@ -3,28 +3,33 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_FOV_STATUS = 271 };
+#define MAVLINK_MSG_ID_CAMERA_FOV_STATUS 271
 
-using mavlink_camera_fov_status_t = struct __mavlink_camera_fov_status_t {
-    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
-    int32_t lat_camera;       /*< [degE7] Latitude of camera (INT32_MAX if unknown).*/
-    int32_t lon_camera;       /*< [degE7] Longitude of camera (INT32_MAX if unknown).*/
-    int32_t alt_camera;       /*< [mm] Altitude (MSL) of camera (INT32_MAX if unknown).*/
-    int32_t lat_image;        /*< [degE7] Latitude of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
-    int32_t lon_image;        /*< [degE7] Longitude of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
-    int32_t alt_image;        /*< [mm] Altitude (MSL) of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
-    float q[4];               /*<  Quaternion of camera orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
-    float hfov;               /*< [deg] Horizontal field of view (NaN if unknown).*/
-    float vfov;               /*< [deg] Vertical field of view (NaN if unknown).*/
-    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-    uint8_t stream_id;        /*<  Video Stream ID (1 for first, 2 for second, etc.), as in VIDEO_STREAM_INFORMATION. 0 if unknown or the field of view is not specific to a stream.*/
-};
 
-enum { MAVLINK_MSG_ID_CAMERA_FOV_STATUS_LEN = 54, MAVLINK_MSG_ID_CAMERA_FOV_STATUS_MIN_LEN = 52, MAVLINK_MSG_ID_271_LEN = 54, MAVLINK_MSG_ID_271_MIN_LEN = 52 };
+typedef struct __mavlink_camera_fov_status_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ int32_t lat_camera; /*< [degE7] Latitude of camera (INT32_MAX if unknown).*/
+ int32_t lon_camera; /*< [degE7] Longitude of camera (INT32_MAX if unknown).*/
+ int32_t alt_camera; /*< [mm] Altitude (MSL) of camera (INT32_MAX if unknown).*/
+ int32_t lat_image; /*< [degE7] Latitude of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
+ int32_t lon_image; /*< [degE7] Longitude of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
+ int32_t alt_image; /*< [mm] Altitude (MSL) of center of image (INT32_MAX if unknown, INT32_MIN if at infinity, not intersecting with horizon).*/
+ float q[4]; /*<  Quaternion of camera orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
+ float hfov; /*< [deg] Horizontal field of view (NaN if unknown).*/
+ float vfov; /*< [deg] Vertical field of view (NaN if unknown).*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+ uint8_t stream_id; /*<  Video Stream ID (1 for first, 2 for second, etc.), as in VIDEO_STREAM_INFORMATION. 0 if unknown or the field of view is not specific to a stream.*/
+} mavlink_camera_fov_status_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_FOV_STATUS_CRC = 22, MAVLINK_MSG_ID_271_CRC = 22 };
+#define MAVLINK_MSG_ID_CAMERA_FOV_STATUS_LEN 54
+#define MAVLINK_MSG_ID_CAMERA_FOV_STATUS_MIN_LEN 52
+#define MAVLINK_MSG_ID_271_LEN 54
+#define MAVLINK_MSG_ID_271_MIN_LEN 52
 
-enum { MAVLINK_MSG_CAMERA_FOV_STATUS_FIELD_Q_LEN = 4 };
+#define MAVLINK_MSG_ID_CAMERA_FOV_STATUS_CRC 22
+#define MAVLINK_MSG_ID_271_CRC 22
+
+#define MAVLINK_MSG_CAMERA_FOV_STATUS_FIELD_Q_LEN 4
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_FOV_STATUS { \

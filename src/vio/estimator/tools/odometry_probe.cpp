@@ -33,7 +33,7 @@
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int /*unused*/) {
+void onSigint(int) {
     g_stop.store(true);
 }
 
@@ -61,23 +61,17 @@ speed_t toSpeed(int baud) {
 int openSerial(const std::string& device, int baud, std::string* error) {
     const speed_t sp = toSpeed(baud);
     if (sp == B0) {
-        if (error != nullptr) {
-            *error = "不支持的波特率 " + std::to_string(baud);
-        }
+        if (error) *error = "不支持的波特率 " + std::to_string(baud);
         return -1;
     }
     const int fd = ::open(device.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) {
-        if (error != nullptr) {
-            *error = "打开失败: " + std::string(std::strerror(errno));
-        }
+        if (error) *error = "打开失败: " + std::string(std::strerror(errno));
         return -1;
     }
     struct termios tty{};
     if (tcgetattr(fd, &tty) != 0) {
-        if (error != nullptr) {
-            *error = "tcgetattr 失败";
-        }
+        if (error) *error = "tcgetattr 失败";
         ::close(fd);
         return -1;
     }
@@ -88,9 +82,7 @@ int openSerial(const std::string& device, int baud, std::string* error) {
     tty.c_cc[VTIME] = 0;
     cfsetispeed(&tty, sp);
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        if (error != nullptr) {
-            *error = "tcsetattr 失败";
-        }
+        if (error) *error = "tcsetattr 失败";
         ::close(fd);
         return -1;
     }
@@ -114,22 +106,16 @@ void usage(const char* argv0) {
 struct CsvOut {
     FILE* fp = nullptr;
     ~CsvOut() {
-        if (fp != nullptr) {
-            std::fclose(fp);
-        }
+        if (fp) std::fclose(fp);
     }
-    void header() const {
-        if (fp == nullptr) {
-            return;
-        }
+    void header() {
+        if (!fp) return;
         std::fprintf(fp,
                      "time_us,x,y,z,qw,qx,qy,qz,vx,vy,vz,quality,reset_counter,"
                      "cov_x,cov_y,cov_z\n");
     }
-    void row(const mavlink_odometry_t& o) const {
-        if (fp == nullptr) {
-            return;
-        }
+    void row(const mavlink_odometry_t& o) {
+        if (!fp) return;
         std::fprintf(fp, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%u,%.6g,%.6g,%.6g\n", static_cast<unsigned long long>(o.time_usec), o.x, o.y, o.z, o.q[0], o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter),
                      o.pose_covariance[0], o.pose_covariance[6], o.pose_covariance[11]);
     }
@@ -176,8 +162,7 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        }
-        if (a == "--serial") {
+        } else if (a == "--serial") {
             serial = need("--serial");
         } else if (a == "--file") {
             file = need("--file");
@@ -222,7 +207,7 @@ int main(int argc, char** argv) {
     CsvOut csv;
     if (!csv_path.empty()) {
         csv.fp = std::fopen(csv_path.c_str(), "w");
-        if (csv.fp == nullptr) {
+        if (!csv.fp) {
             std::fprintf(stderr, "打不开 CSV: %s\n", csv_path.c_str());
             return 1;
         }
@@ -236,7 +221,7 @@ int main(int argc, char** argv) {
 
     const bool from_file = !file.empty();
     FILE* in = from_file ? std::fopen(file.c_str(), "rb") : nullptr;
-    if (from_file && (in == nullptr)) {
+    if (from_file && !in) {
         std::fprintf(stderr, "打不开文件: %s\n", file.c_str());
         return 1;
     }
@@ -245,23 +230,21 @@ int main(int argc, char** argv) {
     auto feed = [&](const uint8_t* data, size_t n) {
         for (size_t i = 0; i < n; ++i) {
             mavlink_message_t m{};
-            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) {
-                continue;
-            }
+            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) continue;
             if (m.msgid == MAVLINK_MSG_ID_ODOMETRY) {
                 mavlink_odometry_t o{};
                 mavlink_msg_odometry_decode(&m, &o);
                 stats.add(o, 0);
                 csv.row(o);
                 if (!quiet) {
-                    const auto t = static_cast<int64_t>(o.time_usec);
+                    const int64_t t = static_cast<int64_t>(o.time_usec);
                     const bool backwards = stats.prev_time_us >= 0 && t < stats.prev_time_us;
                     std::printf(
                         "[ODO] t=%.6fs frame=%u/%u pos=(%.3f,%.3f,%.3f) "
                         "q=(%.4f,%.4f,%.4f,%.4f) v=(%.3f,%.3f,%.3f) q=%d reset=%u "
                         "cov=(%.4g,%.4g,%.4g)%s%s%s\n",
                         static_cast<double>(o.time_usec) * 1e-6, static_cast<unsigned>(o.frame_id), static_cast<unsigned>(o.child_frame_id), o.x, o.y, o.z, o.q[0], o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter), o.pose_covariance[0],
-                        o.pose_covariance[6], o.pose_covariance[11], backwards ? " ⚠️时间倒退" : "", (o.frame_id != 20 || o.child_frame_id != 12) ? " ⚠️坐标系" : "", std::fabs((o.q[0] * o.q[0]) + (o.q[1] * o.q[1]) + (o.q[2] * o.q[2]) + (o.q[3] * o.q[3]) - 1.0F) > 1e-2F ? " ⚠️四元数" : "");
+                        o.pose_covariance[6], o.pose_covariance[11], backwards ? " ⚠️时间倒退" : "", (o.frame_id != 20 || o.child_frame_id != 12) ? " ⚠️坐标系" : "", std::fabs(o.q[0] * o.q[0] + o.q[1] * o.q[1] + o.q[2] * o.q[2] + o.q[3] * o.q[3] - 1.0f) > 1e-2f ? " ⚠️四元数" : "");
                     std::fflush(stdout);
                 }
             } else if (m.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
@@ -276,9 +259,7 @@ int main(int argc, char** argv) {
 
     if (from_file) {
         size_t n = 0;
-        while ((n = std::fread(buf, 1, sizeof(buf), in)) > 0) {
-            feed(buf, n);
-        }
+        while ((n = std::fread(buf, 1, sizeof(buf), in)) > 0) feed(buf, n);
         std::fclose(in);
         in = nullptr;
     } else {
@@ -286,29 +267,21 @@ int main(int argc, char** argv) {
         while (!g_stop.load()) {
             if (duration > 0.0) {
                 const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-                if (el >= duration) {
-                    break;
-                }
+                if (el >= duration) break;
             }
             struct pollfd pfd{};
             pfd.fd = fd;
             pfd.events = POLLIN;
             const int pr = ::poll(&pfd, 1, 50);
-            if (pr <= 0) {
-                continue;
-            }
-            if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            if (pr <= 0) continue;
+            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
                 std::printf("[probe] 串口挂断（revents=0x%x），退出。\n", static_cast<unsigned>(pfd.revents));
                 break;
             }
             const ssize_t n = ::read(fd, buf, sizeof(buf));
-            if (n > 0) {
-                feed(buf, static_cast<size_t>(n));
-            }
+            if (n > 0) feed(buf, static_cast<size_t>(n));
         }
-        if (fd >= 0) {
-            ::close(fd);
-        }
+        if (fd >= 0) ::close(fd);
     }
 
     stats.countGaps();

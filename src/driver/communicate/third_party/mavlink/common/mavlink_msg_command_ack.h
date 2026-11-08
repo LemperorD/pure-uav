@@ -3,21 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_COMMAND_ACK = 77 };
+#define MAVLINK_MSG_ID_COMMAND_ACK 77
 
-using mavlink_command_ack_t = struct __mavlink_command_ack_t {
-    uint16_t command;         /*<  Command ID (of acknowledged command).*/
-    uint8_t result;           /*<  Result of command.*/
-    uint8_t progress;         /*< [%] The progress percentage when result is MAV_RESULT_IN_PROGRESS. Values: [0-100], or UINT8_MAX if the progress is unknown.*/
-    int32_t result_param2;    /*<  Additional result information. Can be set with a command-specific enum containing command-specific error reasons for why the command might be denied. If used, the associated enum must be documented in the corresponding MAV_CMD (this enum should have a 0 value to
-                                 indicate "unused" or "unknown").*/
-    uint8_t target_system;    /*<  System ID of the target recipient. This is the ID of the system that sent the command for which this COMMAND_ACK is an acknowledgement.*/
-    uint8_t target_component; /*<  Component ID of the target recipient. This is the ID of the system that sent the command for which this COMMAND_ACK is an acknowledgement.*/
-};
 
-enum { MAVLINK_MSG_ID_COMMAND_ACK_LEN = 10, MAVLINK_MSG_ID_COMMAND_ACK_MIN_LEN = 3, MAVLINK_MSG_ID_77_LEN = 10, MAVLINK_MSG_ID_77_MIN_LEN = 3 };
+typedef struct __mavlink_command_ack_t {
+ uint16_t command; /*<  Command ID (of acknowledged command).*/
+ uint8_t result; /*<  Result of command.*/
+ uint8_t progress; /*< [%] The progress percentage when result is MAV_RESULT_IN_PROGRESS. Values: [0-100], or UINT8_MAX if the progress is unknown.*/
+ int32_t result_param2; /*<  Additional result information. Can be set with a command-specific enum containing command-specific error reasons for why the command might be denied. If used, the associated enum must be documented in the corresponding MAV_CMD (this enum should have a 0 value to indicate "unused" or "unknown").*/
+ uint8_t target_system; /*<  System ID of the target recipient. This is the ID of the system that sent the command for which this COMMAND_ACK is an acknowledgement.*/
+ uint8_t target_component; /*<  Component ID of the target recipient. This is the ID of the system that sent the command for which this COMMAND_ACK is an acknowledgement.*/
+} mavlink_command_ack_t;
 
-enum { MAVLINK_MSG_ID_COMMAND_ACK_CRC = 143, MAVLINK_MSG_ID_77_CRC = 143 };
+#define MAVLINK_MSG_ID_COMMAND_ACK_LEN 10
+#define MAVLINK_MSG_ID_COMMAND_ACK_MIN_LEN 3
+#define MAVLINK_MSG_ID_77_LEN 10
+#define MAVLINK_MSG_ID_77_MIN_LEN 3
+
+#define MAVLINK_MSG_ID_COMMAND_ACK_CRC 143
+#define MAVLINK_MSG_ID_77_CRC 143
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMMAND_ACK { \
@@ -383,10 +389,11 @@ static inline void mavlink_msg_command_ack_decode(const mavlink_message_t* msg, 
         memset(command_ack, 0, MAVLINK_MSG_ID_COMMAND_ACK_LEN);
     memcpy(command_ack, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         command_ack->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

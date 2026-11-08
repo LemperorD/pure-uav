@@ -431,9 +431,7 @@ static void test_sensor_drop() {
     bool all_invalid = true;
     for (int i = 0; i < 20; ++i) {
         const GuidanceState st = sensor.observe(tr, i * 0.01);
-        if (st.valid) {
-            all_invalid = false;
-        }
+        if (st.valid) all_invalid = false;
     }
     ok(all_invalid, "全部帧无效");
     ok(sensor.stats().dropped == sensor.stats().frames, "dropped == frames");
@@ -454,9 +452,7 @@ static void test_sensor_latency() {
 
     const double dt = 0.01;
     GuidanceState st;
-    for (int i = 0; i <= 20; ++i) {
-        st = sensor.observe(tr, i * dt);  // t = 0 .. 0.20
-    }
+    for (int i = 0; i <= 20; ++i) st = sensor.observe(tr, i * dt);  // t = 0 .. 0.20
 
     near(st.t, 0.20 - 0.05, 1e-9, "输出滞后 ≈ latency（t_out = t - 50ms）");
 }
@@ -513,11 +509,11 @@ static void test_target_model() {
         TargetModel m(c);
         const double t = 1.3;
         const TargetState s = m.state(t);
-        near_vec(s.p, Vec3(5 * t, 0, 10 + (8 * t) - (0.5 * 9.81 * t * t)), 1e-9, "BALLISTIC p = p0 + v0·t + ½g·t²");
-        near_vec(s.v, Vec3(5, 0, 8 - (9.81 * t)), 1e-9, "BALLISTIC v = v0 + g·t");
+        near_vec(s.p, Vec3(5 * t, 0, 10 + 8 * t - 0.5 * 9.81 * t * t), 1e-9, "BALLISTIC p = p0 + v0·t + ½g·t²");
+        near_vec(s.v, Vec3(5, 0, 8 - 9.81 * t), 1e-9, "BALLISTIC v = v0 + g·t");
         near_vec(s.a, Vec3(0, 0, -9.81), 1e-12, "BALLISTIC a = g");
         // 10 + 8t − 4.905t² = 0 → t = (8 + √(64 + 196.2)) / 9.81
-        const double t_land = (8.0 + std::sqrt(64.0 + (4.0 * 4.905 * 10.0))) / (2.0 * 4.905);
+        const double t_land = (8.0 + std::sqrt(64.0 + 4.0 * 4.905 * 10.0)) / (2.0 * 4.905);
         near(m.flight_time(), t_land, 1e-9, "BALLISTIC 落地时刻 = 解析解");
         ok(m.hits_ground(), "BALLISTIC 标记为落地");
     }
@@ -538,11 +534,8 @@ static void test_target_model() {
         bool same = true;
         for (int i = 0; i <= 20; ++i) {
             const double t = 2.0 * i / 20.0;
-            const TargetState a = md.state(t);
-            const TargetState b = mb.state(t);
-            if (norm(a.p - b.p) > 1e-6 || norm(a.v - b.v) > 1e-6) {
-                same = false;
-            }
+            const TargetState a = md.state(t), b = mb.state(t);
+            if (norm(a.p - b.p) > 1e-6 || norm(a.v - b.v) > 1e-6) same = false;
         }
         ok(same, "DART(Cd=0) ≡ BALLISTIC（数值预积分 vs 解析式，逐点 < 1e-6）");
     }
@@ -574,9 +567,7 @@ static void test_target_model() {
         double prev = norm(md.state(0.0).v);
         for (int i = 1; i <= 20; ++i) {
             const double sp = norm(md.state(0.5 * i / 20.0).v);
-            if (sp > prev + 1e-9) {
-                mono = false;
-            }
+            if (sp > prev + 1e-9) mono = false;
             prev = sp;
         }
         ok(mono, "上升段速率单调衰减");
@@ -657,11 +648,8 @@ static void test_target_model() {
         const double dt = 0.001;
         for (int i = 0; i < 400; ++i) {
             const double t = i * 0.002;
-            const TargetState a = m.state(t);
-            const TargetState b = m.state(t + dt);
-            if (norm(b.p - (a.p + a.v * dt)) > 1e-4) {
-                cont = false;
-            }
+            const TargetState a = m.state(t), b = m.state(t + dt);
+            if (norm(b.p - (a.p + a.v * dt)) > 1e-4) cont = false;
         }
         ok(cont, "查表插值连续（p(t+dt) ≈ p(t) + v(t)·dt）");
     }
@@ -708,9 +696,8 @@ static void test_freeze_criterion() {
 
         bool agree = true;
         for (int i = 0; i <= 40; ++i) {
-            const double R = 20.0 - (19.0 * i / 40.0);  // 20 → 1 m
-            GuidanceMemory ma;
-            GuidanceMemory mb;
+            const double R = 20.0 - 19.0 * i / 40.0;  // 20 → 1 m
+            GuidanceMemory ma, mb;
             const PureGuidanceCmd ca = guidance_step(make_state(0.0, R, u, V_M, V_T), a, ma);
             const PureGuidanceCmd cb = guidance_step(make_state(0.0, R, u, V_M, V_T), b, mb);
             if ((ca.mode == PureGuidanceMode::HOLD) != (cb.mode == PureGuidanceMode::HOLD)) {
@@ -771,7 +758,7 @@ static void test_invariants() {
         const PureGuidanceCmd c = guidance_step(st, p, m);
 
         // |q| = 1（默认单位四元数）
-        const double qn = std::sqrt((st.q[0] * st.q[0]) + (st.q[1] * st.q[1]) + (st.q[2] * st.q[2]) + (st.q[3] * st.q[3]));
+        const double qn = std::sqrt(st.q[0] * st.q[0] + st.q[1] * st.q[1] + st.q[2] * st.q[2] + st.q[3] * st.q[3]);
         near(qn, 1.0, kQuatNormTol, "不变量 |q| = 1（默认 [1,0,0,0]）");
         near(st.q[0], 1.0, 0.0, "  四元数顺序 [w,x,y,z]：q[0] = w = 1");
 
@@ -889,14 +876,12 @@ struct LoopStubIns : flight::GuidanceInsSource {
     flight::GuidanceInsSample next;
     bool pending = false;
     bool poll(flight::GuidanceInsSample& o) override {
-        if (!pending) {
-            return false;
-        }
+        if (!pending) return false;
         o = next;
         pending = false;
         return true;
     }
-    [[nodiscard]] bool alive() const override {
+    bool alive() const override {
         return true;
     }
 };
@@ -905,14 +890,12 @@ struct LoopStubTgt : flight::GuidanceTargetSource {
     flight::GuidanceTargetSample next;
     bool pending = false;
     bool poll(flight::GuidanceTargetSample& o) override {
-        if (!pending) {
-            return false;
-        }
+        if (!pending) return false;
         o = next;
         pending = false;
         return true;
     }
-    [[nodiscard]] bool alive() const override {
+    bool alive() const override {
         return true;
     }
 };
@@ -925,7 +908,7 @@ struct LoopStubSink : flight::GuidanceCommandSink {
         ++sends;
         return true;
     }
-    [[nodiscard]] bool alive() const override {
+    bool alive() const override {
         return true;
     }
 };
@@ -938,9 +921,7 @@ flight::GuidanceCameraModel loop_cam() {
     c.cx = 320.0;
     c.cy = 240.0;
     const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};  // 行主序
-    for (int i = 0; i < 9; ++i) {
-        c.R_body_cam[i] = R[i];
-    }
+    for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
     return c;
 }
 
@@ -959,7 +940,7 @@ flight::GuidanceInsSample loop_ins(std::uint64_t us) {
 flight::GuidanceTargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
     flight::GuidanceTargetSample t;
     t.boot_us = us;
-    t.u_px = 320.0 + (500.0 * tan_theta);
+    t.u_px = 320.0 + 500.0 * tan_theta;
     t.v_px = 240.0;
     t.present = present;
     t.has_range = true;
@@ -994,10 +975,10 @@ static void test_missing_guidance_inputs() {
         ok(loop.init(), "range-free PPN loop initializes");
         flight::GuidanceOutput out;
         for (int frame = 0; frame < 2; ++frame) {
-            const auto stamp = 1000000ULL + (static_cast<unsigned long long>(frame) * 20000ULL);
+            const auto stamp = 1000000ULL + static_cast<unsigned long long>(frame) * 20000ULL;
             ins.next = loop_ins(stamp);
             ins.pending = true;
-            tgt.next = loop_tgt(stamp, 0.1 + (0.1 * frame));
+            tgt.next = loop_tgt(stamp, 0.1 + 0.1 * frame);
             tgt.next.has_range = false;
             tgt.next.range_m = 0;
             tgt.next.has_v_T = false;
@@ -1038,18 +1019,10 @@ static void test_missing_guidance_inputs() {
         ins.pending = true;
         tgt.next = loop_tgt(1020000ULL, 0.3);
         tgt.pending = true;
-        if (invalid_input == 0) {
-            ins.next.has_attitude = false;
-        }
-        if (invalid_input == 1) {
-            tgt.next.boot_us += 5000000ULL;
-        }
-        if (invalid_input == 2) {
-            ins.next.boot_us = 0;
-        }
-        if (invalid_input == 3) {
-            tgt.next.boot_us = 0;
-        }
+        if (invalid_input == 0) ins.next.has_attitude = false;
+        if (invalid_input == 1) tgt.next.boot_us += 5000000ULL;
+        if (invalid_input == 2) ins.next.boot_us = 0;
+        if (invalid_input == 3) tgt.next.boot_us = 0;
         if (invalid_input == 4) {
             ins.next.has_attitude = false;
             tgt.next.boot_us -= 500000ULL;
@@ -1061,9 +1034,7 @@ static void test_missing_guidance_inputs() {
             ok(out.health == flight::GuidanceInputHealth::kNoAttitude, "missing attitude cannot be masked by stale target");
             ok(sink.sends == sends_before_invalid && invalid_status == flight::GuidanceLoopStatus::kUnhealthyInput, "missing attitude produces no command even under the default hold policy");
         }
-        if (invalid_input == 1) {
-            ok(out.health == flight::GuidanceInputHealth::kTimeBackwards, "future-time health");
-        }
+        if (invalid_input == 1) ok(out.health == flight::GuidanceInputHealth::kTimeBackwards, "future-time health");
     }
     GuidanceState state;
     state.valid = true;
@@ -1082,9 +1053,7 @@ static void test_missing_guidance_inputs() {
         LoopStubSink sink;
         flight::GuidanceLoopConfig cfg;
         cfg.cam = loop_cam();
-        if (scenario == 1) {
-            cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kStop;
-        }
+        if (scenario == 1) cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kStop;
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         ins.next = loop_ins(1000000ULL);
@@ -1097,20 +1066,12 @@ static void test_missing_guidance_inputs() {
         ins.pending = true;
         tgt.next = loop_tgt(scenario == 2 ? 990000ULL : 1070000ULL, 0.3);
         tgt.pending = true;
-        if (scenario == 1) {
-            ins.next.has_attitude = false;
-        }
+        if (scenario == 1) ins.next.has_attitude = false;
         const int previous_sends = sink.sends;
         const auto status = loop.run_once(&out);
-        if (scenario == 0) {
-            ok(out.valid && out.health == flight::GuidanceInputHealth::kOk, "future-time tolerance includes exactly 50 ms");
-        }
-        if (scenario == 1) {
-            ok(!out.valid && status == flight::GuidanceLoopStatus::kUnhealthyInput && sink.sends == previous_sends, "stop policy with missing attitude emits no command and clears previous valid result");
-        }
-        if (scenario == 2) {
-            ok(!out.valid && out.health == flight::GuidanceInputHealth::kTimeBackwards, "target sampling time rollback is rejected even when age is within stale limit");
-        }
+        if (scenario == 0) ok(out.valid && out.health == flight::GuidanceInputHealth::kOk, "future-time tolerance includes exactly 50 ms");
+        if (scenario == 1) ok(!out.valid && status == flight::GuidanceLoopStatus::kUnhealthyInput && sink.sends == previous_sends, "stop policy with missing attitude emits no command and clears previous valid result");
+        if (scenario == 2) ok(!out.valid && out.health == flight::GuidanceInputHealth::kTimeBackwards, "target sampling time rollback is rejected even when age is within stale limit");
     }
 }
 
@@ -1145,9 +1106,9 @@ static void test_guidance_loop() {
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.pending = true;  // 右偏 11.3°
 
         flight::GuidanceOutput out;
@@ -1174,9 +1135,9 @@ static void test_guidance_loop() {
         cfg.cam = loop_cam();
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.0);
+        tgt.next = loop_tgt(1000000ull, 0.0);
         tgt.pending = true;
         flight::GuidanceOutput out;
         loop.run_once(&out);
@@ -1192,9 +1153,9 @@ static void test_guidance_loop() {
         cfg.cam = loop_cam();
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2, /*present=*/false);
+        tgt.next = loop_tgt(1000000ull, 0.2, /*present=*/false);
         tgt.pending = true;
         flight::GuidanceOutput out;
         loop.run_once(&out);
@@ -1215,17 +1176,16 @@ static void test_guidance_loop() {
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.pending = true;
-        flight::GuidanceOutput good;
-        flight::GuidanceOutput bad;
+        flight::GuidanceOutput good, bad;
         loop.run_once(&good);
 
-        ins.next = loop_ins(1020000ULL);
+        ins.next = loop_ins(1020000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1020000ULL, 0.2);
+        tgt.next = loop_tgt(1020000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
         loop.run_once(&bad);
@@ -1248,18 +1208,18 @@ static void test_guidance_loop() {
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.pending = true;
         flight::GuidanceOutput o;
         loop.run_once(&o);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(80));  // 超过 0.05 s
 
-        ins.next = loop_ins(1080000ULL);
+        ins.next = loop_ins(1080000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1080000ULL, 0.2);
+        tgt.next = loop_tgt(1080000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
         loop.run_once(&o);
@@ -1281,9 +1241,9 @@ static void test_guidance_loop() {
         cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover;
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
         flight::GuidanceOutput o;
@@ -1302,9 +1262,9 @@ static void test_guidance_loop() {
         cfg.max_sample_age_s = 0.10;
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(3000000ULL);
+        ins.next = loop_ins(3000000ull);
         ins.pending = true;  // ins 3.0 s
-        tgt.next = loop_tgt(2000000ULL, 0.2);
+        tgt.next = loop_tgt(2000000ull, 0.2);
         tgt.pending = true;  // tgt 2.0 s
         flight::GuidanceOutput o;
         loop.run_once(&o);
@@ -1321,16 +1281,15 @@ static void test_guidance_loop() {
         cfg.cam = loop_cam();
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ULL);
+        ins.next = loop_ins(1000000ull);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.pending = true;
-        flight::GuidanceOutput first;
-        flight::GuidanceOutput resent;
+        flight::GuidanceOutput first, resent;
         loop.run_once(&first);
         const int sends_before = sink.sends;
 
-        ins.next = loop_ins(1020000ULL);
+        ins.next = loop_ins(1020000ull);
         ins.pending = true;  // 只有飞控帧
         loop.run_once(&resent);
         ok(sink.sends == sends_before + 1, "没有新的目标帧也照样发");
@@ -1348,9 +1307,9 @@ static void test_guidance_loop() {
         flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         for (int k = 0; k < 5; ++k) {
-            ins.next = loop_ins(1000000ULL + (20000ULL * k));
+            ins.next = loop_ins(1000000ull + 20000ull * k);
             ins.pending = true;
-            tgt.next = loop_tgt(1000000ULL + (20000ULL * k), 0.2);
+            tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
             tgt.pending = true;
             flight::GuidanceOutput o;
             loop.run_once(&o);
@@ -1382,11 +1341,9 @@ struct FirstOutCtx {
     int n = 0;
 };
 
-void first_out_hook(void* user, int /*unused*/, const app::GuidanceSyntheticWorld& /*unused*/, const flight::GuidanceOutput& o) {
+void first_out_hook(void* user, int, const app::GuidanceSyntheticWorld&, const flight::GuidanceOutput& o) {
     auto* ctx = static_cast<FirstOutCtx*>(user);
-    if (ctx->n++ == 0) {
-        ctx->first = o;
-    }
+    if (ctx->n++ == 0) ctx->first = o;
 }
 
 struct CollectSink : flight::GuidanceCommandSink {
@@ -1395,7 +1352,7 @@ struct CollectSink : flight::GuidanceCommandSink {
         outs.push_back(o);
         return true;
     }
-    [[nodiscard]] bool alive() const override {
+    bool alive() const override {
         return true;
     }
 };
@@ -1477,13 +1434,9 @@ long count_open_handles() {
     return static_cast<long>(n);
 #else
     DIR* d = ::opendir("/proc/self/fd");
-    if (d == nullptr) {
-        return -1;
-    }
+    if (!d) return -1;
     long n = 0;
-    while (::readdir(d) != nullptr) {
-        ++n;
-    }
+    while (::readdir(d) != nullptr) ++n;
     ::closedir(d);
     return n;
 #endif
@@ -1522,9 +1475,7 @@ static void test_csv_roundtrip() {
 
         app::GuidanceInputRecorder rec;
         ok(rec.open(kRoundTripCsv), "§18 打开录制文件");
-        if (!rec.ok()) {
-            return;  // 打不开就没法继续（不给假绿）
-        }
+        if (!rec.ok()) return;  // 打不开就没法继续（不给假绿）
 
         app::GuidanceRecordingInsSource rins(world, rec);
         app::GuidanceRecordingTargetSource rtgt(world, rec);
@@ -1552,7 +1503,7 @@ static void test_csv_roundtrip() {
         ok(row.tick == 0, "首行 tick = 0");
         ok(row.ins_new, "首行 ins_new = 1（合成世界每拍都有新帧）");
         ok(row.tgt_new, "首行 tgt_new = 1");
-        ok(row.ins.boot_us == 1020000ULL, "首行时间戳 = t0 + dt = 1.02 s（飞控 boot µs）");
+        ok(row.ins.boot_us == 1020000ull, "首行时间戳 = t0 + dt = 1.02 s（飞控 boot µs）");
         near(row.ins.p.x, 0.16, 1e-12, "首行 p_n = 8 m/s × 0.02 s = 0.16 m");
         near(row.ins.p.z, -5.0, 1e-12, "首行高度不变（z=-5）");
         near(row.ins.q[0], 1.0, 1e-15, "首行 qw = 1（机体与局部系对齐）");
@@ -1578,9 +1529,7 @@ static void test_csv_roundtrip() {
         flight::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
         ok(loop.init(), "§18 回放 loop init");
 
-        for (int k = 0; k < n && !src.done(); ++k) {
-            loop.run_once(nullptr);
-        }
+        for (int k = 0; k < n && !src.done(); ++k) loop.run_once(nullptr);
 
         ok(src.rows() == static_cast<std::uint64_t>(n), "回放读完 n 行");
         ok(replay_outs.outs.size() == rec_outs.outs.size(), "指令条数一致");
@@ -1599,9 +1548,7 @@ static void test_csv_roundtrip() {
                 }
             }
         }
-        if (first_bad >= 0) {
-            std::printf("    首个不一致的指令序号：%d\n", first_bad);
-        }
+        if (first_bad >= 0) std::printf("    首个不一致的指令序号：%d\n", first_bad);
         ok(same, "录制与回放的指令逐位一致（%.17g 存盘不丢精度）");
     }
 
@@ -1655,15 +1602,12 @@ static void test_csv_roundtrip() {
         // 刷盘后可读回：两条数据行 + 两行 '#' 表头
         std::FILE* f = std::fopen(kCmdCsv, "rb");
         ok(f != nullptr, "④ 刷盘后文件可打开（说明 close 真的落盘了）");
-        if (f != nullptr) {
+        if (f) {
             char line[512];
-            int lines = 0;
-            int data_lines = 0;
-            while (std::fgets(line, sizeof(line), f) != nullptr) {
+            int lines = 0, data_lines = 0;
+            while (std::fgets(line, sizeof(line), f)) {
                 ++lines;
-                if (line[0] != '#' && line[0] != '\n') {
-                    ++data_lines;
-                }
+                if (line[0] != '#' && line[0] != '\n') ++data_lines;
             }
             std::fclose(f);
             ok(lines == 4, "④ 共 4 行（2 行表头 + 2 行数据）");
@@ -1884,9 +1828,9 @@ static void test_latency() {
 
     const int ticks = 300;
     for (int k = 0; k < ticks; ++k) {
-        ins.next = loop_ins(1000000ULL + (20000ULL * k));
+        ins.next = loop_ins(1000000ull + 20000ull * k);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL + (20000ULL * k), 0.2);
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
         tgt.pending = true;
         flight::GuidanceOutput o;
         loop.run_once(&o);
@@ -1916,12 +1860,12 @@ static void test_ring_log() {
     section("21. 黑匣子（环形缓冲 / 时间窗 dump）");
 
     flight::GuidanceRingLog log;
-    ok(log.empty() && log.count() == 0 && log.empty(), "空黑匣子");
+    ok(log.empty() && log.count() == 0 && log.size() == 0, "空黑匣子");
 
     // 稀疏样本：每 1 s 一条
     for (int k = 0; k < 5; ++k) {
         flight::GuidanceOutput o;
-        o.boot_us = static_cast<std::uint64_t>(k) * 1000000ULL;
+        o.boot_us = static_cast<std::uint64_t>(k) * 1000000ull;
         o.a_cmd_ned = Vec3(0.1 * k, 0.2 * k, 0.3 * k);
         o.a_cmd_norm = 0.1 * k;
         o.mode = PureGuidanceMode::PN;
@@ -1931,7 +1875,7 @@ static void test_ring_log() {
     }
     ok(log.size() == 5 && log.count() == 5, "push 5 条");
     ok(log.at(0).boot_us == 0, "at(0) = 最旧");
-    ok(log.newest().boot_us == 4000000ULL, "newest = 最后一条");
+    ok(log.newest().boot_us == 4000000ull, "newest = 最后一条");
     near(log.at(2).a_ned[1], 0.4, 1e-12, "a_e 记录正确");
 
     // 时间窗 dump：最近 2.5 s ⇒ 1.5 s 之后（2/3/4 s 共 3 条）
@@ -1947,12 +1891,8 @@ static void test_ring_log() {
         bool last_ok = false;
         while (std::fgets(line, sizeof(line), f) != nullptr) {
             ++lines;
-            if (lines == 1 && std::strstr(line, "boot_us") != nullptr) {
-                header = true;
-            }
-            if (std::strstr(line, "4000000") != nullptr) {
-                last_ok = true;
-            }
+            if (lines == 1 && std::strstr(line, "boot_us") != nullptr) header = true;
+            if (std::strstr(line, "4000000") != nullptr) last_ok = true;
         }
         std::fclose(f);
         ok(header, "CSV 有表头");
@@ -1972,13 +1912,13 @@ static void test_ring_log() {
     const int total = flight::GuidanceRingLog::kCap + 10;
     for (int k = 0; k < total; ++k) {
         flight::GuidanceOutput o;
-        o.boot_us = static_cast<std::uint64_t>(k) * 1000ULL;
+        o.boot_us = static_cast<std::uint64_t>(k) * 1000ull;
         log.push(o);
     }
     ok(log.size() == flight::GuidanceRingLog::kCap, "回绕后 size = kCap");
     ok(log.count() == static_cast<std::uint64_t>(total), "count 累计不丢");
-    ok(log.at(0).boot_us == static_cast<std::uint64_t>(total - flight::GuidanceRingLog::kCap) * 1000ULL, "回绕后最旧 = 第 (total-kCap) 条");
-    ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ULL, "回绕后最新 = 最后一条");
+    ok(log.at(0).boot_us == static_cast<std::uint64_t>(total - flight::GuidanceRingLog::kCap) * 1000ull, "回绕后最旧 = 第 (total-kCap) 条");
+    ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ull, "回绕后最新 = 最后一条");
 
     // 集成：GuidanceLoop 每拍都进黑匣子
     LoopStubIns ins;
@@ -1990,9 +1930,9 @@ static void test_ring_log() {
     flight::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
     ok(lp.init(), "§21 init");
     for (int k = 0; k < 60; ++k) {
-        ins.next = loop_ins(1000000ULL + (20000ULL * k));
+        ins.next = loop_ins(1000000ull + 20000ull * k);
         ins.pending = true;
-        tgt.next = loop_tgt(1000000ULL + (20000ULL * k), 0.2);
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
         tgt.pending = true;
         flight::GuidanceOutput o;
         lp.run_once(&o);

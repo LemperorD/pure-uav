@@ -3,30 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT = 86 };
+#define MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT 86
 
-using mavlink_set_position_target_global_int_t = struct __mavlink_set_position_target_global_int_t {
-    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot). The rationale for the timestamp in the setpoint is to allow the system to compensate for the transport delay of the setpoint. This allows the system to compensate processing latency.*/
-    int32_t lat_int;          /*< [degE7] Latitude in WGS84 frame*/
-    int32_t lon_int;          /*< [degE7] Longitude in WGS84 frame*/
-    float alt;                /*< [m] Altitude (MSL, Relative to home, or AGL - depending on frame)*/
-    float vx;                 /*< [m/s] X velocity in NED frame*/
-    float vy;                 /*< [m/s] Y velocity in NED frame*/
-    float vz;                 /*< [m/s] Z velocity in NED frame*/
-    float afx;                /*< [m/s/s] X acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
-    float afy;                /*< [m/s/s] Y acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
-    float afz;                /*< [m/s/s] Z acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
-    float yaw;                /*< [rad] yaw setpoint*/
-    float yaw_rate;           /*< [rad/s] yaw rate setpoint*/
-    uint16_t type_mask;       /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t coordinate_frame; /*<  Valid options are: MAV_FRAME_GLOBAL = 0, MAV_FRAME_GLOBAL_RELATIVE_ALT = 3, MAV_FRAME_GLOBAL_TERRAIN_ALT = 10 (MAV_FRAME_GLOBAL_INT, MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_FRAME_GLOBAL_TERRAIN_ALT_INT are allowed synonyms, but have been deprecated)*/
-};
 
-enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_LEN = 53, MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_MIN_LEN = 53, MAVLINK_MSG_ID_86_LEN = 53, MAVLINK_MSG_ID_86_MIN_LEN = 53 };
+typedef struct __mavlink_set_position_target_global_int_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot). The rationale for the timestamp in the setpoint is to allow the system to compensate for the transport delay of the setpoint. This allows the system to compensate processing latency.*/
+ int32_t lat_int; /*< [degE7] Latitude in WGS84 frame*/
+ int32_t lon_int; /*< [degE7] Longitude in WGS84 frame*/
+ float alt; /*< [m] Altitude (MSL, Relative to home, or AGL - depending on frame)*/
+ float vx; /*< [m/s] X velocity in NED frame*/
+ float vy; /*< [m/s] Y velocity in NED frame*/
+ float vz; /*< [m/s] Z velocity in NED frame*/
+ float afx; /*< [m/s/s] X acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+ float afy; /*< [m/s/s] Y acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+ float afz; /*< [m/s/s] Z acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+ float yaw; /*< [rad] yaw setpoint*/
+ float yaw_rate; /*< [rad/s] yaw rate setpoint*/
+ uint16_t type_mask; /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t coordinate_frame; /*<  Valid options are: MAV_FRAME_GLOBAL = 0, MAV_FRAME_GLOBAL_RELATIVE_ALT = 3, MAV_FRAME_GLOBAL_TERRAIN_ALT = 10 (MAV_FRAME_GLOBAL_INT, MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_FRAME_GLOBAL_TERRAIN_ALT_INT are allowed synonyms, but have been deprecated)*/
+} mavlink_set_position_target_global_int_t;
 
-enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_CRC = 5, MAVLINK_MSG_ID_86_CRC = 5 };
+#define MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_LEN 53
+#define MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_MIN_LEN 53
+#define MAVLINK_MSG_ID_86_LEN 53
+#define MAVLINK_MSG_ID_86_MIN_LEN 53
+
+#define MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_CRC 5
+#define MAVLINK_MSG_ID_86_CRC 5
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SET_POSITION_TARGET_GLOBAL_INT { \
@@ -662,10 +669,11 @@ static inline void mavlink_msg_set_position_target_global_int_decode(const mavli
         memset(set_position_target_global_int, 0, MAVLINK_MSG_ID_SET_POSITION_TARGET_GLOBAL_INT_LEN);
     memcpy(set_position_target_global_int, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         set_position_target_global_int->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

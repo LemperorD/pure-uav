@@ -1,7 +1,8 @@
 // FrameResult → GuidanceTargetSample 桥接实现。
 #include "pure_uav/detection/target_bridge.hpp"
 
-namespace pure_uav::detection {
+namespace pure_uav {
+namespace detection {
 
 bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance::flight::GuidanceTargetSample& out) {
     // 先置成"无目标"的降级状态，保证 present=false 时主循环可直接进 SEARCH。
@@ -19,9 +20,7 @@ bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance
     out.has_v_T = false;
     out.v_T = Vec3{};
 
-    if (!r.present || r.count <= 0) {
-        return false;
-    }
+    if (!r.present || r.count <= 0) return false;
 
     out.u_px = r.u_px;
     out.v_px = r.v_px;
@@ -34,4 +33,5 @@ bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance
     return true;
 }
 
-}  // namespace pure_uav::detection
+}  // namespace detection
+}  // namespace pure_uav

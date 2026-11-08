@@ -3,28 +3,35 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS = 276 };
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS 276
 
-using mavlink_camera_tracking_geo_status_t = struct __mavlink_camera_tracking_geo_status_t {
-    int32_t lat;              /*< [degE7] Latitude of tracked object*/
-    int32_t lon;              /*< [degE7] Longitude of tracked object*/
-    float alt;                /*< [m] Altitude of tracked object(AMSL, WGS84)*/
-    float h_acc;              /*< [m] Horizontal accuracy. NAN if unknown*/
-    float v_acc;              /*< [m] Vertical accuracy. NAN if unknown*/
-    float vel_n;              /*< [m/s] North velocity of tracked object. NAN if unknown*/
-    float vel_e;              /*< [m/s] East velocity of tracked object. NAN if unknown*/
-    float vel_d;              /*< [m/s] Down velocity of tracked object. NAN if unknown*/
-    float vel_acc;            /*< [m/s] Velocity accuracy. NAN if unknown*/
-    float dist;               /*< [m] Distance between camera and tracked object. NAN if unknown*/
-    float hdg;                /*< [rad] Heading in radians, in NED. NAN if unknown*/
-    float hdg_acc;            /*< [rad] Accuracy of heading, in NED. NAN if unknown*/
-    uint8_t tracking_status;  /*<  Current tracking status*/
-    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-};
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_LEN = 50, MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_MIN_LEN = 49, MAVLINK_MSG_ID_276_LEN = 50, MAVLINK_MSG_ID_276_MIN_LEN = 49 };
+typedef struct __mavlink_camera_tracking_geo_status_t {
+ int32_t lat; /*< [degE7] Latitude of tracked object*/
+ int32_t lon; /*< [degE7] Longitude of tracked object*/
+ float alt; /*< [m] Altitude of tracked object(AMSL, WGS84)*/
+ float h_acc; /*< [m] Horizontal accuracy. NAN if unknown*/
+ float v_acc; /*< [m] Vertical accuracy. NAN if unknown*/
+ float vel_n; /*< [m/s] North velocity of tracked object. NAN if unknown*/
+ float vel_e; /*< [m/s] East velocity of tracked object. NAN if unknown*/
+ float vel_d; /*< [m/s] Down velocity of tracked object. NAN if unknown*/
+ float vel_acc; /*< [m/s] Velocity accuracy. NAN if unknown*/
+ float dist; /*< [m] Distance between camera and tracked object. NAN if unknown*/
+ float hdg; /*< [rad] Heading in radians, in NED. NAN if unknown*/
+ float hdg_acc; /*< [rad] Accuracy of heading, in NED. NAN if unknown*/
+ uint8_t tracking_status; /*<  Current tracking status*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+} mavlink_camera_tracking_geo_status_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_CRC = 18, MAVLINK_MSG_ID_276_CRC = 18 };
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_LEN 50
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_MIN_LEN 49
+#define MAVLINK_MSG_ID_276_LEN 50
+#define MAVLINK_MSG_ID_276_MIN_LEN 49
+
+#define MAVLINK_MSG_ID_CAMERA_TRACKING_GEO_STATUS_CRC 18
+#define MAVLINK_MSG_ID_276_CRC 18
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_TRACKING_GEO_STATUS { \

@@ -3,23 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES = 435 };
+#define MAVLINK_MSG_ID_AVAILABLE_MODES 435
 
-using mavlink_available_modes_t = struct __mavlink_available_modes_t {
-    uint32_t custom_mode;  /*<  A bitfield for use for autopilot-specific flags*/
-    uint32_t properties;   /*<  Mode properties.*/
-    uint8_t number_modes;  /*<  The total number of available modes for the current vehicle type.*/
-    uint8_t mode_index;    /*<  The current mode index within number_modes, indexed from 1. The index is not guaranteed to be persistent, and may change between reboots or if the set of modes change.*/
-    uint8_t standard_mode; /*<  Standard mode.*/
-    char mode_name[35];    /*<  Name of custom mode, with null termination character. Should be omitted for standard modes.*/
-    uint8_t seq;           /*<  Sequence number. The value iterates sequentially whenever the set of AVAILABLE_MODES changes and should match value of AVAILABLE_MODES_MONITOR. Note, a GCS must ignore 0 values, and should re-start the download if the value changes part-way through fetching modes.*/
-};
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES_LEN = 47, MAVLINK_MSG_ID_AVAILABLE_MODES_MIN_LEN = 46, MAVLINK_MSG_ID_435_LEN = 47, MAVLINK_MSG_ID_435_MIN_LEN = 46 };
+typedef struct __mavlink_available_modes_t {
+ uint32_t custom_mode; /*<  A bitfield for use for autopilot-specific flags*/
+ uint32_t properties; /*<  Mode properties.*/
+ uint8_t number_modes; /*<  The total number of available modes for the current vehicle type.*/
+ uint8_t mode_index; /*<  The current mode index within number_modes, indexed from 1. The index is not guaranteed to be persistent, and may change between reboots or if the set of modes change.*/
+ uint8_t standard_mode; /*<  Standard mode.*/
+ char mode_name[35]; /*<  Name of custom mode, with null termination character. Should be omitted for standard modes.*/
+ uint8_t seq; /*<  Sequence number. The value iterates sequentially whenever the set of AVAILABLE_MODES changes and should match value of AVAILABLE_MODES_MONITOR. Note, a GCS must ignore 0 values, and should re-start the download if the value changes part-way through fetching modes.*/
+} mavlink_available_modes_t;
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES_CRC = 134, MAVLINK_MSG_ID_435_CRC = 134 };
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_LEN 47
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_MIN_LEN 46
+#define MAVLINK_MSG_ID_435_LEN 47
+#define MAVLINK_MSG_ID_435_MIN_LEN 46
 
-enum { MAVLINK_MSG_AVAILABLE_MODES_FIELD_MODE_NAME_LEN = 35 };
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_CRC 134
+#define MAVLINK_MSG_ID_435_CRC 134
+
+#define MAVLINK_MSG_AVAILABLE_MODES_FIELD_MODE_NAME_LEN 35
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AVAILABLE_MODES { \

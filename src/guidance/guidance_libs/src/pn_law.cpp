@@ -8,17 +8,13 @@ namespace pure_uav {
 
 // A）真值法：ω = (r × v_rel) / R²
 Vec3 los_rate_vector(const Vec3& r, const Vec3& v_rel, double R) {
-    if (R < 1e-9) {
-        return Vec3{};  // 防除零
-    }
+    if (R < 1e-9) return Vec3{};       // 防除零
     return cross(r, v_rel) / (R * R);  // 分母是 R²，不是 R
 }
 
 // B）真机法：ω = û × (dû/dt)
 Vec3 los_rate_from_los_difference(const Vec3& los_hat, const Vec3& los_hat_prev, double dt) {
-    if (dt < 1e-9) {
-        return Vec3{};  // 防除零
-    }
+    if (dt < 1e-9) return Vec3{};                      // 防除零
     const Vec3 d_los = (los_hat - los_hat_prev) / dt;  // dû/dt 的差分近似
     return cross(los_hat, d_los);                      // ω = û × (dû/dt)
 }
@@ -29,9 +25,7 @@ Vec3 los_rate_from_los_difference(const Vec3& los_hat, const Vec3& los_hat_prev,
 
 // 接近速度 Vc = -(r · v_rel) / R
 double closing_velocity(const Vec3& r, const Vec3& v_rel, double R) {
-    if (R < 1e-9) {
-        return 0.0;
-    }
+    if (R < 1e-9) return 0.0;
     return -dot(r, v_rel) / R;
 }
 

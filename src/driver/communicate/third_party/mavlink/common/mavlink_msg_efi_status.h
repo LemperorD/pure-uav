@@ -3,34 +3,40 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_EFI_STATUS = 225 };
+#define MAVLINK_MSG_ID_EFI_STATUS 225
 
-MAVPACKED(typedef struct MavlinkEfiStatusT {
-    float ecu_index;                   /*<  ECU index*/
-    float rpm;                         /*<  RPM*/
-    float fuel_consumed;               /*< [cm^3] Fuel consumed*/
-    float fuel_flow;                   /*< [cm^3/min] Fuel flow rate*/
-    float engine_load;                 /*< [%] Engine load*/
-    float throttle_position;           /*< [%] Throttle position*/
-    float spark_dwell_time;            /*< [ms] Spark dwell time*/
-    float barometric_pressure;         /*< [kPa] Barometric pressure*/
-    float intake_manifold_pressure;    /*< [kPa] Intake manifold pressure(*/
-    float intake_manifold_temperature; /*< [degC] Intake manifold temperature*/
-    float cylinder_head_temperature;   /*< [degC] Cylinder head temperature*/
-    float ignition_timing;             /*< [deg] Ignition timing (Crank angle degrees)*/
-    float injection_time;              /*< [ms] Injection time*/
-    float exhaust_gas_temperature;     /*< [degC] Exhaust gas temperature*/
-    float throttle_out;                /*< [%] Output throttle*/
-    float pt_compensation;             /*<  Pressure/temperature compensation*/
-    uint8_t health;                    /*<  EFI health status*/
-    float ignition_voltage;            /*< [V] Supply voltage to EFI sparking system.  Zero in this value means "unknown", so if the supply voltage really is zero volts use 0.0001 instead.*/
-    float fuel_pressure;               /*< [kPa] Fuel pressure. Zero in this value means "unknown", so if the fuel pressure really is zero kPa use 0.0001 instead.*/
-})
-mavlink_efi_status_t;
+MAVPACKED(
+typedef struct __mavlink_efi_status_t {
+ float ecu_index; /*<  ECU index*/
+ float rpm; /*<  RPM*/
+ float fuel_consumed; /*< [cm^3] Fuel consumed*/
+ float fuel_flow; /*< [cm^3/min] Fuel flow rate*/
+ float engine_load; /*< [%] Engine load*/
+ float throttle_position; /*< [%] Throttle position*/
+ float spark_dwell_time; /*< [ms] Spark dwell time*/
+ float barometric_pressure; /*< [kPa] Barometric pressure*/
+ float intake_manifold_pressure; /*< [kPa] Intake manifold pressure(*/
+ float intake_manifold_temperature; /*< [degC] Intake manifold temperature*/
+ float cylinder_head_temperature; /*< [degC] Cylinder head temperature*/
+ float ignition_timing; /*< [deg] Ignition timing (Crank angle degrees)*/
+ float injection_time; /*< [ms] Injection time*/
+ float exhaust_gas_temperature; /*< [degC] Exhaust gas temperature*/
+ float throttle_out; /*< [%] Output throttle*/
+ float pt_compensation; /*<  Pressure/temperature compensation*/
+ uint8_t health; /*<  EFI health status*/
+ float ignition_voltage; /*< [V] Supply voltage to EFI sparking system.  Zero in this value means "unknown", so if the supply voltage really is zero volts use 0.0001 instead.*/
+ float fuel_pressure; /*< [kPa] Fuel pressure. Zero in this value means "unknown", so if the fuel pressure really is zero kPa use 0.0001 instead.*/
+}) mavlink_efi_status_t;
 
-enum { MAVLINK_MSG_ID_EFI_STATUS_LEN = 73, MAVLINK_MSG_ID_EFI_STATUS_MIN_LEN = 65, MAVLINK_MSG_ID_225_LEN = 73, MAVLINK_MSG_ID_225_MIN_LEN = 65 };
+#define MAVLINK_MSG_ID_EFI_STATUS_LEN 73
+#define MAVLINK_MSG_ID_EFI_STATUS_MIN_LEN 65
+#define MAVLINK_MSG_ID_225_LEN 73
+#define MAVLINK_MSG_ID_225_MIN_LEN 65
 
-enum { MAVLINK_MSG_ID_EFI_STATUS_CRC = 208, MAVLINK_MSG_ID_225_CRC = 208 };
+#define MAVLINK_MSG_ID_EFI_STATUS_CRC 208
+#define MAVLINK_MSG_ID_225_CRC 208
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_EFI_STATUS { \

@@ -50,9 +50,7 @@ bool parseFrame(const uint8_t* buf, uint16_t len, mavlink_message_t& msg) {
     mavlink_status_t status{};
     for (uint16_t i = 0; i < len; ++i) {
         // 用独立 channel，避免和 ABI 里的 COMM_0 状态串味（本测试里并不启动链路）
-        if (mavlink_parse_char(MAVLINK_COMM_1, buf[i], &msg, &status) != 0u) {
-            return true;
-        }
+        if (mavlink_parse_char(MAVLINK_COMM_1, buf[i], &msg, &status)) return true;
     }
     return false;
 }
@@ -70,11 +68,9 @@ struct WireFields {
 void extractTailFields(const uint8_t* buf, uint16_t len, uint16_t payload_len, WireFields& out) {
     out.payload_len = payload_len;
     // 帧总长 = 帧头 + payload + 2 字节 CRC（未签名）。v1 头 6 字节，v2 头 10 字节。
-    const auto overhead = static_cast<uint16_t>(len - payload_len - 2);
+    const uint16_t overhead = static_cast<uint16_t>(len - payload_len - 2);
     out.payload_off = overhead;
-    if (payload_len < 3 || overhead > len) {
-        return;
-    }
+    if (payload_len < 3 || overhead > len) return;
     out.reset_counter = buf[overhead + payload_len - 3];
     out.estimator_type = buf[overhead + payload_len - 2];
     out.quality = static_cast<int8_t>(buf[overhead + payload_len - 1]);
@@ -87,19 +83,19 @@ void caseNormal() {
     p.timestamp_us = 1787654321ULL;  // 任意飞控 boot us
     p.frame_id = pure_uav::VisionFrame::LOCAL_FRD;
     p.child_frame_id = pure_uav::VisionFrame::BODY_FRD;
-    p.x = 1.25F;
-    p.y = -0.5F;
-    p.z = 2.75F;
-    p.q[0] = 0.9914449F;  // yaw≈15°
-    p.q[1] = 0.0F;
-    p.q[2] = 0.0F;
-    p.q[3] = 0.1305262F;
-    p.vx = 0.3F;
-    p.vy = -0.2F;
-    p.vz = 0.05F;
+    p.x = 1.25f;
+    p.y = -0.5f;
+    p.z = 2.75f;
+    p.q[0] = 0.9914449f;  // yaw≈15°
+    p.q[1] = 0.0f;
+    p.q[2] = 0.0f;
+    p.q[3] = 0.1305262f;
+    p.vx = 0.3f;
+    p.vy = -0.2f;
+    p.vz = 0.05f;
 
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, /*quality=*/90, /*reset_counter=*/3, /*pos_sigma=*/0.15F, /*vel_sigma=*/0.25F,
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, /*quality=*/90, /*reset_counter=*/3, /*pos_sigma=*/0.15f, /*vel_sigma=*/0.25f,
                                                                  /*sysid=*/2, /*compid=*/1, buf, sizeof(buf));
     CHECK(len > 0);
     CHECK(len <= sizeof(buf));
@@ -154,7 +150,7 @@ void caseDegradedKeepsReset() {
     p.timestamp_us = 1787654322ULL;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 50, 3, 0.5F, 0.8F, 2, 1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 50, 3, 0.5f, 0.8f, 2, 1, buf, sizeof(buf));
     CHECK(len > 0);
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
@@ -169,7 +165,7 @@ void caseUnknownCovariance() {
     std::printf("[用例3] 未提供 sigma：协方差应为 NaN(未知)\n");
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 0, 0, 0.0F, 0.0F, 2, 1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 0, 0, 0.0f, 0.0f, 2, 1, buf, sizeof(buf));
     CHECK(len > 0);
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
@@ -190,8 +186,8 @@ void caseIndependentSigma() {
     std::printf("[用例3b] 只给位置 sigma：位置协方差有效、速度协方差 NaN\n");
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.15F,
-                                                           /*vel=*/0.0F, 2, 1, buf, sizeof(buf));
+    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.15f,
+                                                           /*vel=*/0.0f, 2, 1, buf, sizeof(buf));
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
     mavlink_odometry_t odo{};
@@ -203,7 +199,7 @@ void caseIndependentSigma() {
     CHECK(std::isnan(odo.velocity_covariance[6]));
 
     std::printf("[用例3c] 只给速度 sigma：速度协方差有效、位置协方差 NaN\n");
-    len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.0F, /*vel=*/0.25F, 2, 1, buf, sizeof(buf));
+    len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.0f, /*vel=*/0.25f, 2, 1, buf, sizeof(buf));
     CHECK(parseFrame(buf, len, msg));
     mavlink_msg_odometry_decode(&msg, &odo);
     CHECK(std::isnan(odo.pose_covariance[0]));  // 位置未知
@@ -217,14 +213,14 @@ void caseQualityClamp() {
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
-    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 150, 0, 0.1F, 0.1F, 2, 1, buf, sizeof(buf));
+    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 150, 0, 0.1f, 0.1f, 2, 1, buf, sizeof(buf));
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
     mavlink_odometry_t odo{};
     mavlink_msg_odometry_decode(&msg, &odo);
     CHECK(odo.quality == 100);
 
-    len = pure_uav::MavlinkLink::encodeVisionPose(p, -20, 0, 0.1F, 0.1F, 2, 1, buf, sizeof(buf));
+    len = pure_uav::MavlinkLink::encodeVisionPose(p, -20, 0, 0.1f, 0.1f, 2, 1, buf, sizeof(buf));
     CHECK(parseFrame(buf, len, msg));
     mavlink_msg_odometry_decode(&msg, &odo);
     CHECK(odo.quality == 0);
@@ -235,7 +231,7 @@ void caseSmallBuffer() {
     std::printf("[用例5] 缓冲区不足：返回 0\n");
     pure_uav::VisionPose p;
     uint8_t tiny[8];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, 0.1F, 0.1F, 2, 1, tiny, sizeof(tiny));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, 0.1f, 0.1f, 2, 1, tiny, sizeof(tiny));
     CHECK(len == 0);
 }
 
@@ -244,7 +240,7 @@ void caseResetWrapBoundary() {
     std::printf("[用例6] reset=255 边界\n");
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 255, 0.1F, 0.1F, 2, 1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 255, 0.1f, 0.1f, 2, 1, buf, sizeof(buf));
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
     mavlink_odometry_t odo{};

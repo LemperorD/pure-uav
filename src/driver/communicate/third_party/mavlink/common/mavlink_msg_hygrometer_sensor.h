@@ -3,17 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HYGROMETER_SENSOR = 12920 };
+#define MAVLINK_MSG_ID_HYGROMETER_SENSOR 12920
 
-using mavlink_hygrometer_sensor_t = struct __mavlink_hygrometer_sensor_t {
-    int16_t temperature; /*< [cdegC] Temperature*/
-    uint16_t humidity;   /*< [c%] Humidity*/
-    uint8_t id;          /*<  Hygrometer ID*/
-};
 
-enum { MAVLINK_MSG_ID_HYGROMETER_SENSOR_LEN = 5, MAVLINK_MSG_ID_HYGROMETER_SENSOR_MIN_LEN = 5, MAVLINK_MSG_ID_12920_LEN = 5, MAVLINK_MSG_ID_12920_MIN_LEN = 5 };
+typedef struct __mavlink_hygrometer_sensor_t {
+ int16_t temperature; /*< [cdegC] Temperature*/
+ uint16_t humidity; /*< [c%] Humidity*/
+ uint8_t id; /*<  Hygrometer ID*/
+} mavlink_hygrometer_sensor_t;
 
-enum { MAVLINK_MSG_ID_HYGROMETER_SENSOR_CRC = 20, MAVLINK_MSG_ID_12920_CRC = 20 };
+#define MAVLINK_MSG_ID_HYGROMETER_SENSOR_LEN 5
+#define MAVLINK_MSG_ID_HYGROMETER_SENSOR_MIN_LEN 5
+#define MAVLINK_MSG_ID_12920_LEN 5
+#define MAVLINK_MSG_ID_12920_MIN_LEN 5
+
+#define MAVLINK_MSG_ID_HYGROMETER_SENSOR_CRC 20
+#define MAVLINK_MSG_ID_12920_CRC 20
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HYGROMETER_SENSOR { \

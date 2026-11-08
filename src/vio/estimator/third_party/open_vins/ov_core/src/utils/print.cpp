@@ -34,23 +34,23 @@ using namespace ov_core;
 Printer::PrintLevel Printer::current_print_level = PrintLevel::INFO;
 
 void Printer::setPrintLevel(const std::string &level) {
-    if (level == "ALL") {
-        setPrintLevel(PrintLevel::ALL);
-    } else if (level == "DEBUG") {
-        setPrintLevel(PrintLevel::DEBUG);
-    } else if (level == "INFO") {
-        setPrintLevel(PrintLevel::INFO);
-    } else if (level == "WARNING") {
-        setPrintLevel(PrintLevel::WARNING);
-    } else if (level == "ERROR") {
-        setPrintLevel(PrintLevel::ERROR);
-    } else if (level == "SILENT") {
-        setPrintLevel(PrintLevel::SILENT);
-    } else {
-        std::cout << "Invalid print level requested: " << level << std::endl;
-        std::cout << "Valid levels are: ALL, DEBUG, INFO, WARNING, ERROR, SILENT" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+  if (level == "ALL")
+    setPrintLevel(PrintLevel::ALL);
+  else if (level == "DEBUG")
+    setPrintLevel(PrintLevel::DEBUG);
+  else if (level == "INFO")
+    setPrintLevel(PrintLevel::INFO);
+  else if (level == "WARNING")
+    setPrintLevel(PrintLevel::WARNING);
+  else if (level == "ERROR")
+    setPrintLevel(PrintLevel::ERROR);
+  else if (level == "SILENT")
+    setPrintLevel(PrintLevel::SILENT);
+  else {
+    std::cout << "Invalid print level requested: " << level << std::endl;
+    std::cout << "Valid levels are: ALL, DEBUG, INFO, WARNING, ERROR, SILENT" << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 void Printer::setPrintLevel(PrintLevel level) {

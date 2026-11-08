@@ -3,29 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER = 333 };
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER 333
 
-using mavlink_trajectory_representation_bezier_t = struct __mavlink_trajectory_representation_bezier_t {
-    uint64_t time_usec;   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float pos_x[5];       /*< [m] X-coordinate of bezier control points. Set to NaN if not being used*/
-    float pos_y[5];       /*< [m] Y-coordinate of bezier control points. Set to NaN if not being used*/
-    float pos_z[5];       /*< [m] Z-coordinate of bezier control points. Set to NaN if not being used*/
-    float delta[5];       /*< [s] Bezier time horizon. Set to NaN if velocity/acceleration should not be incorporated*/
-    float pos_yaw[5];     /*< [rad] Yaw. Set to NaN for unchanged*/
-    uint8_t valid_points; /*<  Number of valid control points (up-to 5 points are possible)*/
-};
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_LEN = 109, MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_MIN_LEN = 109, MAVLINK_MSG_ID_333_LEN = 109, MAVLINK_MSG_ID_333_MIN_LEN = 109 };
+typedef struct __mavlink_trajectory_representation_bezier_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float pos_x[5]; /*< [m] X-coordinate of bezier control points. Set to NaN if not being used*/
+ float pos_y[5]; /*< [m] Y-coordinate of bezier control points. Set to NaN if not being used*/
+ float pos_z[5]; /*< [m] Z-coordinate of bezier control points. Set to NaN if not being used*/
+ float delta[5]; /*< [s] Bezier time horizon. Set to NaN if velocity/acceleration should not be incorporated*/
+ float pos_yaw[5]; /*< [rad] Yaw. Set to NaN for unchanged*/
+ uint8_t valid_points; /*<  Number of valid control points (up-to 5 points are possible)*/
+} mavlink_trajectory_representation_bezier_t;
 
-enum { MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_CRC = 231, MAVLINK_MSG_ID_333_CRC = 231 };
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_LEN 109
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_MIN_LEN 109
+#define MAVLINK_MSG_ID_333_LEN 109
+#define MAVLINK_MSG_ID_333_MIN_LEN 109
 
-enum {
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_X_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_Y_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_Z_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_DELTA_LEN = 5,
-    MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_YAW_LEN = 5
-};
+#define MAVLINK_MSG_ID_TRAJECTORY_REPRESENTATION_BEZIER_CRC 231
+#define MAVLINK_MSG_ID_333_CRC 231
+
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_X_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_Y_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_Z_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_DELTA_LEN 5
+#define MAVLINK_MSG_TRAJECTORY_REPRESENTATION_BEZIER_FIELD_POS_YAW_LEN 5
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TRAJECTORY_REPRESENTATION_BEZIER { \

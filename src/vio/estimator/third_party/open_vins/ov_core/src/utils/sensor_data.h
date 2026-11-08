@@ -72,8 +72,9 @@ struct CameraData {
       int id = *std::min_element(sensor_ids.begin(), sensor_ids.end());
       int id_other = *std::min_element(other.sensor_ids.begin(), other.sensor_ids.end());
       return id < id_other;
+    } else {
+      return timestamp < other.timestamp;
     }
-    return timestamp < other.timestamp;
   }
 };
 

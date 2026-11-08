@@ -56,13 +56,13 @@ class LiveView {
         double imu_hz = 0.0;
         // 【2026-10-21】运动有效性：||a||-g 的窗口中位，和 MSCKF 三角化成功率。
         // 单目 VIO 靠平移拿视差；原地转时 lin 只有 0.015~0.07、tri 恒为 0。
-        float lin_acc = -1.F;
-        float tri_rate = -1.F;
+        float lin_acc = -1.f;
+        float tri_rate = -1.f;
 
         bool has_pose = false;
-        float x = 0.F, y = 0.F, z = 0.F;
-        float vx = 0.F, vy = 0.F, vz = 0.F;
-        float qw = 1.F, qx = 0.F, qy = 0.F, qz = 0.F;
+        float x = 0.f, y = 0.f, z = 0.f;
+        float vx = 0.f, vy = 0.f, vz = 0.f;
+        float qw = 1.f, qx = 0.f, qy = 0.f, qz = 0.f;
 
         bool has_raw = false;
         Eigen::Vector3d bias_a = Eigen::Vector3d::Zero();
@@ -108,19 +108,15 @@ class LiveView {
     }
 
     // 处理窗口事件。返回 true 表示操作者要求退出（按了 q / Esc，或关掉了窗口）。
-    bool poll() const {
-        if (!opened_) {
-            return false;
-        }
+    bool poll() {
+        if (!opened_) return false;
         int key = -1;
         try {
             key = cv::waitKey(1) & 0xFF;
         } catch (const cv::Exception&) {
             return false;
         }
-        if (key == 'q' || key == 27) {
-            return true;
-        }
+        if (key == 'q' || key == 27) return true;
         // 不查 WND_PROP_VISIBLE：实测这个 OpenCV 构建里窗口已显示时它也返回 <0，
         // 会把"窗口正常"误判成"被关闭"。退出统一用 q / Esc（或 Ctrl-C）。
         return false;
@@ -132,9 +128,7 @@ class LiveView {
 
     // 每帧画一次。gray 可以是 1920x1080，也可以任意尺寸（会自动缩放到 960x540）。
     void render(const cv::Mat& gray, const std::vector<VioEstimator::TrackedPoint>& tracks, const Status& st) {
-        if (!opened_) {
-            return;
-        }
+        if (!opened_) return;
         canvas_.create(kH, kW, CV_8UC3);
         canvas_.setTo(cv::Scalar(28, 28, 30));
 
@@ -163,7 +157,7 @@ class LiveView {
         }
     }
 
-    [[nodiscard]] size_t trajectorySize() const {
+    size_t trajectorySize() const {
         return traj_.size();
     }
 
@@ -171,13 +165,13 @@ class LiveView {
     static cv::Scalar healthColor(VioHealthState s) {
         switch (s) {
             case VioHealthState::OK:
-                return {90, 220, 90};
+                return cv::Scalar(90, 220, 90);
             case VioHealthState::DEGRADED:
-                return {60, 200, 240};
+                return cv::Scalar(60, 200, 240);
             case VioHealthState::LOST:
-                return {70, 70, 255};
+                return cv::Scalar(70, 70, 255);
             default:
-                return {170, 170, 170};
+                return cv::Scalar(170, 170, 170);
         }
     }
 
@@ -197,15 +191,12 @@ class LiveView {
             for (const auto& t : tracks) {
                 const int u = static_cast<int>(t.u * sx);
                 const int v = static_cast<int>(t.v * sy);
-                if (u < 0 || v < 0 || u >= kImgW || v >= kImgH) {
-                    continue;
-                }
+                if (u < 0 || v < 0 || u >= kImgW || v >= kImgH) continue;
                 cv::Scalar c(90, 235, 90);  // 新点：绿
-                if (t.length >= 10) {
+                if (t.length >= 10)
                     c = cv::Scalar(60, 150, 255);  // 老点：橙红
-                } else if (t.length >= 3) {
+                else if (t.length >= 3)
                     c = cv::Scalar(60, 230, 245);  // 中点：黄
-                }
                 cv::circle(roi, cv::Point(u, v), 2, c, -1, cv::LINE_AA);
             }
         } else {
@@ -217,7 +208,7 @@ class LiveView {
         const cv::Scalar hc = healthColor(st.health);
         cv::rectangle(roi, cv::Point(0, 0), cv::Point(kImgW, 34), cv::Scalar(0, 0, 0), -1);
         char line[256];
-        std::snprintf(line, sizeof(line), "%s   feat=%d   vel=%.2f m/s", st.initialized ? toString(st.health) : "NOT INITIALIZED", st.features, std::sqrt((st.vx * st.vx) + (st.vy * st.vy) + (st.vz * st.vz)));
+        std::snprintf(line, sizeof(line), "%s   feat=%d   vel=%.2f m/s", st.initialized ? toString(st.health) : "NOT INITIALIZED", st.features, std::sqrt(st.vx * st.vx + st.vy * st.vy + st.vz * st.vz));
         putText(roi, line, cv::Point(10, 24), 0.62, hc);
         if (!st.publishable) {
             putText(roi, "NOT PUBLISHING", cv::Point(10, 70), 0.75, cv::Scalar(70, 70, 255));
@@ -270,29 +261,24 @@ class LiveView {
         section("camera / imu");
         line(dim, "cam %.1f fps", st.fps);
         line(dim, "imu %.0f Hz", st.imu_hz);
-        if (st.lin_acc >= 0.F) {
+        if (st.lin_acc >= 0.f) {
             // 判据（实测）：lin<0.10 基本原地转 -> tri 必为 0；lin>0.12 且 tri>0.03 才算有效测试
             cv::Scalar mc(70, 70, 255);
-            if (st.lin_acc > 0.12F && st.tri_rate > 0.03F) {
+            if (st.lin_acc > 0.12f && st.tri_rate > 0.03f)
                 mc = cv::Scalar(90, 220, 90);
-            } else if (st.lin_acc > 0.12F) {
+            else if (st.lin_acc > 0.12f)
                 mc = cv::Scalar(60, 200, 240);
-            }
             line(mc, "motion %.2f  tri %.3f", st.lin_acc, st.tri_rate);
-            if (st.tri_rate <= 0.0005F) {
-                line(cv::Scalar(70, 70, 255), "  (no depth: pure rotation)");
-            }
+            if (st.tri_rate <= 0.0005f) line(cv::Scalar(70, 70, 255), "  (no depth: pure rotation)");
         }
-        if (!st.note.empty()) {
-            line(dim, "%s", st.note.c_str());
-        }
+        if (!st.note.empty()) line(dim, "%s", st.note.c_str());
 
         section("state (LOCAL_FRD)");
         if (st.has_pose) {
             line(white, "pos  %7.2f %7.2f %7.2f", st.x, st.y, st.z);
             line(white, "vel  %7.2f %7.2f %7.2f", st.vx, st.vy, st.vz);
-            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - (2.0 * (st.qy * st.qy + st.qz * st.qz)));
-            line(white, "yaw  %7.1f deg   |p|=%.2f m", yaw * 180.0 / M_PI, std::sqrt((static_cast<double>(st.x) * st.x) + (static_cast<double>(st.y) * st.y) + (static_cast<double>(st.z) * st.z)));
+            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
+            line(white, "yaw  %7.1f deg   |p|=%.2f m", yaw * 180.0 / M_PI, std::sqrt(static_cast<double>(st.x) * st.x + static_cast<double>(st.y) * st.y + static_cast<double>(st.z) * st.z));
         } else {
             line(dim, "(not initialized)");
         }
@@ -301,11 +287,10 @@ class LiveView {
         if (st.tilt_valid) {
             // 1° 已经是危险信号：g·sin(1°)=0.17 m/s²，和走路时的平均加速度同量级
             cv::Scalar tc(90, 220, 90);
-            if (st.tilt_deg > 3.0) {
+            if (st.tilt_deg > 3.0)
                 tc = cv::Scalar(70, 70, 255);
-            } else if (st.tilt_deg > 1.0) {
+            else if (st.tilt_deg > 1.0)
                 tc = cv::Scalar(60, 200, 240);
-            }
             line(tc, "err  %5.2f deg", st.tilt_deg);
             char leak[96];
             std::snprintf(leak, sizeof(leak), "leak %.2f m/s2 (g*sin)", 9.81 * std::sin(st.tilt_deg * M_PI / 180.0));
@@ -338,32 +323,29 @@ class LiveView {
 
         if (st.has_pose) {
             const cv::Point2f p(st.x, st.y);
-            if (traj_.empty() || std::hypot(traj_.back().x - p.x, traj_.back().y - p.y) > 0.005F) {
+            if (traj_.empty() || std::hypot(traj_.back().x - p.x, traj_.back().y - p.y) > 0.005f) {
                 traj_.push_back(p);
-                if (traj_.size() > 20000) {
-                    traj_.pop_front();
-                }
+                if (traj_.size() > 20000) traj_.pop_front();
             }
         }
 
-        float mx = 1.5f;
-        float my = 1.5f;
+        float mx = 1.5f, my = 1.5f;
         for (const auto& p : traj_) {
             mx = std::max(mx, std::abs(p.x));
             my = std::max(my, std::abs(p.y));
         }
-        const float span_m = std::max(mx, my) * 1.15F;
+        const float span_m = std::max(mx, my) * 1.15f;
         // 【2026-10-23 修 BUG】以前这里用的是**画布绝对坐标**（y 中心 = kImgH + kTrajH/2），
         // 但所有绘制都发生在这个 ROI（局部原点在 (0, kImgH)），于是网格和轨迹全被画到
         // ROI 之外 → 底部轨迹带永远是空的（只显示标题文字）。改成 ROI 局部坐标。
-        const cv::Point2f c(kW * 0.5F, kTrajH * 0.5F);
-        const float scale = std::min((kW * 0.5F - 30.F) / span_m, (kTrajH * 0.5F - 14.F) / span_m);
-        auto toPx = [&](float x, float y) { return cv::Point(static_cast<int>(c.x + (x * scale)), static_cast<int>(c.y - (y * scale))); };
+        const cv::Point2f c(kW * 0.5f, kTrajH * 0.5f);
+        const float scale = std::min((kW * 0.5f - 30.f) / span_m, (kTrajH * 0.5f - 14.f) / span_m);
+        auto toPx = [&](float x, float y) { return cv::Point(static_cast<int>(c.x + x * scale), static_cast<int>(c.y - y * scale)); };
 
         // 1 m 网格
         const cv::Scalar grid(52, 52, 56);
-        for (int g = 1; g * 1.0F <= span_m; ++g) {
-            const auto gm = static_cast<float>(g);
+        for (int g = 1; g * 1.0f <= span_m; ++g) {
+            const float gm = static_cast<float>(g);
             cv::line(roi, toPx(-span_m, gm), toPx(span_m, gm), grid, 1);
             cv::line(roi, toPx(-span_m, -gm), toPx(span_m, -gm), grid, 1);
             cv::line(roi, toPx(gm, -span_m), toPx(gm, span_m), grid, 1);
@@ -379,7 +361,7 @@ class LiveView {
         if (!traj_.empty()) {
             const auto& last = traj_.back();
             // 朝向箭头
-            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - (2.0 * (st.qy * st.qy + st.qz * st.qz)));
+            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
             const cv::Point tip = toPx(last.x + static_cast<float>(0.35 * std::cos(yaw)), last.y + static_cast<float>(0.35 * std::sin(yaw)));
             cv::arrowedLine(roi, toPx(last.x, last.y), tip, cv::Scalar(60, 80, 255), 2, cv::LINE_AA, 0, 0.35);
             cv::circle(roi, toPx(last.x, last.y), 3, cv::Scalar(60, 80, 255), -1, cv::LINE_AA);
@@ -390,19 +372,19 @@ class LiveView {
         putText(roi, buf, cv::Point(12, 20), 0.48, cv::Scalar(160, 160, 165));
     }
 
-    static void putText(const cv::Mat& img, const std::string& text, const cv::Point& org, double scale, const cv::Scalar& color) {
+    void putText(const cv::Mat& img, const std::string& text, const cv::Point& org, double scale, const cv::Scalar& color) {
         cv::putText(img, text, org, cv::FONT_HERSHEY_SIMPLEX, scale, color, 1, cv::LINE_AA);
     }
 
     std::string title_ = "VIO real-time";
     bool opened_ = false;
     bool shown_ = false;
-    std::chrono::steady_clock::time_point first_show_;
+    std::chrono::steady_clock::time_point first_show_{};
     cv::Mat canvas_;
     std::deque<cv::Point2f> traj_;
     std::string shot_prefix_;
     int shot_idx_ = 0;
-    std::chrono::steady_clock::time_point last_shot_;
+    std::chrono::steady_clock::time_point last_shot_{};
 };
 
 }  // namespace pure_uav

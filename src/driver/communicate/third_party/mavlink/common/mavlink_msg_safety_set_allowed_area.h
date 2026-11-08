@@ -3,23 +3,30 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA = 54 };
+#define MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA 54
 
-using mavlink_safety_set_allowed_area_t = struct __mavlink_safety_set_allowed_area_t {
-    float p1x;                /*< [m] x position 1 / Latitude 1*/
-    float p1y;                /*< [m] y position 1 / Longitude 1*/
-    float p1z;                /*< [m] z position 1 / Altitude 1*/
-    float p2x;                /*< [m] x position 2 / Latitude 2*/
-    float p2y;                /*< [m] y position 2 / Longitude 2*/
-    float p2z;                /*< [m] z position 2 / Altitude 2*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t frame;            /*<  Coordinate frame. Can be either global, GPS, right-handed with Z axis up or local, right handed, Z axis down.*/
-};
 
-enum { MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_LEN = 27, MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_MIN_LEN = 27, MAVLINK_MSG_ID_54_LEN = 27, MAVLINK_MSG_ID_54_MIN_LEN = 27 };
+typedef struct __mavlink_safety_set_allowed_area_t {
+ float p1x; /*< [m] x position 1 / Latitude 1*/
+ float p1y; /*< [m] y position 1 / Longitude 1*/
+ float p1z; /*< [m] z position 1 / Altitude 1*/
+ float p2x; /*< [m] x position 2 / Latitude 2*/
+ float p2y; /*< [m] y position 2 / Longitude 2*/
+ float p2z; /*< [m] z position 2 / Altitude 2*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t frame; /*<  Coordinate frame. Can be either global, GPS, right-handed with Z axis up or local, right handed, Z axis down.*/
+} mavlink_safety_set_allowed_area_t;
 
-enum { MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_CRC = 15, MAVLINK_MSG_ID_54_CRC = 15 };
+#define MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_LEN 27
+#define MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_MIN_LEN 27
+#define MAVLINK_MSG_ID_54_LEN 27
+#define MAVLINK_MSG_ID_54_MIN_LEN 27
+
+#define MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_CRC 15
+#define MAVLINK_MSG_ID_54_CRC 15
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SAFETY_SET_ALLOWED_AREA { \
@@ -466,10 +473,11 @@ static inline void mavlink_msg_safety_set_allowed_area_decode(const mavlink_mess
         memset(safety_set_allowed_area, 0, MAVLINK_MSG_ID_SAFETY_SET_ALLOWED_AREA_LEN);
     memcpy(safety_set_allowed_area, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         safety_set_allowed_area->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

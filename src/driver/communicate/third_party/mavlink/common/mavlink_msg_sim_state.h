@@ -3,37 +3,44 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SIM_STATE = 108 };
+#define MAVLINK_MSG_ID_SIM_STATE 108
 
-using mavlink_sim_state_t = struct __mavlink_sim_state_t {
-    float q1;           /*<  True attitude quaternion component 1, w (1 in null-rotation)*/
-    float q2;           /*<  True attitude quaternion component 2, x (0 in null-rotation)*/
-    float q3;           /*<  True attitude quaternion component 3, y (0 in null-rotation)*/
-    float q4;           /*<  True attitude quaternion component 4, z (0 in null-rotation)*/
-    float roll;         /*< [rad] Attitude roll expressed as Euler angles, not recommended except for human-readable outputs*/
-    float pitch;        /*< [rad] Attitude pitch expressed as Euler angles, not recommended except for human-readable outputs*/
-    float yaw;          /*< [rad] Attitude yaw expressed as Euler angles, not recommended except for human-readable outputs*/
-    float xacc;         /*< [m/s/s] X acceleration*/
-    float yacc;         /*< [m/s/s] Y acceleration*/
-    float zacc;         /*< [m/s/s] Z acceleration*/
-    float xgyro;        /*< [rad/s] Angular speed around X axis*/
-    float ygyro;        /*< [rad/s] Angular speed around Y axis*/
-    float zgyro;        /*< [rad/s] Angular speed around Z axis*/
-    float lat;          /*< [deg] Latitude (lower precision). Both this and the lat_int field should be set.*/
-    float lon;          /*< [deg] Longitude (lower precision). Both this and the lon_int field should be set.*/
-    float alt;          /*< [m] Altitude*/
-    float std_dev_horz; /*<  Horizontal position standard deviation*/
-    float std_dev_vert; /*<  Vertical position standard deviation*/
-    float vn;           /*< [m/s] True velocity in north direction in earth-fixed NED frame*/
-    float ve;           /*< [m/s] True velocity in east direction in earth-fixed NED frame*/
-    float vd;           /*< [m/s] True velocity in down direction in earth-fixed NED frame*/
-    int32_t lat_int;    /*< [degE7] Latitude (higher precision). If 0, recipients should use the lat field value (otherwise this field is preferred).*/
-    int32_t lon_int;    /*< [degE7] Longitude (higher precision). If 0, recipients should use the lon field value (otherwise this field is preferred).*/
-};
 
-enum { MAVLINK_MSG_ID_SIM_STATE_LEN = 92, MAVLINK_MSG_ID_SIM_STATE_MIN_LEN = 84, MAVLINK_MSG_ID_108_LEN = 92, MAVLINK_MSG_ID_108_MIN_LEN = 84 };
+typedef struct __mavlink_sim_state_t {
+ float q1; /*<  True attitude quaternion component 1, w (1 in null-rotation)*/
+ float q2; /*<  True attitude quaternion component 2, x (0 in null-rotation)*/
+ float q3; /*<  True attitude quaternion component 3, y (0 in null-rotation)*/
+ float q4; /*<  True attitude quaternion component 4, z (0 in null-rotation)*/
+ float roll; /*< [rad] Attitude roll expressed as Euler angles, not recommended except for human-readable outputs*/
+ float pitch; /*< [rad] Attitude pitch expressed as Euler angles, not recommended except for human-readable outputs*/
+ float yaw; /*< [rad] Attitude yaw expressed as Euler angles, not recommended except for human-readable outputs*/
+ float xacc; /*< [m/s/s] X acceleration*/
+ float yacc; /*< [m/s/s] Y acceleration*/
+ float zacc; /*< [m/s/s] Z acceleration*/
+ float xgyro; /*< [rad/s] Angular speed around X axis*/
+ float ygyro; /*< [rad/s] Angular speed around Y axis*/
+ float zgyro; /*< [rad/s] Angular speed around Z axis*/
+ float lat; /*< [deg] Latitude (lower precision). Both this and the lat_int field should be set.*/
+ float lon; /*< [deg] Longitude (lower precision). Both this and the lon_int field should be set.*/
+ float alt; /*< [m] Altitude*/
+ float std_dev_horz; /*<  Horizontal position standard deviation*/
+ float std_dev_vert; /*<  Vertical position standard deviation*/
+ float vn; /*< [m/s] True velocity in north direction in earth-fixed NED frame*/
+ float ve; /*< [m/s] True velocity in east direction in earth-fixed NED frame*/
+ float vd; /*< [m/s] True velocity in down direction in earth-fixed NED frame*/
+ int32_t lat_int; /*< [degE7] Latitude (higher precision). If 0, recipients should use the lat field value (otherwise this field is preferred).*/
+ int32_t lon_int; /*< [degE7] Longitude (higher precision). If 0, recipients should use the lon field value (otherwise this field is preferred).*/
+} mavlink_sim_state_t;
 
-enum { MAVLINK_MSG_ID_SIM_STATE_CRC = 32, MAVLINK_MSG_ID_108_CRC = 32 };
+#define MAVLINK_MSG_ID_SIM_STATE_LEN 92
+#define MAVLINK_MSG_ID_SIM_STATE_MIN_LEN 84
+#define MAVLINK_MSG_ID_108_LEN 92
+#define MAVLINK_MSG_ID_108_MIN_LEN 84
+
+#define MAVLINK_MSG_ID_SIM_STATE_CRC 32
+#define MAVLINK_MSG_ID_108_CRC 32
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SIM_STATE { \

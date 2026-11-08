@@ -3,25 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_SCALED = 34 };
+#define MAVLINK_MSG_ID_RC_CHANNELS_SCALED 34
 
-using mavlink_rc_channels_scaled_t = struct __mavlink_rc_channels_scaled_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    int16_t chan1_scaled;  /*<  RC channel 1 value scaled.*/
-    int16_t chan2_scaled;  /*<  RC channel 2 value scaled.*/
-    int16_t chan3_scaled;  /*<  RC channel 3 value scaled.*/
-    int16_t chan4_scaled;  /*<  RC channel 4 value scaled.*/
-    int16_t chan5_scaled;  /*<  RC channel 5 value scaled.*/
-    int16_t chan6_scaled;  /*<  RC channel 6 value scaled.*/
-    int16_t chan7_scaled;  /*<  RC channel 7 value scaled.*/
-    int16_t chan8_scaled;  /*<  RC channel 8 value scaled.*/
-    uint8_t port;          /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
-    uint8_t rssi;          /*<  Receive signal strength indicator in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
-};
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_SCALED_LEN = 22, MAVLINK_MSG_ID_RC_CHANNELS_SCALED_MIN_LEN = 22, MAVLINK_MSG_ID_34_LEN = 22, MAVLINK_MSG_ID_34_MIN_LEN = 22 };
+typedef struct __mavlink_rc_channels_scaled_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ int16_t chan1_scaled; /*<  RC channel 1 value scaled.*/
+ int16_t chan2_scaled; /*<  RC channel 2 value scaled.*/
+ int16_t chan3_scaled; /*<  RC channel 3 value scaled.*/
+ int16_t chan4_scaled; /*<  RC channel 4 value scaled.*/
+ int16_t chan5_scaled; /*<  RC channel 5 value scaled.*/
+ int16_t chan6_scaled; /*<  RC channel 6 value scaled.*/
+ int16_t chan7_scaled; /*<  RC channel 7 value scaled.*/
+ int16_t chan8_scaled; /*<  RC channel 8 value scaled.*/
+ uint8_t port; /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
+ uint8_t rssi; /*<  Receive signal strength indicator in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
+} mavlink_rc_channels_scaled_t;
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_SCALED_CRC = 237, MAVLINK_MSG_ID_34_CRC = 237 };
+#define MAVLINK_MSG_ID_RC_CHANNELS_SCALED_LEN 22
+#define MAVLINK_MSG_ID_RC_CHANNELS_SCALED_MIN_LEN 22
+#define MAVLINK_MSG_ID_34_LEN 22
+#define MAVLINK_MSG_ID_34_MIN_LEN 22
+
+#define MAVLINK_MSG_ID_RC_CHANNELS_SCALED_CRC 237
+#define MAVLINK_MSG_ID_34_CRC 237
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RC_CHANNELS_SCALED { \

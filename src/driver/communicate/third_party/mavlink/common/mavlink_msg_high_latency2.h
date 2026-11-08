@@ -3,41 +3,48 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIGH_LATENCY2 = 235 };
+#define MAVLINK_MSG_ID_HIGH_LATENCY2 235
 
-using mavlink_high_latency2_t = struct __mavlink_high_latency2_t {
-    uint32_t timestamp;       /*< [ms] Timestamp (milliseconds since boot or Unix epoch)*/
-    int32_t latitude;         /*< [degE7] Latitude*/
-    int32_t longitude;        /*< [degE7] Longitude*/
-    uint16_t custom_mode;     /*<  A bitfield for use for autopilot-specific flags (2 byte version).*/
-    int16_t altitude;         /*< [m] Altitude above mean sea level*/
-    int16_t target_altitude;  /*< [m] Altitude setpoint*/
-    uint16_t target_distance; /*< [dam] Distance to target waypoint or position*/
-    uint16_t wp_num;          /*<  Current waypoint number*/
-    uint16_t failure_flags;   /*<  Bitmap of failure flags.*/
-    uint8_t type;             /*<  Type of the MAV (quadrotor, helicopter, etc.)*/
-    uint8_t autopilot;        /*<  Autopilot type / class. Use MAV_AUTOPILOT_INVALID for components that are not flight controllers.*/
-    uint8_t heading;          /*< [deg/2] Heading*/
-    uint8_t target_heading;   /*< [deg/2] Heading setpoint*/
-    uint8_t throttle;         /*< [%] Throttle*/
-    uint8_t airspeed;         /*< [m/s*5] Airspeed*/
-    uint8_t airspeed_sp;      /*< [m/s*5] Airspeed setpoint*/
-    uint8_t groundspeed;      /*< [m/s*5] Groundspeed*/
-    uint8_t windspeed;        /*< [m/s*5] Windspeed*/
-    uint8_t wind_heading;     /*< [deg/2] Wind heading*/
-    uint8_t eph;              /*< [dm] Maximum error horizontal position since last message*/
-    uint8_t epv;              /*< [dm] Maximum error vertical position since last message*/
-    int8_t temperature_air;   /*< [degC] Air temperature*/
-    int8_t climb_rate;        /*< [dm/s] Maximum climb rate magnitude since last message*/
-    int8_t battery;           /*< [%] Battery level (-1 if field not provided).*/
-    int8_t custom0;           /*<  Field for custom payload.*/
-    int8_t custom1;           /*<  Field for custom payload.*/
-    int8_t custom2;           /*<  Field for custom payload.*/
-};
 
-enum { MAVLINK_MSG_ID_HIGH_LATENCY2_LEN = 42, MAVLINK_MSG_ID_HIGH_LATENCY2_MIN_LEN = 42, MAVLINK_MSG_ID_235_LEN = 42, MAVLINK_MSG_ID_235_MIN_LEN = 42 };
+typedef struct __mavlink_high_latency2_t {
+ uint32_t timestamp; /*< [ms] Timestamp (milliseconds since boot or Unix epoch)*/
+ int32_t latitude; /*< [degE7] Latitude*/
+ int32_t longitude; /*< [degE7] Longitude*/
+ uint16_t custom_mode; /*<  A bitfield for use for autopilot-specific flags (2 byte version).*/
+ int16_t altitude; /*< [m] Altitude above mean sea level*/
+ int16_t target_altitude; /*< [m] Altitude setpoint*/
+ uint16_t target_distance; /*< [dam] Distance to target waypoint or position*/
+ uint16_t wp_num; /*<  Current waypoint number*/
+ uint16_t failure_flags; /*<  Bitmap of failure flags.*/
+ uint8_t type; /*<  Type of the MAV (quadrotor, helicopter, etc.)*/
+ uint8_t autopilot; /*<  Autopilot type / class. Use MAV_AUTOPILOT_INVALID for components that are not flight controllers.*/
+ uint8_t heading; /*< [deg/2] Heading*/
+ uint8_t target_heading; /*< [deg/2] Heading setpoint*/
+ uint8_t throttle; /*< [%] Throttle*/
+ uint8_t airspeed; /*< [m/s*5] Airspeed*/
+ uint8_t airspeed_sp; /*< [m/s*5] Airspeed setpoint*/
+ uint8_t groundspeed; /*< [m/s*5] Groundspeed*/
+ uint8_t windspeed; /*< [m/s*5] Windspeed*/
+ uint8_t wind_heading; /*< [deg/2] Wind heading*/
+ uint8_t eph; /*< [dm] Maximum error horizontal position since last message*/
+ uint8_t epv; /*< [dm] Maximum error vertical position since last message*/
+ int8_t temperature_air; /*< [degC] Air temperature*/
+ int8_t climb_rate; /*< [dm/s] Maximum climb rate magnitude since last message*/
+ int8_t battery; /*< [%] Battery level (-1 if field not provided).*/
+ int8_t custom0; /*<  Field for custom payload.*/
+ int8_t custom1; /*<  Field for custom payload.*/
+ int8_t custom2; /*<  Field for custom payload.*/
+} mavlink_high_latency2_t;
 
-enum { MAVLINK_MSG_ID_HIGH_LATENCY2_CRC = 179, MAVLINK_MSG_ID_235_CRC = 179 };
+#define MAVLINK_MSG_ID_HIGH_LATENCY2_LEN 42
+#define MAVLINK_MSG_ID_HIGH_LATENCY2_MIN_LEN 42
+#define MAVLINK_MSG_ID_235_LEN 42
+#define MAVLINK_MSG_ID_235_MIN_LEN 42
+
+#define MAVLINK_MSG_ID_HIGH_LATENCY2_CRC 179
+#define MAVLINK_MSG_ID_235_CRC 179
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIGH_LATENCY2 { \

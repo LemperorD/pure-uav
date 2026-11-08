@@ -21,11 +21,8 @@
 
 #include "UpdaterSLAM.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/math/distributions/chi_squared.hpp>
-#include <memory>
-
 #include "UpdaterHelper.h"
+
 #include "feat/Feature.h"
 #include "feat/FeatureInitializer.h"
 #include "state/State.h"
@@ -35,6 +32,9 @@
 #include "utils/colors.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
+
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/math/distributions/chi_squared.hpp>
 
 using namespace ov_core;
 using namespace ov_type;
@@ -48,7 +48,7 @@ UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_a
   _options_aruco.sigma_pix_sq = std::pow(_options_aruco.sigma_pix, 2);
 
   // Save our feature initializer
-  initializer_feat = std::make_shared<ov_core::FeatureInitializer>(feat_init_options);
+  initializer_feat = std::shared_ptr<ov_core::FeatureInitializer>(new ov_core::FeatureInitializer(feat_init_options));
 
   // Initialize the chi squared test table with confidence level 0.95
   // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
@@ -61,15 +61,11 @@ UpdaterSLAM::UpdaterSLAM(UpdaterOptions &options_slam, UpdaterOptions &options_a
 void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
 
   // Return if no features
-  if (feature_vec.empty()) {
-      return;
-  }
+  if (feature_vec.empty())
+    return;
 
   // Start timing
-  boost::posix_time::ptime rT0;
-  boost::posix_time::ptime rT1;
-  boost::posix_time::ptime rT2;
-  boost::posix_time::ptime rT3;
+  boost::posix_time::ptime rT0, rT1, rT2, rT3;
   rT0 = boost::posix_time::microsec_clock::local_time();
 
   // 0. Get all timestamps our clones are at (and thus valid measurement times)
@@ -257,15 +253,11 @@ void UpdaterSLAM::delayed_init(std::shared_ptr<State> state, std::vector<std::sh
 void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_ptr<Feature>> &feature_vec) {
 
   // Return if no features
-  if (feature_vec.empty()) {
-      return;
-  }
+  if (feature_vec.empty())
+    return;
 
   // Start timing
-  boost::posix_time::ptime rT0;
-  boost::posix_time::ptime rT1;
-  boost::posix_time::ptime rT2;
-  boost::posix_time::ptime rT3;
+  boost::posix_time::ptime rT0, rT1, rT2, rT3;
   rT0 = boost::posix_time::microsec_clock::local_time();
 
   // 0. Get all timestamps our clones are at (and thus valid measurement times)
@@ -307,10 +299,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
   // Calculate the max possible measurement size
   size_t max_meas_size = 0;
-  for (auto& i : feature_vec) {
-      for (const auto& pair : i->timestamps) {
-          max_meas_size += 2 * i->timestamps[pair.first].size();
-      }
+  for (size_t i = 0; i < feature_vec.size(); i++) {
+    for (const auto &pair : feature_vec.at(i)->timestamps) {
+      max_meas_size += 2 * feature_vec.at(i)->timestamps[pair.first].size();
+    }
   }
 
   // Calculate max possible state size (i.e. the size of our covariance)
@@ -460,8 +452,8 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
 
   // We have appended all features to our Hx_big, res_big
   // Delete it so we do not reuse information
-  for (auto& f : feature_vec) {
-      f->to_delete = true;
+  for (size_t f = 0; f < feature_vec.size(); f++) {
+    feature_vec[f]->to_delete = true;
   }
 
   // Return if we don't have anything and resize our matrices
@@ -499,9 +491,9 @@ void UpdaterSLAM::change_anchors(std::shared_ptr<State> state) {
   double marg_timestep = state->margtimestep();
   for (auto &f : state->_features_SLAM) {
     // Skip any features that are in the global frame
-    if (f.second->_feat_representation == LandmarkRepresentation::Representation::GLOBAL_3D || f.second->_feat_representation == LandmarkRepresentation::Representation::GLOBAL_FULL_INVERSE_DEPTH) {
-        continue;
-    }
+    if (f.second->_feat_representation == LandmarkRepresentation::Representation::GLOBAL_3D ||
+        f.second->_feat_representation == LandmarkRepresentation::Representation::GLOBAL_FULL_INVERSE_DEPTH)
+      continue;
     // Else lets see if it is anchored in the clone that will be marginalized
     assert(marg_timestep <= f.second->_anchor_clone_timestamp);
     if (f.second->_anchor_clone_timestamp == marg_timestep) {

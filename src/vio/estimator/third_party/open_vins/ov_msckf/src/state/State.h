@@ -22,7 +22,6 @@
 #ifndef OV_MSCKF_STATE_H
 #define OV_MSCKF_STATE_H
 
-#include <algorithm>
 #include <cmath>
 #include <map>
 #include <memory>
@@ -57,7 +56,7 @@ public:
    */
   State(StateOptions &options_);
 
-  ~State() = default;
+  ~State() {}
 
   /**
    * @brief Will return the timestep that we will marginalize next.
@@ -66,11 +65,13 @@ public:
    * @return timestep of clone we will marginalize
    */
   double margtimestep() {
-      std::scoped_lock lock(_mutex_state);
-      double time = INFINITY;
-      for (const auto& clone_imu : _clones_IMU) {
-          time = std::min(clone_imu.first, time);
+    std::lock_guard<std::mutex> lock(_mutex_state);
+    double time = INFINITY;
+    for (const auto &clone_imu : _clones_IMU) {
+      if (clone_imu.first < time) {
+        time = clone_imu.first;
       }
+    }
     return time;
   }
 
@@ -98,16 +99,14 @@ public:
    * 乘一个正标量保持正定性和相关性结构不变。
    */
   void inflate_covariance(double scale) {
-      if (!std::isfinite(scale) || scale <= 0.0) {
-          return;
-      }
+    if (!std::isfinite(scale) || scale <= 0.0)
+      return;
     _Cov *= scale;
   }
 
   double cov_diag(int idx) const {
-      if (idx < 0 || idx >= _Cov.rows()) {
-          return -1.0;
-      }
+    if (idx < 0 || idx >= _Cov.rows())
+      return -1.0;
     double d = _Cov(idx, idx);
     return std::isfinite(d) ? d : -1.0;
   }

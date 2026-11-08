@@ -73,7 +73,7 @@ public:
     e_3x = skew_x(e_3);
   }
 
-  virtual ~CpiBase() = default;
+  virtual ~CpiBase() {}
 
   /**
    * @brief Set linearization points of the integration.

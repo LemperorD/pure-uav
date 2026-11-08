@@ -3,22 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET = 139 };
+#define MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET 139
 
-using mavlink_set_actuator_control_target_t = struct __mavlink_set_actuator_control_target_t {
-    uint64_t time_usec;       /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float controls[8];        /*<  Actuator controls. Normed to -1..+1 where 0 is neutral position. Throttle for single rotation direction motors is 0..1, negative range for reverse direction. Standard mapping for attitude controls (group 0): (index 0-7): roll, pitch, yaw, throttle, flaps, spoilers,
-                                 airbrakes, landing gear. Load a pass-through mixer to repurpose them as generic outputs.*/
-    uint8_t group_mlx;        /*<  Actuator group. The "_mlx" indicates this is a multi-instance message and a MAVLink parser should use this field to difference between instances.*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-};
 
-enum { MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_LEN = 43, MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_MIN_LEN = 43, MAVLINK_MSG_ID_139_LEN = 43, MAVLINK_MSG_ID_139_MIN_LEN = 43 };
+typedef struct __mavlink_set_actuator_control_target_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float controls[8]; /*<  Actuator controls. Normed to -1..+1 where 0 is neutral position. Throttle for single rotation direction motors is 0..1, negative range for reverse direction. Standard mapping for attitude controls (group 0): (index 0-7): roll, pitch, yaw, throttle, flaps, spoilers, airbrakes, landing gear. Load a pass-through mixer to repurpose them as generic outputs.*/
+ uint8_t group_mlx; /*<  Actuator group. The "_mlx" indicates this is a multi-instance message and a MAVLink parser should use this field to difference between instances.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+} mavlink_set_actuator_control_target_t;
 
-enum { MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_CRC = 168, MAVLINK_MSG_ID_139_CRC = 168 };
+#define MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_LEN 43
+#define MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_MIN_LEN 43
+#define MAVLINK_MSG_ID_139_LEN 43
+#define MAVLINK_MSG_ID_139_MIN_LEN 43
 
-enum { MAVLINK_MSG_SET_ACTUATOR_CONTROL_TARGET_FIELD_CONTROLS_LEN = 8 };
+#define MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_CRC 168
+#define MAVLINK_MSG_ID_139_CRC 168
+
+#define MAVLINK_MSG_SET_ACTUATOR_CONTROL_TARGET_FIELD_CONTROLS_LEN 8
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SET_ACTUATOR_CONTROL_TARGET { \
@@ -347,10 +351,11 @@ static inline void mavlink_msg_set_actuator_control_target_decode(const mavlink_
         memset(set_actuator_control_target, 0, MAVLINK_MSG_ID_SET_ACTUATOR_CONTROL_TARGET_LEN);
     memcpy(set_actuator_control_target, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         set_actuator_control_target->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

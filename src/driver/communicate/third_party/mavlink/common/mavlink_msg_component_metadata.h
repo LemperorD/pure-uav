@@ -3,20 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_COMPONENT_METADATA = 397 };
+#define MAVLINK_MSG_ID_COMPONENT_METADATA 397
 
-using mavlink_component_metadata_t = struct __mavlink_component_metadata_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    uint32_t file_crc;     /*<  CRC32 of the general metadata file.*/
-    char uri[100]; /*<  MAVLink FTP URI for the general metadata file (COMP_METADATA_TYPE_GENERAL), which may be compressed with xz. The file contains general component metadata, and may contain URI links for additional metadata (see COMP_METADATA_TYPE). The information is static from boot, and may
-                      be generated at compile time. The string needs to be zero terminated.*/
-};
 
-enum { MAVLINK_MSG_ID_COMPONENT_METADATA_LEN = 108, MAVLINK_MSG_ID_COMPONENT_METADATA_MIN_LEN = 108, MAVLINK_MSG_ID_397_LEN = 108, MAVLINK_MSG_ID_397_MIN_LEN = 108 };
+typedef struct __mavlink_component_metadata_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ uint32_t file_crc; /*<  CRC32 of the general metadata file.*/
+ char uri[100]; /*<  MAVLink FTP URI for the general metadata file (COMP_METADATA_TYPE_GENERAL), which may be compressed with xz. The file contains general component metadata, and may contain URI links for additional metadata (see COMP_METADATA_TYPE). The information is static from boot, and may be generated at compile time. The string needs to be zero terminated.*/
+} mavlink_component_metadata_t;
 
-enum { MAVLINK_MSG_ID_COMPONENT_METADATA_CRC = 182, MAVLINK_MSG_ID_397_CRC = 182 };
+#define MAVLINK_MSG_ID_COMPONENT_METADATA_LEN 108
+#define MAVLINK_MSG_ID_COMPONENT_METADATA_MIN_LEN 108
+#define MAVLINK_MSG_ID_397_LEN 108
+#define MAVLINK_MSG_ID_397_MIN_LEN 108
 
-enum { MAVLINK_MSG_COMPONENT_METADATA_FIELD_URI_LEN = 100 };
+#define MAVLINK_MSG_ID_COMPONENT_METADATA_CRC 182
+#define MAVLINK_MSG_ID_397_CRC 182
+
+#define MAVLINK_MSG_COMPONENT_METADATA_FIELD_URI_LEN 100
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMPONENT_METADATA { \

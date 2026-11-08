@@ -3,27 +3,34 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GPS2_RTK = 128 };
+#define MAVLINK_MSG_ID_GPS2_RTK 128
 
-using mavlink_gps2_rtk_t = struct __mavlink_gps2_rtk_t {
-    uint32_t time_last_baseline_ms; /*< [ms] Time since boot of last baseline message received.*/
-    uint32_t tow;                   /*< [ms] GPS Time of Week of last baseline*/
-    int32_t baseline_a_mm;          /*< [mm] Current baseline in ECEF x or NED north component.*/
-    int32_t baseline_b_mm;          /*< [mm] Current baseline in ECEF y or NED east component.*/
-    int32_t baseline_c_mm;          /*< [mm] Current baseline in ECEF z or NED down component.*/
-    uint32_t accuracy;              /*<  Current estimate of baseline accuracy.*/
-    int32_t iar_num_hypotheses;     /*<  Current number of integer ambiguity hypotheses.*/
-    uint16_t wn;                    /*<  GPS Week Number of last baseline*/
-    uint8_t rtk_receiver_id;        /*<  Identification of connected RTK receiver.*/
-    uint8_t rtk_health;             /*<  GPS-specific health report for RTK data.*/
-    uint8_t rtk_rate;               /*< [Hz] Rate of baseline messages being received by GPS*/
-    uint8_t nsats;                  /*<  Current number of sats used for RTK calculation.*/
-    uint8_t baseline_coords_type;   /*<  Coordinate system of baseline*/
-};
 
-enum { MAVLINK_MSG_ID_GPS2_RTK_LEN = 35, MAVLINK_MSG_ID_GPS2_RTK_MIN_LEN = 35, MAVLINK_MSG_ID_128_LEN = 35, MAVLINK_MSG_ID_128_MIN_LEN = 35 };
+typedef struct __mavlink_gps2_rtk_t {
+ uint32_t time_last_baseline_ms; /*< [ms] Time since boot of last baseline message received.*/
+ uint32_t tow; /*< [ms] GPS Time of Week of last baseline*/
+ int32_t baseline_a_mm; /*< [mm] Current baseline in ECEF x or NED north component.*/
+ int32_t baseline_b_mm; /*< [mm] Current baseline in ECEF y or NED east component.*/
+ int32_t baseline_c_mm; /*< [mm] Current baseline in ECEF z or NED down component.*/
+ uint32_t accuracy; /*<  Current estimate of baseline accuracy.*/
+ int32_t iar_num_hypotheses; /*<  Current number of integer ambiguity hypotheses.*/
+ uint16_t wn; /*<  GPS Week Number of last baseline*/
+ uint8_t rtk_receiver_id; /*<  Identification of connected RTK receiver.*/
+ uint8_t rtk_health; /*<  GPS-specific health report for RTK data.*/
+ uint8_t rtk_rate; /*< [Hz] Rate of baseline messages being received by GPS*/
+ uint8_t nsats; /*<  Current number of sats used for RTK calculation.*/
+ uint8_t baseline_coords_type; /*<  Coordinate system of baseline*/
+} mavlink_gps2_rtk_t;
 
-enum { MAVLINK_MSG_ID_GPS2_RTK_CRC = 226, MAVLINK_MSG_ID_128_CRC = 226 };
+#define MAVLINK_MSG_ID_GPS2_RTK_LEN 35
+#define MAVLINK_MSG_ID_GPS2_RTK_MIN_LEN 35
+#define MAVLINK_MSG_ID_128_LEN 35
+#define MAVLINK_MSG_ID_128_MIN_LEN 35
+
+#define MAVLINK_MSG_ID_GPS2_RTK_CRC 226
+#define MAVLINK_MSG_ID_128_CRC 226
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GPS2_RTK { \

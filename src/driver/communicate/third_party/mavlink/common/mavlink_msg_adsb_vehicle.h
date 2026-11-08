@@ -3,29 +3,34 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ADSB_VEHICLE = 246 };
+#define MAVLINK_MSG_ID_ADSB_VEHICLE 246
 
-using mavlink_adsb_vehicle_t = struct __mavlink_adsb_vehicle_t {
-    uint32_t ICAO_address; /*<  ICAO address*/
-    int32_t lat;           /*< [degE7] Latitude*/
-    int32_t lon;           /*< [degE7] Longitude*/
-    int32_t altitude;      /*< [mm] Altitude (ASL)*/
-    uint16_t heading;      /*< [cdeg] Course over ground*/
-    uint16_t hor_velocity; /*< [cm/s] The horizontal velocity*/
-    int16_t ver_velocity;  /*< [cm/s] The vertical velocity. Positive is up*/
-    uint16_t flags;        /*<  Bitmap to indicate various statuses including valid data fields*/
-    uint16_t squawk;       /*<  Squawk code. Note that the code is in decimal: e.g. 7700 (general emergency) is encoded as binary 0b0001_1110_0001_0100, not(!) as 0b0000_111_111_000_000*/
-    uint8_t altitude_type; /*<  ADSB altitude type.*/
-    char callsign[9];      /*<  The callsign, 8+null*/
-    uint8_t emitter_type;  /*<  ADSB emitter type.*/
-    uint8_t tslc;          /*< [s] Time since last communication. This is the age of the ADS-B information in this message, in seconds.*/
-};
 
-enum { MAVLINK_MSG_ID_ADSB_VEHICLE_LEN = 38, MAVLINK_MSG_ID_ADSB_VEHICLE_MIN_LEN = 38, MAVLINK_MSG_ID_246_LEN = 38, MAVLINK_MSG_ID_246_MIN_LEN = 38 };
+typedef struct __mavlink_adsb_vehicle_t {
+ uint32_t ICAO_address; /*<  ICAO address*/
+ int32_t lat; /*< [degE7] Latitude*/
+ int32_t lon; /*< [degE7] Longitude*/
+ int32_t altitude; /*< [mm] Altitude (ASL)*/
+ uint16_t heading; /*< [cdeg] Course over ground*/
+ uint16_t hor_velocity; /*< [cm/s] The horizontal velocity*/
+ int16_t ver_velocity; /*< [cm/s] The vertical velocity. Positive is up*/
+ uint16_t flags; /*<  Bitmap to indicate various statuses including valid data fields*/
+ uint16_t squawk; /*<  Squawk code. Note that the code is in decimal: e.g. 7700 (general emergency) is encoded as binary 0b0001_1110_0001_0100, not(!) as 0b0000_111_111_000_000*/
+ uint8_t altitude_type; /*<  ADSB altitude type.*/
+ char callsign[9]; /*<  The callsign, 8+null*/
+ uint8_t emitter_type; /*<  ADSB emitter type.*/
+ uint8_t tslc; /*< [s] Time since last communication. This is the age of the ADS-B information in this message, in seconds.*/
+} mavlink_adsb_vehicle_t;
 
-enum { MAVLINK_MSG_ID_ADSB_VEHICLE_CRC = 184, MAVLINK_MSG_ID_246_CRC = 184 };
+#define MAVLINK_MSG_ID_ADSB_VEHICLE_LEN 38
+#define MAVLINK_MSG_ID_ADSB_VEHICLE_MIN_LEN 38
+#define MAVLINK_MSG_ID_246_LEN 38
+#define MAVLINK_MSG_ID_246_MIN_LEN 38
 
-enum { MAVLINK_MSG_ADSB_VEHICLE_FIELD_CALLSIGN_LEN = 9 };
+#define MAVLINK_MSG_ID_ADSB_VEHICLE_CRC 184
+#define MAVLINK_MSG_ID_246_CRC 184
+
+#define MAVLINK_MSG_ADSB_VEHICLE_FIELD_CALLSIGN_LEN 9
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ADSB_VEHICLE { \

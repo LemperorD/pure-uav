@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_RADIO_STATUS = 109 };
+#define MAVLINK_MSG_ID_RADIO_STATUS 109
 
-using mavlink_radio_status_t = struct __mavlink_radio_status_t {
-    uint16_t rxerrors; /*<  Count of radio packet receive errors (since boot).*/
-    uint16_t fixed;    /*<  Count of error corrected radio packets (since boot).*/
-    uint8_t rssi;      /*<  Local (message sender) received signal strength indication in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
-    uint8_t remrssi;   /*<  Remote (message receiver) signal strength indication in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
-    uint8_t txbuf;     /*< [%] Remaining free transmitter buffer space.*/
-    uint8_t noise;     /*<  Local background noise level. These are device dependent RSSI values (scale as approx 2x dB on SiK radios). Values: [0-254], UINT8_MAX: invalid/unknown.*/
-    uint8_t remnoise;  /*<  Remote background noise level. These are device dependent RSSI values (scale as approx 2x dB on SiK radios). Values: [0-254], UINT8_MAX: invalid/unknown.*/
-};
 
-enum { MAVLINK_MSG_ID_RADIO_STATUS_LEN = 9, MAVLINK_MSG_ID_RADIO_STATUS_MIN_LEN = 9, MAVLINK_MSG_ID_109_LEN = 9, MAVLINK_MSG_ID_109_MIN_LEN = 9 };
+typedef struct __mavlink_radio_status_t {
+ uint16_t rxerrors; /*<  Count of radio packet receive errors (since boot).*/
+ uint16_t fixed; /*<  Count of error corrected radio packets (since boot).*/
+ uint8_t rssi; /*<  Local (message sender) received signal strength indication in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
+ uint8_t remrssi; /*<  Remote (message receiver) signal strength indication in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
+ uint8_t txbuf; /*< [%] Remaining free transmitter buffer space.*/
+ uint8_t noise; /*<  Local background noise level. These are device dependent RSSI values (scale as approx 2x dB on SiK radios). Values: [0-254], UINT8_MAX: invalid/unknown.*/
+ uint8_t remnoise; /*<  Remote background noise level. These are device dependent RSSI values (scale as approx 2x dB on SiK radios). Values: [0-254], UINT8_MAX: invalid/unknown.*/
+} mavlink_radio_status_t;
 
-enum { MAVLINK_MSG_ID_RADIO_STATUS_CRC = 185, MAVLINK_MSG_ID_109_CRC = 185 };
+#define MAVLINK_MSG_ID_RADIO_STATUS_LEN 9
+#define MAVLINK_MSG_ID_RADIO_STATUS_MIN_LEN 9
+#define MAVLINK_MSG_ID_109_LEN 9
+#define MAVLINK_MSG_ID_109_MIN_LEN 9
+
+#define MAVLINK_MSG_ID_RADIO_STATUS_CRC 185
+#define MAVLINK_MSG_ID_109_CRC 185
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RADIO_STATUS { \

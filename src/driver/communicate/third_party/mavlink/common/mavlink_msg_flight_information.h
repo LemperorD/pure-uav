@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_FLIGHT_INFORMATION = 264 };
+#define MAVLINK_MSG_ID_FLIGHT_INFORMATION 264
 
-using mavlink_flight_information_t = struct __mavlink_flight_information_t {
-    uint64_t arming_time_utc;  /*< [us] Timestamp at arming (since system boot). Set to 0 on boot. Set value on arming. Note, field is misnamed UTC.*/
-    uint64_t takeoff_time_utc; /*< [us] Timestamp at takeoff (since system boot). Set to 0 at boot and on arming. Note, field is misnamed UTC.*/
-    uint64_t flight_uuid;      /*<  Flight number. Note, field is misnamed UUID.*/
-    uint32_t time_boot_ms;     /*< [ms] Timestamp (time since system boot).*/
-    uint32_t landing_time;     /*< [ms] Timestamp at landing (in ms since system boot). Set to 0 at boot and on arming.*/
-};
 
-enum { MAVLINK_MSG_ID_FLIGHT_INFORMATION_LEN = 32, MAVLINK_MSG_ID_FLIGHT_INFORMATION_MIN_LEN = 28, MAVLINK_MSG_ID_264_LEN = 32, MAVLINK_MSG_ID_264_MIN_LEN = 28 };
+typedef struct __mavlink_flight_information_t {
+ uint64_t arming_time_utc; /*< [us] Timestamp at arming (since system boot). Set to 0 on boot. Set value on arming. Note, field is misnamed UTC.*/
+ uint64_t takeoff_time_utc; /*< [us] Timestamp at takeoff (since system boot). Set to 0 at boot and on arming. Note, field is misnamed UTC.*/
+ uint64_t flight_uuid; /*<  Flight number. Note, field is misnamed UUID.*/
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ uint32_t landing_time; /*< [ms] Timestamp at landing (in ms since system boot). Set to 0 at boot and on arming.*/
+} mavlink_flight_information_t;
 
-enum { MAVLINK_MSG_ID_FLIGHT_INFORMATION_CRC = 49, MAVLINK_MSG_ID_264_CRC = 49 };
+#define MAVLINK_MSG_ID_FLIGHT_INFORMATION_LEN 32
+#define MAVLINK_MSG_ID_FLIGHT_INFORMATION_MIN_LEN 28
+#define MAVLINK_MSG_ID_264_LEN 32
+#define MAVLINK_MSG_ID_264_MIN_LEN 28
+
+#define MAVLINK_MSG_ID_FLIGHT_INFORMATION_CRC 49
+#define MAVLINK_MSG_ID_264_CRC 49
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FLIGHT_INFORMATION { \

@@ -3,25 +3,30 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE = 102 };
+#define MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE 102
 
-using mavlink_vision_position_estimate_t = struct __mavlink_vision_position_estimate_t {
-    uint64_t usec;         /*< [us] Timestamp (UNIX time or time since system boot)*/
-    float x;               /*< [m] Local X position*/
-    float y;               /*< [m] Local Y position*/
-    float z;               /*< [m] Local Z position*/
-    float roll;            /*< [rad] Roll angle*/
-    float pitch;           /*< [rad] Pitch angle*/
-    float yaw;             /*< [rad] Yaw angle*/
-    float covariance[21];  /*<  Row-major representation of pose 6x6 cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
-    uint8_t reset_counter; /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
-};
 
-enum { MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_LEN = 117, MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_MIN_LEN = 32, MAVLINK_MSG_ID_102_LEN = 117, MAVLINK_MSG_ID_102_MIN_LEN = 32 };
+typedef struct __mavlink_vision_position_estimate_t {
+ uint64_t usec; /*< [us] Timestamp (UNIX time or time since system boot)*/
+ float x; /*< [m] Local X position*/
+ float y; /*< [m] Local Y position*/
+ float z; /*< [m] Local Z position*/
+ float roll; /*< [rad] Roll angle*/
+ float pitch; /*< [rad] Pitch angle*/
+ float yaw; /*< [rad] Yaw angle*/
+ float covariance[21]; /*<  Row-major representation of pose 6x6 cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
+ uint8_t reset_counter; /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
+} mavlink_vision_position_estimate_t;
 
-enum { MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_CRC = 158, MAVLINK_MSG_ID_102_CRC = 158 };
+#define MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_LEN 117
+#define MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_MIN_LEN 32
+#define MAVLINK_MSG_ID_102_LEN 117
+#define MAVLINK_MSG_ID_102_MIN_LEN 32
 
-enum { MAVLINK_MSG_VISION_POSITION_ESTIMATE_FIELD_COVARIANCE_LEN = 21 };
+#define MAVLINK_MSG_ID_VISION_POSITION_ESTIMATE_CRC 158
+#define MAVLINK_MSG_ID_102_CRC 158
+
+#define MAVLINK_MSG_VISION_POSITION_ESTIMATE_FIELD_COVARIANCE_LEN 21
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VISION_POSITION_ESTIMATE { \

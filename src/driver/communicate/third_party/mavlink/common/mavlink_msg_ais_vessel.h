@@ -3,35 +3,39 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AIS_VESSEL = 301 };
+#define MAVLINK_MSG_ID_AIS_VESSEL 301
 
-using mavlink_ais_vessel_t = struct __mavlink_ais_vessel_t {
-    uint32_t MMSI;               /*<  Mobile Marine Service Identifier, 9 decimal digits*/
-    int32_t lat;                 /*< [degE7] Latitude*/
-    int32_t lon;                 /*< [degE7] Longitude*/
-    uint16_t COG;                /*< [cdeg] Course over ground*/
-    uint16_t heading;            /*< [cdeg] True heading*/
-    uint16_t velocity;           /*< [cm/s] Speed over ground*/
-    uint16_t dimension_bow;      /*< [m] Distance from lat/lon location to bow*/
-    uint16_t dimension_stern;    /*< [m] Distance from lat/lon location to stern*/
-    uint16_t tslc;               /*< [s] Time since last communication. This is the age of the AIS information in this message, in seconds.*/
-    uint16_t flags;              /*<  Bitmask to indicate various statuses including valid data fields*/
-    int8_t turn_rate;            /*< [ddeg/s] Turn rate, 0.1 degrees per second*/
-    uint8_t navigational_status; /*<  Navigational status*/
-    uint8_t type;                /*<  Type of vessels*/
-    uint8_t dimension_port;      /*< [m] Distance from lat/lon location to port side*/
-    uint8_t dimension_starboard; /*< [m] Distance from lat/lon location to starboard side*/
-    char callsign[7]; /*<  The vessel callsign. Characters are encoded as 7-bit ASCII, but only characters in the [AIS 6-bit ASCII subset](https://en.wikipedia.org/wiki/Six-bit_character_code#AIS_SixBit_ASCII) are permitted. Also set AIS_FLAGS_VALID_CALLSIGN if valid. The string is NULL-terminated
-                         if it is shorter than the array length.*/
-    char name[20];    /*<  The vessel name. Characters are encoded as 7-bit ASCII, but only characters in the [AIS 6-bit ASCII subset](https://en.wikipedia.org/wiki/Six-bit_character_code#AIS_SixBit_ASCII) are permitted. Also set AIS_FLAGS_VALID_NAME if valid. The string is NULL-terminated if it is
-                         shorter than the array length.*/
-};
 
-enum { MAVLINK_MSG_ID_AIS_VESSEL_LEN = 58, MAVLINK_MSG_ID_AIS_VESSEL_MIN_LEN = 58, MAVLINK_MSG_ID_301_LEN = 58, MAVLINK_MSG_ID_301_MIN_LEN = 58 };
+typedef struct __mavlink_ais_vessel_t {
+ uint32_t MMSI; /*<  Mobile Marine Service Identifier, 9 decimal digits*/
+ int32_t lat; /*< [degE7] Latitude*/
+ int32_t lon; /*< [degE7] Longitude*/
+ uint16_t COG; /*< [cdeg] Course over ground*/
+ uint16_t heading; /*< [cdeg] True heading*/
+ uint16_t velocity; /*< [cm/s] Speed over ground*/
+ uint16_t dimension_bow; /*< [m] Distance from lat/lon location to bow*/
+ uint16_t dimension_stern; /*< [m] Distance from lat/lon location to stern*/
+ uint16_t tslc; /*< [s] Time since last communication. This is the age of the AIS information in this message, in seconds.*/
+ uint16_t flags; /*<  Bitmask to indicate various statuses including valid data fields*/
+ int8_t turn_rate; /*< [ddeg/s] Turn rate, 0.1 degrees per second*/
+ uint8_t navigational_status; /*<  Navigational status*/
+ uint8_t type; /*<  Type of vessels*/
+ uint8_t dimension_port; /*< [m] Distance from lat/lon location to port side*/
+ uint8_t dimension_starboard; /*< [m] Distance from lat/lon location to starboard side*/
+ char callsign[7]; /*<  The vessel callsign. Characters are encoded as 7-bit ASCII, but only characters in the [AIS 6-bit ASCII subset](https://en.wikipedia.org/wiki/Six-bit_character_code#AIS_SixBit_ASCII) are permitted. Also set AIS_FLAGS_VALID_CALLSIGN if valid. The string is NULL-terminated if it is shorter than the array length.*/
+ char name[20]; /*<  The vessel name. Characters are encoded as 7-bit ASCII, but only characters in the [AIS 6-bit ASCII subset](https://en.wikipedia.org/wiki/Six-bit_character_code#AIS_SixBit_ASCII) are permitted. Also set AIS_FLAGS_VALID_NAME if valid. The string is NULL-terminated if it is shorter than the array length.*/
+} mavlink_ais_vessel_t;
 
-enum { MAVLINK_MSG_ID_AIS_VESSEL_CRC = 243, MAVLINK_MSG_ID_301_CRC = 243 };
+#define MAVLINK_MSG_ID_AIS_VESSEL_LEN 58
+#define MAVLINK_MSG_ID_AIS_VESSEL_MIN_LEN 58
+#define MAVLINK_MSG_ID_301_LEN 58
+#define MAVLINK_MSG_ID_301_MIN_LEN 58
 
-enum { MAVLINK_MSG_AIS_VESSEL_FIELD_CALLSIGN_LEN = 7, MAVLINK_MSG_AIS_VESSEL_FIELD_NAME_LEN = 20 };
+#define MAVLINK_MSG_ID_AIS_VESSEL_CRC 243
+#define MAVLINK_MSG_ID_301_CRC 243
+
+#define MAVLINK_MSG_AIS_VESSEL_FIELD_CALLSIGN_LEN 7
+#define MAVLINK_MSG_AIS_VESSEL_FIELD_NAME_LEN 20
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AIS_VESSEL { \

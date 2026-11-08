@@ -89,7 +89,7 @@ public:
    */
   CamRadtan(int width, int height) : CamBase(width, height) {}
 
-  ~CamRadtan() override = default;
+  ~CamRadtan() {}
 
   /**
    * @brief Given a raw uv point, this will undistort it based on the camera matrices into normalized camera coords.
@@ -130,16 +130,18 @@ public:
     Eigen::MatrixXd cam_d = camera_values;
 
     // Calculate distorted coordinates for radial
-    double r = std::sqrt((uv_norm(0) * uv_norm(0)) + (uv_norm(1) * uv_norm(1)));
+    double r = std::sqrt(uv_norm(0) * uv_norm(0) + uv_norm(1) * uv_norm(1));
     double r_2 = r * r;
     double r_4 = r_2 * r_2;
-    double x1 = (uv_norm(0) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4)) + (2 * cam_d(6) * uv_norm(0) * uv_norm(1)) + (cam_d(7) * (r_2 + 2 * uv_norm(0) * uv_norm(0)));
-    double y1 = (uv_norm(1) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4)) + (cam_d(6) * (r_2 + 2 * uv_norm(1) * uv_norm(1))) + (2 * cam_d(7) * uv_norm(0) * uv_norm(1));
+    double x1 = uv_norm(0) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4) + 2 * cam_d(6) * uv_norm(0) * uv_norm(1) +
+                cam_d(7) * (r_2 + 2 * uv_norm(0) * uv_norm(0));
+    double y1 = uv_norm(1) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4) + cam_d(6) * (r_2 + 2 * uv_norm(1) * uv_norm(1)) +
+                2 * cam_d(7) * uv_norm(0) * uv_norm(1);
 
     // Return the distorted point
     Eigen::Vector2f uv_dist;
-    uv_dist(0) = (float)((cam_d(0) * x1) + cam_d(2));
-    uv_dist(1) = (float)((cam_d(1) * y1) + cam_d(3));
+    uv_dist(0) = (float)(cam_d(0) * x1 + cam_d(2));
+    uv_dist(1) = (float)(cam_d(1) * y1 + cam_d(3));
     return uv_dist;
   }
 
@@ -155,7 +157,7 @@ public:
     Eigen::MatrixXd cam_d = camera_values;
 
     // Calculate distorted coordinates for radial
-    double r = std::sqrt((uv_norm(0) * uv_norm(0)) + (uv_norm(1) * uv_norm(1)));
+    double r = std::sqrt(uv_norm(0) * uv_norm(0) + uv_norm(1) * uv_norm(1));
     double r_2 = r * r;
     double r_4 = r_2 * r_2;
 
@@ -174,8 +176,10 @@ public:
                                  2 * cam_d(7) * x + (2 * cam_d(6) * y + 4 * cam_d(6) * y));
 
     // Calculate distorted coordinates for radtan
-    double x1 = (uv_norm(0) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4)) + (2 * cam_d(6) * uv_norm(0) * uv_norm(1)) + (cam_d(7) * (r_2 + 2 * uv_norm(0) * uv_norm(0)));
-    double y1 = (uv_norm(1) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4)) + (cam_d(6) * (r_2 + 2 * uv_norm(1) * uv_norm(1))) + (2 * cam_d(7) * uv_norm(0) * uv_norm(1));
+    double x1 = uv_norm(0) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4) + 2 * cam_d(6) * uv_norm(0) * uv_norm(1) +
+                cam_d(7) * (r_2 + 2 * uv_norm(0) * uv_norm(0));
+    double y1 = uv_norm(1) * (1 + cam_d(4) * r_2 + cam_d(5) * r_4) + cam_d(6) * (r_2 + 2 * uv_norm(1) * uv_norm(1)) +
+                2 * cam_d(7) * uv_norm(0) * uv_norm(1);
 
     // Compute the Jacobian in respect to the intrinsics
     H_dz_dzeta = Eigen::MatrixXd::Zero(2, 8);

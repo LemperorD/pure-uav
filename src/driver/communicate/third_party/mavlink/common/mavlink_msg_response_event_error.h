@@ -3,19 +3,26 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR = 413 };
+#define MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR 413
 
-using mavlink_response_event_error_t = struct __mavlink_response_event_error_t {
-    uint16_t sequence;                  /*<  Sequence number.*/
-    uint16_t sequence_oldest_available; /*<  Oldest Sequence number that is still available after the sequence set in REQUEST_EVENT.*/
-    uint8_t target_system;              /*<  System ID*/
-    uint8_t target_component;           /*<  Component ID*/
-    uint8_t reason;                     /*<  Error reason.*/
-};
 
-enum { MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_LEN = 7, MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_MIN_LEN = 7, MAVLINK_MSG_ID_413_LEN = 7, MAVLINK_MSG_ID_413_MIN_LEN = 7 };
+typedef struct __mavlink_response_event_error_t {
+ uint16_t sequence; /*<  Sequence number.*/
+ uint16_t sequence_oldest_available; /*<  Oldest Sequence number that is still available after the sequence set in REQUEST_EVENT.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t reason; /*<  Error reason.*/
+} mavlink_response_event_error_t;
 
-enum { MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_CRC = 77, MAVLINK_MSG_ID_413_CRC = 77 };
+#define MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_LEN 7
+#define MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_MIN_LEN 7
+#define MAVLINK_MSG_ID_413_LEN 7
+#define MAVLINK_MSG_ID_413_MIN_LEN 7
+
+#define MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_CRC 77
+#define MAVLINK_MSG_ID_413_CRC 77
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RESPONSE_EVENT_ERROR { \
@@ -354,10 +361,11 @@ static inline void mavlink_msg_response_event_error_decode(const mavlink_message
         memset(response_event_error, 0, MAVLINK_MSG_ID_RESPONSE_EVENT_ERROR_LEN);
     memcpy(response_event_error, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         response_event_error->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

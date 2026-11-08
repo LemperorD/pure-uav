@@ -64,8 +64,8 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
   double time1 = timestamp + t_off_new;
   std::vector<ov_core::ImuData> prop_data;
   {
-      std::scoped_lock lck(imu_data_mtx);
-      prop_data = Propagator::select_imu_readings(imu_data, time0, time1);
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    prop_data = Propagator::select_imu_readings(imu_data, time0, time1);
   }
 
   // We are going to sum up all the state transition matrices, so we can do a single large multiplication at the end
@@ -83,8 +83,7 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state, double timest
     for (size_t i = 0; i < prop_data.size() - 1; i++) {
 
       // Get the next state Jacobian and noise Jacobian for this IMU reading
-      Eigen::MatrixXd F;
-      Eigen::MatrixXd Qdi;
+      Eigen::MatrixXd F, Qdi;
       predict_and_compute(state, prop_data.at(i), prop_data.at(i + 1), F, Qdi);
 
       // Next we should propagate our IMU covariance
@@ -155,12 +154,11 @@ bool Propagator::fast_state_propagate(std::shared_ptr<State> state, double times
   double time1 = timestamp + cache_t_off;
   std::vector<ov_core::ImuData> prop_data;
   {
-      std::scoped_lock lck(imu_data_mtx);
-      prop_data = Propagator::select_imu_readings(imu_data, time0, time1, false);
+    std::lock_guard<std::mutex> lck(imu_data_mtx);
+    prop_data = Propagator::select_imu_readings(imu_data, time0, time1, false);
   }
-  if (prop_data.size() < 2) {
-      return false;
-  }
+  if (prop_data.size() < 2)
+    return false;
 
   // Biases
   Eigen::Vector3d bias_g = cache_state_est.block(10, 0, 3, 1);
@@ -321,16 +319,15 @@ std::vector<ov_core::ImuData> Propagator::select_imu_readings(const std::vector<
         // This means that either we have dropped IMU data, or we have not gotten enough.
         // In this case we can't propgate forward in time, so there is not that much we can do.
         break;
-      }
-      if (imu_data.at(i).timestamp > time1) {
-          ov_core::ImuData data = interpolate_data(imu_data.at(i - 1), imu_data.at(i), time1);
-          prop_data.push_back(data);
-          // PRINT_DEBUG("propagation #%d = CASE 3.1 = %.3f => %.3f\n", (int)i, imu_data.at(i).timestamp - prop_data.at(0).timestamp,
-          //             imu_data.at(i).timestamp - time0);
+      } else if (imu_data.at(i).timestamp > time1) {
+        ov_core::ImuData data = interpolate_data(imu_data.at(i - 1), imu_data.at(i), time1);
+        prop_data.push_back(data);
+        // PRINT_DEBUG("propagation #%d = CASE 3.1 = %.3f => %.3f\n", (int)i, imu_data.at(i).timestamp - prop_data.at(0).timestamp,
+        //             imu_data.at(i).timestamp - time0);
       } else {
-          prop_data.push_back(imu_data.at(i));
-          // PRINT_DEBUG("propagation #%d = CASE 3.2 = %.3f => %.3f\n", (int)i, imu_data.at(i).timestamp - prop_data.at(0).timestamp,
-          //             imu_data.at(i).timestamp - time0);
+        prop_data.push_back(imu_data.at(i));
+        // PRINT_DEBUG("propagation #%d = CASE 3.2 = %.3f => %.3f\n", (int)i, imu_data.at(i).timestamp - prop_data.at(0).timestamp,
+        //             imu_data.at(i).timestamp - time0);
       }
       // If the added IMU message doesn't end exactly at the camera time
       // Then we need to add another one that is right at the ending time
@@ -440,8 +437,7 @@ void Propagator::predict_and_compute(std::shared_ptr<State> state, const ov_core
 
   // Compute the new state mean value
   Eigen::Vector4d new_q;
-  Eigen::Vector3d new_v;
-  Eigen::Vector3d new_p;
+  Eigen::Vector3d new_v, new_p;
   if (state->_options.integration_method == StateOptions::IntegrationMethod::ANALYTICAL) {
     predict_mean_analytic(state, dt, w_hat_avg, a_hat_avg, new_q, new_v, new_p, Xi_sum);
   } else if (state->_options.integration_method == StateOptions::IntegrationMethod::RK4) {
@@ -615,12 +611,7 @@ void Propagator::compute_Xi_sum(std::shared_ptr<State> state, double dt, const E
   Eigen::Matrix3d sA = ov_core::skew_x(a_hat);
 
   // Integration components will be used later
-  Eigen::Matrix3d R_ktok1;
-  Eigen::Matrix3d Xi_1;
-  Eigen::Matrix3d Xi_2;
-  Eigen::Matrix3d Jr_ktok1;
-  Eigen::Matrix3d Xi_3;
-  Eigen::Matrix3d Xi_4;
+  Eigen::Matrix3d R_ktok1, Xi_1, Xi_2, Jr_ktok1, Xi_3, Xi_4;
   R_ktok1 = ov_core::exp_so3(-w_hat * dt);
   Jr_ktok1 = ov_core::Jr_so3(-w_hat * dt);
 
@@ -630,18 +621,22 @@ void Propagator::compute_Xi_sum(std::shared_ptr<State> state, double dt, const E
   if (!small_w) {
 
     // first order rotation integration with constant omega
-    Xi_1 = I_3x3 * dt + (1.0 - cos_dth) / w_norm * sK + (dt - (sin_dth / w_norm)) * sK2;
+    Xi_1 = I_3x3 * dt + (1.0 - cos_dth) / w_norm * sK + (dt - sin_dth / w_norm) * sK2;
 
     // second order rotation integration with constant omega
-    Xi_2 = 1.0 / 2 * d_t2 * I_3x3 + (d_th - sin_dth) / w_norm2 * sK + ((1.0 / 2 * d_t2) - ((1.0 - cos_dth) / w_norm2)) * sK2;
+    Xi_2 = 1.0 / 2 * d_t2 * I_3x3 + (d_th - sin_dth) / w_norm2 * sK + (1.0 / 2 * d_t2 - (1.0 - cos_dth) / w_norm2) * sK2;
 
     // first order integration with constant omega and constant acc
-    Xi_3 = 1.0 / 2 * d_t2 * sA + (sin_dth - d_th) / w_norm2 * sA * sK + (sin_dth - d_th * cos_dth) / w_norm2 * sK * sA + ((1.0 / 2 * d_t2) - ((1.0 - cos_dth) / w_norm2)) * sA * sK2 + ((1.0 / 2 * d_t2) + ((1.0 - cos_dth - d_th * sin_dth) / w_norm2)) * (sK2 * sA + k_hat.dot(a_hat) * sK) -
+    Xi_3 = 1.0 / 2 * d_t2 * sA + (sin_dth - d_th) / w_norm2 * sA * sK + (sin_dth - d_th * cos_dth) / w_norm2 * sK * sA +
+           (1.0 / 2 * d_t2 - (1.0 - cos_dth) / w_norm2) * sA * sK2 +
+           (1.0 / 2 * d_t2 + (1.0 - cos_dth - d_th * sin_dth) / w_norm2) * (sK2 * sA + k_hat.dot(a_hat) * sK) -
            (3 * sin_dth - 2 * d_th - d_th * cos_dth) / w_norm2 * k_hat.dot(a_hat) * sK2;
 
     // second order integration with constant omega and constant acc
-    Xi_4 = 1.0 / 6 * d_t3 * sA + (2 * (1.0 - cos_dth) - d_th2) / (2 * w_norm3) * sA * sK + ((2 * (1.0 - cos_dth) - d_th * sin_dth) / w_norm3) * sK * sA + (((sin_dth - d_th) / w_norm3) + (d_t3 / 6)) * sA * sK2 +
-           ((d_th - 2 * sin_dth + 1.0 / 6 * d_th3 + d_th * cos_dth) / w_norm3) * (sK2 * sA + k_hat.dot(a_hat) * sK) + (4 * cos_dth - 4 + d_th2 + d_th * sin_dth) / w_norm3 * k_hat.dot(a_hat) * sK2;
+    Xi_4 = 1.0 / 6 * d_t3 * sA + (2 * (1.0 - cos_dth) - d_th2) / (2 * w_norm3) * sA * sK +
+           ((2 * (1.0 - cos_dth) - d_th * sin_dth) / w_norm3) * sK * sA + ((sin_dth - d_th) / w_norm3 + d_t3 / 6) * sA * sK2 +
+           ((d_th - 2 * sin_dth + 1.0 / 6 * d_th3 + d_th * cos_dth) / w_norm3) * (sK2 * sA + k_hat.dot(a_hat) * sK) +
+           (4 * cos_dth - 4 + d_th2 + d_th * sin_dth) / w_norm3 * k_hat.dot(a_hat) * sK2;
 
   } else {
 

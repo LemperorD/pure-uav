@@ -63,7 +63,7 @@ public:
   CpiV1(double sigma_w, double sigma_wb, double sigma_a, double sigma_ab, bool imu_avg_ = false)
       : CpiBase(sigma_w, sigma_wb, sigma_a, sigma_ab, imu_avg_) {}
 
-  ~CpiV1() override = default;
+  virtual ~CpiV1() {}
 
   /**
    * @brief Our precompound function for Model 1
@@ -77,7 +77,9 @@ public:
    * We will first analytically integrate our meansurements and Jacobians.
    * Then we perform numerical integration for our measurement covariance.
    */
-  void feed_IMU(double t_0, double t_1, Eigen::Matrix<double, 3, 1> w_m_0, Eigen::Matrix<double, 3, 1> a_m_0, Eigen::Matrix<double, 3, 1> w_m_1 = Eigen::Matrix<double, 3, 1>::Zero(), Eigen::Matrix<double, 3, 1> a_m_1 = Eigen::Matrix<double, 3, 1>::Zero()) override;
+  void feed_IMU(double t_0, double t_1, Eigen::Matrix<double, 3, 1> w_m_0, Eigen::Matrix<double, 3, 1> a_m_0,
+                Eigen::Matrix<double, 3, 1> w_m_1 = Eigen::Matrix<double, 3, 1>::Zero(),
+                Eigen::Matrix<double, 3, 1> a_m_1 = Eigen::Matrix<double, 3, 1>::Zero());
 };
 
 } // namespace ov_core

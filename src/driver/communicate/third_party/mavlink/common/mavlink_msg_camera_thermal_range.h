@@ -3,23 +3,30 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE = 277 };
+#define MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE 277
 
-using mavlink_camera_thermal_range_t = struct __mavlink_camera_thermal_range_t {
-    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
-    float max;                /*< [degC] Temperature max.*/
-    float max_point_x;        /*<  Temperature max point x value (normalized 0..1, 0 is left, 1 is right), NAN if unknown.*/
-    float max_point_y;        /*<  Temperature max point y value (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown.*/
-    float min;                /*< [degC] Temperature min.*/
-    float min_point_x;        /*<  Temperature min point x value (normalized 0..1, 0 is left, 1 is right), NAN if unknown.*/
-    float min_point_y;        /*<  Temperature min point y value (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown.*/
-    uint8_t stream_id;        /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
-    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-};
 
-enum { MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_LEN = 30, MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_MIN_LEN = 30, MAVLINK_MSG_ID_277_LEN = 30, MAVLINK_MSG_ID_277_MIN_LEN = 30 };
+typedef struct __mavlink_camera_thermal_range_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ float max; /*< [degC] Temperature max.*/
+ float max_point_x; /*<  Temperature max point x value (normalized 0..1, 0 is left, 1 is right), NAN if unknown.*/
+ float max_point_y; /*<  Temperature max point y value (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown.*/
+ float min; /*< [degC] Temperature min.*/
+ float min_point_x; /*<  Temperature min point x value (normalized 0..1, 0 is left, 1 is right), NAN if unknown.*/
+ float min_point_y; /*<  Temperature min point y value (normalized 0..1, 0 is top, 1 is bottom), NAN if unknown.*/
+ uint8_t stream_id; /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
+ uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+} mavlink_camera_thermal_range_t;
 
-enum { MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_CRC = 62, MAVLINK_MSG_ID_277_CRC = 62 };
+#define MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_LEN 30
+#define MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_MIN_LEN 30
+#define MAVLINK_MSG_ID_277_LEN 30
+#define MAVLINK_MSG_ID_277_MIN_LEN 30
+
+#define MAVLINK_MSG_ID_CAMERA_THERMAL_RANGE_CRC 62
+#define MAVLINK_MSG_ID_277_CRC 62
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_THERMAL_RANGE { \

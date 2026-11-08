@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE = 130 };
+#define MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE 130
 
-using mavlink_data_transmission_handshake_t = struct __mavlink_data_transmission_handshake_t {
-    uint32_t size;       /*< [bytes] total data size (set on ACK only).*/
-    uint16_t width;      /*<  Width of a matrix or image.*/
-    uint16_t height;     /*<  Height of a matrix or image.*/
-    uint16_t packets;    /*<  Number of packets being sent (set on ACK only).*/
-    uint8_t type;        /*<  Type of requested/acknowledged data.*/
-    uint8_t payload;     /*< [bytes] Payload size per packet (normally 253 byte, see DATA field size in message ENCAPSULATED_DATA) (set on ACK only).*/
-    uint8_t jpg_quality; /*< [%] JPEG quality. Values: [1-100].*/
-};
 
-enum { MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_LEN = 13, MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_MIN_LEN = 13, MAVLINK_MSG_ID_130_LEN = 13, MAVLINK_MSG_ID_130_MIN_LEN = 13 };
+typedef struct __mavlink_data_transmission_handshake_t {
+ uint32_t size; /*< [bytes] total data size (set on ACK only).*/
+ uint16_t width; /*<  Width of a matrix or image.*/
+ uint16_t height; /*<  Height of a matrix or image.*/
+ uint16_t packets; /*<  Number of packets being sent (set on ACK only).*/
+ uint8_t type; /*<  Type of requested/acknowledged data.*/
+ uint8_t payload; /*< [bytes] Payload size per packet (normally 253 byte, see DATA field size in message ENCAPSULATED_DATA) (set on ACK only).*/
+ uint8_t jpg_quality; /*< [%] JPEG quality. Values: [1-100].*/
+} mavlink_data_transmission_handshake_t;
 
-enum { MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_CRC = 29, MAVLINK_MSG_ID_130_CRC = 29 };
+#define MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_LEN 13
+#define MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_MIN_LEN 13
+#define MAVLINK_MSG_ID_130_LEN 13
+#define MAVLINK_MSG_ID_130_MIN_LEN 13
+
+#define MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE_CRC 29
+#define MAVLINK_MSG_ID_130_CRC 29
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_DATA_TRANSMISSION_HANDSHAKE { \

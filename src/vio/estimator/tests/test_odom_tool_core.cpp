@@ -73,7 +73,7 @@ int main() {
         const double yaw = 2.0 * std::atan2(yaw_mid.q[3], yaw_mid.q[0]);
         CHECK_NEAR(yaw, M_PI / 4.0, 1e-5);
         // 四元数必须归一
-        const double qn = std::sqrt((yaw_mid.q[0] * yaw_mid.q[0]) + (yaw_mid.q[3] * yaw_mid.q[3]));
+        const double qn = std::sqrt(yaw_mid.q[0] * yaw_mid.q[0] + yaw_mid.q[3] * yaw_mid.q[3]);
         CHECK_NEAR(qn, 1.0, 1e-6);
 
         // 阶段序号
@@ -93,7 +93,7 @@ int main() {
             o.x = x;
             o.y = y;
             o.z = z;
-            o.q[0] = 1.0F;
+            o.q[0] = 1.0f;
             o.reset_counter = reset;
             o.quality = quality;
             o.estimator_type = MAV_ESTIMATOR_TYPE_VIO;
@@ -102,10 +102,10 @@ int main() {
             return o;
         };
 
-        st.add(make(1000000ULL, 0.0F, 0.0F, 0.0F, 0, 90, 20, 12), 0);
-        st.add(make(1033333ULL, 0.1F, 0.0F, 0.0F, 0, 90, 20, 12), 0);
-        st.add(make(1066666ULL, 0.2F, 0.0F, 0.0F, 1, 50, 20, 12), 0);  // reset 变化
-        st.add(make(1000000ULL, 0.2F, 0.0F, 0.0F, 1, 40, 12, 12), 0);  // 时间倒退 + 坐标系错 + 低质量
+        st.add(make(1000000ULL, 0.0f, 0.0f, 0.0f, 0, 90, 20, 12), 0);
+        st.add(make(1033333ULL, 0.1f, 0.0f, 0.0f, 0, 90, 20, 12), 0);
+        st.add(make(1066666ULL, 0.2f, 0.0f, 0.0f, 1, 50, 20, 12), 0);  // reset 变化
+        st.add(make(1000000ULL, 0.2f, 0.0f, 0.0f, 1, 40, 12, 12), 0);  // 时间倒退 + 坐标系错 + 低质量
 
         CHECK(st.odometry == 4);
         CHECK(st.reset_changes == 1);
@@ -120,7 +120,7 @@ int main() {
 
         ProbeStats st2;
         mavlink_odometry_t bad_q = make(2000000ULL, 0, 0, 0, 0, 90, 20, 12);
-        bad_q.q[0] = 0.5F;  // 非归一四元数
+        bad_q.q[0] = 0.5f;  // 非归一四元数
         st2.add(bad_q, 0);
         CHECK(st2.bad_quat == 1);
         std::printf("[2] Probe 统计 OK（帧数/质量/reset/坐标系/乱序/频率）\n");

@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA = 55 };
+#define MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA 55
 
-using mavlink_safety_allowed_area_t = struct __mavlink_safety_allowed_area_t {
-    float p1x;     /*< [m] x position 1 / Latitude 1*/
-    float p1y;     /*< [m] y position 1 / Longitude 1*/
-    float p1z;     /*< [m] z position 1 / Altitude 1*/
-    float p2x;     /*< [m] x position 2 / Latitude 2*/
-    float p2y;     /*< [m] y position 2 / Longitude 2*/
-    float p2z;     /*< [m] z position 2 / Altitude 2*/
-    uint8_t frame; /*<  Coordinate frame. Can be either global, GPS, right-handed with Z axis up or local, right handed, Z axis down.*/
-};
 
-enum { MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_LEN = 25, MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_MIN_LEN = 25, MAVLINK_MSG_ID_55_LEN = 25, MAVLINK_MSG_ID_55_MIN_LEN = 25 };
+typedef struct __mavlink_safety_allowed_area_t {
+ float p1x; /*< [m] x position 1 / Latitude 1*/
+ float p1y; /*< [m] y position 1 / Longitude 1*/
+ float p1z; /*< [m] z position 1 / Altitude 1*/
+ float p2x; /*< [m] x position 2 / Latitude 2*/
+ float p2y; /*< [m] y position 2 / Longitude 2*/
+ float p2z; /*< [m] z position 2 / Altitude 2*/
+ uint8_t frame; /*<  Coordinate frame. Can be either global, GPS, right-handed with Z axis up or local, right handed, Z axis down.*/
+} mavlink_safety_allowed_area_t;
 
-enum { MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_CRC = 3, MAVLINK_MSG_ID_55_CRC = 3 };
+#define MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_LEN 25
+#define MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_MIN_LEN 25
+#define MAVLINK_MSG_ID_55_LEN 25
+#define MAVLINK_MSG_ID_55_MIN_LEN 25
+
+#define MAVLINK_MSG_ID_SAFETY_ALLOWED_AREA_CRC 3
+#define MAVLINK_MSG_ID_55_CRC 3
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SAFETY_ALLOWED_AREA { \

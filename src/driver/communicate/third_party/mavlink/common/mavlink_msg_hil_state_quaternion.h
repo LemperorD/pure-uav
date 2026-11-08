@@ -3,32 +3,37 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_HIL_STATE_QUATERNION = 115 };
+#define MAVLINK_MSG_ID_HIL_STATE_QUATERNION 115
 
-using mavlink_hil_state_quaternion_t = struct __mavlink_hil_state_quaternion_t {
-    uint64_t time_usec;           /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float attitude_quaternion[4]; /*<  Vehicle attitude expressed as normalized quaternion in w, x, y, z order (with 1 0 0 0 being the null-rotation)*/
-    float rollspeed;              /*< [rad/s] Body frame roll / phi angular speed*/
-    float pitchspeed;             /*< [rad/s] Body frame pitch / theta angular speed*/
-    float yawspeed;               /*< [rad/s] Body frame yaw / psi angular speed*/
-    int32_t lat;                  /*< [degE7] Latitude*/
-    int32_t lon;                  /*< [degE7] Longitude*/
-    int32_t alt;                  /*< [mm] Altitude*/
-    int16_t vx;                   /*< [cm/s] Ground X Speed (Latitude)*/
-    int16_t vy;                   /*< [cm/s] Ground Y Speed (Longitude)*/
-    int16_t vz;                   /*< [cm/s] Ground Z Speed (Altitude)*/
-    uint16_t ind_airspeed;        /*< [cm/s] Indicated airspeed*/
-    uint16_t true_airspeed;       /*< [cm/s] True airspeed*/
-    int16_t xacc;                 /*< [mG] X acceleration*/
-    int16_t yacc;                 /*< [mG] Y acceleration*/
-    int16_t zacc;                 /*< [mG] Z acceleration*/
-};
 
-enum { MAVLINK_MSG_ID_HIL_STATE_QUATERNION_LEN = 64, MAVLINK_MSG_ID_HIL_STATE_QUATERNION_MIN_LEN = 64, MAVLINK_MSG_ID_115_LEN = 64, MAVLINK_MSG_ID_115_MIN_LEN = 64 };
+typedef struct __mavlink_hil_state_quaternion_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float attitude_quaternion[4]; /*<  Vehicle attitude expressed as normalized quaternion in w, x, y, z order (with 1 0 0 0 being the null-rotation)*/
+ float rollspeed; /*< [rad/s] Body frame roll / phi angular speed*/
+ float pitchspeed; /*< [rad/s] Body frame pitch / theta angular speed*/
+ float yawspeed; /*< [rad/s] Body frame yaw / psi angular speed*/
+ int32_t lat; /*< [degE7] Latitude*/
+ int32_t lon; /*< [degE7] Longitude*/
+ int32_t alt; /*< [mm] Altitude*/
+ int16_t vx; /*< [cm/s] Ground X Speed (Latitude)*/
+ int16_t vy; /*< [cm/s] Ground Y Speed (Longitude)*/
+ int16_t vz; /*< [cm/s] Ground Z Speed (Altitude)*/
+ uint16_t ind_airspeed; /*< [cm/s] Indicated airspeed*/
+ uint16_t true_airspeed; /*< [cm/s] True airspeed*/
+ int16_t xacc; /*< [mG] X acceleration*/
+ int16_t yacc; /*< [mG] Y acceleration*/
+ int16_t zacc; /*< [mG] Z acceleration*/
+} mavlink_hil_state_quaternion_t;
 
-enum { MAVLINK_MSG_ID_HIL_STATE_QUATERNION_CRC = 4, MAVLINK_MSG_ID_115_CRC = 4 };
+#define MAVLINK_MSG_ID_HIL_STATE_QUATERNION_LEN 64
+#define MAVLINK_MSG_ID_HIL_STATE_QUATERNION_MIN_LEN 64
+#define MAVLINK_MSG_ID_115_LEN 64
+#define MAVLINK_MSG_ID_115_MIN_LEN 64
 
-enum { MAVLINK_MSG_HIL_STATE_QUATERNION_FIELD_ATTITUDE_QUATERNION_LEN = 4 };
+#define MAVLINK_MSG_ID_HIL_STATE_QUATERNION_CRC 4
+#define MAVLINK_MSG_ID_115_CRC 4
+
+#define MAVLINK_MSG_HIL_STATE_QUATERNION_FIELD_ATTITUDE_QUATERNION_LEN 4
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIL_STATE_QUATERNION { \

@@ -3,17 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MISSION_SET_CURRENT = 41 };
+#define MAVLINK_MSG_ID_MISSION_SET_CURRENT 41
 
-using mavlink_mission_set_current_t = struct __mavlink_mission_set_current_t {
-    uint16_t seq;             /*<  Sequence*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-};
 
-enum { MAVLINK_MSG_ID_MISSION_SET_CURRENT_LEN = 4, MAVLINK_MSG_ID_MISSION_SET_CURRENT_MIN_LEN = 4, MAVLINK_MSG_ID_41_LEN = 4, MAVLINK_MSG_ID_41_MIN_LEN = 4 };
+typedef struct __mavlink_mission_set_current_t {
+ uint16_t seq; /*<  Sequence*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+} mavlink_mission_set_current_t;
 
-enum { MAVLINK_MSG_ID_MISSION_SET_CURRENT_CRC = 28, MAVLINK_MSG_ID_41_CRC = 28 };
+#define MAVLINK_MSG_ID_MISSION_SET_CURRENT_LEN 4
+#define MAVLINK_MSG_ID_MISSION_SET_CURRENT_MIN_LEN 4
+#define MAVLINK_MSG_ID_41_LEN 4
+#define MAVLINK_MSG_ID_41_MIN_LEN 4
+
+#define MAVLINK_MSG_ID_MISSION_SET_CURRENT_CRC 28
+#define MAVLINK_MSG_ID_41_CRC 28
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_SET_CURRENT { \
@@ -298,10 +305,11 @@ static inline void mavlink_msg_mission_set_current_decode(const mavlink_message_
         memset(mission_set_current, 0, MAVLINK_MSG_ID_MISSION_SET_CURRENT_LEN);
     memcpy(mission_set_current, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         mission_set_current->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

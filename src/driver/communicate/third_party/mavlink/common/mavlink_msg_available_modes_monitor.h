@@ -3,15 +3,22 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR = 437 };
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR 437
 
-using mavlink_available_modes_monitor_t = struct __mavlink_available_modes_monitor_t {
-    uint8_t seq; /*<  Sequence number. Iterates sequentially whenever AVAILABLE_MODES changes (e.g. support for a new mode is added/removed dynamically). 0 initially. 1 on first change of mode set.*/
-};
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_LEN = 1, MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_MIN_LEN = 1, MAVLINK_MSG_ID_437_LEN = 1, MAVLINK_MSG_ID_437_MIN_LEN = 1 };
+typedef struct __mavlink_available_modes_monitor_t {
+ uint8_t seq; /*<  Sequence number. Iterates sequentially whenever AVAILABLE_MODES changes (e.g. support for a new mode is added/removed dynamically). 0 initially. 1 on first change of mode set.*/
+} mavlink_available_modes_monitor_t;
 
-enum { MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_CRC = 30, MAVLINK_MSG_ID_437_CRC = 30 };
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_LEN 1
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_MIN_LEN 1
+#define MAVLINK_MSG_ID_437_LEN 1
+#define MAVLINK_MSG_ID_437_MIN_LEN 1
+
+#define MAVLINK_MSG_ID_AVAILABLE_MODES_MONITOR_CRC 30
+#define MAVLINK_MSG_ID_437_CRC 30
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AVAILABLE_MODES_MONITOR { \

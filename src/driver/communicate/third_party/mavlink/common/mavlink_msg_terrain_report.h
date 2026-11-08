@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_TERRAIN_REPORT = 136 };
+#define MAVLINK_MSG_ID_TERRAIN_REPORT 136
 
-using mavlink_terrain_report_t = struct __mavlink_terrain_report_t {
-    int32_t lat;          /*< [degE7] Latitude*/
-    int32_t lon;          /*< [degE7] Longitude*/
-    float terrain_height; /*< [m] Terrain height MSL*/
-    float current_height; /*< [m] Current vehicle height above lat/lon terrain height*/
-    uint16_t spacing;     /*<  grid spacing (zero if terrain at this location unavailable)*/
-    uint16_t pending;     /*<  Number of 4x4 terrain blocks waiting to be received or read from disk*/
-    uint16_t loaded;      /*<  Number of 4x4 terrain blocks in memory*/
-};
 
-enum { MAVLINK_MSG_ID_TERRAIN_REPORT_LEN = 22, MAVLINK_MSG_ID_TERRAIN_REPORT_MIN_LEN = 22, MAVLINK_MSG_ID_136_LEN = 22, MAVLINK_MSG_ID_136_MIN_LEN = 22 };
+typedef struct __mavlink_terrain_report_t {
+ int32_t lat; /*< [degE7] Latitude*/
+ int32_t lon; /*< [degE7] Longitude*/
+ float terrain_height; /*< [m] Terrain height MSL*/
+ float current_height; /*< [m] Current vehicle height above lat/lon terrain height*/
+ uint16_t spacing; /*<  grid spacing (zero if terrain at this location unavailable)*/
+ uint16_t pending; /*<  Number of 4x4 terrain blocks waiting to be received or read from disk*/
+ uint16_t loaded; /*<  Number of 4x4 terrain blocks in memory*/
+} mavlink_terrain_report_t;
 
-enum { MAVLINK_MSG_ID_TERRAIN_REPORT_CRC = 1, MAVLINK_MSG_ID_136_CRC = 1 };
+#define MAVLINK_MSG_ID_TERRAIN_REPORT_LEN 22
+#define MAVLINK_MSG_ID_TERRAIN_REPORT_MIN_LEN 22
+#define MAVLINK_MSG_ID_136_LEN 22
+#define MAVLINK_MSG_ID_136_MIN_LEN 22
+
+#define MAVLINK_MSG_ID_TERRAIN_REPORT_CRC 1
+#define MAVLINK_MSG_ID_136_CRC 1
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TERRAIN_REPORT { \

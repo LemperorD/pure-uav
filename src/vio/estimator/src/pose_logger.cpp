@@ -8,9 +8,7 @@ namespace pure_uav {
 
 namespace {
 void ensureParentDir(const std::string& path) {
-    if (path.empty()) {
-        return;
-    }
+    if (path.empty()) return;
     const std::filesystem::path p(path);
     if (p.has_parent_path()) {
         std::error_code ec;
@@ -56,7 +54,7 @@ bool PoseLogger::open(const std::string& csv_path, const std::string& tum_path) 
 void PoseLogger::log(const VisionPose& pose) {
     if (csv_.is_open()) {
 #ifdef PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT
-        const float cam_imu_dt_out = -999.0F;  // 仓库版 VisionPose 无此字段
+        const float cam_imu_dt_out = -999.0f;  // 仓库版 VisionPose 无此字段
 #else
         const float cam_imu_dt_out = pose.cam_imu_dt;
 #endif
@@ -73,12 +71,8 @@ void PoseLogger::log(const VisionPose& pose) {
 }
 
 void PoseLogger::close() {
-    if (csv_.is_open()) {
-        csv_.close();
-    }
-    if (tum_.is_open()) {
-        tum_.close();
-    }
+    if (csv_.is_open()) csv_.close();
+    if (tum_.is_open()) tum_.close();
 }
 
 }  // namespace pure_uav

@@ -72,7 +72,7 @@ class Sensor {
     // 真值 → 制导输入（含噪声 / 延迟 / 丢帧）
     GuidanceState observe(const TruthState& truth, double t);
 
-    [[nodiscard]] const SensorStats& stats() const {
+    const SensorStats& stats() const {
         return stats_;
     }
     void reset();

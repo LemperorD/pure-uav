@@ -3,19 +3,25 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN = 49 };
+#define MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN 49
 
-MAVPACKED(typedef struct MavlinkGpsGlobalOriginT {
-    int32_t latitude;   /*< [degE7] Latitude (WGS84)*/
-    int32_t longitude;  /*< [degE7] Longitude (WGS84)*/
-    int32_t altitude;   /*< [mm] Altitude (MSL). Positive for up.*/
-    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-})
-mavlink_gps_global_origin_t;
+MAVPACKED(
+typedef struct __mavlink_gps_global_origin_t {
+ int32_t latitude; /*< [degE7] Latitude (WGS84)*/
+ int32_t longitude; /*< [degE7] Longitude (WGS84)*/
+ int32_t altitude; /*< [mm] Altitude (MSL). Positive for up.*/
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+}) mavlink_gps_global_origin_t;
 
-enum { MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_LEN = 20, MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_MIN_LEN = 12, MAVLINK_MSG_ID_49_LEN = 20, MAVLINK_MSG_ID_49_MIN_LEN = 12 };
+#define MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_LEN 20
+#define MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_MIN_LEN 12
+#define MAVLINK_MSG_ID_49_LEN 20
+#define MAVLINK_MSG_ID_49_MIN_LEN 12
 
-enum { MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_CRC = 39, MAVLINK_MSG_ID_49_CRC = 39 };
+#define MAVLINK_MSG_ID_GPS_GLOBAL_ORIGIN_CRC 39
+#define MAVLINK_MSG_ID_49_CRC 39
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GPS_GLOBAL_ORIGIN { \

@@ -14,7 +14,6 @@
 //     fidelity : IDEAL(默认) / SEMI / FULL
 //     target   : dart(默认) / ballistic / straight / circle / snake
 
-#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -67,14 +66,10 @@ static TruthState make_truth(double t, const Vec3& p_M, const Vec3& v_M, const T
 //  RK4 推进（点质量；a 在步内视为常数 = 制导零阶保持）
 // ============================================================
 static void rk4_step(Vec3& p, Vec3& v, const Vec3& a, double dt) {
-    const Vec3 k1p = v;
-    const Vec3 k1v = a;
-    const Vec3 k2p = v + k1v * (dt * 0.5);
-    const Vec3 k2v = a;
-    const Vec3 k3p = v + k2v * (dt * 0.5);
-    const Vec3 k3v = a;
-    const Vec3 k4p = v + k3v * dt;
-    const Vec3 k4v = a;
+    const Vec3 k1p = v, k1v = a;
+    const Vec3 k2p = v + k1v * (dt * 0.5), k2v = a;
+    const Vec3 k3p = v + k2v * (dt * 0.5), k3v = a;
+    const Vec3 k4p = v + k3v * dt, k4v = a;
     p += (k1p + k2p * 2.0 + k3p * 2.0 + k4p) * (dt / 6.0);
     v += (k1v + k2v * 2.0 + k3v * 2.0 + k4v) * (dt / 6.0);
 }
@@ -100,8 +95,7 @@ struct SimResult {
 static SimResult run_sim(const Scenario& s, const char* csv_path) {
     SimResult res;
 
-    Vec3 p_M = s.p_M0;
-    Vec3 v_M = s.v_M0;
+    Vec3 p_M = s.p_M0, v_M = s.v_M0;
     GuidanceMemory mem;
     PureGuidanceCmd cmd;
     GuidanceState st;              // 传感器最近一次输出（两次更新间保持）
@@ -110,17 +104,16 @@ static SimResult run_sim(const Scenario& s, const char* csv_path) {
 
     double t = 0.0;
     double next_g = 0.0;  // 下次制导更新时刻
-    double min_R = 1e9;
-    double t_min = 0.0;
+    double min_R = 1e9, t_min = 0.0;
     bool have_min = false;
     bool passed = false;  // 是否已越过最近点
     double R_upd = 0.0;   // 最近一次传感器更新时刻的真值 R（与 R_est 同时刻）
 
-    FILE* fp = (csv_path != nullptr) ? std::fopen(csv_path, "w") : nullptr;
-    if ((csv_path != nullptr) && (fp == nullptr)) {
+    FILE* fp = csv_path ? std::fopen(csv_path, "w") : nullptr;
+    if (csv_path && !fp) {
         std::printf("[warn] 无法写入 CSV: %s\n", csv_path);
     }
-    if (fp != nullptr) {
+    if (fp) {
         std::fprintf(fp,
                      "t,pMx,pMy,pMz,vMx,vMy,vMz,pTx,pTy,pTz,vTx,vTy,vTz,"
                      "R,R_est,R_upd,Vc,lam_dot,acx,acy,acz,a_norm,sat,mode,t_go\n");
@@ -146,27 +139,21 @@ static SimResult run_sim(const Scenario& s, const char* csv_path) {
             t_min = t;
             have_min = true;
         }
-        if (R < s.hit_radius) {
-            res.hit = true;  // 只要穿过命中球就算命中（不提前退出）
-        }
-        if (R > min_R + 0.1) {
-            passed = true;  // 距离已拉大 0.1 m → 越过最近点
-        }
+        if (R < s.hit_radius) res.hit = true;  // 只要穿过命中球就算命中（不提前退出）
+        if (R > min_R + 0.1) passed = true;    // 距离已拉大 0.1 m → 越过最近点
 
         // 峰值指标只在 R > R_metric 时统计：
         //   末端 R→0 时 λ̇ 必然出现飞越尖峰（几何使然，非制导问题），
         //   若一并统计会把峰值|a|永远顶到 a_max，指标失去区分度。
         const double a_norm = norm(cmd.a_cmd);
         if (R > 1.0) {
-            res.peak_accel = std::max(a_norm, res.peak_accel);
-            res.peak_lam_dot = std::max(cmd.lam_dot, res.peak_lam_dot);
+            if (a_norm > res.peak_accel) res.peak_accel = a_norm;
+            if (cmd.lam_dot > res.peak_lam_dot) res.peak_lam_dot = cmd.lam_dot;
         }
         res.lam_dot_end = cmd.lam_dot;
-        if (cmd.sat) {
-            res.sat_steps++;
-        }
+        if (cmd.sat) res.sat_steps++;
 
-        if (fp != nullptr) {
+        if (fp) {
             std::fprintf(fp,
                          "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,"
                          "%.4f,%.4f,%.4f,%.4f,%.6f,%.4f,%.4f,%.4f,%.4f,%d,%d,%.4f\n",
@@ -174,18 +161,14 @@ static SimResult run_sim(const Scenario& s, const char* csv_path) {
         }
 
         // 终止判据：跑到（略过）最近点即停 —— 保留真实脱靶量，而不是"命中球半径"
-        if (passed) {
-            break;
-        }
+        if (passed) break;
 
         rk4_step(p_M, v_M, cmd.a_cmd, s.dt_sim);
         t += s.dt_sim;
         res.steps++;
     }
 
-    if (fp != nullptr) {
-        std::fclose(fp);
-    }
+    if (fp) std::fclose(fp);
     res.miss_distance = min_R;
     res.t_miss = t_min;
     res.frames = sensor.stats().frames;
@@ -208,62 +191,40 @@ static const char* law_name(GuidanceLaw l) {
 
 // 命令行导引律解析：接受名字（PPN/TPN/APN，大小写不敏感）或数字（0/1/2）
 static GuidanceLaw parse_law(const char* s) {
-    if (s == nullptr) {
-        return GuidanceLaw::PPN;
-    }
+    if (!s) return GuidanceLaw::PPN;
     if (s[0] >= '0' && s[0] <= '9') {
         const int v = std::atoi(s);
-        if (v == 0) {
-            return GuidanceLaw::PPN;
-        }
-        if (v == 1) {
-            return GuidanceLaw::TPN;
-        }
-        if (v == 2) {
-            return GuidanceLaw::APN;
-        }
+        if (v == 0) return GuidanceLaw::PPN;
+        if (v == 1) return GuidanceLaw::TPN;
+        if (v == 2) return GuidanceLaw::APN;
         return GuidanceLaw::PPN;
     }
     auto eq = [](const char* a, const char* b) {
         for (; *a && *b; ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
-            if (ca != cb) {
-                return false;
-            }
+            if (ca != cb) return false;
         }
         return *a == '\0' && *b == '\0';
     };
-    if (eq(s, "TPN")) {
-        return GuidanceLaw::TPN;
-    }
-    if (eq(s, "APN")) {
-        return GuidanceLaw::APN;
-    }
+    if (eq(s, "TPN")) return GuidanceLaw::TPN;
+    if (eq(s, "APN")) return GuidanceLaw::APN;
     return GuidanceLaw::PPN;  // "PPN" 及无法识别者都回落到 PPN
 }
 
 // 命令行传感器逼真度解析：IDEAL / SEMI / FULL（大小写不敏感）
 static SensorFidelity parse_fidelity(const char* s) {
-    if (s == nullptr) {
-        return SensorFidelity::IDEAL;
-    }
+    if (!s) return SensorFidelity::IDEAL;
     auto eq = [](const char* a, const char* b) {
         for (; *a && *b; ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
-            if (ca != cb) {
-                return false;
-            }
+            if (ca != cb) return false;
         }
         return *a == '\0' && *b == '\0';
     };
-    if (eq(s, "SEMI") || eq(s, "SEMI_REAL")) {
-        return SensorFidelity::SEMI_REAL;
-    }
-    if (eq(s, "FULL") || eq(s, "FULL_REAL")) {
-        return SensorFidelity::FULL_REAL;
-    }
+    if (eq(s, "SEMI") || eq(s, "SEMI_REAL")) return SensorFidelity::SEMI_REAL;
+    if (eq(s, "FULL") || eq(s, "FULL_REAL")) return SensorFidelity::FULL_REAL;
     return SensorFidelity::IDEAL;
 }
 
@@ -287,31 +248,19 @@ static void pair_los_source(Scenario& s) {
 
 // 命令行目标类型解析：dart / ballistic / straight / circle / snake（大小写不敏感）
 static TargetType parse_target(const char* s) {
-    if (s == nullptr) {
-        return TargetType::DART;
-    }
+    if (!s) return TargetType::DART;
     auto eq = [](const char* a, const char* b) {
         for (; *a && *b; ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
-            if (ca != cb) {
-                return false;
-            }
+            if (ca != cb) return false;
         }
         return *a == '\0' && *b == '\0';
     };
-    if (eq(s, "STRAIGHT")) {
-        return TargetType::STRAIGHT;
-    }
-    if (eq(s, "BALLISTIC")) {
-        return TargetType::BALLISTIC;
-    }
-    if (eq(s, "CIRCLE")) {
-        return TargetType::CIRCLE;
-    }
-    if (eq(s, "SNAKE")) {
-        return TargetType::SNAKE;
-    }
+    if (eq(s, "STRAIGHT")) return TargetType::STRAIGHT;
+    if (eq(s, "BALLISTIC")) return TargetType::BALLISTIC;
+    if (eq(s, "CIRCLE")) return TargetType::CIRCLE;
+    if (eq(s, "SNAKE")) return TargetType::SNAKE;
     return TargetType::DART;  // "DART" 及无法识别者都回落到 DART
 }
 
@@ -349,13 +298,9 @@ int main(int argc, char** argv) {
     // 结论：冻结阈值必须与交会速度/收敛速度匹配，高速交会要取小值。
     s.gp.t_go_freeze = 0.15;
 
-    if (argc >= 4) {
-        s.gp.law = parse_law(argv[3]);
-    }
+    if (argc >= 4) s.gp.law = parse_law(argv[3]);
     s.sensor.fidelity = (argc >= 5) ? parse_fidelity(argv[4]) : SensorFidelity::IDEAL;
-    if (argc >= 6) {
-        s.target.type = parse_target(argv[5]);
-    }
+    if (argc >= 6) s.target.type = parse_target(argv[5]);
     pair_los_source(s);
 
     const char* csv = (argc >= 2) ? argv[1] : "pn_sim_log.csv";
@@ -381,8 +326,8 @@ int main(int argc, char** argv) {
         const TargetModel tmD(s.target);  // 有阻力
         const TargetState s0 = tm0.state(tm0.flight_time());
         const TargetState sD = tmD.state(tmD.flight_time());
-        const double range0 = std::sqrt(((s0.p.x - s.target.p0.x) * (s0.p.x - s.target.p0.x)) + ((s0.p.y - s.target.p0.y) * (s0.p.y - s.target.p0.y)));
-        const double rangeD = std::sqrt(((sD.p.x - s.target.p0.x) * (sD.p.x - s.target.p0.x)) + ((sD.p.y - s.target.p0.y) * (sD.p.y - s.target.p0.y)));
+        const double range0 = std::sqrt((s0.p.x - s.target.p0.x) * (s0.p.x - s.target.p0.x) + (s0.p.y - s.target.p0.y) * (s0.p.y - s.target.p0.y));
+        const double rangeD = std::sqrt((sD.p.x - s.target.p0.x) * (sD.p.x - s.target.p0.x) + (sD.p.y - s.target.p0.y) * (sD.p.y - s.target.p0.y));
         std::printf("\n=== 气动阻力影响（同发射条件，仅切换 Cd）===\n");
         std::printf("  %-14s %-14s %-14s %-10s\n", "", "无阻力 Cd=0", "有阻力", "差异");
         std::printf("  %-14s %-14.2f %-14.2f %-10.1f%%\n", "飞行时长 (s)", tm0.flight_time(), tmD.flight_time(), 100.0 * (tmD.flight_time() - tm0.flight_time()) / tm0.flight_time());
@@ -491,12 +436,8 @@ int main(int argc, char** argv) {
         for (const FRow& row : frows) {
             Scenario sc = s;
             sc.gp.freeze_criterion = row.c;
-            if (row.tgo > 0.0) {
-                sc.gp.t_go_freeze = row.tgo;
-            }
-            if (row.Rf > 0.0) {
-                sc.gp.R_freeze = row.Rf;
-            }
+            if (row.tgo > 0.0) sc.gp.t_go_freeze = row.tgo;
+            if (row.Rf > 0.0) sc.gp.R_freeze = row.Rf;
             const SimResult rr = run_sim(sc, nullptr);
             std::printf("  %-24s %-12.3f %-8s %-10.2f %-8d\n", row.name, rr.miss_distance, rr.hit ? "命中" : "脱靶", rr.peak_accel, rr.sat_steps);
         }
@@ -569,8 +510,7 @@ int main(int argc, char** argv) {
             stp.gp.N = N;
             const SimResult rp = run_sim(sp, nullptr);
             const SimResult rt = run_sim(stp, nullptr);
-            char bp[32];
-            char bt[32];
+            char bp[32], bt[32];
             std::snprintf(bp, sizeof(bp), "%.3f %s", rp.miss_distance, rp.hit ? "命中" : "脱靶");
             std::snprintf(bt, sizeof(bt), "%.3f %s", rt.miss_distance, rt.hit ? "命中" : "脱靶");
             std::printf("  %-6.1f %-16s %-16s\n", N, bp, bt);

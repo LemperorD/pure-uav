@@ -3,25 +3,32 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_RAW = 35 };
+#define MAVLINK_MSG_ID_RC_CHANNELS_RAW 35
 
-using mavlink_rc_channels_raw_t = struct __mavlink_rc_channels_raw_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    uint16_t chan1_raw;    /*< [us] RC channel 1 value.*/
-    uint16_t chan2_raw;    /*< [us] RC channel 2 value.*/
-    uint16_t chan3_raw;    /*< [us] RC channel 3 value.*/
-    uint16_t chan4_raw;    /*< [us] RC channel 4 value.*/
-    uint16_t chan5_raw;    /*< [us] RC channel 5 value.*/
-    uint16_t chan6_raw;    /*< [us] RC channel 6 value.*/
-    uint16_t chan7_raw;    /*< [us] RC channel 7 value.*/
-    uint16_t chan8_raw;    /*< [us] RC channel 8 value.*/
-    uint8_t port;          /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
-    uint8_t rssi;          /*<  Receive signal strength indicator in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
-};
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_RAW_LEN = 22, MAVLINK_MSG_ID_RC_CHANNELS_RAW_MIN_LEN = 22, MAVLINK_MSG_ID_35_LEN = 22, MAVLINK_MSG_ID_35_MIN_LEN = 22 };
+typedef struct __mavlink_rc_channels_raw_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ uint16_t chan1_raw; /*< [us] RC channel 1 value.*/
+ uint16_t chan2_raw; /*< [us] RC channel 2 value.*/
+ uint16_t chan3_raw; /*< [us] RC channel 3 value.*/
+ uint16_t chan4_raw; /*< [us] RC channel 4 value.*/
+ uint16_t chan5_raw; /*< [us] RC channel 5 value.*/
+ uint16_t chan6_raw; /*< [us] RC channel 6 value.*/
+ uint16_t chan7_raw; /*< [us] RC channel 7 value.*/
+ uint16_t chan8_raw; /*< [us] RC channel 8 value.*/
+ uint8_t port; /*<  Servo output port (set of 8 outputs = 1 port). Flight stacks running on Pixhawk should use: 0 = MAIN, 1 = AUX.*/
+ uint8_t rssi; /*<  Receive signal strength indicator in device-dependent units/scale. Values: [0-254], UINT8_MAX: invalid/unknown.*/
+} mavlink_rc_channels_raw_t;
 
-enum { MAVLINK_MSG_ID_RC_CHANNELS_RAW_CRC = 244, MAVLINK_MSG_ID_35_CRC = 244 };
+#define MAVLINK_MSG_ID_RC_CHANNELS_RAW_LEN 22
+#define MAVLINK_MSG_ID_RC_CHANNELS_RAW_MIN_LEN 22
+#define MAVLINK_MSG_ID_35_LEN 22
+#define MAVLINK_MSG_ID_35_MIN_LEN 22
+
+#define MAVLINK_MSG_ID_RC_CHANNELS_RAW_CRC 244
+#define MAVLINK_MSG_ID_35_CRC 244
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RC_CHANNELS_RAW { \

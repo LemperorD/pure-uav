@@ -3,21 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID = 12905 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID 12905
 
-using mavlink_open_drone_id_operator_id_t = struct __mavlink_open_drone_id_operator_id_t {
-    uint8_t target_system;    /*<  System ID (0 for broadcast).*/
-    uint8_t target_component; /*<  Component ID (0 for broadcast).*/
-    uint8_t id_or_mac[20];    /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
-    uint8_t operator_id_type; /*<  Indicates the type of the operator_id field.*/
-    char operator_id[20];     /*<  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.*/
-};
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_LEN = 43, MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_MIN_LEN = 43, MAVLINK_MSG_ID_12905_LEN = 43, MAVLINK_MSG_ID_12905_MIN_LEN = 43 };
+typedef struct __mavlink_open_drone_id_operator_id_t {
+ uint8_t target_system; /*<  System ID (0 for broadcast).*/
+ uint8_t target_component; /*<  Component ID (0 for broadcast).*/
+ uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+ uint8_t operator_id_type; /*<  Indicates the type of the operator_id field.*/
+ char operator_id[20]; /*<  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.*/
+} mavlink_open_drone_id_operator_id_t;
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_CRC = 49, MAVLINK_MSG_ID_12905_CRC = 49 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_LEN 43
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_MIN_LEN 43
+#define MAVLINK_MSG_ID_12905_LEN 43
+#define MAVLINK_MSG_ID_12905_MIN_LEN 43
 
-enum { MAVLINK_MSG_OPEN_DRONE_ID_OPERATOR_ID_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_MSG_OPEN_DRONE_ID_OPERATOR_ID_FIELD_OPERATOR_ID_LEN = 20 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_CRC 49
+#define MAVLINK_MSG_ID_12905_CRC 49
+
+#define MAVLINK_MSG_OPEN_DRONE_ID_OPERATOR_ID_FIELD_ID_OR_MAC_LEN 20
+#define MAVLINK_MSG_OPEN_DRONE_ID_OPERATOR_ID_FIELD_OPERATOR_ID_LEN 20
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_OPERATOR_ID { \
@@ -52,7 +58,7 @@ enum { MAVLINK_MSG_OPEN_DRONE_ID_OPERATOR_ID_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_M
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_id_type  Indicates the type of the operator_id field.
  * @param operator_id  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.
  * @return length of the message in bytes (excluding serial stream start sign)
@@ -91,7 +97,7 @@ static inline uint16_t mavlink_msg_open_drone_id_operator_id_pack(uint32_t syste
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_id_type  Indicates the type of the operator_id field.
  * @param operator_id  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.
  * @return length of the message in bytes (excluding serial stream start sign)
@@ -133,7 +139,7 @@ static inline uint16_t mavlink_msg_open_drone_id_operator_id_pack_status(uint32_
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_id_type  Indicates the type of the operator_id field.
  * @param operator_id  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.
  * @return length of the message in bytes (excluding serial stream start sign)
@@ -211,7 +217,7 @@ static inline uint16_t mavlink_msg_open_drone_id_operator_id_encode_status(uint3
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param operator_id_type  Indicates the type of the operator_id field.
  * @param operator_id  Text description or numeric value expressed as ASCII characters. Shall be filled with nulls in the unused portion of the field.
  */
@@ -300,7 +306,7 @@ static inline uint8_t mavlink_msg_open_drone_id_operator_id_get_target_component
 /**
  * @brief Get field id_or_mac from open_drone_id_operator_id message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  */
 static inline uint16_t mavlink_msg_open_drone_id_operator_id_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {
@@ -346,10 +352,11 @@ static inline void mavlink_msg_open_drone_id_operator_id_decode(const mavlink_me
         memset(open_drone_id_operator_id, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_OPERATOR_ID_LEN);
     memcpy(open_drone_id_operator_id, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_operator_id->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -3,18 +3,24 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CURRENT_MODE = 436 };
+#define MAVLINK_MSG_ID_CURRENT_MODE 436
 
-using mavlink_current_mode_t = struct __mavlink_current_mode_t {
-    uint32_t custom_mode;          /*<  A bitfield for use for autopilot-specific flags*/
-    uint32_t intended_custom_mode; /*<  The custom_mode of the mode that was last commanded by the user (for example, with MAV_CMD_DO_SET_STANDARD_MODE, MAV_CMD_DO_SET_MODE or via RC). This should usually be the same as custom_mode. It will be different if the vehicle is unable to enter the intended
-                                      mode, or has left that mode due to a failsafe condition. 0 indicates the intended custom mode is unknown/not supplied*/
-    uint8_t standard_mode;         /*<  Standard mode.*/
-};
 
-enum { MAVLINK_MSG_ID_CURRENT_MODE_LEN = 9, MAVLINK_MSG_ID_CURRENT_MODE_MIN_LEN = 9, MAVLINK_MSG_ID_436_LEN = 9, MAVLINK_MSG_ID_436_MIN_LEN = 9 };
+typedef struct __mavlink_current_mode_t {
+ uint32_t custom_mode; /*<  A bitfield for use for autopilot-specific flags*/
+ uint32_t intended_custom_mode; /*<  The custom_mode of the mode that was last commanded by the user (for example, with MAV_CMD_DO_SET_STANDARD_MODE, MAV_CMD_DO_SET_MODE or via RC). This should usually be the same as custom_mode. It will be different if the vehicle is unable to enter the intended mode, or has left that mode due to a failsafe condition. 0 indicates the intended custom mode is unknown/not supplied*/
+ uint8_t standard_mode; /*<  Standard mode.*/
+} mavlink_current_mode_t;
 
-enum { MAVLINK_MSG_ID_CURRENT_MODE_CRC = 193, MAVLINK_MSG_ID_436_CRC = 193 };
+#define MAVLINK_MSG_ID_CURRENT_MODE_LEN 9
+#define MAVLINK_MSG_ID_CURRENT_MODE_MIN_LEN 9
+#define MAVLINK_MSG_ID_436_LEN 9
+#define MAVLINK_MSG_ID_436_MIN_LEN 9
+
+#define MAVLINK_MSG_ID_CURRENT_MODE_CRC 193
+#define MAVLINK_MSG_ID_436_CRC 193
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CURRENT_MODE { \

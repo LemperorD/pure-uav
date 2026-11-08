@@ -3,25 +3,31 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_OPTICAL_FLOW = 100 };
+#define MAVLINK_MSG_ID_OPTICAL_FLOW 100
 
-MAVPACKED(typedef struct MavlinkOpticalFlowT {
-    uint64_t time_usec;    /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float flow_comp_m_x;   /*< [m/s] Flow in x-sensor direction, angular-speed compensated*/
-    float flow_comp_m_y;   /*< [m/s] Flow in y-sensor direction, angular-speed compensated*/
-    float ground_distance; /*< [m] Ground distance. Positive value: distance known. Negative value: Unknown distance*/
-    int16_t flow_x;        /*< [dpix] Flow in x-sensor direction*/
-    int16_t flow_y;        /*< [dpix] Flow in y-sensor direction*/
-    uint8_t sensor_id;     /*<  Sensor ID*/
-    uint8_t quality;       /*<  Optical flow quality / confidence. 0: bad, 255: maximum quality*/
-    float flow_rate_x;     /*< [rad/s] Flow rate about X axis*/
-    float flow_rate_y;     /*< [rad/s] Flow rate about Y axis*/
-})
-mavlink_optical_flow_t;
+MAVPACKED(
+typedef struct __mavlink_optical_flow_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float flow_comp_m_x; /*< [m/s] Flow in x-sensor direction, angular-speed compensated*/
+ float flow_comp_m_y; /*< [m/s] Flow in y-sensor direction, angular-speed compensated*/
+ float ground_distance; /*< [m] Ground distance. Positive value: distance known. Negative value: Unknown distance*/
+ int16_t flow_x; /*< [dpix] Flow in x-sensor direction*/
+ int16_t flow_y; /*< [dpix] Flow in y-sensor direction*/
+ uint8_t sensor_id; /*<  Sensor ID*/
+ uint8_t quality; /*<  Optical flow quality / confidence. 0: bad, 255: maximum quality*/
+ float flow_rate_x; /*< [rad/s] Flow rate about X axis*/
+ float flow_rate_y; /*< [rad/s] Flow rate about Y axis*/
+}) mavlink_optical_flow_t;
 
-enum { MAVLINK_MSG_ID_OPTICAL_FLOW_LEN = 34, MAVLINK_MSG_ID_OPTICAL_FLOW_MIN_LEN = 26, MAVLINK_MSG_ID_100_LEN = 34, MAVLINK_MSG_ID_100_MIN_LEN = 26 };
+#define MAVLINK_MSG_ID_OPTICAL_FLOW_LEN 34
+#define MAVLINK_MSG_ID_OPTICAL_FLOW_MIN_LEN 26
+#define MAVLINK_MSG_ID_100_LEN 34
+#define MAVLINK_MSG_ID_100_MIN_LEN 26
 
-enum { MAVLINK_MSG_ID_OPTICAL_FLOW_CRC = 175, MAVLINK_MSG_ID_100_CRC = 175 };
+#define MAVLINK_MSG_ID_OPTICAL_FLOW_CRC 175
+#define MAVLINK_MSG_ID_100_CRC 175
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPTICAL_FLOW { \

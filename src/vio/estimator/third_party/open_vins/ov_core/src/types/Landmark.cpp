@@ -68,11 +68,10 @@ void Landmark::set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej) {
   // CASE: Anchored 3d feature representation
   if (_feat_representation == LandmarkRepresentation::Representation::GLOBAL_3D ||
       _feat_representation == LandmarkRepresentation::Representation::ANCHORED_3D) {
-      if (isfej) {
-          set_fej(p_FinG);
-      } else {
-          set_value(p_FinG);
-      }
+    if (isfej)
+      set_fej(p_FinG);
+    else
+      set_value(p_FinG);
     return;
   }
 
@@ -94,11 +93,10 @@ void Landmark::set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej) {
     p_invFinG(2) = g_rho;
 
     // Set our feature value
-    if (isfej) {
-        set_fej(p_invFinG);
-    } else {
-        set_value(p_invFinG);
-    }
+    if (isfej)
+      set_fej(p_invFinG);
+    else
+      set_value(p_invFinG);
     return;
   }
 
@@ -112,11 +110,10 @@ void Landmark::set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej) {
     p_invFinA_MSCKF(2) = 1 / p_FinG(2);
 
     // Set our feature value
-    if (isfej) {
-        set_fej(p_invFinA_MSCKF);
-    } else {
-        set_value(p_invFinA_MSCKF);
-    }
+    if (isfej)
+      set_fej(p_invFinA_MSCKF);
+    else
+      set_value(p_invFinA_MSCKF);
     return;
   }
 
@@ -129,18 +126,16 @@ void Landmark::set_from_xyz(Eigen::Matrix<double, 3, 1> p_FinG, bool isfej) {
     temp(0) = 1.0 / p_FinG(2);
 
     // Set our bearing vector
-    if (!isfej) {
-        uv_norm_zero = 1.0 / p_FinG(2) * p_FinG;
-    } else {
-        uv_norm_zero_fej = 1.0 / p_FinG(2) * p_FinG;
-    }
+    if (!isfej)
+      uv_norm_zero = 1.0 / p_FinG(2) * p_FinG;
+    else
+      uv_norm_zero_fej = 1.0 / p_FinG(2) * p_FinG;
 
     // Set our feature value
-    if (isfej) {
-        set_fej(temp);
-    } else {
-        set_value(temp);
-    }
+    if (isfej)
+      set_fej(temp);
+    else
+      set_value(temp);
     return;
   }
 

@@ -3,35 +3,39 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CELLULAR_STATUS = 334 };
+#define MAVLINK_MSG_ID_CELLULAR_STATUS 334
 
-MAVPACKED(typedef struct MavlinkCellularStatusT {
-    uint16_t mcc;            /*<  Mobile country code. If unknown, set to UINT16_MAX*/
-    uint16_t mnc;            /*<  Mobile network code. If unknown, set to UINT16_MAX*/
-    uint16_t lac;            /*<  Location area code. If unknown, set to 0*/
-    uint8_t status;          /*<  Cellular modem status*/
-    uint8_t failure_reason;  /*<  Failure reason when status is CELLULAR_STATUS_FLAG_FAILED*/
-    uint8_t type;            /*<  Cellular network radio type: gsm, cdma, lte...*/
-    uint8_t quality;         /*<  Signal quality in percent. If unknown, set to UINT8_MAX*/
-    uint8_t id;              /*<  Cellular modem instance number. Indexed from 1.*/
-    uint32_t link_tx_rate;   /*< [KiB/s] Download rate.*/
-    uint32_t link_rx_rate;   /*< [KiB/s] Upload rate.*/
-    char cell_tower_id[9];   /*<  ID of the currently connected cell tower. This must be NULL terminated if the length is less than 9 human-readable chars, and without the null termination (NULL) byte if the length is exactly 9 chars.*/
-    uint8_t band_number;     /*<  LTE frequency band number.*/
-    float band_frequency;    /*< [MHz] LTE radio frequency.*/
-    uint32_t channel_number; /*<  The channel number (CN). Absolute radio-frequency (ARFCN) / E-UTRA (EARFCN) / UTRA (UARFCN) / New radio (NR_CH).*/
-    float rx_level;          /*< [dBm] On 3G is Received Signal Code Power (RSCP). On LTE is Reference Signal Received Power (RSRP). On 5G is New Radio Reference Signal Received Power (NR_RSRP).*/
-    float tx_level;          /*< [dBm] Transmitter (modem) signal absolute power level.*/
-    float rx_quality;        /*< [dBm] On 3G is Receiver Quality (RxQual). On LTE is Reference Signal Received Quality (RSRQ). On 5G is New Radio Reference Signal Received Quality (NR_RSRQ).*/
-    float sinr;              /*< [dB] Signal to interference plus noise ratio (SINR).*/
-})
-mavlink_cellular_status_t;
+MAVPACKED(
+typedef struct __mavlink_cellular_status_t {
+ uint16_t mcc; /*<  Mobile country code. If unknown, set to UINT16_MAX*/
+ uint16_t mnc; /*<  Mobile network code. If unknown, set to UINT16_MAX*/
+ uint16_t lac; /*<  Location area code. If unknown, set to 0*/
+ uint8_t status; /*<  Cellular modem status*/
+ uint8_t failure_reason; /*<  Failure reason when status is CELLULAR_STATUS_FLAG_FAILED*/
+ uint8_t type; /*<  Cellular network radio type: gsm, cdma, lte...*/
+ uint8_t quality; /*<  Signal quality in percent. If unknown, set to UINT8_MAX*/
+ uint8_t id; /*<  Cellular modem instance number. Indexed from 1.*/
+ uint32_t link_tx_rate; /*< [KiB/s] Download rate.*/
+ uint32_t link_rx_rate; /*< [KiB/s] Upload rate.*/
+ char cell_tower_id[9]; /*<  ID of the currently connected cell tower. This must be NULL terminated if the length is less than 9 human-readable chars, and without the null termination (NULL) byte if the length is exactly 9 chars.*/
+ uint8_t band_number; /*<  LTE frequency band number.*/
+ float band_frequency; /*< [MHz] LTE radio frequency.*/
+ uint32_t channel_number; /*<  The channel number (CN). Absolute radio-frequency (ARFCN) / E-UTRA (EARFCN) / UTRA (UARFCN) / New radio (NR_CH).*/
+ float rx_level; /*< [dBm] On 3G is Received Signal Code Power (RSCP). On LTE is Reference Signal Received Power (RSRP). On 5G is New Radio Reference Signal Received Power (NR_RSRP).*/
+ float tx_level; /*< [dBm] Transmitter (modem) signal absolute power level.*/
+ float rx_quality; /*< [dBm] On 3G is Receiver Quality (RxQual). On LTE is Reference Signal Received Quality (RSRQ). On 5G is New Radio Reference Signal Received Quality (NR_RSRQ).*/
+ float sinr; /*< [dB] Signal to interference plus noise ratio (SINR).*/
+}) mavlink_cellular_status_t;
 
-enum { MAVLINK_MSG_ID_CELLULAR_STATUS_LEN = 53, MAVLINK_MSG_ID_CELLULAR_STATUS_MIN_LEN = 10, MAVLINK_MSG_ID_334_LEN = 53, MAVLINK_MSG_ID_334_MIN_LEN = 10 };
+#define MAVLINK_MSG_ID_CELLULAR_STATUS_LEN 53
+#define MAVLINK_MSG_ID_CELLULAR_STATUS_MIN_LEN 10
+#define MAVLINK_MSG_ID_334_LEN 53
+#define MAVLINK_MSG_ID_334_MIN_LEN 10
 
-enum { MAVLINK_MSG_ID_CELLULAR_STATUS_CRC = 72, MAVLINK_MSG_ID_334_CRC = 72 };
+#define MAVLINK_MSG_ID_CELLULAR_STATUS_CRC 72
+#define MAVLINK_MSG_ID_334_CRC 72
 
-enum { MAVLINK_MSG_CELLULAR_STATUS_FIELD_CELL_TOWER_ID_LEN = 9 };
+#define MAVLINK_MSG_CELLULAR_STATUS_FIELD_CELL_TOWER_ID_LEN 9
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CELLULAR_STATUS { \

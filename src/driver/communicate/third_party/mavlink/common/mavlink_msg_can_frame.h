@@ -3,22 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_CAN_FRAME = 386 };
+#define MAVLINK_MSG_ID_CAN_FRAME 386
 
-using mavlink_can_frame_t = struct __mavlink_can_frame_t {
-    uint32_t id;              /*<  Frame ID*/
-    uint8_t target_system;    /*<  System ID.*/
-    uint8_t target_component; /*<  Component ID.*/
-    uint8_t bus;              /*<  Bus number*/
-    uint8_t len;              /*<  Frame length*/
-    uint8_t data[8];          /*<  Frame data*/
-};
 
-enum { MAVLINK_MSG_ID_CAN_FRAME_LEN = 16, MAVLINK_MSG_ID_CAN_FRAME_MIN_LEN = 16, MAVLINK_MSG_ID_386_LEN = 16, MAVLINK_MSG_ID_386_MIN_LEN = 16 };
+typedef struct __mavlink_can_frame_t {
+ uint32_t id; /*<  Frame ID*/
+ uint8_t target_system; /*<  System ID.*/
+ uint8_t target_component; /*<  Component ID.*/
+ uint8_t bus; /*<  Bus number*/
+ uint8_t len; /*<  Frame length*/
+ uint8_t data[8]; /*<  Frame data*/
+} mavlink_can_frame_t;
 
-enum { MAVLINK_MSG_ID_CAN_FRAME_CRC = 132, MAVLINK_MSG_ID_386_CRC = 132 };
+#define MAVLINK_MSG_ID_CAN_FRAME_LEN 16
+#define MAVLINK_MSG_ID_CAN_FRAME_MIN_LEN 16
+#define MAVLINK_MSG_ID_386_LEN 16
+#define MAVLINK_MSG_ID_386_MIN_LEN 16
 
-enum { MAVLINK_MSG_CAN_FRAME_FIELD_DATA_LEN = 8 };
+#define MAVLINK_MSG_ID_CAN_FRAME_CRC 132
+#define MAVLINK_MSG_ID_386_CRC 132
+
+#define MAVLINK_MSG_CAN_FRAME_FIELD_DATA_LEN 8
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAN_FRAME { \
@@ -374,10 +379,11 @@ static inline void mavlink_msg_can_frame_decode(const mavlink_message_t* msg, ma
         memset(can_frame, 0, MAVLINK_MSG_ID_CAN_FRAME_LEN);
     memcpy(can_frame, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         can_frame->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

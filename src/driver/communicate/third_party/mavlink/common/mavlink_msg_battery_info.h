@@ -3,36 +3,43 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_BATTERY_INFO = 372 };
+#define MAVLINK_MSG_ID_BATTERY_INFO 372
 
-using mavlink_battery_info_t = struct __mavlink_battery_info_t {
-    float discharge_minimum_voltage;       /*< [V] Minimum per-cell voltage when discharging. 0: field not provided.*/
-    float charging_minimum_voltage;        /*< [V] Minimum per-cell voltage when charging. 0: field not provided.*/
-    float resting_minimum_voltage;         /*< [V] Minimum per-cell voltage when resting. 0: field not provided.*/
-    float charging_maximum_voltage;        /*< [V] Maximum per-cell voltage when charged. 0: field not provided.*/
-    float charging_maximum_current;        /*< [A] Maximum pack continuous charge current. 0: field not provided.*/
-    float nominal_voltage;                 /*< [V] Battery nominal voltage. Used for conversion between Wh and Ah. 0: field not provided.*/
-    float discharge_maximum_current;       /*< [A] Maximum pack discharge current. 0: field not provided.*/
-    float discharge_maximum_burst_current; /*< [A] Maximum pack discharge burst current. 0: field not provided.*/
-    float design_capacity;                 /*< [Ah] Fully charged design capacity. 0: field not provided.*/
-    float full_charge_capacity;            /*< [Ah] Predicted battery capacity when fully charged (accounting for battery degradation). NAN: field not provided.*/
-    uint16_t cycle_count;                  /*<  Lifetime count of the number of charge/discharge cycles (https://en.wikipedia.org/wiki/Charge_cycle). UINT16_MAX: field not provided.*/
-    uint16_t weight;                       /*< [g] Battery weight. 0: field not provided.*/
-    uint8_t id;                            /*<  Battery ID*/
-    uint8_t battery_function;              /*<  Function of the battery.*/
-    uint8_t type;                          /*<  Type (chemistry) of the battery.*/
-    uint8_t state_of_health;               /*< [%] State of Health (SOH) estimate. Typically 100% at the time of manufacture and will decrease over time and use. -1: field not provided.*/
-    uint8_t cells_in_series;               /*<  Number of battery cells in series. 0: field not provided.*/
-    char manufacture_date[9];              /*<  Manufacture date (DDMMYYYY) in ASCII characters, 0 terminated. All 0: field not provided.*/
-    char serial_number[32];                /*<  Serial number in ASCII characters, 0 terminated. All 0: field not provided.*/
-    char name[50];                         /*<  Battery device name. Formatted as manufacturer name then product name, separated with an underscore (in ASCII characters), 0 terminated. All 0: field not provided.*/
-};
 
-enum { MAVLINK_MSG_ID_BATTERY_INFO_LEN = 140, MAVLINK_MSG_ID_BATTERY_INFO_MIN_LEN = 140, MAVLINK_MSG_ID_372_LEN = 140, MAVLINK_MSG_ID_372_MIN_LEN = 140 };
+typedef struct __mavlink_battery_info_t {
+ float discharge_minimum_voltage; /*< [V] Minimum per-cell voltage when discharging. 0: field not provided.*/
+ float charging_minimum_voltage; /*< [V] Minimum per-cell voltage when charging. 0: field not provided.*/
+ float resting_minimum_voltage; /*< [V] Minimum per-cell voltage when resting. 0: field not provided.*/
+ float charging_maximum_voltage; /*< [V] Maximum per-cell voltage when charged. 0: field not provided.*/
+ float charging_maximum_current; /*< [A] Maximum pack continuous charge current. 0: field not provided.*/
+ float nominal_voltage; /*< [V] Battery nominal voltage. Used for conversion between Wh and Ah. 0: field not provided.*/
+ float discharge_maximum_current; /*< [A] Maximum pack discharge current. 0: field not provided.*/
+ float discharge_maximum_burst_current; /*< [A] Maximum pack discharge burst current. 0: field not provided.*/
+ float design_capacity; /*< [Ah] Fully charged design capacity. 0: field not provided.*/
+ float full_charge_capacity; /*< [Ah] Predicted battery capacity when fully charged (accounting for battery degradation). NAN: field not provided.*/
+ uint16_t cycle_count; /*<  Lifetime count of the number of charge/discharge cycles (https://en.wikipedia.org/wiki/Charge_cycle). UINT16_MAX: field not provided.*/
+ uint16_t weight; /*< [g] Battery weight. 0: field not provided.*/
+ uint8_t id; /*<  Battery ID*/
+ uint8_t battery_function; /*<  Function of the battery.*/
+ uint8_t type; /*<  Type (chemistry) of the battery.*/
+ uint8_t state_of_health; /*< [%] State of Health (SOH) estimate. Typically 100% at the time of manufacture and will decrease over time and use. -1: field not provided.*/
+ uint8_t cells_in_series; /*<  Number of battery cells in series. 0: field not provided.*/
+ char manufacture_date[9]; /*<  Manufacture date (DDMMYYYY) in ASCII characters, 0 terminated. All 0: field not provided.*/
+ char serial_number[32]; /*<  Serial number in ASCII characters, 0 terminated. All 0: field not provided.*/
+ char name[50]; /*<  Battery device name. Formatted as manufacturer name then product name, separated with an underscore (in ASCII characters), 0 terminated. All 0: field not provided.*/
+} mavlink_battery_info_t;
 
-enum { MAVLINK_MSG_ID_BATTERY_INFO_CRC = 26, MAVLINK_MSG_ID_372_CRC = 26 };
+#define MAVLINK_MSG_ID_BATTERY_INFO_LEN 140
+#define MAVLINK_MSG_ID_BATTERY_INFO_MIN_LEN 140
+#define MAVLINK_MSG_ID_372_LEN 140
+#define MAVLINK_MSG_ID_372_MIN_LEN 140
 
-enum { MAVLINK_MSG_BATTERY_INFO_FIELD_MANUFACTURE_DATE_LEN = 9, MAVLINK_MSG_BATTERY_INFO_FIELD_SERIAL_NUMBER_LEN = 32, MAVLINK_MSG_BATTERY_INFO_FIELD_NAME_LEN = 50 };
+#define MAVLINK_MSG_ID_BATTERY_INFO_CRC 26
+#define MAVLINK_MSG_ID_372_CRC 26
+
+#define MAVLINK_MSG_BATTERY_INFO_FIELD_MANUFACTURE_DATE_LEN 9
+#define MAVLINK_MSG_BATTERY_INFO_FIELD_SERIAL_NUMBER_LEN 32
+#define MAVLINK_MSG_BATTERY_INFO_FIELD_NAME_LEN 50
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_BATTERY_INFO { \

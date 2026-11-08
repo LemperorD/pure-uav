@@ -18,7 +18,9 @@
 #include "guidance_state_check.hpp"    // quick_check()
 #include "quat.hpp"                    // quat_rotate_vec()
 
-namespace pure_uav::guidance::flight {
+namespace pure_uav {
+namespace guidance {
+namespace flight {
 
 // ============================================================================
 //  GuidanceLatencyStats 实现（只在循环外调用：复制到栈上排序，无堆分配）
@@ -26,43 +28,31 @@ namespace pure_uav::guidance::flight {
 
 std::uint64_t GuidanceLatencyStats::percentile_ns(Stage s, double p) const {
     const int idx = static_cast<int>(s);
-    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) {
-        return 0;
-    }
+    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
     const Ring& ring = r[idx];
     const int m = ring.size();
-    if (m <= 0) {
-        return 0;
-    }
+    if (m <= 0) return 0;
 
     std::uint64_t tmp[kCap];
-    for (int i = 0; i < m; ++i) {
-        tmp[i] = ring.v[i];
-    }
+    for (int i = 0; i < m; ++i) tmp[i] = ring.v[i];
     std::sort(tmp, tmp + m);
 
     const double q = (p < 0.0) ? 0.0 : (p > 1.0 ? 1.0 : p);
     int pos = static_cast<int>(std::ceil(q * static_cast<double>(m))) - 1;
-    pos = std::max(pos, 0);
-    if (pos >= m) {
-        pos = m - 1;
-    }
+    if (pos < 0) pos = 0;
+    if (pos >= m) pos = m - 1;
     return tmp[pos];
 }
 
 std::uint64_t GuidanceLatencyStats::max_ns(Stage s) const {
     const int idx = static_cast<int>(s);
-    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) {
-        return 0;
-    }
+    if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
     const Ring& ring = r[idx];
     const int m = ring.size();
-    if (m <= 0) {
-        return 0;
-    }
+    if (m <= 0) return 0;
     std::uint64_t mx = 0;
     for (int i = 0; i < m; ++i) {
-        mx = std::max(ring.v[i], mx);
+        if (ring.v[i] > mx) mx = ring.v[i];
     }
     return mx;
 }
@@ -81,18 +71,10 @@ void GuidanceRingLog::push(const GuidanceOutput& o) noexcept {
     r.health = static_cast<std::uint8_t>(o.health);
 
     unsigned f = 0;
-    if (o.valid) {
-        f |= 1U;
-    }
-    if (o.sat) {
-        f |= 2U;
-    }
-    if (o.hold_yaw) {
-        f |= 4U;
-    }
-    if (o.ctrl == GuidanceControlMode::kVelocity) {
-        f |= 8U;
-    }
+    if (o.valid) f |= 1u;
+    if (o.sat) f |= 2u;
+    if (o.hold_yaw) f |= 4u;
+    if (o.ctrl == GuidanceControlMode::kVelocity) f |= 8u;
     r.flags = static_cast<std::uint8_t>(f);
 
     r.a_ned[0] = o.a_cmd_ned.x;
@@ -114,13 +96,9 @@ void GuidanceRingLog::push(const GuidanceOutput& o) noexcept {
 const GuidanceRingRecord& GuidanceRingLog::at(int i) const noexcept {
     static const GuidanceRingRecord kZero{};
     const int m = size();
-    if (m <= 0) {
-        return kZero;
-    }
-    i = std::max(i, 0);
-    if (i >= m) {
-        i = m - 1;
-    }
+    if (m <= 0) return kZero;
+    if (i < 0) i = 0;
+    if (i >= m) i = m - 1;
     const int start = (n_ < static_cast<std::uint64_t>(kCap)) ? 0 : head_;
     return r_[(start + i) % kCap];
 }
@@ -130,13 +108,9 @@ const GuidanceRingRecord& GuidanceRingLog::newest() const noexcept {
 }
 
 long GuidanceRingLog::dump_csv(const char* path, double seconds) const {
-    if (path == nullptr) {
-        return -1;
-    }
+    if (path == nullptr) return -1;
     std::FILE* f = std::fopen(path, "wb");
-    if (f == nullptr) {
-        return -1;
-    }
+    if (f == nullptr) return -1;
 
     std::fprintf(f,
                  "boot_us,ctrl,mode,health,valid,sat,hold_yaw,"
@@ -158,14 +132,12 @@ long GuidanceRingLog::dump_csv(const char* path, double seconds) const {
     long rows = 0;
     for (int i = 0; i < m; ++i) {
         const GuidanceRingRecord& r = at(i);
-        if (use_thresh && r.boot_us < thresh) {
-            continue;
-        }
+        if (use_thresh && r.boot_us < thresh) continue;
         std::fprintf(f,
                      "%llu,%u,%u,%u,%d,%d,%d,"
                      "%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
-                     static_cast<unsigned long long>(r.boot_us), static_cast<unsigned>(r.ctrl), static_cast<unsigned>(r.mode), static_cast<unsigned>(r.health), ((r.flags & 1U) != 0u) ? 1 : 0, ((r.flags & 2U) != 0u) ? 1 : 0, ((r.flags & 4U) != 0u) ? 1 : 0, r.a_ned[0], r.a_ned[1], r.a_ned[2],
-                     r.v_ned[0], r.v_ned[1], r.v_ned[2], r.a_norm, r.t_go, r.Vc, r.R, r.lam_dot);
+                     static_cast<unsigned long long>(r.boot_us), static_cast<unsigned>(r.ctrl), static_cast<unsigned>(r.mode), static_cast<unsigned>(r.health), (r.flags & 1u) ? 1 : 0, (r.flags & 2u) ? 1 : 0, (r.flags & 4u) ? 1 : 0, r.a_ned[0], r.a_ned[1], r.a_ned[2], r.v_ned[0], r.v_ned[1],
+                     r.v_ned[2], r.a_norm, r.t_go, r.Vc, r.R, r.lam_dot);
         ++rows;
     }
 
@@ -178,7 +150,7 @@ namespace {
 
 // 3×3（行主序）× 3 向量
 inline Vec3 mat3_mul(const double R[9], const Vec3& v) noexcept {
-    return {(R[0] * v.x) + (R[1] * v.y) + (R[2] * v.z), (R[3] * v.x) + (R[4] * v.y) + (R[5] * v.z), (R[6] * v.x) + (R[7] * v.y) + (R[8] * v.z)};
+    return Vec3(R[0] * v.x + R[1] * v.y + R[2] * v.z, R[3] * v.x + R[4] * v.y + R[5] * v.z, R[6] * v.x + R[7] * v.y + R[8] * v.z);
 }
 
 // 像素 → 世界系单位视线
@@ -187,27 +159,19 @@ inline Vec3 mat3_mul(const double R[9], const Vec3& v) noexcept {
 //   第 2 步：d_body = R_body_cam · d_cam
 //   第 3 步：d_world = R(q) · d_body
 bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSample& t, const double q_frd_world[4], Vec3& los_world) noexcept {
-    if (!cam.valid()) {
-        return false;
-    }
-    if (!std::isfinite(t.u_px) || !std::isfinite(t.v_px)) {
-        return false;
-    }
+    if (!cam.valid()) return false;
+    if (!std::isfinite(t.u_px) || !std::isfinite(t.v_px)) return false;
 
     const double xn = (t.u_px - cam.cx) / cam.fx;
     const double yn = (t.v_px - cam.cy) / cam.fy;
-    if (!std::isfinite(xn) || !std::isfinite(yn)) {
-        return false;
-    }
+    if (!std::isfinite(xn) || !std::isfinite(yn)) return false;
 
     const Vec3 d_cam(xn, yn, 1.0);
     const Vec3 d_body = mat3_mul(cam.R_body_cam, d_cam);
     const Vec3 d_world = quat_rotate_vec(q_frd_world, d_body);
 
     const double n = norm(d_world);
-    if (!(n > 1e-9)) {
-        return false;  // 同时挡住 NaN
-    }
+    if (!(n > 1e-9)) return false;  // 同时挡住 NaN
     los_world = d_world / n;
     return true;
 }
@@ -249,13 +213,11 @@ inline GuidanceOutput make_safe_hover(std::uint64_t boot_us, GuidanceInputHealth
 // 打点用 RAII：所有 return 路径都会落一条样本。
 struct LatencyTrace {
     GuidanceLatencyStats* dst = nullptr;
-    std::chrono::steady_clock::time_point t0, t1, t2, t3;
+    std::chrono::steady_clock::time_point t0{}, t1{}, t2{}, t3{};
     bool armed = false;
 
     ~LatencyTrace() {
-        if (!armed || dst == nullptr) {
-            return;
-        }
+        if (!armed || dst == nullptr) return;
         const auto t4 = std::chrono::steady_clock::now();
         auto ns = [](const std::chrono::steady_clock::time_point& a, const std::chrono::steady_clock::time_point& b) { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count()); };
         dst->add(ns(t0, t1), ns(t1, t2), ns(t2, t3), ns(t3, t4), ns(t0, t4));
@@ -272,25 +234,13 @@ GuidanceLoop::GuidanceLoop(const GuidanceParams& params, const GuidanceLoopConfi
 }
 
 bool GuidanceLoop::init() {
-    if (inited_) {
-        return true;
-    }
+    if (inited_) return true;
 
-    if (!(params_.a_max > 0.0) || !(params_.N > 0.0)) {
-        return false;
-    }
-    if (cfg_.loop_hz <= 0 || cfg_.loop_hz > 2000) {
-        return false;
-    }
-    if (!(cfg_.max_sample_age_s > 0.0) || !(cfg_.sensor_timeout_s > 0.0)) {
-        return false;
-    }
-    if (!(cfg_.hold_last_max_s >= 0.0)) {
-        return false;
-    }
-    if (!cfg_.cam.valid()) {
-        return false;  // 目标数据是像素 ⇒ 必须有相机模型
-    }
+    if (!(params_.a_max > 0.0) || !(params_.N > 0.0)) return false;
+    if (cfg_.loop_hz <= 0 || cfg_.loop_hz > 2000) return false;
+    if (!(cfg_.max_sample_age_s > 0.0) || !(cfg_.sensor_timeout_s > 0.0)) return false;
+    if (!(cfg_.hold_last_max_s >= 0.0)) return false;
+    if (!cfg_.cam.valid()) return false;  // 目标数据是像素 ⇒ 必须有相机模型
 
     tracker_.reset();
     memory_ = GuidanceMemory{};
@@ -332,11 +282,9 @@ GuidanceLoopStatus GuidanceLoop::emit(const GuidanceOutput& o, GuidanceOutput* o
     const std::uint64_t now_us = ins_now_.boot_us;
     if (now_us >= o.boot_us) {
         const std::uint64_t lat = now_us - o.boot_us;
-        stats_.max_latency_us = std::max(lat, stats_.max_latency_us);
+        if (lat > stats_.max_latency_us) stats_.max_latency_us = lat;
     }
-    if (out != nullptr) {
-        *out = o;
-    }
+    if (out) *out = o;
     return GuidanceLoopStatus::kOk;
 }
 
@@ -345,12 +293,8 @@ GuidanceLoopStatus GuidanceLoop::emit(const GuidanceOutput& o, GuidanceOutput* o
 // ============================================================================
 
 GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
-    if (!inited_) {
-        return GuidanceLoopStatus::kNotInitialized;
-    }
-    if (stop_requested_.load(std::memory_order_relaxed)) {
-        return GuidanceLoopStatus::kStopped;
-    }
+    if (!inited_) return GuidanceLoopStatus::kNotInitialized;
+    if (stop_requested_.load(std::memory_order_relaxed)) return GuidanceLoopStatus::kStopped;
 
     LatencyTrace trace;
     trace.dst = &stats_.latency;
@@ -372,9 +316,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
     if (new_tgt) {
         have_tgt_ = true;
         last_tgt_s_ = t_local;
-        if (tgt_now_.present) {
-            ++stats_.tgt_frames;
-        }
+        if (tgt_now_.present) ++stats_.tgt_frames;
     }
 
     trace.t1 = std::chrono::steady_clock::now();
@@ -389,18 +331,14 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
     }
 
     // ---- ③ 首帧还没凑齐 ----
-    if (!have_ins_ || !have_tgt_) {
-        return GuidanceLoopStatus::kOk;
-    }
+    if (!have_ins_ || !have_tgt_) return GuidanceLoopStatus::kOk;
 
     // ---- ④ 新鲜度 ----
     const std::uint64_t now_us = (ins_now_.boot_us != 0) ? ins_now_.boot_us : tgt_now_.boot_us;
     const double age_s = (now_us >= tgt_now_.boot_us) ? static_cast<double>(now_us - tgt_now_.boot_us) * 1e-6 : 0.0;
 
     GuidanceInputHealth health = GuidanceInputHealth::kOk;
-    if (age_s > cfg_.max_sample_age_s) {
-        health = GuidanceInputHealth::kStale;
-    }
+    if (age_s > cfg_.max_sample_age_s) health = GuidanceInputHealth::kStale;
 
     // ---- ⑤ 有新的目标帧 && 数据新鲜 → 重算制导 ----
     if (health == GuidanceInputHealth::kOk && new_tgt) {
@@ -408,9 +346,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
         bool los_ok = false;
         if (tgt_now_.present) {
             los_ok = pixel_to_world_los(cfg_.cam, tgt_now_, ins_now_.q, los_world);
-            if (!los_ok) {
-                health = GuidanceInputHealth::kLosZero;
-            }
+            if (!los_ok) health = GuidanceInputHealth::kLosZero;
         }
 
         if (health == GuidanceInputHealth::kOk) {
@@ -419,9 +355,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
             raw.att = adapter::GuidanceAttitudeFrame::kFrd;
             raw.ins.p = ins_now_.p;
             raw.ins.v = ins_now_.v;
-            for (int i = 0; i < 4; ++i) {
-                raw.ins.q[i] = ins_now_.q[i];
-            }
+            for (int i = 0; i < 4; ++i) raw.ins.q[i] = ins_now_.q[i];
             raw.ins.has_position = ins_now_.has_position;
             raw.ins.has_attitude = ins_now_.has_attitude;
 
@@ -439,9 +373,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
 
             if (tgt_now_.present) {
                 adapter::GuidanceCheckCode code = adapter::GuidanceCheckCode::kOk;
-                if (!adapter::quick_check(st, &code)) {
-                    health = to_health(code);
-                }
+                if (!adapter::quick_check(st, &code)) health = to_health(code);
             }
 
             if (health == GuidanceInputHealth::kOk) {
@@ -468,15 +400,9 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
                 o.lam_dot = cmd.lam_dot;
                 o.health = GuidanceInputHealth::kOk;
 
-                if (cmd.sat) {
-                    ++stats_.saturated;
-                }
-                if (cmd.mode == PureGuidanceMode::HOLD) {
-                    ++stats_.hold;
-                }
-                if (cmd.mode == PureGuidanceMode::SEARCH) {
-                    ++stats_.search;
-                }
+                if (cmd.sat) ++stats_.saturated;
+                if (cmd.mode == PureGuidanceMode::HOLD) ++stats_.hold;
+                if (cmd.mode == PureGuidanceMode::SEARCH) ++stats_.search;
 
                 computed_ = true;
                 last_out_ = o;
@@ -488,9 +414,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
 
     // ---- ⑥ 没有新的目标帧：重发上一拍 ----
     if (health == GuidanceInputHealth::kOk && !new_tgt) {
-        if (!computed_ || !cfg_.send_on_every_tick) {
-            return GuidanceLoopStatus::kOk;
-        }
+        if (!computed_ || !cfg_.send_on_every_tick) return GuidanceLoopStatus::kOk;
         GuidanceOutput o = last_out_;
         o.boot_us = tgt_now_.boot_us;
         return emit(o, out);
@@ -531,9 +455,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
 // ============================================================================
 
 GuidanceLoopStatus GuidanceLoop::run() {
-    if (!inited_) {
-        return GuidanceLoopStatus::kNotInitialized;
-    }
+    if (!inited_) return GuidanceLoopStatus::kNotInitialized;
 
     const int hz = (cfg_.loop_hz > 0) ? cfg_.loop_hz : 1;
     const auto period = std::chrono::nanoseconds(static_cast<long long>(1e9 / static_cast<double>(hz)));
@@ -541,9 +463,7 @@ GuidanceLoopStatus GuidanceLoop::run() {
     auto next = std::chrono::steady_clock::now();
     while (!stop_requested_.load(std::memory_order_relaxed)) {
         const GuidanceLoopStatus s = run_once(nullptr);
-        if (s != GuidanceLoopStatus::kOk) {
-            return s;
-        }
+        if (s != GuidanceLoopStatus::kOk) return s;
 
         next += period;
         std::this_thread::sleep_until(next);
@@ -551,4 +471,6 @@ GuidanceLoopStatus GuidanceLoop::run() {
     return GuidanceLoopStatus::kStopped;
 }
 
-}  // namespace pure_uav::guidance::flight
+}  // namespace flight
+}  // namespace guidance
+}  // namespace pure_uav

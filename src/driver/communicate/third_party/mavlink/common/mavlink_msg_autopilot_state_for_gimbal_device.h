@@ -3,30 +3,34 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE = 286 };
+#define MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE 286
 
-MAVPACKED(typedef struct MavlinkAutopilotStateForGimbalDeviceT {
-    uint64_t time_boot_us;                 /*< [us] Timestamp (time since system boot).*/
-    float q[4];                            /*<  Quaternion components of autopilot attitude: w, x, y, z (1 0 0 0 is the null-rotation, Hamilton convention).*/
-    uint32_t q_estimated_delay_us;         /*< [us] Estimated delay of the attitude data. 0 if unknown.*/
-    float vx;                              /*< [m/s] X Speed in NED (North, East, Down). NAN if unknown.*/
-    float vy;                              /*< [m/s] Y Speed in NED (North, East, Down). NAN if unknown.*/
-    float vz;                              /*< [m/s] Z Speed in NED (North, East, Down). NAN if unknown.*/
-    uint32_t v_estimated_delay_us;         /*< [us] Estimated delay of the speed data. 0 if unknown.*/
-    float feed_forward_angular_velocity_z; /*< [rad/s] Feed forward Z component of angular velocity (positive: yawing to the right). NaN to be ignored. This is to indicate if the autopilot is actively yawing.*/
-    uint16_t estimator_status;             /*<  Bitmap indicating which estimator outputs are valid.*/
-    uint8_t target_system;                 /*<  System ID*/
-    uint8_t target_component;              /*<  Component ID*/
-    uint8_t landed_state;                  /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
-    float angular_velocity_z;              /*< [rad/s] Z component of angular velocity in NED (North, East, Down). 0 if unknown. Use 0.00001 to represent a measured value of zero.*/
-})
-mavlink_autopilot_state_for_gimbal_device_t;
+MAVPACKED(
+typedef struct __mavlink_autopilot_state_for_gimbal_device_t {
+ uint64_t time_boot_us; /*< [us] Timestamp (time since system boot).*/
+ float q[4]; /*<  Quaternion components of autopilot attitude: w, x, y, z (1 0 0 0 is the null-rotation, Hamilton convention).*/
+ uint32_t q_estimated_delay_us; /*< [us] Estimated delay of the attitude data. 0 if unknown.*/
+ float vx; /*< [m/s] X Speed in NED (North, East, Down). NAN if unknown.*/
+ float vy; /*< [m/s] Y Speed in NED (North, East, Down). NAN if unknown.*/
+ float vz; /*< [m/s] Z Speed in NED (North, East, Down). NAN if unknown.*/
+ uint32_t v_estimated_delay_us; /*< [us] Estimated delay of the speed data. 0 if unknown.*/
+ float feed_forward_angular_velocity_z; /*< [rad/s] Feed forward Z component of angular velocity (positive: yawing to the right). NaN to be ignored. This is to indicate if the autopilot is actively yawing.*/
+ uint16_t estimator_status; /*<  Bitmap indicating which estimator outputs are valid.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t landed_state; /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
+ float angular_velocity_z; /*< [rad/s] Z component of angular velocity in NED (North, East, Down). 0 if unknown. Use 0.00001 to represent a measured value of zero.*/
+}) mavlink_autopilot_state_for_gimbal_device_t;
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_LEN = 57, MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_MIN_LEN = 53, MAVLINK_MSG_ID_286_LEN = 57, MAVLINK_MSG_ID_286_MIN_LEN = 53 };
+#define MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_LEN 57
+#define MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_MIN_LEN 53
+#define MAVLINK_MSG_ID_286_LEN 57
+#define MAVLINK_MSG_ID_286_MIN_LEN 53
 
-enum { MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_CRC = 210, MAVLINK_MSG_ID_286_CRC = 210 };
+#define MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_CRC 210
+#define MAVLINK_MSG_ID_286_CRC 210
 
-enum { MAVLINK_MSG_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_FIELD_Q_LEN = 4 };
+#define MAVLINK_MSG_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_FIELD_Q_LEN 4
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE { \
@@ -571,10 +575,11 @@ static inline void mavlink_msg_autopilot_state_for_gimbal_device_decode(const ma
         memset(autopilot_state_for_gimbal_device, 0, MAVLINK_MSG_ID_AUTOPILOT_STATE_FOR_GIMBAL_DEVICE_LEN);
     memcpy(autopilot_state_for_gimbal_device, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         autopilot_state_for_gimbal_device->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -3,25 +3,31 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION = 12902 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION 12902
 
-using mavlink_open_drone_id_authentication_t = struct __mavlink_open_drone_id_authentication_t {
-    uint32_t timestamp;              /*< [s] This field is only present for page 0. 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
-    uint8_t target_system;           /*<  System ID (0 for broadcast).*/
-    uint8_t target_component;        /*<  Component ID (0 for broadcast).*/
-    uint8_t id_or_mac[20];           /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
-    uint8_t authentication_type;     /*<  Indicates the type of authentication.*/
-    uint8_t data_page;               /*<  Allowed range is 0 - 15.*/
-    uint8_t last_page_index;         /*<  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.*/
-    uint8_t length;                  /*< [bytes] This field is only present for page 0. Total bytes of authentication_data from all data pages. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.*/
-    uint8_t authentication_data[23]; /*<  Opaque authentication data. For page 0, the size is only 17 bytes. For other pages, the size is 23 bytes. Shall be filled with nulls in the unused portion of the field.*/
-};
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_LEN = 53, MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_MIN_LEN = 53, MAVLINK_MSG_ID_12902_LEN = 53, MAVLINK_MSG_ID_12902_MIN_LEN = 53 };
+typedef struct __mavlink_open_drone_id_authentication_t {
+ uint32_t timestamp; /*< [s] This field is only present for page 0. 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
+ uint8_t target_system; /*<  System ID (0 for broadcast).*/
+ uint8_t target_component; /*<  Component ID (0 for broadcast).*/
+ uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+ uint8_t authentication_type; /*<  Indicates the type of authentication.*/
+ uint8_t data_page; /*<  Allowed range is 0 - 15.*/
+ uint8_t last_page_index; /*<  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.*/
+ uint8_t length; /*< [bytes] This field is only present for page 0. Total bytes of authentication_data from all data pages. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.*/
+ uint8_t authentication_data[23]; /*<  Opaque authentication data. For page 0, the size is only 17 bytes. For other pages, the size is 23 bytes. Shall be filled with nulls in the unused portion of the field.*/
+} mavlink_open_drone_id_authentication_t;
 
-enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_CRC = 140, MAVLINK_MSG_ID_12902_CRC = 140 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_LEN 53
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_MIN_LEN 53
+#define MAVLINK_MSG_ID_12902_LEN 53
+#define MAVLINK_MSG_ID_12902_MIN_LEN 53
 
-enum { MAVLINK_MSG_OPEN_DRONE_ID_AUTHENTICATION_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_MSG_OPEN_DRONE_ID_AUTHENTICATION_FIELD_AUTHENTICATION_DATA_LEN = 23 };
+#define MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_CRC 140
+#define MAVLINK_MSG_ID_12902_CRC 140
+
+#define MAVLINK_MSG_OPEN_DRONE_ID_AUTHENTICATION_FIELD_ID_OR_MAC_LEN 20
+#define MAVLINK_MSG_OPEN_DRONE_ID_AUTHENTICATION_FIELD_AUTHENTICATION_DATA_LEN 23
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_AUTHENTICATION { \
@@ -64,7 +70,7 @@ enum { MAVLINK_MSG_OPEN_DRONE_ID_AUTHENTICATION_FIELD_ID_OR_MAC_LEN = 20, MAVLIN
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param authentication_type  Indicates the type of authentication.
  * @param data_page  Allowed range is 0 - 15.
  * @param last_page_index  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.
@@ -115,7 +121,7 @@ static inline uint16_t mavlink_msg_open_drone_id_authentication_pack(uint32_t sy
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param authentication_type  Indicates the type of authentication.
  * @param data_page  Allowed range is 0 - 15.
  * @param last_page_index  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.
@@ -169,7 +175,7 @@ static inline uint16_t mavlink_msg_open_drone_id_authentication_pack_status(uint
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param authentication_type  Indicates the type of authentication.
  * @param data_page  Allowed range is 0 - 15.
  * @param last_page_index  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.
@@ -259,7 +265,7 @@ static inline uint16_t mavlink_msg_open_drone_id_authentication_encode_status(ui
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  * @param authentication_type  Indicates the type of authentication.
  * @param data_page  Allowed range is 0 - 15.
  * @param last_page_index  This field is only present for page 0. Allowed range is 0 - 15. See the description of struct ODID_Auth_data at https://github.com/opendroneid/opendroneid-core-c/blob/master/libopendroneid/opendroneid.h.
@@ -368,7 +374,7 @@ static inline uint8_t mavlink_msg_open_drone_id_authentication_get_target_compon
 /**
  * @brief Get field id_or_mac from open_drone_id_authentication message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
  */
 static inline uint16_t mavlink_msg_open_drone_id_authentication_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {
@@ -458,10 +464,11 @@ static inline void mavlink_msg_open_drone_id_authentication_decode(const mavlink
         memset(open_drone_id_authentication, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_AUTHENTICATION_LEN);
     memcpy(open_drone_id_authentication, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_authentication->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -3,20 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS = 360 };
+#define MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS 360
 
-using mavlink_orbit_execution_status_t = struct __mavlink_orbit_execution_status_t {
-    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    float radius;       /*< [m] Radius of the orbit circle. Positive values orbit clockwise, negative values orbit counter-clockwise.*/
-    int32_t x;          /*<  X coordinate of center point. Coordinate system depends on frame field: local = x position in meters * 1e4, global = latitude in degrees * 1e7.*/
-    int32_t y;          /*<  Y coordinate of center point.  Coordinate system depends on frame field: local = x position in meters * 1e4, global = latitude in degrees * 1e7.*/
-    float z;            /*< [m] Altitude of center point. Coordinate system depends on frame field.*/
-    uint8_t frame;      /*<  The coordinate system of the fields: x, y, z.*/
-};
 
-enum { MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_LEN = 25, MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_MIN_LEN = 25, MAVLINK_MSG_ID_360_LEN = 25, MAVLINK_MSG_ID_360_MIN_LEN = 25 };
+typedef struct __mavlink_orbit_execution_status_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ float radius; /*< [m] Radius of the orbit circle. Positive values orbit clockwise, negative values orbit counter-clockwise.*/
+ int32_t x; /*<  X coordinate of center point. Coordinate system depends on frame field: local = x position in meters * 1e4, global = latitude in degrees * 1e7.*/
+ int32_t y; /*<  Y coordinate of center point.  Coordinate system depends on frame field: local = x position in meters * 1e4, global = latitude in degrees * 1e7.*/
+ float z; /*< [m] Altitude of center point. Coordinate system depends on frame field.*/
+ uint8_t frame; /*<  The coordinate system of the fields: x, y, z.*/
+} mavlink_orbit_execution_status_t;
 
-enum { MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_CRC = 11, MAVLINK_MSG_ID_360_CRC = 11 };
+#define MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_LEN 25
+#define MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_MIN_LEN 25
+#define MAVLINK_MSG_ID_360_LEN 25
+#define MAVLINK_MSG_ID_360_MIN_LEN 25
+
+#define MAVLINK_MSG_ID_ORBIT_EXECUTION_STATUS_CRC 11
+#define MAVLINK_MSG_ID_360_CRC 11
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ORBIT_EXECUTION_STATUS { \

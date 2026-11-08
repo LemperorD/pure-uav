@@ -3,22 +3,29 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL = 288 };
+#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL 288
 
-using mavlink_gimbal_manager_set_manual_control_t = struct __mavlink_gimbal_manager_set_manual_control_t {
-    uint32_t flags;           /*<  High level gimbal manager flags.*/
-    float pitch;              /*<  Pitch angle unitless (-1..1, positive: up, negative: down, NaN to be ignored).*/
-    float yaw;                /*<  Yaw angle unitless (-1..1, positive: to the right, negative: to the left, NaN to be ignored).*/
-    float pitch_rate;         /*<  Pitch angular rate unitless (-1..1, positive: up, negative: down, NaN to be ignored).*/
-    float yaw_rate;           /*<  Yaw angular rate unitless (-1..1, positive: to the right, negative: to the left, NaN to be ignored).*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
-};
 
-enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_LEN = 23, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_MIN_LEN = 23, MAVLINK_MSG_ID_288_LEN = 23, MAVLINK_MSG_ID_288_MIN_LEN = 23 };
+typedef struct __mavlink_gimbal_manager_set_manual_control_t {
+ uint32_t flags; /*<  High level gimbal manager flags.*/
+ float pitch; /*<  Pitch angle unitless (-1..1, positive: up, negative: down, NaN to be ignored).*/
+ float yaw; /*<  Yaw angle unitless (-1..1, positive: to the right, negative: to the left, NaN to be ignored).*/
+ float pitch_rate; /*<  Pitch angular rate unitless (-1..1, positive: up, negative: down, NaN to be ignored).*/
+ float yaw_rate; /*<  Yaw angular rate unitless (-1..1, positive: to the right, negative: to the left, NaN to be ignored).*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
+} mavlink_gimbal_manager_set_manual_control_t;
 
-enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_CRC = 20, MAVLINK_MSG_ID_288_CRC = 20 };
+#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_LEN 23
+#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_MIN_LEN 23
+#define MAVLINK_MSG_ID_288_LEN 23
+#define MAVLINK_MSG_ID_288_MIN_LEN 23
+
+#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_CRC 20
+#define MAVLINK_MSG_ID_288_CRC 20
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_MANAGER_SET_MANUAL_CONTROL { \
@@ -438,10 +445,11 @@ static inline void mavlink_msg_gimbal_manager_set_manual_control_decode(const ma
         memset(gimbal_manager_set_manual_control, 0, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_MANUAL_CONTROL_LEN);
     memcpy(gimbal_manager_set_manual_control, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gimbal_manager_set_manual_control->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -98,7 +98,7 @@ public:
    */
   CamEqui(int width, int height) : CamBase(width, height) {}
 
-  ~CamEqui() override = default;
+  ~CamEqui() {}
 
   /**
    * @brief Given a raw uv point, this will undistort it based on the camera matrices into normalized camera coords.
@@ -139,9 +139,10 @@ public:
     Eigen::MatrixXd cam_d = camera_values;
 
     // Calculate distorted coordinates for fisheye
-    double r = std::sqrt((uv_norm(0) * uv_norm(0)) + (uv_norm(1) * uv_norm(1)));
+    double r = std::sqrt(uv_norm(0) * uv_norm(0) + uv_norm(1) * uv_norm(1));
     double theta = std::atan(r);
-    double theta_d = theta + (cam_d(4) * std::pow(theta, 3)) + (cam_d(5) * std::pow(theta, 5)) + (cam_d(6) * std::pow(theta, 7)) + (cam_d(7) * std::pow(theta, 9));
+    double theta_d = theta + cam_d(4) * std::pow(theta, 3) + cam_d(5) * std::pow(theta, 5) + cam_d(6) * std::pow(theta, 7) +
+                     cam_d(7) * std::pow(theta, 9);
 
     // Handle when r is small (meaning our xy is near the camera center)
     double inv_r = (r > 1e-8) ? 1.0 / r : 1.0;
@@ -151,8 +152,8 @@ public:
     Eigen::Vector2f uv_dist;
     double x1 = uv_norm(0) * cdist;
     double y1 = uv_norm(1) * cdist;
-    uv_dist(0) = (float)((cam_d(0) * x1) + cam_d(2));
-    uv_dist(1) = (float)((cam_d(1) * y1) + cam_d(3));
+    uv_dist(0) = (float)(cam_d(0) * x1 + cam_d(2));
+    uv_dist(1) = (float)(cam_d(1) * y1 + cam_d(3));
     return uv_dist;
   }
 
@@ -168,9 +169,10 @@ public:
     Eigen::MatrixXd cam_d = camera_values;
 
     // Calculate distorted coordinates for fisheye
-    double r = std::sqrt((uv_norm(0) * uv_norm(0)) + (uv_norm(1) * uv_norm(1)));
+    double r = std::sqrt(uv_norm(0) * uv_norm(0) + uv_norm(1) * uv_norm(1));
     double theta = std::atan(r);
-    double theta_d = theta + (cam_d(4) * std::pow(theta, 3)) + (cam_d(5) * std::pow(theta, 5)) + (cam_d(6) * std::pow(theta, 7)) + (cam_d(7) * std::pow(theta, 9));
+    double theta_d = theta + cam_d(4) * std::pow(theta, 3) + cam_d(5) * std::pow(theta, 5) + cam_d(6) * std::pow(theta, 7) +
+                     cam_d(7) * std::pow(theta, 9);
 
     // Handle when r is small (meaning our xy is near the camera center)
     double inv_r = (r > 1e-8) ? 1.0 / r : 1.0;
@@ -197,7 +199,8 @@ public:
     dxy_dthd << uv_norm(0) * inv_r, uv_norm(1) * inv_r;
 
     // Jacobian of theta_d to theta
-    double dthd_dth = 1 + (3 * cam_d(4) * std::pow(theta, 2)) + (5 * cam_d(5) * std::pow(theta, 4)) + (7 * cam_d(6) * std::pow(theta, 6)) + (9 * cam_d(7) * std::pow(theta, 8));
+    double dthd_dth = 1 + 3 * cam_d(4) * std::pow(theta, 2) + 5 * cam_d(5) * std::pow(theta, 4) + 7 * cam_d(6) * std::pow(theta, 6) +
+                      9 * cam_d(7) * std::pow(theta, 8);
 
     // Jacobian of theta to r
     double dth_dr = 1 / (r * r + 1);

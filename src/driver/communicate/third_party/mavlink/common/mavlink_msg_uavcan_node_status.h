@@ -3,20 +3,27 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_UAVCAN_NODE_STATUS = 310 };
+#define MAVLINK_MSG_ID_UAVCAN_NODE_STATUS 310
 
-using mavlink_uavcan_node_status_t = struct __mavlink_uavcan_node_status_t {
-    uint64_t time_usec;                   /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-    uint32_t uptime_sec;                  /*< [s] Time since the start-up of the node.*/
-    uint16_t vendor_specific_status_code; /*<  Vendor-specific status information.*/
-    uint8_t health;                       /*<  Generalized node health status.*/
-    uint8_t mode;                         /*<  Generalized operating mode.*/
-    uint8_t sub_mode;                     /*<  Not used currently.*/
-};
 
-enum { MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_LEN = 17, MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_MIN_LEN = 17, MAVLINK_MSG_ID_310_LEN = 17, MAVLINK_MSG_ID_310_MIN_LEN = 17 };
+typedef struct __mavlink_uavcan_node_status_t {
+ uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+ uint32_t uptime_sec; /*< [s] Time since the start-up of the node.*/
+ uint16_t vendor_specific_status_code; /*<  Vendor-specific status information.*/
+ uint8_t health; /*<  Generalized node health status.*/
+ uint8_t mode; /*<  Generalized operating mode.*/
+ uint8_t sub_mode; /*<  Not used currently.*/
+} mavlink_uavcan_node_status_t;
 
-enum { MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_CRC = 28, MAVLINK_MSG_ID_310_CRC = 28 };
+#define MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_LEN 17
+#define MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_MIN_LEN 17
+#define MAVLINK_MSG_ID_310_LEN 17
+#define MAVLINK_MSG_ID_310_MIN_LEN 17
+
+#define MAVLINK_MSG_ID_UAVCAN_NODE_STATUS_CRC 28
+#define MAVLINK_MSG_ID_310_CRC 28
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_UAVCAN_NODE_STATUS { \

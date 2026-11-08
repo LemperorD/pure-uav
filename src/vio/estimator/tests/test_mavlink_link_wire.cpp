@@ -15,12 +15,12 @@
 #endif
 #include <fcntl.h>
 #include <poll.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -48,9 +48,7 @@ bool writeAll(int fd, const uint8_t* buf, size_t len) {
             off += static_cast<size_t>(n);
             continue;
         }
-        if (n < 0 && errno == EINTR) {
-            continue;
-        }
+        if (n < 0 && errno == EINTR) continue;
         return false;
     }
     return true;
@@ -70,26 +68,20 @@ bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t 
 
 bool sendImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
     mavlink_message_t msg;
-    mavlink_msg_highres_imu_pack(sysid, 1, &msg, t_us, ax, 0.0F, 9.8F,  // xacc yacc zacc
-                                 0.0F, 0.0F, 0.0F,                      // gyro
+    mavlink_msg_highres_imu_pack(sysid, 1, &msg, t_us, ax, 0.0f, 9.8f,  // xacc yacc zacc
+                                 0.0f, 0.0f, 0.0f,                      // gyro
                                  NAN, NAN, NAN,                         // mag
-                                 0.0F, 0.0F, 0.0F, 0.0F,                // pressure/temperature
+                                 0.0f, 0.0f, 0.0f, 0.0f,                // pressure/temperature
                                  0, 0);
     return sendMsg(fd, msg);
 }
 
 bool makePty(int& master, std::string& slave_path) {
     master = ::posix_openpt(O_RDWR | O_NOCTTY);
-    if (master < 0) {
-        return false;
-    }
-    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) {
-        return false;
-    }
+    if (master < 0) return false;
+    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
     const char* name = ::ptsname(master);
-    if (name == nullptr) {
-        return false;
-    }
+    if (name == nullptr) return false;
     slave_path = name;
     const int flags = ::fcntl(master, F_GETFL, 0);
     ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
@@ -100,9 +92,7 @@ template <typename Pred>
 bool waitFor(Pred pred, int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (pred()) {
-            return true;
-        }
+        if (pred()) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return pred();
@@ -161,9 +151,9 @@ int main() {
     std::printf("[4] 飞控未解锁心跳生效 OK\n");
 
     // ---- 5) 逐帧 IMU 顺序 + clearImuQueue ----
-    CHECK(sendImu(master, 1, 1000000ULL, 1.0F));
-    CHECK(sendImu(master, 1, 1005000ULL, 2.0F));
-    CHECK(sendImu(master, 1, 1010000ULL, 3.0F));
+    CHECK(sendImu(master, 1, 1000000ULL, 1.0f));
+    CHECK(sendImu(master, 1, 1005000ULL, 2.0f));
+    CHECK(sendImu(master, 1, 1010000ULL, 3.0f));
     CHECK(waitFor([&] { return link.receivedImu() >= 3; }, 2000));
 
     pure_uav::MavlinkLink::TimedImu item;
@@ -175,7 +165,7 @@ int main() {
     CHECK(item.imu.timestamp_us == 1010000ULL);
     CHECK(item.host_ns > 0);
 
-    CHECK(sendImu(master, 1, 1015000ULL, 4.0F));
+    CHECK(sendImu(master, 1, 1015000ULL, 4.0f));
     CHECK(waitFor([&] { return link.imuQueueSize() >= 1; }, 2000));
     link.clearImuQueue();
     CHECK(link.imuQueueSize() == 0);
@@ -183,7 +173,7 @@ int main() {
     std::printf("[5] IMU 顺序 + 整队清空 OK\n");
 
     // 非目标 sysid 的 IMU 不应入队（锁定后只收飞控数据流）
-    CHECK(sendImu(master, /*sysid=*/42, 2000000ULL, 7.0F));
+    CHECK(sendImu(master, /*sysid=*/42, 2000000ULL, 7.0f));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     CHECK(link.imuQueueSize() == 0);
     std::printf("[6] 其他 sysid 的 IMU 被过滤 OK\n");
@@ -210,7 +200,7 @@ int main() {
         CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitFor([&] { return link2.connected() && link2.armed(); }, 2000));
         const uint64_t rx_before = link2.receivedImu();
-        CHECK(sendImu(master_a, 1, 3000000ULL, 1.0F));
+        CHECK(sendImu(master_a, 1, 3000000ULL, 1.0f));
         CHECK(waitFor([&] { return link2.receivedImu() > rx_before; }, 2000));
         CHECK(link2.imuQueueSize() >= 1);  // 故意不取走，留给断线清理检查
 
@@ -232,7 +222,7 @@ int main() {
         CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; }, 3000));
         const uint64_t rx2 = link2.receivedImu();
-        CHECK(sendImu(master_b, 7, 4000000ULL, 2.0F));
+        CHECK(sendImu(master_b, 7, 4000000ULL, 2.0f));
         CHECK(waitFor([&] { return link2.receivedImu() > rx2; }, 2000));
         pure_uav::MavlinkLink::TimedImu reconnected;
         CHECK(link2.popImu(reconnected));

@@ -3,29 +3,36 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MISSION_ITEM_INT = 73 };
+#define MAVLINK_MSG_ID_MISSION_ITEM_INT 73
 
-using mavlink_mission_item_int_t = struct __mavlink_mission_item_int_t {
-    float param1;             /*<  PARAM1, see MAV_CMD enum*/
-    float param2;             /*<  PARAM2, see MAV_CMD enum*/
-    float param3;             /*<  PARAM3, see MAV_CMD enum*/
-    float param4;             /*<  PARAM4, see MAV_CMD enum*/
-    int32_t x;                /*<  PARAM5 / local: x position in meters * 1e4, global: latitude in degrees * 10^7*/
-    int32_t y;                /*<  PARAM6 / y position: local: x position in meters * 1e4, global: longitude in degrees *10^7*/
-    float z;                  /*<  PARAM7 / z position: global: altitude in meters (relative or absolute, depending on frame.*/
-    uint16_t seq;             /*<  Waypoint ID (sequence number). Starts at zero. Increases monotonically for each waypoint, no gaps in the sequence (0,1,2,3,4).*/
-    uint16_t command;         /*<  The scheduled action for the waypoint.*/
-    uint8_t target_system;    /*<  System ID*/
-    uint8_t target_component; /*<  Component ID*/
-    uint8_t frame;            /*<  The coordinate system of the waypoint.*/
-    uint8_t current;          /*<  false:0, true:1*/
-    uint8_t autocontinue;     /*<  Autocontinue to next waypoint. 0: false, 1: true. Set false to pause mission after the item completes.*/
-    uint8_t mission_type;     /*<  Mission type.*/
-};
 
-enum { MAVLINK_MSG_ID_MISSION_ITEM_INT_LEN = 38, MAVLINK_MSG_ID_MISSION_ITEM_INT_MIN_LEN = 37, MAVLINK_MSG_ID_73_LEN = 38, MAVLINK_MSG_ID_73_MIN_LEN = 37 };
+typedef struct __mavlink_mission_item_int_t {
+ float param1; /*<  PARAM1, see MAV_CMD enum*/
+ float param2; /*<  PARAM2, see MAV_CMD enum*/
+ float param3; /*<  PARAM3, see MAV_CMD enum*/
+ float param4; /*<  PARAM4, see MAV_CMD enum*/
+ int32_t x; /*<  PARAM5 / local: x position in meters * 1e4, global: latitude in degrees * 10^7*/
+ int32_t y; /*<  PARAM6 / y position: local: x position in meters * 1e4, global: longitude in degrees *10^7*/
+ float z; /*<  PARAM7 / z position: global: altitude in meters (relative or absolute, depending on frame.*/
+ uint16_t seq; /*<  Waypoint ID (sequence number). Starts at zero. Increases monotonically for each waypoint, no gaps in the sequence (0,1,2,3,4).*/
+ uint16_t command; /*<  The scheduled action for the waypoint.*/
+ uint8_t target_system; /*<  System ID*/
+ uint8_t target_component; /*<  Component ID*/
+ uint8_t frame; /*<  The coordinate system of the waypoint.*/
+ uint8_t current; /*<  false:0, true:1*/
+ uint8_t autocontinue; /*<  Autocontinue to next waypoint. 0: false, 1: true. Set false to pause mission after the item completes.*/
+ uint8_t mission_type; /*<  Mission type.*/
+} mavlink_mission_item_int_t;
 
-enum { MAVLINK_MSG_ID_MISSION_ITEM_INT_CRC = 38, MAVLINK_MSG_ID_73_CRC = 38 };
+#define MAVLINK_MSG_ID_MISSION_ITEM_INT_LEN 38
+#define MAVLINK_MSG_ID_MISSION_ITEM_INT_MIN_LEN 37
+#define MAVLINK_MSG_ID_73_LEN 38
+#define MAVLINK_MSG_ID_73_MIN_LEN 37
+
+#define MAVLINK_MSG_ID_MISSION_ITEM_INT_CRC 38
+#define MAVLINK_MSG_ID_73_CRC 38
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_ITEM_INT { \
@@ -634,10 +641,11 @@ static inline void mavlink_msg_mission_item_int_decode(const mavlink_message_t* 
         memset(mission_item_int, 0, MAVLINK_MSG_ID_MISSION_ITEM_INT_LEN);
     memcpy(mission_item_int, _MAV_PAYLOAD(msg), len);
 #endif
-    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         mission_item_int->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
+
 }

@@ -13,7 +13,8 @@
 #include <sstream>
 #include <thread>
 
-namespace pure_uav::detection {
+namespace pure_uav {
+namespace detection {
 namespace {
 
 double msSince(const std::chrono::steady_clock::time_point& t) {
@@ -23,9 +24,7 @@ double msSince(const std::chrono::steady_clock::time_point& t) {
 std::string shapeStr(const std::vector<int64_t>& s) {
     std::ostringstream os;
     for (size_t i = 0; i < s.size(); ++i) {
-        if (i != 0u) {
-            os << "x";
-        }
+        if (i) os << "x";
         os << s[i];
     }
     return os.str();
@@ -101,17 +100,13 @@ bool YoloCpu::load(const std::string& model_path, int imgsz, std::string& error)
 
         Ort::AllocatorWithDefaultOptions allocator;
         for (size_t i = 0; i < impl_->session->GetInputCount(); ++i) {
-            impl_->input_names.emplace_back(impl_->session->GetInputNameAllocated(i, allocator).get());
+            impl_->input_names.push_back(impl_->session->GetInputNameAllocated(i, allocator).get());
         }
         for (size_t i = 0; i < impl_->session->GetOutputCount(); ++i) {
-            impl_->output_names.emplace_back(impl_->session->GetOutputNameAllocated(i, allocator).get());
+            impl_->output_names.push_back(impl_->session->GetOutputNameAllocated(i, allocator).get());
         }
-        for (const auto& s : impl_->input_names) {
-            impl_->input_name_ptrs.push_back(s.c_str());
-        }
-        for (const auto& s : impl_->output_names) {
-            impl_->output_name_ptrs.push_back(s.c_str());
-        }
+        for (const auto& s : impl_->input_names) impl_->input_name_ptrs.push_back(s.c_str());
+        for (const auto& s : impl_->output_names) impl_->output_name_ptrs.push_back(s.c_str());
 
         if (impl_->input_name_ptrs.size() != 1) {
             error = "ONNX 模型输入数量为 " + std::to_string(impl_->input_name_ptrs.size()) + "，期望 1";
@@ -156,9 +151,7 @@ bool YoloCpu::load(const std::string& model_path, int imgsz, std::string& error)
             return false;
         }
         auto out_shape = out_info.GetShape();
-        while (out_shape.size() > 2 && out_shape.front() == 1) {
-            out_shape.erase(out_shape.begin());
-        }
+        while (out_shape.size() > 2 && out_shape.front() == 1) out_shape.erase(out_shape.begin());
         if (out_shape.size() != 2) {
             error = "ONNX 输出维度不是 [1,C,A] 或 [1,A,C]: " + shapeStr(out_info.GetShape());
             impl_->clear();
@@ -175,7 +168,7 @@ bool YoloCpu::load(const std::string& model_path, int imgsz, std::string& error)
             return false;
         }
 
-        impl_->input_blob.assign(static_cast<size_t>(3) * imgsz * imgsz, 0.0F);
+        impl_->input_blob.assign(static_cast<size_t>(3) * imgsz * imgsz, 0.0f);
 
         std::ostringstream os;
         os << "ONNX Runtime CPU; input " << shapeStr(in_shape) << " FP32; output " << (impl_->channel_major ? "CxA " : "AxC ") << impl_->channels << "x" << impl_->anchors << "; threads=" << impl_->threads;
@@ -225,10 +218,10 @@ bool YoloCpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
         const cv::Vec3b* row = rgb.ptr<cv::Vec3b>(y);
         for (int x = 0; x < W; ++x) {
             const cv::Vec3b& px = row[x];
-            const auto idx = static_cast<size_t>((y * W) + x);
-            impl_->input_blob[idx] = static_cast<float>(px[0]) / 255.0F;
-            impl_->input_blob[area + idx] = static_cast<float>(px[1]) / 255.0F;
-            impl_->input_blob[(2 * area) + idx] = static_cast<float>(px[2]) / 255.0F;
+            const size_t idx = static_cast<size_t>(y * W + x);
+            impl_->input_blob[idx] = static_cast<float>(px[0]) / 255.0f;
+            impl_->input_blob[area + idx] = static_cast<float>(px[1]) / 255.0f;
+            impl_->input_blob[2 * area + idx] = static_cast<float>(px[2]) / 255.0f;
         }
     }
 
@@ -250,7 +243,7 @@ bool YoloCpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
             error = "ONNX 输出元素数 " + std::to_string(count) + " 与 " + std::to_string(impl_->channels) + "x" + std::to_string(impl_->anchors) + " 不符";
             return false;
         }
-        const auto* data = outputs[0].GetTensorData<float>();
+        const float* data = outputs[0].GetTensorData<float>();
         impl_->output_data.assign(data, data + count);
 
         out.data = impl_->output_data.data();
@@ -282,9 +275,8 @@ const std::string& YoloCpu::info() const {
 }
 
 void YoloCpu::release() {
-    if (impl_) {
-        impl_->clear();
-    }
+    if (impl_) impl_->clear();
 }
 
-}  // namespace pure_uav::detection
+}  // namespace detection
+}  // namespace pure_uav

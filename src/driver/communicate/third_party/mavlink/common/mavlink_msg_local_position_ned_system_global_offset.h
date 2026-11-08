@@ -3,21 +3,28 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET = 89 };
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET 89
 
-using mavlink_local_position_ned_system_global_offset_t = struct __mavlink_local_position_ned_system_global_offset_t {
-    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-    float x;               /*< [m] X Position*/
-    float y;               /*< [m] Y Position*/
-    float z;               /*< [m] Z Position*/
-    float roll;            /*< [rad] Roll*/
-    float pitch;           /*< [rad] Pitch*/
-    float yaw;             /*< [rad] Yaw*/
-};
 
-enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_LEN = 28, MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_MIN_LEN = 28, MAVLINK_MSG_ID_89_LEN = 28, MAVLINK_MSG_ID_89_MIN_LEN = 28 };
+typedef struct __mavlink_local_position_ned_system_global_offset_t {
+ uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+ float x; /*< [m] X Position*/
+ float y; /*< [m] Y Position*/
+ float z; /*< [m] Z Position*/
+ float roll; /*< [rad] Roll*/
+ float pitch; /*< [rad] Pitch*/
+ float yaw; /*< [rad] Yaw*/
+} mavlink_local_position_ned_system_global_offset_t;
 
-enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_CRC = 231, MAVLINK_MSG_ID_89_CRC = 231 };
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_LEN 28
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_MIN_LEN 28
+#define MAVLINK_MSG_ID_89_LEN 28
+#define MAVLINK_MSG_ID_89_MIN_LEN 28
+
+#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET_CRC 231
+#define MAVLINK_MSG_ID_89_CRC 231
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET { \

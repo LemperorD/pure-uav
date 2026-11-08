@@ -3,33 +3,39 @@
 
 #include <stdint.h>
 
-enum { MAVLINK_MSG_ID_MAG_CAL_REPORT = 192 };
+#define MAVLINK_MSG_ID_MAG_CAL_REPORT 192
 
-MAVPACKED(typedef struct MavlinkMagCalReportT {
-    float fitness;                /*< [mgauss] RMS milligauss residuals.*/
-    float ofs_x;                  /*<  X offset.*/
-    float ofs_y;                  /*<  Y offset.*/
-    float ofs_z;                  /*<  Z offset.*/
-    float diag_x;                 /*<  X diagonal (matrix 11).*/
-    float diag_y;                 /*<  Y diagonal (matrix 22).*/
-    float diag_z;                 /*<  Z diagonal (matrix 33).*/
-    float offdiag_x;              /*<  X off-diagonal (matrix 12 and 21).*/
-    float offdiag_y;              /*<  Y off-diagonal (matrix 13 and 31).*/
-    float offdiag_z;              /*<  Z off-diagonal (matrix 32 and 23).*/
-    uint8_t compass_id;           /*<  Compass being calibrated.*/
-    uint8_t cal_mask;             /*<  Bitmask of compasses being calibrated.*/
-    uint8_t cal_status;           /*<  Calibration Status.*/
-    uint8_t autosaved;            /*<  0=requires a MAV_CMD_DO_ACCEPT_MAG_CAL, 1=saved to parameters.*/
-    float orientation_confidence; /*<  Confidence in orientation (higher is better).*/
-    uint8_t old_orientation;      /*<  orientation before calibration.*/
-    uint8_t new_orientation;      /*<  orientation after calibration.*/
-    float scale_factor;           /*<  field radius correction factor*/
-})
-mavlink_mag_cal_report_t;
+MAVPACKED(
+typedef struct __mavlink_mag_cal_report_t {
+ float fitness; /*< [mgauss] RMS milligauss residuals.*/
+ float ofs_x; /*<  X offset.*/
+ float ofs_y; /*<  Y offset.*/
+ float ofs_z; /*<  Z offset.*/
+ float diag_x; /*<  X diagonal (matrix 11).*/
+ float diag_y; /*<  Y diagonal (matrix 22).*/
+ float diag_z; /*<  Z diagonal (matrix 33).*/
+ float offdiag_x; /*<  X off-diagonal (matrix 12 and 21).*/
+ float offdiag_y; /*<  Y off-diagonal (matrix 13 and 31).*/
+ float offdiag_z; /*<  Z off-diagonal (matrix 32 and 23).*/
+ uint8_t compass_id; /*<  Compass being calibrated.*/
+ uint8_t cal_mask; /*<  Bitmask of compasses being calibrated.*/
+ uint8_t cal_status; /*<  Calibration Status.*/
+ uint8_t autosaved; /*<  0=requires a MAV_CMD_DO_ACCEPT_MAG_CAL, 1=saved to parameters.*/
+ float orientation_confidence; /*<  Confidence in orientation (higher is better).*/
+ uint8_t old_orientation; /*<  orientation before calibration.*/
+ uint8_t new_orientation; /*<  orientation after calibration.*/
+ float scale_factor; /*<  field radius correction factor*/
+}) mavlink_mag_cal_report_t;
 
-enum { MAVLINK_MSG_ID_MAG_CAL_REPORT_LEN = 54, MAVLINK_MSG_ID_MAG_CAL_REPORT_MIN_LEN = 44, MAVLINK_MSG_ID_192_LEN = 54, MAVLINK_MSG_ID_192_MIN_LEN = 44 };
+#define MAVLINK_MSG_ID_MAG_CAL_REPORT_LEN 54
+#define MAVLINK_MSG_ID_MAG_CAL_REPORT_MIN_LEN 44
+#define MAVLINK_MSG_ID_192_LEN 54
+#define MAVLINK_MSG_ID_192_MIN_LEN 44
 
-enum { MAVLINK_MSG_ID_MAG_CAL_REPORT_CRC = 36, MAVLINK_MSG_ID_192_CRC = 36 };
+#define MAVLINK_MSG_ID_MAG_CAL_REPORT_CRC 36
+#define MAVLINK_MSG_ID_192_CRC 36
+
+
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MAG_CAL_REPORT { \
