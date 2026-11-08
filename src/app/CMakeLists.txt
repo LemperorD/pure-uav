@@ -1,34 +1,57 @@
-# ============================================================
-#  机载主循环（app）
-#
-#  · 契约/骨架：sample.hpp / output.hpp / sensor_source.hpp / command_sink.hpp
-#  · 主循环：    guidance_loop.{hpp,cpp}   （一拍做什么，纯我们自己的逻辑）
-#  · 合成世界：  synthetic_world.{hpp,cpp} （闭环演示 + test_guidance §17 回归共用）
-#  · 离线 IO：   csv_io.{hpp,cpp}          （录制/回放/落盘/空实现）
-#  · 薄壳：      main.cpp                  （只做命令行解析与打印）
-#
-#  ⚠ 依赖方向：app → guidance_flight（= guidance_core + state_adapter + mavlink_units）
-#    具体数据源/出口（mavlink_ins_source.cpp / mavlink_sink.cpp）落地后再加到这里，
-#    且**只有那些 .cpp** 才 include 通信模块的头文件。
-# ============================================================
-add_library(app_guidance STATIC
-    guidance_loop.cpp
-    synthetic_world.cpp
-    csv_io.cpp
-    params.cpp
-    ring_log.cpp
+add_library(guidance_sim_tools STATIC
+    sim/guidance_sim_tools.cpp
 )
-target_include_directories(app_guidance PUBLIC
+target_include_directories(guidance_sim_tools PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(app_guidance
+target_link_libraries(guidance_sim_tools PUBLIC
     guidance_flight
 )
 
-add_executable(main
-    main.cpp
+add_library(guidance_application STATIC
+    startup/guidance_application.cpp
+)
+target_include_directories(guidance_application PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(guidance_application PUBLIC
+    guidance_sim_tools
+    guidance_flight
 )
 
-target_link_libraries(main
-    communicate
+if(TARGET pure_vio_runtime)
+    add_library(vio_app_support STATIC
+        app_config.cpp pose_gate.cpp camera_service.cpp glue/comm_imu_source.cpp
+    )
+    target_include_directories(vio_app_support PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/vio/estimator/src
+    )
+    target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime detection_runtime)
+    target_compile_options(vio_app_support PRIVATE -Wall -Wextra -Wpedantic)
+    add_executable(main main.cpp)
+    target_link_libraries(main PRIVATE vio_app_support)
+    target_compile_options(main PRIVATE -Wall -Wextra -Wpedantic)
+    get_target_property(_app_orbbec_library OrbbecSDK IMPORTED_LOCATION)
+    get_filename_component(_app_orbbec_dir "${_app_orbbec_library}" DIRECTORY)
+    set_target_properties(main PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
+        BUILD_RPATH "${_app_orbbec_dir};${CMAKE_SOURCE_DIR}/lib"
+        INSTALL_RPATH "$ORIGIN/../src/driver/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR};$ORIGIN/../lib"
+    )
+else()
+    message(STATUS "main: skipped (pure_vio_runtime is unavailable)")
+endif()
+
+add_executable(guidance_example
+    startup/guidance_example.cpp
+)
+target_link_libraries(guidance_example PRIVATE
+    guidance_application
+)
+
+# 可执行文件统一放到 <仓库>/bin（与 test/CMakeLists.txt 的 TEST_OUTPUT_DIR 一致），
+# 这样文档里的 `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
+set_target_properties(guidance_example PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )

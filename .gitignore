@@ -33,3 +33,7 @@ sim_xtdrone2/viz_out/
 
 # --- 根目录运行产物（sensor_*.csv 等，可由程序复现）---
 /*.csv
+
+# Local integration runtime outputs
+out/
+build*/

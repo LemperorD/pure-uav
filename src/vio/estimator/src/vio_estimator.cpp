@@ -40,12 +40,12 @@ struct VioEstimator::Impl {
     bool ok = false;
     std::string error;
 
-    Eigen::Vector3d last_gyro = Eigen::Vector3d::Zero();  // IMU 系，rad/s（未扣零偏）
-    Eigen::Vector3d last_accel = Eigen::Vector3d::Zero(); // IMU 系，m/s²（比力，未扣零偏）
+    Eigen::Vector3d last_gyro = Eigen::Vector3d::Zero();   // IMU 系，rad/s（未扣零偏）
+    Eigen::Vector3d last_accel = Eigen::Vector3d::Zero();  // IMU 系，m/s²（比力，未扣零偏）
     // 【2026-10-21】运动有效性自检：最近 2 s 的比力模长，用来算 |a|-g 的中位。
     // 单目 VIO 靠平移拿视差；实测原地转是 0.015~0.071、走路是 0.156~0.211。
     std::deque<double> acc_norm_hist;
-    std::deque<double> gyr_norm_hist;   // 【2026-10-23】初始化静止判定用
+    std::deque<double> gyr_norm_hist;  // 【2026-10-23】初始化静止判定用
 
     int images = 0;
     long long poses = 0;
@@ -61,26 +61,28 @@ struct VioEstimator::Impl {
     double init_time = -1.0;
 
     // ---- 失效保护 / 恢复 ----
-    ov_msckf::VioManagerOptions params;   // 保存一份，恢复时用它重建 VioManager
+    ov_msckf::VioManagerOptions params;  // 保存一份，恢复时用它重建 VioManager
     bool has_params = false;
     bool runtime_zupt_enabled = false;  // 重建 VioManager 后仍保留最后一次运行期开关
     HealthMonitor health;
-    bool recovery_armed = false;          // 进入过 LOST，等待重建
-    int segment_id = 0;                  // 当前初始化段编号（每次重建 +1，用于把指标按段分组）
-    int inflate_count = 0;                // 本次 LOST 里已经放大过几次协方差
-    double last_inflate_time = -1e9;      // 上次放大的时刻
-    double overspeed_since = -1.0;        // 速度超物理上限的起始时刻（<0 表示当前正常）
-    double lost_since = -1.0;             // LOST 起点
-    double last_rebuild_time = -1.0;      // 上次重建时间
-    double last_still_remind = -1e9;      // "先停稳再恢复"提示的节流
+    bool recovery_armed = false;      // 进入过 LOST，等待重建
+    int segment_id = 0;               // 当前初始化段编号（每次重建 +1，用于把指标按段分组）
+    int inflate_count = 0;            // 本次 LOST 里已经放大过几次协方差
+    double last_inflate_time = -1e9;  // 上次放大的时刻
+    double overspeed_since = -1.0;    // 速度超物理上限的起始时刻（<0 表示当前正常）
+    double lost_since = -1.0;         // LOST 起点
+    double last_rebuild_time = -1.0;  // 上次重建时间
+    double last_still_remind = -1e9;  // "先停稳再恢复"提示的节流
     // 近 2 s 深度一致性直方图队列（用于稳健中位数）
     std::deque<std::pair<double, std::array<long long, 6>>> deperr_hist_q;
     std::array<long long, 6> deperr_hist_prev{};
-    long long deperr_n_prev = 0; double deperr_sum_prev = 0.0; double deperr_recent_prev = -1.0;
+    long long deperr_n_prev = 0;
+    double deperr_sum_prev = 0.0;
+    double deperr_recent_prev = -1.0;
     int rebuildCount = 0;
     struct Anchor {
         bool set = false;
-        double yaw = 0.0;                 // 旧 LOCAL_FRD 相对新 LOCAL_FRD 的偏航
+        double yaw = 0.0;  // 旧 LOCAL_FRD 相对新 LOCAL_FRD 的偏航
         Eigen::Vector3d t = Eigen::Vector3d::Zero();
     } anchor;
     VisionPose last_published;
@@ -131,6 +133,7 @@ VisionPose VioEstimator::Impl::applyAnchor(const VisionPose& in) const {
 // 原来这些走 log()，被 --quiet 吞掉 —— 排查时看不到"重建了几次、为什么重建"，
 // 只能事后从诊断 CSV 的 t_rel 回退去猜（我就是这么误判 clean1 是连续 88 秒的）。
 void VioEstimator::Impl::logAlways(const char* fmt, ...) const {
+    if (opt.quiet_runtime) return;
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -166,10 +169,11 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
 
         std::string verbosity = "INFO";
         parser->parse_config("verbosity", verbosity, false);
-        ov_core::Printer::setPrintLevel(verbosity);
+        ov_core::Printer::setPrintLevel(options.quiet_runtime ? "SILENT" : verbosity);
 
         ov_msckf::VioManagerOptions params;
         params.print_and_load(parser);
+        if (options.quiet_runtime) params.record_timing_information = false;
         if (options.init_threads > 0) {
             params.init_options.init_dyn_mle_max_threads = options.init_threads;
             impl_->log("[VIO] 动态初始化线程数覆盖为 %d（可复现性）\n", options.init_threads);
@@ -177,19 +181,16 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
         params.use_multi_threading_subs = false;
         if (options.estimate_camera_timeoffset) {
             params.state_options.do_calib_camera_timeoffset = true;
-            impl_->log("[VIO] 在线估计 cam-IMU 时移：开启（初值 %.4f s）\n",
-                       params.calib_camimu_dt);
+            impl_->log("[VIO] 在线估计 cam-IMU 时移：开启（初值 %.4f s）\n", params.calib_camimu_dt);
         }
         // 初始化方式：动态（估计器自己找激励窗口）vs 静态（要求先静止 init_window_time）。
         // 静态初始化直接由静止段的加速度计均值定重力方向，倾角误差比动态小一个量级；
         // "--static-init" 就是用它做对照实验，配置本身不动。
         if (options.static_init) {
             params.init_options.init_dyn_use = false;
-            impl_->log("[VIO] 初始化方式：静态（要求先静止 %.1f s；倾角来自静止段加速度计均值）\n",
-                       params.init_options.init_window_time);
+            impl_->log("[VIO] 初始化方式：静态（要求先静止 %.1f s；倾角来自静止段加速度计均值）\n", params.init_options.init_window_time);
         } else {
-            impl_->log("[VIO] 初始化方式：动态（配置 init_dyn_use=%d）\n",
-                       static_cast<int>(params.init_options.init_dyn_use));
+            impl_->log("[VIO] 初始化方式：动态（配置 init_dyn_use=%d）\n", static_cast<int>(params.init_options.init_dyn_use));
         }
 
         if (!parser->successful()) {
@@ -207,8 +208,7 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
         impl_->has_params = true;
         impl_->runtime_zupt_enabled = params.try_zupt;
         impl_->createManager();
-        if (options.use_depth_init)
-            impl_->log("[VIO] 使用深度初始化特征（use_depth_init）\n");
+        if (options.use_depth_init) impl_->log("[VIO] 使用深度初始化特征（use_depth_init）\n");
         impl_->health.configure(options.health);
         impl_->ok = true;
 
@@ -223,8 +223,12 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
 
 VioEstimator::~VioEstimator() = default;
 
-bool VioEstimator::ok() const { return impl_ && impl_->ok; }
-const std::string& VioEstimator::error() const { return impl_->error; }
+bool VioEstimator::ok() const {
+    return impl_ && impl_->ok;
+}
+const std::string& VioEstimator::error() const {
+    return impl_->error;
+}
 
 void VioEstimator::feedImu(const ImuSample& imu) {
     if (!impl_->ok) return;
@@ -237,8 +241,8 @@ void VioEstimator::feedImu(const ImuSample& imu) {
     impl_->last_gyro = msg.wm;
     impl_->last_accel = msg.am;
     impl_->acc_norm_hist.push_back(msg.am.norm());
-    impl_->gyr_norm_hist.push_back(msg.wm.norm()); // 初始化静止判定用
-    while (impl_->acc_norm_hist.size() > 400) impl_->acc_norm_hist.pop_front(); // 2 s @200Hz
+    impl_->gyr_norm_hist.push_back(msg.wm.norm());                               // 初始化静止判定用
+    while (impl_->acc_norm_hist.size() > 400) impl_->acc_norm_hist.pop_front();  // 2 s @200Hz
     while (impl_->gyr_norm_hist.size() > 400) impl_->gyr_norm_hist.pop_front();
     impl_->vio->feed_measurement_imu(msg);
 }
@@ -269,7 +273,7 @@ VioEstimator::TiltCheck VioEstimator::tiltCheck() const {
         pose = impl_->latest;
     }
     const Eigen::Quaterniond q(pose.q[0], pose.q[1], pose.q[2], pose.q[3]);  // w x y z
-    const Eigen::Matrix3d R = q.toRotationMatrix();          // body -> LOCAL_FRD
+    const Eigen::Matrix3d R = q.toRotationMatrix();                          // body -> LOCAL_FRD
     const Eigen::Vector3d down_est = R.transpose() * Eigen::Vector3d(0, 0, 1);
     const Eigen::Vector3d down_meas = -impl_->last_accel.normalized();
     const double c = std::max(-1.0, std::min(1.0, down_est.dot(down_meas)));
@@ -277,7 +281,6 @@ VioEstimator::TiltCheck VioEstimator::tiltCheck() const {
     out.valid = true;
     return out;
 }
-
 
 void VioEstimator::setZuptEnabled(bool enable) {
     if (!impl_ || !impl_->ok || !impl_->vio) return;
@@ -289,13 +292,10 @@ bool VioEstimator::zuptEnabled() const {
     return impl_ && impl_->ok && impl_->vio && impl_->vio->zupt_enabled();
 }
 
-void VioEstimator::setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx,
-                                 double fy, double cx, double cy, const double R_c2d[9],
-                                 const double t_c2d_m[3]) {
+void VioEstimator::setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx, double fy, double cx, double cy, const double R_c2d[9], const double t_c2d_m[3]) {
     if (!impl_ || !impl_->ok || !impl_->vio) return;
     if (depth_mm.empty()) return;
-    impl_->vio->set_depth_image(depth_mm, static_cast<double>(timestamp_us) * 1e-6, fx, fy, cx, cy,
-                                R_c2d, t_c2d_m);
+    impl_->vio->set_depth_image(depth_mm, static_cast<double>(timestamp_us) * 1e-6, fx, fy, cx, cy, R_c2d, t_c2d_m);
 }
 
 namespace {
@@ -309,8 +309,7 @@ static double median_of(const std::deque<double>& q) {
     return v[v.size() / 2];
 }
 
-bool init_still_likely(const std::deque<double>& acc_hist, const std::deque<double>& gyr_hist,
-                       double acc_thresh, double gyro_dps_thresh) {
+bool init_still_likely(const std::deque<double>& acc_hist, const std::deque<double>& gyr_hist, double acc_thresh, double gyro_dps_thresh) {
     if (acc_hist.size() < 100 || gyr_hist.size() < 100) return false;
     std::vector<double> a(acc_hist.begin(), acc_hist.end());
     std::vector<double> w(gyr_hist.begin(), gyr_hist.end());
@@ -335,9 +334,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     impl_->last_cam_time = ts;
     // 把"当前是否接近静止"告诉 VioManager：初始化成功时用它决定要不要清零初速度
     if (impl_->vio) {
-        impl_->vio->set_init_still(init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist,
-                                                     impl_->opt.init_still_acc_thresh,
-                                                     impl_->opt.init_still_gyro_dps));
+        impl_->vio->set_init_still(init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, impl_->opt.init_still_acc_thresh, impl_->opt.init_still_gyro_dps));
     }
 
     cv::Mat img = gray;
@@ -362,7 +359,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
 
     // 可视化数据：抄一份当前帧的跟踪点（纯展示，不影响估计）
     {
-        const auto &src = impl_->vio->get_tracked_points();
+        const auto& src = impl_->vio->get_tracked_points();
         impl_->tracks.resize(src.size());
         for (size_t i = 0; i < src.size(); ++i) {
             impl_->tracks[i].u = src[i].u;
@@ -384,8 +381,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // 【2026-10-25】准静止时刻的重力泄漏也进健康判定：姿态错 θ 度 → 漏掉 g·sinθ。
         // 实测 turn4 静止 13 s、倾角差 10.8°、泄漏 1.84 m/s²，速度一路涨到 5.92 m/s。
         VioEstimator::TiltCheck tc = tiltCheck();
-        impl_->health.update(ts, fh.features, fh.any_visual_update, deperr_recent,
-                             tc.valid ? tc.deg : -1.0);
+        impl_->health.update(ts, fh.features, fh.any_visual_update, deperr_recent, tc.valid ? tc.deg : -1.0);
 
         const VioHealthState st = impl_->health.state();
         if (st == VioHealthState::LOST) {
@@ -399,15 +395,11 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // 再走下面的 force_reinit 重建（那条路要重新初始化，约 8 秒）。
         if (st != VioHealthState::LOST) {
             impl_->inflate_count = 0;
-        } else if (impl_->opt.health.inflate_enable && impl_->lost_since >= 0.0 &&
-                   impl_->inflate_count < impl_->opt.health.max_inflate_times &&
-                   (ts - impl_->last_inflate_time) > impl_->opt.health.inflate_after_s) {
+        } else if (impl_->opt.health.inflate_enable && impl_->lost_since >= 0.0 && impl_->inflate_count < impl_->opt.health.max_inflate_times && (ts - impl_->last_inflate_time) > impl_->opt.health.inflate_after_s) {
             if (impl_->vio->inflate_covariance(impl_->opt.health.inflate_scale)) {
                 impl_->last_inflate_time = ts;
                 ++impl_->inflate_count;
-                impl_->logAlways("[VIO] 卡方锁死：协方差放大 ×%.0f 自救（第 %d/%d 次）\n",
-                           impl_->opt.health.inflate_scale, impl_->inflate_count,
-                           impl_->opt.health.max_inflate_times);
+                impl_->logAlways("[VIO] 卡方锁死：协方差放大 ×%.0f 自救（第 %d/%d 次）\n", impl_->opt.health.inflate_scale, impl_->inflate_count, impl_->opt.health.max_inflate_times);
             }
         }
 
@@ -415,10 +407,8 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         //  (a) 已经恢复（特征回来且有更新）但之前挂过 —— 软恢复；
         //  (b) LOST 持续超过 force_reinit_after_s —— 强制重建。
         //      没有 (b) 的话，更新管线卡死时永远等不到 (a)，VIO 就永久死了。
-        const bool soft = impl_->recovery_armed && st != VioHealthState::LOST &&
-                          impl_->opt.health.reinit_on_soft_recover;
-        const bool force = impl_->lost_since >= 0.0 &&
-                           (ts - impl_->lost_since) > impl_->opt.health.force_reinit_after_s;
+        const bool soft = impl_->recovery_armed && st != VioHealthState::LOST && impl_->opt.health.reinit_on_soft_recover;
+        const bool force = impl_->lost_since >= 0.0 && (ts - impl_->lost_since) > impl_->opt.health.force_reinit_after_s;
         //=====================================================================
         // 【2026-10-23】LOST 后**禁止在运动中重锚定**（状态机第一版）
         //
@@ -431,18 +421,13 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // IMU 统计量）。不满足就一直保持 LOST、不发位姿——这比"发一条看起来连续
         // 但其实是错的重锚定轨迹"安全得多。操作员停一下就能恢复。
         //=====================================================================
-        const bool rebuild_still =
-            init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, 0.5, 10.0);
-        const bool can_rebuild = impl_->latched &&
-                                 rebuild_still &&
-                                 (impl_->last_rebuild_time < 0.0 ||
-                                  ts - impl_->last_rebuild_time > impl_->opt.health.min_rebuild_interval_s);
+        const bool rebuild_still = init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, 0.5, 10.0);
+        const bool can_rebuild = impl_->latched && rebuild_still && (impl_->last_rebuild_time < 0.0 || ts - impl_->last_rebuild_time > impl_->opt.health.min_rebuild_interval_s);
         if ((soft || force) && impl_->latched && !rebuild_still) {
             // 每 2 s 提示一次，别刷屏
             if (ts - impl_->last_still_remind > 2.0) {
                 impl_->last_still_remind = ts;
-                impl_->logAlways("[VIO] LOST 需要重锚定，但当前在动（|w|=%.1f°/s）→ 先停稳再恢复\n",
-                                 median_of(impl_->gyr_norm_hist) * 180.0 / M_PI);
+                impl_->logAlways("[VIO] LOST 需要重锚定，但当前在动（|w|=%.1f°/s）→ 先停稳再恢复\n", median_of(impl_->gyr_norm_hist) * 180.0 / M_PI);
             }
         }
 
@@ -461,9 +446,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
             impl_->launched = false;
             impl_->init_time = -1.0;
             ++impl_->segment_id;
-            impl_->logAlways("[VIO] 视觉%s：重建估计器并重锚定（第 %d 次，segment %d，原因=%s）\n",
-                             force ? "超时未恢复" : "恢复", impl_->rebuildCount,
-                             impl_->segment_id, force ? "LOST 超时" : "曾经 LOST 后恢复");
+            impl_->logAlways("[VIO] 视觉%s：重建估计器并重锚定（第 %d 次，segment %d，原因=%s）\n", force ? "超时未恢复" : "恢复", impl_->rebuildCount, impl_->segment_id, force ? "LOST 超时" : "曾经 LOST 后恢复");
         }
 
         if (impl_->health.state() == VioHealthState::LOST) {
@@ -487,8 +470,7 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     const Eigen::Vector3d v_IinG = state->_imu->vel();
     // state->_timestamp 是相机时间；OpenVINS 传播/发布用的是其 IMU 时间：
     //   t_imu = t_cam + calib_camimu_dt
-    const double state_time =
-        state->_timestamp + state->_calib_dt_CAMtoIMU->value()(0);
+    const double state_time = state->_timestamp + state->_calib_dt_CAMtoIMU->value()(0);
 
     if (!impl_->latched) {
         impl_->launched = true;
@@ -505,26 +487,24 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
                 std::sort(g.begin(), g.end());
                 gyr_med = g[g.size() / 2];
             }
-            impl_->logAlways("[VIO] [segment %d] 初始化静止指标: ||a||-g=%.3f m/s^2  |w|中位=%.1f °/s"
-                             "（静止判定阈值建议 0.30 / 5.0）\n",
-                             impl_->segment_id, [&]() -> double {
-                                 if (impl_->acc_norm_hist.size() < 20) return -1.0;
-                                 std::vector<double> v(impl_->acc_norm_hist.begin(),
-                                                       impl_->acc_norm_hist.end());
-                                 std::sort(v.begin(), v.end());
-                                 return std::abs(v[v.size() / 2] - 9.81);
-                             }(),
-                             gyr_med < 0 ? -1.0 : gyr_med * 180.0 / M_PI);
+            impl_->logAlways(
+                "[VIO] [segment %d] 初始化静止指标: ||a||-g=%.3f m/s^2  |w|中位=%.1f °/s"
+                "（静止判定阈值建议 0.30 / 5.0）\n",
+                impl_->segment_id,
+                [&]() -> double {
+                    if (impl_->acc_norm_hist.size() < 20) return -1.0;
+                    std::vector<double> v(impl_->acc_norm_hist.begin(), impl_->acc_norm_hist.end());
+                    std::sort(v.begin(), v.end());
+                    return std::abs(v[v.size() / 2] - 9.81);
+                }(),
+                gyr_med < 0 ? -1.0 : gyr_med * 180.0 / M_PI);
         }
-        impl_->logAlways("[VIO] [segment %d] 初始化完成：init_time=%.6f s, 开始输出 LOCAL_FRD 位姿%s\n",
-                         impl_->segment_id,
-                   impl_->init_time, impl_->anchor.set ? "（已重锚定）" : "");
+        impl_->logAlways("[VIO] [segment %d] 初始化完成：init_time=%.6f s, 开始输出 LOCAL_FRD 位姿%s\n", impl_->segment_id, impl_->init_time, impl_->anchor.set ? "（已重锚定）" : "");
     }
 
     const Eigen::Vector3d omega_I = impl_->last_gyro - state->_imu->bias_g();
 
-    VisionPose pose = impl_->applyAnchor(
-        impl_->converter->convert(state_time, R_GtoI, p_IinG, v_IinG, omega_I));
+    VisionPose pose = impl_->applyAnchor(impl_->converter->convert(state_time, R_GtoI, p_IinG, v_IinG, omega_I));
     if (impl_->opt.pose_timestamp == VioEstimator::PoseTimestamp::CAMERA) {
         pose.timestamp_us = timestamp_us;
     }
@@ -548,13 +528,8 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     //=========================================================================
     {
         const double ts_check = static_cast<double>(timestamp_us) * 1e-6;
-        bool finite = std::isfinite(pose.x) && std::isfinite(pose.y) && std::isfinite(pose.z) &&
-                      std::isfinite(pose.vx) && std::isfinite(pose.vy) && std::isfinite(pose.vz) &&
-                      std::isfinite(pose.q[0]) && std::isfinite(pose.q[1]) &&
-                      std::isfinite(pose.q[2]) && std::isfinite(pose.q[3]);
-        const double speed = std::sqrt(static_cast<double>(pose.vx) * pose.vx +
-                                       static_cast<double>(pose.vy) * pose.vy +
-                                       static_cast<double>(pose.vz) * pose.vz);
+        bool finite = std::isfinite(pose.x) && std::isfinite(pose.y) && std::isfinite(pose.z) && std::isfinite(pose.vx) && std::isfinite(pose.vy) && std::isfinite(pose.vz) && std::isfinite(pose.q[0]) && std::isfinite(pose.q[1]) && std::isfinite(pose.q[2]) && std::isfinite(pose.q[3]);
+        const double speed = std::sqrt(static_cast<double>(pose.vx) * pose.vx + static_cast<double>(pose.vy) * pose.vy + static_cast<double>(pose.vz) * pose.vz);
         if (!finite) {
             impl_->health.mark_implausible(ts_check);
             impl_->logAlways("[VIO] ⛔ 位姿出现 NaN/Inf → 判失效，停止外发\n");
@@ -562,10 +537,10 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
             if (impl_->overspeed_since < 0.0) impl_->overspeed_since = ts_check;
             if (ts_check - impl_->overspeed_since > impl_->opt.health.max_speed_hold_s) {
                 impl_->health.mark_implausible(ts_check);
-                impl_->logAlways("[VIO] ⛔ 估计速度 %.2f m/s 超过物理上限 %.1f m/s 持续 %.1f s "
-                                 "→ 判失效（疑似发散）\n",
-                                 speed, impl_->opt.health.max_speed_mps,
-                                 impl_->opt.health.max_speed_hold_s);
+                impl_->logAlways(
+                    "[VIO] ⛔ 估计速度 %.2f m/s 超过物理上限 %.1f m/s 持续 %.1f s "
+                    "→ 判失效（疑似发散）\n",
+                    speed, impl_->opt.health.max_speed_mps, impl_->opt.health.max_speed_hold_s);
                 impl_->overspeed_since = -1.0;
             }
         } else {
@@ -615,10 +590,10 @@ const std::vector<VioEstimator::TrackedPoint>& VioEstimator::trackedPoints() con
 // 运动有效性：||a||-g 的窗口中位。
 // <0.10 基本是原地转（不会有三角化）；>0.15 才算真有平移。
 double VioEstimator::linAccelDev() const {
-  if (!impl_ || impl_->acc_norm_hist.size() < 20) return -1.0;
-  std::vector<double> v(impl_->acc_norm_hist.begin(), impl_->acc_norm_hist.end());
-  std::sort(v.begin(), v.end());
-  return std::abs(v[v.size() / 2] - 9.81);
+    if (!impl_ || impl_->acc_norm_hist.size() < 20) return -1.0;
+    std::vector<double> v(impl_->acc_norm_hist.begin(), impl_->acc_norm_hist.end());
+    std::sort(v.begin(), v.end());
+    return std::abs(v[v.size() / 2] - 9.81);
 }
 
 // 最近一次 MSCKF 的三角化成功率 = tri_ok / feat_in。
@@ -635,22 +610,28 @@ void VioEstimator::depthErrStats(long long& n, double& mean_px, long long hist[6
 
 double VioEstimator::recentDepthErrMedianPx(double now_s) {
     if (!impl_ || !impl_->vio) return -1.0;
-    long long n = 0; double sum = 0.0; long long hist[6] = {0};
+    long long n = 0;
+    double sum = 0.0;
+    long long hist[6] = {0};
     impl_->vio->get_depth_err_hist(n, sum, hist);
     // 取与上次的差分，压进队列
     std::array<long long, 6> d{};
     for (int i = 0; i < 6; ++i) d[i] = hist[i] - impl_->deperr_hist_prev[i];
     impl_->deperr_hist_prev = {hist[0], hist[1], hist[2], hist[3], hist[4], hist[5]};
     long long dsum = 0;
-    for (int i = 0; i < 6; ++i) { if (d[i] > 0) dsum += d[i]; }
+    for (int i = 0; i < 6; ++i) {
+        if (d[i] > 0) dsum += d[i];
+    }
     if (dsum > 0) impl_->deperr_hist_q.emplace_back(now_s, d);
-    while (!impl_->deperr_hist_q.empty() && now_s - impl_->deperr_hist_q.front().first > 2.0)
-        impl_->deperr_hist_q.pop_front();
+    while (!impl_->deperr_hist_q.empty() && now_s - impl_->deperr_hist_q.front().first > 2.0) impl_->deperr_hist_q.pop_front();
     if (impl_->deperr_hist_q.empty()) return -1.0;
     long long acc[6] = {0};
     long long total = 0;
     for (const auto& kv : impl_->deperr_hist_q)
-        for (int i = 0; i < 6; ++i) { acc[i] += kv.second[i]; total += kv.second[i]; }
+        for (int i = 0; i < 6; ++i) {
+            acc[i] += kv.second[i];
+            total += kv.second[i];
+        }
     if (total <= 0) return -1.0;
     // 各档代表值（px）：<1 ->0.5, <2 ->1.5, <5 ->3.5, <10 ->7.5, <25 ->17.5, >=25 ->30
     static const double rep[6] = {0.5, 1.5, 3.5, 7.5, 17.5, 30.0};
@@ -672,17 +653,15 @@ long long VioEstimator::depthUsed() const {
 }
 
 double VioEstimator::triangulationRate() const {
-  if (!impl_ || !impl_->vio) return -1.0;
-  return impl_->vio->get_msckf_tri_rate();
+    if (!impl_ || !impl_->vio) return -1.0;
+    return impl_->vio->get_msckf_tri_rate();
 }
 
-void VioEstimator::msckfStats(long long &calls, long long &feat_in, long long &chi2_rej,
-                              long long &updates, long long &rows,
-                              long long &clean_drop, long long &tri_drop) const {
-  calls = feat_in = chi2_rej = updates = rows = 0;
-  clean_drop = tri_drop = 0;
-  if (!impl_ || !impl_->vio) return;
-  impl_->vio->get_msckf_stats(calls, feat_in, chi2_rej, updates, rows, clean_drop, tri_drop);
+void VioEstimator::msckfStats(long long& calls, long long& feat_in, long long& chi2_rej, long long& updates, long long& rows, long long& clean_drop, long long& tri_drop) const {
+    calls = feat_in = chi2_rej = updates = rows = 0;
+    clean_drop = tri_drop = 0;
+    if (!impl_ || !impl_->vio) return;
+    impl_->vio->get_msckf_stats(calls, feat_in, chi2_rej, updates, rows, clean_drop, tri_drop);
 }
 
 bool VioEstimator::publishable() const {
@@ -745,9 +724,10 @@ void VioEstimator::resetForNewTimebase(const char* reason) {
         impl_->has_raw = false;
     }
 
-    impl_->logAlways("[VIO] 飞控时间基变化（%s）：丢弃旧估计，按新时间基重新初始化"
-                     "（第 %d 次重建，segment %d）\n",
-                     reason != nullptr ? reason : "未知", impl_->rebuildCount, impl_->segment_id);
+    impl_->logAlways(
+        "[VIO] 飞控时间基变化（%s）：丢弃旧估计，按新时间基重新初始化"
+        "（第 %d 次重建，segment %d）\n",
+        reason != nullptr ? reason : "未知", impl_->rebuildCount, impl_->segment_id);
 }
 
 HealthReport VioEstimator::healthReport() const {
@@ -764,8 +744,12 @@ int VioEstimator::recoveryCount() const {
     return impl_ ? impl_->health.report(0.0).recoveries : 0;
 }
 
-int VioEstimator::imageCount() const { return impl_->images; }
-int VioEstimator::poseCount() const { return static_cast<int>(impl_->poses); }
+int VioEstimator::imageCount() const {
+    return impl_->images;
+}
+int VioEstimator::poseCount() const {
+    return static_cast<int>(impl_->poses);
+}
 
 uint64_t VioEstimator::lastPoseTimestampUs() const {
     std::lock_guard<std::mutex> lk(impl_->pose_mutex);
@@ -776,9 +760,13 @@ double VioEstimator::cameraTimeOffsetSec() const {
     return impl_ && impl_->vio ? impl_->vio->get_camera_timeoffset() : 0.0;
 }
 
-double VioEstimator::initializedTimeSec() const { return impl_->init_time; }
+double VioEstimator::initializedTimeSec() const {
+    return impl_->init_time;
+}
 
-const VisionPoseConvert& VioEstimator::converter() const { return *impl_->converter; }
+const VisionPoseConvert& VioEstimator::converter() const {
+    return *impl_->converter;
+}
 
 bool VioEstimator::getLatestRawState(RawState& state) const {
     std::lock_guard<std::mutex> lk(impl_->pose_mutex);

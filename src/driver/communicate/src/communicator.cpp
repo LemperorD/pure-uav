@@ -1,13 +1,14 @@
 #include "communicator.hpp"
 
+#include <poll.h>
+#include <unistd.h>
+
 #include <chrono>
-#include <utility>
 #include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <poll.h>
-#include <unistd.h>
+#include <utility>
 
 // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
 #include "common/mavlink.h"
@@ -26,13 +27,10 @@ auto packMessage(F pack, Args&&... args) {
     return pack(std::forward<Args>(args)...);
 }
 
-
-
 // 单调时钟毫秒
 uint32_t timeBootMs() {
     using namespace std::chrono;
-    return static_cast<uint32_t>(
-        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+    return static_cast<uint32_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
 // 单调时钟纳秒（IMU 到达时刻用，FcuClock 做主机↔飞控时钟映射）
@@ -41,7 +39,13 @@ int64_t steadyNowNs() {
     return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-//欧拉角 → 四元数 wxyz
+bool telemetryFresh(int64_t stamp_ns, int max_age_ms) {
+    if (stamp_ns == 0) return false;
+    const int64_t elapsed_ns = steadyNowNs() - stamp_ns;
+    return elapsed_ns >= 0 && (max_age_ms < 0 || elapsed_ns <= static_cast<int64_t>(max_age_ms) * 1000000LL);
+}
+
+// 欧拉角 → 四元数 wxyz
 void eulerToQuat(float roll, float pitch, float yaw, float q[4]) {
     const float cy = std::cos(yaw * 0.5f), sy = std::sin(yaw * 0.5f);
     const float cp = std::cos(pitch * 0.5f), sp = std::sin(pitch * 0.5f);
@@ -57,7 +61,7 @@ Communicator::~Communicator() {
     stop();
 }
 
-bool Communicator::start(const std::string& device, int baud) {   //打开串口
+bool Communicator::start(const std::string& device, int baud) {  // 打开串口
     if (running_.load()) {
         return true;
     }
@@ -68,7 +72,7 @@ bool Communicator::start(const std::string& device, int baud) {   //打开串口
         printf("打开串口失败: %s\n", device.c_str());
         return false;
     }
-    port_.flush();   //清空缓冲
+    port_.flush();  // 清空缓冲
 
     // 【2026-10-29】每次 start() 都是新会话：清掉上一次连接的 IMU 队列、
     // 缓存数据、解锁状态和身份锁定，避免把旧会话的数据混进新连接。
@@ -80,11 +84,11 @@ bool Communicator::start(const std::string& device, int baud) {   //打开串口
     // 数据流请求由首个匹配心跳触发；此时目标 sysid/compid 尚未确认。
 
     running_.store(true);
-    recv_thread_ = std::thread(&Communicator::recvLoop, this);    //开启接收线程
+    recv_thread_ = std::thread(&Communicator::recvLoop, this);  // 开启接收线程
     return true;
 }
 
-void Communicator::stop() {    //关闭接收线程
+void Communicator::stop() {  // 关闭接收线程
     running_.store(false);
     if (recv_thread_.joinable()) {
         recv_thread_.join();
@@ -94,17 +98,14 @@ void Communicator::stop() {    //关闭接收线程
     resetSessionState();
 }
 
-
 // 【2026-10-29】心跳来源筛选：只认目标飞控。
 bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
-    if (sysid == sysid_) return false;   // 自己的心跳（回环）
+    if (sysid == sysid_) return false;  // 自己的心跳（回环）
 
-    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS ||
-        type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
-    if (locked_sysid_.load() != 0)
-        return sysid == locked_sysid_.load() && compid == locked_compid_.load();
+    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
+    if (locked_sysid_.load() != 0) return sysid == locked_sysid_.load() && compid == locked_compid_.load();
 
-    if (cfg_.fcu_sysid != 0) {           // 显式配置优先
+    if (cfg_.fcu_sysid != 0) {  // 显式配置优先
         if (sysid != cfg_.fcu_sysid) return false;
         if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
         locked_sysid_.store(sysid);
@@ -124,9 +125,7 @@ bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopi
 
     locked_sysid_.store(sysid);
     locked_compid_.store(compid);
-    printf("[COMM] 锁定目标飞控心跳 sysid=%u compid=%u autopilot=%u\n",
-           static_cast<unsigned>(sysid), static_cast<unsigned>(compid),
-           static_cast<unsigned>(autopilot));
+    printf("[COMM] 锁定目标飞控心跳 sysid=%u compid=%u autopilot=%u\n", static_cast<unsigned>(sysid), static_cast<unsigned>(compid), static_cast<unsigned>(autopilot));
     return true;
 }
 
@@ -134,6 +133,8 @@ bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopi
 // 目的：停止后再启动时，popImu() 绝不能返回上一次连接留下的帧；
 // 旧心跳、解锁状态、固件类型、缓存数据也都必须失效。
 void Communicator::resetSessionState() {
+    connected_.store(false);
+    invalidateTelemetry();
     {
         std::lock_guard<std::mutex> lk(imu_queue_mutex_);
         imu_queue_.clear();
@@ -179,6 +180,21 @@ void Communicator::resetSessionState() {
     last_ack_result_.store(UINT8_MAX);
 }
 
+void Communicator::invalidateTelemetry() {
+    {
+        std::lock_guard<std::mutex> lock(attitude_mutex_);
+        last_attitude_ns_.store(0);
+    }
+    {
+        std::lock_guard<std::mutex> lock(local_position_mutex_);
+        last_local_position_ns_.store(0);
+    }
+    {
+        std::lock_guard<std::mutex> lock(system_time_mutex_);
+        last_system_time_ns_.store(0);
+    }
+}
+
 void Communicator::clearImuQueue() {
     std::lock_guard<std::mutex> lk(imu_queue_mutex_);
     imu_queue_.clear();
@@ -197,14 +213,15 @@ void Communicator::recvLoop() {
     long long ignored_heartbeats = 0;
     auto last_heartbeat = steady_clock::now();
     auto last_gcs_heartbeat = steady_clock::now();
-    int read_errors = 0;       // 连续读错误计数（掉线判定）
-    int reopen_failures = 0;   // 打印节流
+    int read_errors = 0;      // 连续读错误计数（掉线判定）
+    int reopen_failures = 0;  // 打印节流
 
     while (running_.load()) {
         // 心跳超时 → 判定断开
-        if (connected_.load() &&
-            steady_clock::now() - last_heartbeat > heartbeat_timeout) {
+        if (connected_.load() && steady_clock::now() - last_heartbeat > heartbeat_timeout) {
+            std::lock_guard<std::mutex> tx_lock(send_mutex_);
             connected_.store(false);
+            invalidateTelemetry();
             clearImuQueue();
             {
                 std::lock_guard<std::mutex> lk(imu_mutex_);
@@ -224,27 +241,29 @@ void Communicator::recvLoop() {
             std::this_thread::sleep_for(milliseconds(500));
             if (!running_.load()) break;
             if (port_.open(cfg_.device, cfg_.baudrate)) {
-                rx_message = {};
-                rx_status = {};
-                status = {};
-                port_.flush();
-                reopen_failures = 0;
-                read_errors = 0;
-                connected_.store(false);
-                streams_requested_.store(false);
-                locked_sysid_.store(0);
-                locked_compid_.store(0);
-                last_heartbeat_ns_.store(0);
-                clearImuQueue();
-                reconnects_.fetch_add(1);
-                last_heartbeat = steady_clock::now();
-                last_gcs_heartbeat = steady_clock::now();
+                {
+                    std::lock_guard<std::mutex> tx_lock(send_mutex_);
+                    rx_message = {};
+                    rx_status = {};
+                    status = {};
+                    port_.flush();
+                    reopen_failures = 0;
+                    read_errors = 0;
+                    connected_.store(false);
+                    invalidateTelemetry();
+                    streams_requested_.store(false);
+                    locked_sysid_.store(0);
+                    locked_compid_.store(0);
+                    last_heartbeat_ns_.store(0);
+                    clearImuQueue();
+                    reconnects_.fetch_add(1);
+                    last_heartbeat = steady_clock::now();
+                    last_gcs_heartbeat = steady_clock::now();
+                }
                 // 新会话主动打招呼，否则飞控可能不推流
                 sendGcsHeartbeat();
                 // 新会话等待目标心跳后重新订阅，不能沿用上次连接的飞控地址。
-                printf("[COMM] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n",
-                       cfg_.device.c_str(),
-                       static_cast<unsigned long long>(reconnects_.load()));
+                printf("[COMM] 串口已重连 %s（第 %llu 次），等待飞控心跳…\n", cfg_.device.c_str(), static_cast<unsigned long long>(reconnects_.load()));
                 fflush(stdout);
             } else if (++reopen_failures % 10 == 1) {
                 printf("[COMM] 串口重连失败（%s），继续尝试…\n", cfg_.device.c_str());
@@ -258,11 +277,12 @@ void Communicator::recvLoop() {
         short revents = 0;
         const int pr = port_.pollIn(1, &revents);
         if (pr > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
-            printf("[COMM] 串口挂断（poll revents=0x%x）：设备掉线，等待重连…\n",
-                   static_cast<unsigned>(revents));
+            printf("[COMM] 串口挂断（poll revents=0x%x）：设备掉线，等待重连…\n", static_cast<unsigned>(revents));
             fflush(stdout);
+            std::lock_guard<std::mutex> tx_lock(send_mutex_);
             port_.close();
             connected_.store(false);
+            invalidateTelemetry();
             streams_requested_.store(false);
             locked_sysid_.store(0);
             locked_compid_.store(0);
@@ -273,11 +293,12 @@ void Communicator::recvLoop() {
         ssize_t n = port_.read(buf, sizeof(buf));
         if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
             if (++read_errors >= 5) {
-                printf("[COMM] 串口读错误（%s）：设备掉线，停止解析，等待重连…\n",
-                       std::strerror(errno));
+                printf("[COMM] 串口读错误（%s）：设备掉线，停止解析，等待重连…\n", std::strerror(errno));
                 fflush(stdout);
+                std::lock_guard<std::mutex> tx_lock(send_mutex_);
                 port_.close();
                 connected_.store(false);
+                invalidateTelemetry();
                 streams_requested_.store(false);
                 locked_sysid_.store(0);
                 locked_compid_.store(0);
@@ -294,13 +315,11 @@ void Communicator::recvLoop() {
                     // 锁定飞控后只接受该 sysid 的数据；同链路路由转发过来的其他
                     // 飞行器/地面站消息不能污染姿态、位置、IMU 缓存。
                     const uint8_t locked_sysid = locked_sysid_.load();
-                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT &&
-                        (!connected_.load() || locked_sysid == 0 || msg.sysid != locked_sysid ||
-                         msg.compid != locked_compid_.load())) {
+                    if (msg.msgid != MAVLINK_MSG_ID_HEARTBEAT && (!connected_.load() || locked_sysid == 0 || msg.sysid != locked_sysid || msg.compid != locked_compid_.load())) {
                         continue;
                     }
                     switch (msg.msgid) {
-                        case MAVLINK_MSG_ID_HEARTBEAT: {     //心跳和飞行模式
+                        case MAVLINK_MSG_ID_HEARTBEAT: {  // 心跳和飞行模式
                             mavlink_heartbeat_t hb;
                             mavlink_msg_heartbeat_decode(&msg, &hb);
                             // 【2026-10-29】只认目标飞控的心跳。地面站/机载计算机/
@@ -308,19 +327,16 @@ void Communicator::recvLoop() {
                             if (!acceptHeartbeat(msg.sysid, msg.compid, hb.autopilot, hb.type)) {
                                 ++ignored_heartbeats;
                                 if (ignored_heartbeats <= 3 || ignored_heartbeats % 200 == 0) {
-                                    printf("[COMM] 忽略非目标心跳 sysid=%u compid=%u type=%u"
-                                           " autopilot=%u（累计 %lld）\n",
-                                           static_cast<unsigned>(msg.sysid),
-                                           static_cast<unsigned>(msg.compid),
-                                           static_cast<unsigned>(hb.type),
-                                           static_cast<unsigned>(hb.autopilot),
-                                           ignored_heartbeats);
+                                    printf(
+                                        "[COMM] 忽略非目标心跳 sysid=%u compid=%u type=%u"
+                                        " autopilot=%u（累计 %lld）\n",
+                                        static_cast<unsigned>(msg.sysid), static_cast<unsigned>(msg.compid), static_cast<unsigned>(hb.type), static_cast<unsigned>(hb.autopilot), ignored_heartbeats);
                                 }
                                 break;
                             }
-                            fcu_sysid_.store(msg.sysid);   // 学习飞控 sysid
+                            fcu_sysid_.store(msg.sysid);  // 学习飞控 sysid
                             fcu_compid_.store(msg.compid);
-                            autopilot_.store(hb.autopilot);   // 学习飞控固件类型
+                            autopilot_.store(hb.autopilot);  // 学习飞控固件类型
                             custom_mode_.store(hb.custom_mode);
                             // 【2026-10-28】解锁状态：VIO 地面开零速更新、空中必须关
                             armed_.store((hb.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0);
@@ -333,7 +349,7 @@ void Communicator::recvLoop() {
                             }
                             break;
                         }
-                        case MAVLINK_MSG_ID_ATTITUDE: {      //姿态
+                        case MAVLINK_MSG_ID_ATTITUDE: {  // 姿态
                             count_attitude_.fetch_add(1);
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
@@ -343,9 +359,10 @@ void Communicator::recvLoop() {
                             attitude_.pitch = att.pitch;
                             attitude_.yaw = att.yaw;
                             eulerToQuat(att.roll, att.pitch, att.yaw, attitude_.q);
+                            last_attitude_ns_.store(steadyNowNs());
                             break;
                         }
-                        case MAVLINK_MSG_ID_BATTERY_STATUS: {      //电量
+                        case MAVLINK_MSG_ID_BATTERY_STATUS: {  // 电量
                             count_battery_.fetch_add(1);
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
@@ -357,18 +374,18 @@ void Communicator::recvLoop() {
                                     total_mv += bat.voltages[i];
                                 }
                             }
-                            battery_.voltage = total_mv / 1000.0f;  // mV → V
-                            battery_.remaining = bat.battery_remaining;    // %
+                            battery_.voltage = total_mv / 1000.0f;       // mV → V
+                            battery_.remaining = bat.battery_remaining;  // %
                             break;
                         }
-                        case MAVLINK_MSG_ID_COMMAND_ACK: {      //ACK
+                        case MAVLINK_MSG_ID_COMMAND_ACK: {  // ACK
                             mavlink_command_ack_t ack;
                             mavlink_msg_command_ack_decode(&msg, &ack);
                             last_ack_command_.store(ack.command);
                             last_ack_result_.store(ack.result);
                             break;
                         }
-                        case MAVLINK_MSG_ID_LOCAL_POSITION_NED: {      //位置和速度
+                        case MAVLINK_MSG_ID_LOCAL_POSITION_NED: {  // 位置和速度
                             count_local_position_.fetch_add(1);
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
@@ -380,18 +397,20 @@ void Communicator::recvLoop() {
                             local_pos_.vx = lp.vx;
                             local_pos_.vy = lp.vy;
                             local_pos_.vz = lp.vz;
+                            last_local_position_ns_.store(steadyNowNs());
                             break;
                         }
-                        case MAVLINK_MSG_ID_SYSTEM_TIME: {      //时间戳
+                        case MAVLINK_MSG_ID_SYSTEM_TIME: {  // 时间戳
                             count_system_time_.fetch_add(1);
                             mavlink_system_time_t st;
                             mavlink_msg_system_time_decode(&msg, &st);
                             std::lock_guard<std::mutex> lk(system_time_mutex_);
                             system_time_.time_unix_usec = st.time_unix_usec;
                             system_time_.time_boot_ms = st.time_boot_ms;
+                            last_system_time_ns_.store(steadyNowNs());
                             break;
                         }
-                        case MAVLINK_MSG_ID_HIGHRES_IMU: {    //IMU原数数据
+                        case MAVLINK_MSG_ID_HIGHRES_IMU: {  // IMU原数数据
                             count_highres_imu_.fetch_add(1);
                             mavlink_highres_imu_t imu;
                             mavlink_msg_highres_imu_decode(&msg, &imu);
@@ -407,7 +426,7 @@ void Communicator::recvLoop() {
                             sample.az = imu.zacc;
                             {
                                 std::lock_guard<std::mutex> lk(imu_mutex_);
-                                imu_ = sample;   // 兼容旧接口：最新一帧
+                                imu_ = sample;  // 兼容旧接口：最新一帧
                             }
                             // 【2026-10-28】逐帧入队给 VIO。接收线程只做入队，
                             // 保持这里短小；VIO 的运算在它自己的线程里做。
@@ -445,18 +464,18 @@ void Communicator::recvLoop() {
     }
 }
 
-
 // 发送底层
-bool Communicator::sendMessage(const uint8_t* buf, uint16_t len, bool require_connected) {
+bool Communicator::sendMessage(const uint8_t* buf, uint16_t len, bool require_connected, std::optional<uint64_t> expected_session) {
     std::lock_guard<std::mutex> lk(send_mutex_);
     if (require_connected && (!running_.load() || !connected_.load())) return false;
+    if (expected_session && reconnects_.load() != *expected_session) return false;
     size_t off = 0;
     while (off < len) {
         ssize_t n = port_.write(buf + off, len - off);
         if (n > 0) {
             off += static_cast<size_t>(n);
         } else {
-            return false;  
+            return false;
         }
     }
     return true;
@@ -467,11 +486,11 @@ void Communicator::sendGcsHeartbeat() {
     mavlink_message_t msg{};
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     packMessage(mavlink_msg_heartbeat_pack, sysid_, compid_, &msg,
-                               MAV_TYPE_GCS,           // 地面站
-                               MAV_AUTOPILOT_INVALID,  // 不是飞控
-                               0,                      // base_mode
-                               0,                      // custom_mode
-                               MAV_STATE_ACTIVE);      // 在线
+                MAV_TYPE_GCS,           // 地面站
+                MAV_AUTOPILOT_INVALID,  // 不是飞控
+                0,                      // base_mode
+                0,                      // custom_mode
+                MAV_STATE_ACTIVE);      // 在线
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     sendMessage(buf, len);
 }
@@ -479,67 +498,108 @@ void Communicator::sendGcsHeartbeat() {
 // 飞行模式 / ACK 结果 中文名映射
 const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
     const uint8_t main_mode = (custom_mode >> 16) & 0xFF;
-    const uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
+    const uint8_t sub_mode = (custom_mode >> 24) & 0xFF;
     switch (main_mode) {
-        case 1: return "手动";
-        case 2: return "定高";
+        case 1:
+            return "手动";
+        case 2:
+            return "定高";
         case 3:
             if (sub_mode == 1) return "环绕";
             if (sub_mode == 2) return "慢速定点";
             return "定点";
         case 4:
             switch (sub_mode) {
-                case 1: return "自动·就绪";
-                case 2: return "自动·起飞";
-                case 3: return "自动·悬停";
-                case 4: return "自动·任务";
-                case 5: return "自动·返航";
-                case 6: return "自动·降落";
-                case 8: return "自动·跟随";
-                case 9: return "自动·精准降落";
-                default: return "自动";
+                case 1:
+                    return "自动·就绪";
+                case 2:
+                    return "自动·起飞";
+                case 3:
+                    return "自动·悬停";
+                case 4:
+                    return "自动·任务";
+                case 5:
+                    return "自动·返航";
+                case 6:
+                    return "自动·降落";
+                case 8:
+                    return "自动·跟随";
+                case 9:
+                    return "自动·精准降落";
+                default:
+                    return "自动";
             }
-        case 5: return "特技";
-        case 6: return "外部控制";
-        case 7: return "自稳";
-        case 10: return "故障终止";
-        case 11: return "高度巡航";
-        default: return "未知";
+        case 5:
+            return "特技";
+        case 6:
+            return "外部控制";
+        case 7:
+            return "自稳";
+        case 10:
+            return "故障终止";
+        case 11:
+            return "高度巡航";
+        default:
+            return "未知";
     }
 }
 
 const char* Communicator::arducopterModeNameCn(uint8_t custom_mode) const {
     switch (custom_mode) {
-        case arducopter_mode::STABILIZE: return "自稳";
-        case arducopter_mode::ACRO:      return "特技";
-        case arducopter_mode::ALT_HOLD:  return "定高";
-        case arducopter_mode::AUTO:      return "自动任务";
-        case arducopter_mode::GUIDED:    return "引导";
-        case arducopter_mode::LOITER:    return "悬停";
-        case arducopter_mode::RTL:       return "返航";
-        case arducopter_mode::CIRCLE:    return "环绕";
-        case arducopter_mode::LAND:      return "降落";
-        case arducopter_mode::POSHOLD:   return "定点";
-        case arducopter_mode::SMARTRTL:  return "智能返航";
-        default: return "未知";
+        case arducopter_mode::STABILIZE:
+            return "自稳";
+        case arducopter_mode::ACRO:
+            return "特技";
+        case arducopter_mode::ALT_HOLD:
+            return "定高";
+        case arducopter_mode::AUTO:
+            return "自动任务";
+        case arducopter_mode::GUIDED:
+            return "引导";
+        case arducopter_mode::LOITER:
+            return "悬停";
+        case arducopter_mode::RTL:
+            return "返航";
+        case arducopter_mode::CIRCLE:
+            return "环绕";
+        case arducopter_mode::LAND:
+            return "降落";
+        case arducopter_mode::POSHOLD:
+            return "定点";
+        case arducopter_mode::SMARTRTL:
+            return "智能返航";
+        default:
+            return "未知";
     }
 }
 
 const char* Communicator::ackResultNameCn(uint8_t result) const {
     switch (result) {
-        case MAV_RESULT_ACCEPTED:             return "已接受";  //0
-        case MAV_RESULT_TEMPORARILY_REJECTED: return "临时拒绝";  //1
-        case MAV_RESULT_DENIED:               return "拒绝";   //2
-        case MAV_RESULT_UNSUPPORTED:          return "不支持";  //3
-        case MAV_RESULT_FAILED:               return "失败";  //3
-        case MAV_RESULT_IN_PROGRESS:          return "进行中";  //4
-        default:                              return "未知";   
+        case MAV_RESULT_ACCEPTED:
+            return "已接受";  // 0
+        case MAV_RESULT_TEMPORARILY_REJECTED:
+            return "临时拒绝";  // 1
+        case MAV_RESULT_DENIED:
+            return "拒绝";  // 2
+        case MAV_RESULT_UNSUPPORTED:
+            return "不支持";  // 3
+        case MAV_RESULT_FAILED:
+            return "失败";  // 3
+        case MAV_RESULT_IN_PROGRESS:
+            return "进行中";  // 4
+        default:
+            return "未知";
     }
 }
 
-
 // 各模块向飞控通讯
-bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
+bool Communicator::pushVisionPose(const VisionPose& p) {
+    return sendVisionPose(p, std::nullopt);
+}
+bool Communicator::pushVisionPoseForSession(const VisionPose& p, uint64_t expected_session) {
+    return sendVisionPose(p, expected_session);
+}
+bool Communicator::sendVisionPose(const VisionPose& p, std::optional<uint64_t> expected_session) {  // vio数据
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
@@ -576,22 +636,15 @@ bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
 
     // ⚠️ 最后三个参数的顺序是 (reset_counter, estimator_type, quality)，
     //    这是 MAVLink 生成函数的签名。写反了编译器不会报错（都是整数）。
-    packMessage(mavlink_msg_odometry_pack, sysid_, compid_, &msg,
-                              p.timestamp_us,
-                              static_cast<uint8_t>(p.frame_id),
-                              static_cast<uint8_t>(p.child_frame_id),
-                              p.x, p.y, p.z, p.q,
-                              p.vx, p.vy, p.vz,
-                              0.0f, 0.0f, 0.0f,
-                              pose_cov, vel_cov,
-                              p.reset_counter,                 // 1) 重置计数
-                              MAV_ESTIMATOR_TYPE_VIO,          // 2) 估计器类型
-                              static_cast<int8_t>(quality));   // 3) 质量 0-100
+    packMessage(mavlink_msg_odometry_pack, sysid_, compid_, &msg, p.timestamp_us, static_cast<uint8_t>(p.frame_id), static_cast<uint8_t>(p.child_frame_id), p.x, p.y, p.z, p.q, p.vx, p.vy, p.vz, 0.0f, 0.0f, 0.0f, pose_cov, vel_cov,
+                p.reset_counter,                // 1) 重置计数
+                MAV_ESTIMATOR_TYPE_VIO,         // 2) 估计器类型
+                static_cast<int8_t>(quality));  // 3) 质量 0-100
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len, true);
+    return sendMessage(buf, len, true, expected_session);
 }
 
-bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
+bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {  // 发送制导律
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     //   制导律不输出航向，所有模式都完全忽略 yaw + yaw_rate
@@ -599,108 +652,76 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {   //发送制导律
     //   VELOCITY：忽略位置 + 加速度，只发速度
     //   POS_WITH_VEL_FEEDFORWARD：忽略加速度，位置 + 速度
     //   ACCELERATION：忽略位置 + 速度，只发加速度
-    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE |
-                         POSITION_TARGET_TYPEMASK_YAW_IGNORE;
+    uint16_t type_mask = POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE | POSITION_TARGET_TYPEMASK_YAW_IGNORE;
     if (c.mode == GuidanceMode::POSITION) {
         // 纯位置闭环：忽略速度 + 加速度
-        type_mask |= POSITION_TARGET_TYPEMASK_VX_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VZ_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AX_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AZ_IGNORE;
+        type_mask |= POSITION_TARGET_TYPEMASK_VX_IGNORE | POSITION_TARGET_TYPEMASK_VY_IGNORE | POSITION_TARGET_TYPEMASK_VZ_IGNORE | POSITION_TARGET_TYPEMASK_AX_IGNORE | POSITION_TARGET_TYPEMASK_AY_IGNORE | POSITION_TARGET_TYPEMASK_AZ_IGNORE;
     } else if (c.mode == GuidanceMode::VELOCITY) {
         // 纯速度闭环：忽略位置 + 加速度
-        type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE |
-                     POSITION_TARGET_TYPEMASK_Y_IGNORE |
-                     POSITION_TARGET_TYPEMASK_Z_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AX_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AZ_IGNORE;
+        type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE | POSITION_TARGET_TYPEMASK_Y_IGNORE | POSITION_TARGET_TYPEMASK_Z_IGNORE | POSITION_TARGET_TYPEMASK_AX_IGNORE | POSITION_TARGET_TYPEMASK_AY_IGNORE | POSITION_TARGET_TYPEMASK_AZ_IGNORE;
     } else if (c.mode == GuidanceMode::POS_WITH_VEL_FEEDFORWARD) {
         // 位置目标 + 速度前馈：忽略加速度
-        type_mask |= POSITION_TARGET_TYPEMASK_AX_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_AZ_IGNORE;
+        type_mask |= POSITION_TARGET_TYPEMASK_AX_IGNORE | POSITION_TARGET_TYPEMASK_AY_IGNORE | POSITION_TARGET_TYPEMASK_AZ_IGNORE;
     } else if (c.mode == GuidanceMode::ACCELERATION) {
         // 加速度 setpoint：忽略位置 + 速度，只保留加速度
-        type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE |
-                     POSITION_TARGET_TYPEMASK_Y_IGNORE |
-                     POSITION_TARGET_TYPEMASK_Z_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VX_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VY_IGNORE |
-                     POSITION_TARGET_TYPEMASK_VZ_IGNORE;
+        type_mask |= POSITION_TARGET_TYPEMASK_X_IGNORE | POSITION_TARGET_TYPEMASK_Y_IGNORE | POSITION_TARGET_TYPEMASK_Z_IGNORE | POSITION_TARGET_TYPEMASK_VX_IGNORE | POSITION_TARGET_TYPEMASK_VY_IGNORE | POSITION_TARGET_TYPEMASK_VZ_IGNORE;
     } else {
         return false;  // 未知 mode，拒绝发送
     }
-    packMessage(mavlink_msg_set_position_target_local_ned_pack,
-        sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED,
-        type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
+    packMessage(mavlink_msg_set_position_target_local_ned_pack, sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED, type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     return sendMessage(buf, len, true);
 }
 
-bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result) {    //命令PX4起飞到目标高度
+bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result) {  // 命令PX4起飞到目标高度
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                  MAV_CMD_NAV_TAKEOFF, 0,
-                                  0, 0, 0, 0, 0, 0, altitude_m);
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, altitude_m);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_NAV_TAKEOFF, timeout_ms, result);
 }
 
-bool Communicator::sendLand(int timeout_ms, uint8_t* result) {   //命令PX4自动降落
+bool Communicator::sendLand(int timeout_ms, uint8_t* result) {  // 命令PX4自动降落
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                  MAV_CMD_NAV_LAND, 0,
-                                  0, 0, 0, 0, 0, 0, 0);
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_NAV_LAND, timeout_ms, result);
 }
 
-bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {   //设置飞行模式
+bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* result) {  // 设置飞行模式
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     if (autopilot_.load() == MAV_AUTOPILOT_ARDUPILOTMEGA) {
         // ArduPilot：param2 直接填模式数字，param3 不用
-        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                      MAV_CMD_DO_SET_MODE, 0,
-                                      MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode, 0,
-                                      0, 0, 0, 0);
+        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_DO_SET_MODE, 0, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode, 0, 0, 0, 0, 0);
     } else {
         // PX4：拆主/子模式填 param2/param3
         uint8_t main_mode = (custom_mode >> 16) & 0xFF;
-        uint8_t sub_mode  = (custom_mode >> 24) & 0xFF;
-        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                      MAV_CMD_DO_SET_MODE, 0,
-                                      MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode,
-                                      0, 0, 0, 0);
+        uint8_t sub_mode = (custom_mode >> 24) & 0xFF;
+        packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_DO_SET_MODE, 0, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode, 0, 0, 0, 0);
     }
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
 }
 
-bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {   //解锁1/加锁0
+bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {  // 解锁1/加锁0
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     // 普通解锁/加锁遵守飞控安全检查，不能默认使用强制解锁或空中强制加锁。
     const float force = 0.0f;
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                  MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                                  arm ? 1.0f : 0.0f, force, 0, 0, 0, 0, 0);
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_COMPONENT_ARM_DISARM, 0, arm ? 1.0f : 0.0f, force, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     if (!sendMessage(buf, len, true)) return false;
     return waitForAck(MAV_CMD_COMPONENT_ARM_DISARM, timeout_ms, result);
@@ -710,11 +731,7 @@ bool Communicator::requestMessageInterval(uint32_t msgid, int32_t interval_us) {
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     // MAV_CMD_SET_MESSAGE_INTERVAL(511)：param1=消息ID，param2=间隔(微秒，-1禁用，0默认)
-    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(),
-                                  MAV_CMD_SET_MESSAGE_INTERVAL, 0,
-                                  static_cast<float>(msgid),
-                                  static_cast<float>(interval_us),
-                                  0, 0, 0, 0, 0);
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_SET_MESSAGE_INTERVAL, 0, static_cast<float>(msgid), static_cast<float>(interval_us), 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     return sendMessage(buf, len, true);
 }
@@ -742,12 +759,14 @@ void Communicator::requestDefaultStreams() {
     requestMessageInterval(MAVLINK_MSG_ID_SYSTEM_TIME, cfg_.system_time_interval_us);
 }
 
-
-
-
-//各模块拿数据
+// 各模块拿数据
 bool Communicator::getAttitude(Attitude& out) const {
+    return getAttitude(out, -1);
+}
+
+bool Communicator::getAttitude(Attitude& out, int max_age_ms) const {
     std::lock_guard<std::mutex> lk(attitude_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_attitude_ns_.load(), max_age_ms)) return false;
     out = attitude_;
     return true;
 }
@@ -759,7 +778,12 @@ bool Communicator::getBattery(Battery& out) const {
 }
 
 bool Communicator::getLocalPosition(LocalPosition& out) const {
+    return getLocalPosition(out, -1);
+}
+
+bool Communicator::getLocalPosition(LocalPosition& out, int max_age_ms) const {
     std::lock_guard<std::mutex> lk(local_position_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_local_position_ns_.load(), max_age_ms)) return false;
     out = local_pos_;
     return true;
 }
@@ -803,9 +827,32 @@ int64_t Communicator::lastHeartbeatAgeMs() const {
 }
 
 bool Communicator::getSystemTime(SystemTime& out) const {
+    return getSystemTime(out, -1);
+}
+
+bool Communicator::getSystemTime(SystemTime& out, int max_age_ms) const {
     std::lock_guard<std::mutex> lk(system_time_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_system_time_ns_.load(), max_age_ms)) return false;
     out = system_time_;
     return true;
+}
+
+int64_t Communicator::attitudeAgeMs() const {
+    std::lock_guard<std::mutex> lock(attitude_mutex_);
+    const auto stamp = last_attitude_ns_.load();
+    return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
+}
+
+int64_t Communicator::localPositionAgeMs() const {
+    std::lock_guard<std::mutex> lock(local_position_mutex_);
+    const auto stamp = last_local_position_ns_.load();
+    return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
+}
+
+int64_t Communicator::systemTimeAgeMs() const {
+    std::lock_guard<std::mutex> lock(system_time_mutex_);
+    const auto stamp = last_system_time_ns_.load();
+    return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
 }
 
 const char* Communicator::getFlightModeNameCn() const {
@@ -817,9 +864,12 @@ const char* Communicator::getFlightModeNameCn() const {
 
 const char* Communicator::getAutopilotNameCn() const {
     switch (autopilot_.load()) {
-        case MAV_AUTOPILOT_ARDUPILOTMEGA: return "ArduPilot";
-        case MAV_AUTOPILOT_PX4:           return "PX4";
-        default:                          return "未知";
+        case MAV_AUTOPILOT_ARDUPILOTMEGA:
+            return "ArduPilot";
+        case MAV_AUTOPILOT_PX4:
+            return "PX4";
+        default:
+            return "未知";
     }
 }
 
@@ -837,19 +887,28 @@ bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg) {
             return false;  // 没有 communicate 段
         }
         YAML::Node comm = root["communicate"];
-        if (comm["file"])     cfg.device   = comm["file"].as<std::string>();
-        if (comm["device"])   cfg.device   = comm["device"].as<std::string>();
-        if (comm["port"])     cfg.device   = comm["port"].as<std::string>();
+        for (const char* name : {"fcu_sysid", "fcu_compid"}) {
+            if (!comm[name]) continue;
+            const int id = comm[name].as<int>();
+            if (id < 0 || id > 255) return false;
+            if (std::strcmp(name, "fcu_sysid") == 0)
+                cfg.fcu_sysid = static_cast<uint8_t>(id);
+            else
+                cfg.fcu_compid = static_cast<uint8_t>(id);
+        }
+        if (comm["file"]) cfg.device = comm["file"].as<std::string>();
+        if (comm["device"]) cfg.device = comm["device"].as<std::string>();
+        if (comm["port"]) cfg.device = comm["port"].as<std::string>();
         if (comm["baudrate"]) cfg.baudrate = comm["baudrate"].as<int>();
-        if (comm["baud"])     cfg.baudrate = comm["baud"].as<int>();
+        if (comm["baud"]) cfg.baudrate = comm["baud"].as<int>();
         if (comm["heartbeat_timeout_ms"]) cfg.heartbeat_timeout_ms = comm["heartbeat_timeout_ms"].as<int>();
         if (comm["stream"]) {
             YAML::Node s = comm["stream"];
-            if (s["attitude_us"])        cfg.attitude_interval_us        = s["attitude_us"].as<int>();
-            if (s["local_position_us"])  cfg.local_position_interval_us  = s["local_position_us"].as<int>();
-            if (s["highres_imu_us"])     cfg.highres_imu_interval_us     = s["highres_imu_us"].as<int>();
-            if (s["battery_us"])         cfg.battery_interval_us         = s["battery_us"].as<int>();
-            if (s["system_time_us"])     cfg.system_time_interval_us     = s["system_time_us"].as<int>();
+            if (s["attitude_us"]) cfg.attitude_interval_us = s["attitude_us"].as<int>();
+            if (s["local_position_us"]) cfg.local_position_interval_us = s["local_position_us"].as<int>();
+            if (s["highres_imu_us"]) cfg.highres_imu_interval_us = s["highres_imu_us"].as<int>();
+            if (s["battery_us"]) cfg.battery_interval_us = s["battery_us"].as<int>();
+            if (s["system_time_us"]) cfg.system_time_interval_us = s["system_time_us"].as<int>();
         }
         return true;
     } catch (const YAML::Exception& e) {
@@ -868,7 +927,7 @@ std::string findConfigFile(const std::string& rel_path) {
     if (n > 0 && n < (ssize_t)PATH_MAX) {
         buf[n] = '\0';
         std::string dir(buf);
-        dir = dir.substr(0, dir.find_last_of('/'));  
+        dir = dir.substr(0, dir.find_last_of('/'));
         for (int i = 0; i < 6; i++) {
             std::string cand = dir + "/" + rel_path;
             if (access(cand.c_str(), F_OK) == 0) return cand;
@@ -877,7 +936,7 @@ std::string findConfigFile(const std::string& rel_path) {
             dir = dir.substr(0, pos);
         }
     }
-   
+
     return rel_path;
 }
 

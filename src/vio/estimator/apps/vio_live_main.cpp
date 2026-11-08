@@ -25,7 +25,6 @@
 
 #include <opencv2/imgcodecs.hpp>
 #include <cstdio>
-#include <memory>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -44,7 +43,6 @@
 #include "mavlink_link.hpp"
 #include "orbbec_camera.hpp"
 #include "pure_uav/pose_logger.hpp"
-#include "pure_uav/depth_range.hpp"
 #include "pure_uav/vio_estimator.hpp"
 #include "pure_uav/vision_pose.hpp"
 
@@ -62,11 +60,10 @@ int64_t steadyNowNs() {
 struct FrameItem {
     cv::Mat gray;
     int64_t host_ns = 0;
-    bool range_exported = false;
     uint64_t mapped_fcu_us = 0; // 等待 IMU 时固定本帧时间，不重复加入相机平滑窗口
     int64_t device_us = 0;   // 【2026-10-23】相机自己的时间戳（稳定，不含主机调度抖动）
     int64_t depth_dev_us = 0; // 【2026-10-25】深度帧自己的设备时间戳（和彩色同源时钟）
-    cv::Mat depth;   // 原生深度（毫米，CV_16UC1）；没开深度时空
+    cv::Mat depth;   // 对齐到彩色的深度（毫米，CV_16UC1）；没开深度时空
 };
 
 void printUsage(const char* argv0) {
@@ -82,9 +79,6 @@ void printUsage(const char* argv0) {
         "  --csv-out PATH      VisionPose CSV 输出（默认 out/live_pose.csv）\n"
         "  --tum-out PATH      TUM 轨迹输出（默认 out/live_traj.tum，含所有估计位姿）\n"
         "  --safe-tum-out PATH 只写串口发送成功的位姿（--no-send 时为空），给 RViz 看用\n"
-        "  --range-pixel U V   输出原始彩色像素 (U,V) 的测距（联调点，不代表检测到目标）；\n"
-        "                      并随 ODOMETRY 向飞控发 MAVLink DISTANCE_SENSOR（飞控需配测距仪）\n"
-        "  --range-out PATH    测距 CSV，需 --range-pixel；默认 out/live_range.csv\n"
         "  --imu-log PATH      把原始 IMU 存成 CSV（t_us,ax,ay,az,gx,gy,gz）\n"
         "  --imu-ts MODE       IMU 时间戳处理：uniform(默认，去抖) | raw(原样喂)\n"
         "  --max-exposure-ms M  曝光硬上限（默认 15）。模糊预算更大时可以抬高换亮度；\n"
@@ -106,7 +100,7 @@ void printUsage(const char* argv0) {
         "                      之后可用 vio_offline --dataset DIR 无限次回放调试\n"
         "                      ——用来事后核对「相机到底动没动」，不参与估计\n"
         "  --duration S        运行 S 秒后自动退出（默认一直运行）\n"
-        "  --no-send           不向飞控发送 ODOMETRY / DISTANCE_SENSOR（只记录/调试）\n"
+        "  --no-send           不向飞控发送 ODOMETRY（只记录/调试）\n"
         "  --online-timeoffset 打开 OpenVINS 在线 cam-IMU 时移估计（默认已开）\n"
         "  --static-init       用静态初始化（先静止 2 秒再动），默认是动态初始化。\n"
         "                      做 A/B 对照用：静态初始化定出的重力方向更准，倾角误差更小\n"
@@ -159,9 +153,6 @@ int main(int argc, char** argv) {
     std::string tum_out = "out/live_traj.tum";
     std::string safe_tum_out;   // 只记"实际发布出去"的位姿（健康门限通过的那些）
     std::string imu_log_path;
-    std::string range_out = "out/live_range.csv";
-    bool range_output = false, range_out_given = false;
-    double range_u = 0.0, range_v = 0.0;
     std::string rec_dir;
     // IMU 时间戳去抖：默认打开（见 --imu-ts 说明）。--imu-ts raw 可关掉做对照。
     bool imu_ts_uniform = true;
@@ -225,18 +216,6 @@ int main(int argc, char** argv) {
             tum_out = need("--tum-out");
         } else if (a == "--safe-tum-out") {
             safe_tum_out = need("--safe-tum-out");
-        } else if (a == "--range-pixel") {
-            try {
-                range_u = std::stod(need("--range-pixel U"));
-                range_v = std::stod(need("--range-pixel V"));
-            } catch (const std::exception&) {
-                std::fprintf(stderr, "--range-pixel U V 需要有效数字\n");
-                return 2;
-            }
-            range_output = true;
-        } else if (a == "--range-out") {
-            range_out = need("--range-out");
-            range_out_given = true;
         } else if (a == "--imu-log") {
             imu_log_path = need("--imu-log");
         } else if (a == "--record") {
@@ -343,13 +322,6 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, onSigint);
     std::signal(SIGTERM, onSigint);
 
-    if ((range_out_given && !range_output) ||
-        (range_output && (!enable_depth || !std::isfinite(range_u) || !std::isfinite(range_v) ||
-                          range_u < 0 || range_v < 0 || range_u > width - 1 || range_v > height - 1 || range_out.empty()))) {
-        std::fprintf(stderr, "测距需要开启深度、有效的 --range-pixel U V 和非空输出路径；像素须在原始彩色图内\n");
-        return 2;
-    }
-
     // 1) VIO 估计器
     pure_uav::VioEstimator::Options vio_opt;
     // 失效保护：判定为 LOST 就停发位姿，恢复时（可选）重建并重锚定
@@ -446,8 +418,6 @@ int main(int argc, char** argv) {
 
     pure_uav::OrbbecCamera camera;
     pure_uav::OrbbecCamera::Config cam_cfg;
-    if (range_output)
-        cam_cfg.range_color_calibration_path = (std::filesystem::path(config_dir) / "kalibr_imucam_chain.yaml").string();
     cam_cfg.width = width;
     cam_cfg.height = height;
     cam_cfg.fps = fps;
@@ -516,8 +486,8 @@ int main(int argc, char** argv) {
             // 相机时间戳和主机时钟**不在同一时间基准**（实测直接相减是 -13.8 万秒），
             // 所以不比绝对值，比**帧间增量**：如果链路只是固定延迟，
             // d(host) 应该恒等于 d(device)；两者之差就是链路引入的抖动。
-            // 原生深度有效性统计：尺寸、有效像素占比、中位深度。
-            // 原生深度和彩色分辨率可以不同；有效比例接近 0 时检查深度流。
+            // 【2026-10-21】深度有效性统计：对齐后的深度图尺寸、有效像素占比、中位深度。
+            // 如果"有效"接近 0 或者尺寸和彩色不一致，说明对齐/深度流没真正工作。
             if (!depth_mm.empty()) {
                 depth_w = depth_mm.cols;
                 depth_h = depth_mm.rows;
@@ -624,23 +594,6 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "相机启动失败: %s\n", err.c_str());
         link.stop();
         return 1;
-    }
-    pure_uav::DepthRangeProjector range_projector;
-    std::unique_ptr<std::FILE, decltype(&std::fclose)> range_csv(nullptr, &std::fclose);
-    if (range_output) {
-        const auto parent = std::filesystem::path(range_out).parent_path();
-        std::error_code ec;
-        if (!parent.empty()) std::filesystem::create_directories(parent, ec);
-        range_csv.reset(std::fopen(range_out.c_str(), "w"));
-        if (!range_csv) {
-            std::fprintf(stderr, "测距输出文件打不开：%s\n", range_out.c_str());
-            camera.stop(); link.stop(); return 1;
-        }
-        std::fprintf(range_csv.get(), "boot_us,depth_boot_us,u_px,v_px,has_range,range_m\n");
-        std::fflush(range_csv.get());
-        if (!range_projector.configure(camera.rangeCalibration()))
-            std::fprintf(stderr, "[range] 完整深度/彩色标定不可用，本轮测距将输出 false/0\n");
-        std::printf("[range] 原始彩色像素 (%.1f,%.1f) 测距 → %s\n", range_u, range_v, range_out.c_str());
     }
     const auto cam_depth = camera.depthInfo();
     const double depth_t_m[3] = {cam_depth.t_mm[0] * 1e-3, cam_depth.t_mm[1] * 1e-3,
@@ -835,7 +788,6 @@ int main(int argc, char** argv) {
         int64_t imu_hz_time_ns = steadyNowNs();
         double imu_hz = 0.0;
         bool imu_rate_warned = false;
-        int64_t last_range_report_ns = 0;
 
         //===================================================================================
         // 【2026-10-29】飞控时间基变化的统一处理（飞控重启 / 串口重连 / 时间戳大幅回退）
@@ -865,7 +817,6 @@ int main(int argc, char** argv) {
             imu_timestamp_filter.reset();
             last_raw_imu_us = last_fed_imu_us = 0;
             was_blocked = true;            // 让恢复时打印"恢复发送"
-            range_projector.clear();
             estimator.resetForNewTimebase(why);
             stats_timebase_resets.fetch_add(1);
             std::printf("[VIO] ⏱ 飞控时间基变化（%s）：暂停发送，已清空 IMU/图像队列、"
@@ -1053,40 +1004,6 @@ int main(int argc, char** argv) {
                         prev_fed_us = fcu_us;
                     }
                     pending->mapped_fcu_us = fcu_us;
-                    // 独立于 VIO 初始化；这里只需要相机帧已映射到飞控时钟。
-                    if (range_csv && !pending->range_exported) {
-                        const uint64_t depth_us = pure_uav::depthTimestampFromColor(
-                            fcu_us, pending->device_us, pending->depth_dev_us);
-                        range_projector.update(pending->depth, depth_us);
-                        const auto distance = range_projector.sample(range_u, range_v, fcu_us);
-                        std::fprintf(range_csv.get(), "%llu,%llu,%.3f,%.3f,%d,%.6f\n",
-                                     static_cast<unsigned long long>(fcu_us),
-                                     static_cast<unsigned long long>(depth_us), range_u, range_v,
-                                     distance.has_range ? 1 : 0, distance.range_m);
-                        std::fflush(range_csv.get());
-                        pending->range_exported = true;
-                        // 【2026-11-01】深度测距跟着 VIO 一起发给飞控：
-                        //   DISTANCE_SENSOR.time_boot_ms = 目标帧曝光时刻（飞控 boot 时钟）
-                        //   current_distance = range_m*100 cm；has_range=false 时不发，
-                        //   不拿旧值/0 冒充有效观测。
-                        // 飞控端 ArduPilot 要把对应实例配成 MAVLink 测距仪
-                        // （RNGFNDx_TYPE=10）才会收；没配时消息被忽略。
-                        if (send && distance.has_range && link.connected()) {
-                            pure_uav::MavlinkLink::DistanceSensor ds;
-                            ds.time_boot_ms = static_cast<uint32_t>(fcu_us / 1000ULL);
-                            const double cm = distance.range_m * 100.0;
-                            ds.current_distance_cm = static_cast<uint16_t>(
-                                std::clamp(cm + 0.5, 15.0, 1000.0));
-                            // type=Laser(0)、id=0(RNGFND1)、orientation=NONE(前视)、cov=未知
-                            link.sendDistanceSensor(ds);
-                        }
-                        const int64_t now = steadyNowNs();
-                        if (now - last_range_report_ns >= 1000000000LL) {
-                            std::printf("[range] has_range=%s range_m=%.3f\n",
-                                        distance.has_range ? "true" : "false", distance.range_m);
-                            last_range_report_ns = now;
-                        }
-                    }
                     const int64_t waited_ns = steadyNowNs() - pending_since_ns;
                     // 以实际喂给估计器的 IMU 和标定时间偏移判断覆盖。超时丢图，不能强行传播。
                     const bool covered = pure_uav::imuCoversImage(
@@ -1171,11 +1088,9 @@ int main(int argc, char** argv) {
                                     if (!estimator.publishable()) {
                                         const auto h = estimator.healthReport();
                                         std::printf("[VIO] ⛔ 视觉失效（%s）：特征 %d，距上次更新 %.2fs"
-                                                    " reason=%s rate=%.3f t=%.6f"
                                                     " → 停止发送位姿\n",
                                                     pure_uav::toString(h.state), h.features,
-                                                    h.since_update_s, pure_uav::toString(h.reason),
-                                                    h.update_rate, pose.timestamp_us * 1e-6);
+                                                    h.since_update_s);
                                     } else {
                                         std::printf("[VIO] ⏸ 暂停发送位姿：%s\n",
                                                     !link.connected() ? "飞控链路未连接"
@@ -1188,8 +1103,7 @@ int main(int argc, char** argv) {
                                     was_blocked = false;
                                     const auto h = estimator.healthReport();
                                     std::printf("[VIO] ✅ 恢复发送位姿（健康 %s，特征 %d，重建 %d 次）\n",
-                                                pure_uav::toString(h.state), h.features,
-                                                static_cast<int>(estimator.rebuildCount()));
+                                                pure_uav::toString(h.state), h.features, h.recoveries);
                                     std::fflush(stdout);
                                 }
                                 // 【2026-10-22】把可信度、重建次数、协方差一起发出去：
@@ -1313,11 +1227,10 @@ int main(int argc, char** argv) {
                     (estimator.healthState() == pure_uav::VioHealthState::OK) ? 90 : 50;
                 const int rc_now =
                     static_cast<int>(std::min<long long>(estimator.rebuildCount(), 255));
-                const auto health_now = estimator.healthReport();
                 std::printf(
                     "[VIO] init=%d img=%d pose=%lld sent=%lld blocked=%lld health=%s "
                     "qual=%d rc=%d feat=%d tilt=%s lin=%.2f tri=%.3f depthused=%lld deperr=%s v=%sm/s tsjit=%sms imu=%llu(+%llu/2s) q=%zu clock=%.1fms "
-                    "age=%.0f/%.0fms dvel=%+.0fmm/s reason=%s vrate=%.3f\n",
+                    "age=%.0f/%.0fms dvel=%+.0fmm/s\n",
                     estimator.initialized() ? 1 : 0, estimator.imageCount(),
                     static_cast<long long>(stats_poses.load()),
                     static_cast<long long>(stats_sent.load()),
@@ -1332,8 +1245,7 @@ int main(int argc, char** argv) {
                     depBuf, spdBuf, tsjBuf,
                     static_cast<unsigned long long>(rx),
                     static_cast<unsigned long long>(rx - last_received_imu),
-                    link.imuQueueSize(), off_ms, age_p50, age_p95, dvel_med,
-                    pure_uav::toString(health_now.reason), health_now.update_rate);
+                    link.imuQueueSize(), off_ms, age_p50, age_p95, dvel_med);
                 std::fflush(stdout);
                 last_received_imu = rx;
             }
@@ -1376,13 +1288,11 @@ int main(int argc, char** argv) {
                 pure_uav::LiveView::Status st;
                 st.initialized = estimator.initialized();
                 st.health = estimator.healthState();
-                st.send_enabled = send;
-                st.publishable = send && estimator.publishable() && link.connected() &&
-                                 !timebase_recovering && link.reconnectCount() == last_reconnect_count;
+                st.publishable = estimator.publishable();
                 const auto hr = estimator.healthReport();
                 st.features = hr.features;
                 st.since_update_s = hr.since_update_s;
-                st.recoveries = static_cast<int>(estimator.rebuildCount());
+                st.recoveries = hr.recoveries;
                 st.update_rate = update_rate;
                 st.images = estimator.imageCount();
                 st.poses = stats_poses.load();
@@ -1392,7 +1302,7 @@ int main(int argc, char** argv) {
                 st.imu_hz = imu_hz;
                 st.lin_acc = static_cast<float>(estimator.linAccelDev());
                 st.tri_rate = static_cast<float>(estimator.triangulationRate());
-                st.recording = !rec_dir.empty();
+                st.recording = send;
                 const auto tcc = estimator.tiltCheck();
                 st.tilt_valid = tcc.valid;
                 st.tilt_deg = tcc.deg;
@@ -1461,10 +1371,6 @@ int main(int argc, char** argv) {
     link.stop();
     logger.close();
     safe_logger.close();
-    if (range_csv) {
-        range_csv.reset();
-        std::printf("  深度测距 CSV  : %s\n", range_out.c_str());
-    }
     if (imu_log) {
         std::fclose(imu_log);
         std::printf("  IMU 日志      : %s\n", imu_log_path.c_str());

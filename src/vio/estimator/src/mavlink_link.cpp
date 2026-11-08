@@ -630,41 +630,4 @@ bool MavlinkLink::sendVisionPose(const VisionPose& pose, int quality, uint8_t re
     return sendBytes(buf, len, true);
 }
 
-//=======================================================================
-// 【2026-11-01】深度测距 → 飞控（DISTANCE_SENSOR）
-//
-// 和 ODOMETRY 走同一条串口、同一个飞控 boot 时间基；测距无效（0/越界）
-// 时不发，不用旧值或 0 冒充有效观测。
-//=======================================================================
-uint16_t MavlinkLink::encodeDistanceSensor(const DistanceSensor& sensor, uint8_t sysid,
-                                           uint8_t compid, uint8_t* buf, size_t buf_cap) {
-    if (buf == nullptr || buf_cap < MAVLINK_MAX_PACKET_LEN) return 0;
-    // 0 表示无效/未知；超出 [min,max] 说明不是有效测距 —— 都不发。
-    if (sensor.min_distance_cm == 0 || sensor.min_distance_cm >= sensor.max_distance_cm ||
-        sensor.current_distance_cm < sensor.min_distance_cm ||
-        sensor.current_distance_cm > sensor.max_distance_cm)
-        return 0;
-
-    mavlink_message_t msg;
-    // MAVLink 2 扩展字段：orientation 不是 CUSTOM 时 quaternion 无意义（按定义填 0 =
-    // invalid）；FOV 未知填 0；signal_quality=0（unknown）。这些不影响飞控读距离。
-    const float quaternion[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    packMessage(mavlink_msg_distance_sensor_pack,
-        sysid, compid, &msg,
-        sensor.time_boot_ms,
-        sensor.min_distance_cm, sensor.max_distance_cm, sensor.current_distance_cm,
-        sensor.type, sensor.id, sensor.orientation, sensor.covariance,
-        0.0f, 0.0f, quaternion, 0);
-    return mavlink_msg_to_send_buffer(buf, &msg);
-}
-
-bool MavlinkLink::sendDistanceSensor(const DistanceSensor& sensor) {
-    if (!running_.load() || !connected_.load()) return false;
-
-    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = encodeDistanceSensor(sensor, sysid_, compid_, buf, sizeof(buf));
-    if (len == 0) return false;
-    return sendBytes(buf, len, true);
-}
-
 }  // namespace pure_uav

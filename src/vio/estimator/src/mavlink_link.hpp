@@ -121,35 +121,6 @@ public:
                                      float pos_sigma_m, float vel_sigma_mps, uint8_t sysid,
                                      uint8_t compid, uint8_t* buf, size_t buf_cap);
 
-    // ---- 深度测距 → 飞控（MAVLink DISTANCE_SENSOR, #132）----
-    //
-    // VIO 深度相机测到目标距离后，沿同一条飞控链路、和 ODOMETRY 同一个
-    // 飞控 boot 时间基发出去；飞控侧可以记录/当测距仪使用。
-    //
-    // 飞控端（ArduPilot）注意：
-    //   · 要把对应实例配成 MAVLink 测距仪（RNGFNDx_TYPE=10）才会接收；
-    //     没配时消息被忽略，不影响 ODOMETRY。
-    //   · id / orientation 要和飞控侧 RNGFNDx 参数对上（id=0 ↔ RNGFND1）。
-    //   · Copter 默认只把**向下**安装的测距仪转发到 GCS；前视测距只在本机日志里看。
-    //   · 默认 EK3_SRCx_POSZ 不是测距仪，所以不会直接参与 EKF 高度；如果不想它
-    //     影响降落/地形，先在飞控参数里确认。
-    struct DistanceSensor {
-        uint32_t time_boot_ms = 0;        // 目标帧曝光时刻（飞控 boot 时钟，ms）
-        uint16_t min_distance_cm = 15;    // 软件有效下限（深度投影器默认 0.15 m）
-        uint16_t max_distance_cm = 1000;  // 上限（默认 10 m）
-        uint16_t current_distance_cm = 0; // 距离（cm）；越界/0 由 encode 拒绝
-        uint8_t type = 0;                 // MAV_DISTANCE_SENSOR_LASER
-        uint8_t id = 0;                   // 0 = RNGFND1
-        uint8_t orientation = 0;          // MAV_SENSOR_ROTATION_NONE（前视）
-        uint8_t covariance = 0xFF;        // 0xFF = 未知（MAVLink 约定）
-    };
-    // 发送深度测距。未连接/未运行/参数无效时返回 false。
-    bool sendDistanceSensor(const DistanceSensor& sensor);
-    // 打包成完整发送缓冲（含帧头/CRC），供无飞控回归测试
-    // （tests/test_odometry_pack.cpp）。distance 越界或 0 返回 0，绝不冒充有效观测。
-    static uint16_t encodeDistanceSensor(const DistanceSensor& sensor, uint8_t sysid, uint8_t compid,
-                                         uint8_t* buf, size_t buf_cap);
-
     // ---- 只读参数查询（PARAM_REQUEST_READ → PARAM_VALUE）----
     // 用途：确认飞控固件对 IMU 做了哪些预处理（低通/陷波/采样率）。
     // 这些值只读，不写回飞控。

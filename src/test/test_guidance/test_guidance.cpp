@@ -1,29 +1,9 @@
-// 制导模块单元测试 —— 王乙芃
+// 制导模块单元测试
 //
-// 风格：无外部测试框架，纯 main() + 轻量断言（与仓库 test_math 一致，但会真正判定成败）。
-// 覆盖：
-//   1. Vec3 基础运算
-//   2. 讲义 §10 手算例（R / Vc / λ̇ / |a| / t_go）—— 与讲义数值逐项对照
-//   3. ω 两套算法一致性（真值法 vs 视线差分法）
-//   4. 接近速度 Vc 符号
-//   5. guidance_step 端到端（TPN / PPN / APN + APN 补偿恒等式）
-//   6. 三条铁律：① ω 分母 R² ② 矢量等比限幅 ③ 末端冻结 HOLD；外加 SEARCH
-//   7. ω 来源切换（FROM_LOS_DIFFERENCE 在 guidance_step 中生效）
-//   8~12. 传感器墙（投影 / 四元数 / 逼真度 / 丢帧 / 延迟）
-//   13. 目标模型（M2）：发射参数 / 解析式 / DART(Cd=0)≡BALLISTIC 交叉验证 /
-//       气动阻力 / CIRCLE / SNAKE / 查表连续性
-//   14. 末端冻结判据：t_go 基准 ≡ R 基准（同 Vc）/ R 兜底防 Vc→0
-//   15. 不变量（内部口径冻结）
-//   16. ★ 机载主循环外壳 GuidanceLoop：像素→世界换算、PN 方向、SEARCH、
-//       降级策略（保持上一条 0.2 s → 零速度悬停）、数据过期、无新帧重发、统计
-//   17. ★ 端到端闭环回归：合成世界里真跑一整段交会（min R / 饱和 / HOLD / 每拍发送）
-//   18. ★ CSV 录制 → 回放：同一份输入喂回同一个 loop，输出必须逐位一致（黑匣子）
-//       + 句柄生命周期体检（重复 open / 幂等 close / 关闭后不碰野句柄 / 刷盘）
-//   19. ★ 参数加载：YAML 子集 / CLI 覆盖 / 范围校验 / to_string（零第三方依赖）
-//   20. ★ 端到端打点：取数/反投影/制导/发送/总延迟的 P50/P95/max + 环形回绕
-//   21. ★ 黑匣子：固定环形缓冲 + 按时间窗 dump + 与 GuidanceLoop 的接线
+// 覆盖：算法 / ω / 三律 / 铁律 / adapter / 主循环 / CSV / 参数 / 打点 / 黑匣子。
+// 测试矩阵、基线、运行方式见 assets/docs/testing.md。
 //
-// 运行：./bin/test/test_guidance   （退出码 0=全过，1=有失败）
+// 运行：./bin/test/test_guidance（退出码 0=全过，1=有失败）
 
 #include <chrono>
 #include <cmath>
@@ -35,36 +15,36 @@
 
 // 句柄泄漏检测（§18 ⑤）：Windows 用 GetProcessHandleCount，Linux 数 /proc/self/fd
 #ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  ifndef NOMINMAX
-#    define NOMINMAX
-#  endif
-#  include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 // windows.h（windef.h）把 near/far 定义成了宏，会和本文件的断言函数 near() 冲突
-#  ifdef near
-#    undef near
-#  endif
-#  ifdef far
-#    undef far
-#  endif
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
 #else
-#  include <dirent.h>
+#include <dirent.h>
 #endif
 
-#include "vec3.hpp"
+#include "guidance.hpp"
+#include "guidance_loop.hpp"  // 机载主循环外壳 + 黑匣子（§16/§20/§21）
 #include "guidance_types.hpp"
 #include "pn_law.hpp"
-#include "guidance.hpp"
 #include "sensor.hpp"
+#include "sim/guidance_sim_tools.hpp"        // 合成世界 + 闭环驱动 + CSV 录制/回放（§17/§18）
+#include "startup/guidance_application.hpp"  // 参数加载 / 校验（§19）
 #include "target.hpp"
-#include "guidance_loop.hpp"     // 机载主循环外壳（§16）
-#include "synthetic_world.hpp"   // 合成世界 + 闭环驱动（§17）
-#include "csv_io.hpp"            // 录制 / 回放（§18）
-#include "params.hpp"            // 参数加载 / 校验（§19）
+#include "vec3.hpp"
 
 using namespace pure_uav;
+namespace flight = pure_uav::guidance::flight;
 
 // ============================================================
 //  轻量断言
@@ -86,8 +66,7 @@ static void near(double got, double want, double tol, const char *what) {
         ++g_pass;
     } else {
         ++g_fail;
-        std::printf("  [FAIL] %s: got %.8g, want %.8g (tol %.2g)\n",
-                    what, got, want, tol);
+        std::printf("  [FAIL] %s: got %.8g, want %.8g (tol %.2g)\n", what, got, want, tol);
     }
 }
 
@@ -96,12 +75,13 @@ static void near_vec(const Vec3 &got, const Vec3 &want, double tol, const char *
         ++g_pass;
     } else {
         ++g_fail;
-        std::printf("  [FAIL] %s: got (%.6g, %.6g, %.6g), want (%.6g, %.6g, %.6g)\n",
-                    what, got.x, got.y, got.z, want.x, want.y, want.z);
+        std::printf("  [FAIL] %s: got (%.6g, %.6g, %.6g), want (%.6g, %.6g, %.6g)\n", what, got.x, got.y, got.z, want.x, want.y, want.z);
     }
 }
 
-static void section(const char *name) { std::printf("\n== %s ==\n", name); }
+static void section(const char *name) {
+    std::printf("\n== %s ==\n", name);
+}
 
 // ============================================================
 //  讲义 §10 手算例（2D 嵌入 3D，z=0）
@@ -112,15 +92,14 @@ static const Vec3 V_M(18, 0, 0);
 static const Vec3 P_T(300, 40, 0);
 static const Vec3 V_T(-25, 0, 0);
 
-static GuidanceState make_state(double t, double range, const Vec3 &u,
-                                const Vec3 &vM, const Vec3 &vT) {
+static GuidanceState make_state(double t, double range, const Vec3 &u, const Vec3 &vM, const Vec3 &vT) {
     GuidanceState st;
-    st.t       = t;
+    st.t = t;
     st.los_hat = u;
-    st.range   = range;
-    st.v_M     = vM;
-    st.v_T     = vT;
-    st.valid   = true;
+    st.range = range;
+    st.v_M = vM;
+    st.v_T = vT;
+    st.valid = true;
     return st;
 }
 
@@ -141,10 +120,10 @@ static void test_vec3() {
 // ============================================================
 static void test_handcalc() {
     section("2. 讲义 §10 手算例（R / Vc / λ̇ / |a| / t_go）");
-    const Vec3   r     = P_T - P_M;
-    const double R     = norm(r);
-    const Vec3   v_rel = V_T - V_M;
-    const Vec3   u     = normalized(r);
+    const Vec3 r = P_T - P_M;
+    const double R = norm(r);
+    const Vec3 v_rel = V_T - V_M;
+    const Vec3 u = normalized(r);
 
     near(R, 302.7, 0.05, "R ≈ 302.7 m");
 
@@ -170,21 +149,20 @@ static void test_handcalc() {
 // ============================================================
 static void test_los_rate_two_ways() {
     section("3. ω 两套算法一致性（真值法 vs 视线差分法）");
-    const Vec3   r     = P_T - P_M;
-    const double R     = norm(r);
-    const Vec3   v_rel = V_T - V_M;
-    const Vec3   u     = normalized(r);
+    const Vec3 r = P_T - P_M;
+    const double R = norm(r);
+    const Vec3 v_rel = V_T - V_M;
+    const Vec3 u = normalized(r);
 
     const Vec3 w_true = los_rate_vector(r, v_rel, R);
 
     // 用 dû/dt = ω×û 前推一小步，再用差分法反算 ω
-    const double dt     = 1e-3;
-    const Vec3   u_next = normalized(u + cross(w_true, u) * dt);
-    const Vec3   w_diff = los_rate_from_los_difference(u_next, u, dt);
+    const double dt = 1e-3;
+    const Vec3 u_next = normalized(u + cross(w_true, u) * dt);
+    const Vec3 w_diff = los_rate_from_los_difference(u_next, u, dt);
     near_vec(w_diff, w_true, 1e-4, "差分法 ω ≈ 真值法 ω");
 
-    near_vec(los_rate_from_los_difference(u, u, 0.0), Vec3(0, 0, 0), 1e-12,
-             "dt=0 → 零矢量（防除零）");
+    near_vec(los_rate_from_los_difference(u, u, 0.0), Vec3(0, 0, 0), 1e-12, "dt=0 → 零矢量（防除零）");
 }
 
 // ============================================================
@@ -192,10 +170,8 @@ static void test_los_rate_two_ways() {
 // ============================================================
 static void test_closing_velocity() {
     section("4. 接近速度 Vc 符号");
-    near(closing_velocity(Vec3(100, 0, 0), Vec3(-10, 0, 0), 100.0), 10.0, 1e-12,
-         "接近 → Vc > 0");
-    near(closing_velocity(Vec3(100, 0, 0), Vec3(10, 0, 0), 100.0), -10.0, 1e-12,
-         "远离 → Vc < 0");
+    near(closing_velocity(Vec3(100, 0, 0), Vec3(-10, 0, 0), 100.0), 10.0, 1e-12, "接近 → Vc > 0");
+    near(closing_velocity(Vec3(100, 0, 0), Vec3(10, 0, 0), 100.0), -10.0, 1e-12, "远离 → Vc < 0");
 }
 
 // ============================================================
@@ -203,14 +179,14 @@ static void test_closing_velocity() {
 // ============================================================
 static void test_guidance_step_laws() {
     section("5. guidance_step 端到端（TPN / PPN / APN）");
-    const Vec3   r = P_T - P_M;
+    const Vec3 r = P_T - P_M;
     const double R = norm(r);
-    const Vec3   u = normalized(r);
+    const Vec3 u = normalized(r);
 
     GuidanceParams p;
-    p.N               = 4.0;
-    p.a_max           = 1000.0;   // 本组不限幅
-    p.t_go_freeze     = 0.3;
+    p.N = 4.0;
+    p.a_max = 1000.0;  // 本组不限幅
+    p.t_go_freeze = 0.3;
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
     // --- TPN ---
@@ -250,18 +226,17 @@ static void test_guidance_step_laws() {
     {
         GuidanceMemory m;
         p.law = GuidanceLaw::APN;
-        const Vec3 a_T(0, 5, 0);            // 故意给非垂直分量，验证内部投影
+        const Vec3 a_T(0, 5, 0);  // 故意给非垂直分量，验证内部投影
         GuidanceState st = make_state(0.0, R, u, V_M, V_T);
         st.a_T_perp = a_T;
         const PureGuidanceCmd c = guidance_step(st, p, m);
 
-        const Vec3   v_rel  = V_T - V_M;
-        const double Vc     = closing_velocity(r, v_rel, R);
-        const Vec3   w      = los_rate_vector(r, v_rel, R);
-        const Vec3   a_tpn  = pn_tpn(w, u, Vc, p.N);
-        const Vec3   a_perp = a_T - u * dot(a_T, u);   // 手工投影
-        near_vec(c.a_cmd_unsat - a_tpn, a_perp * (p.N * 0.5), 1e-9,
-                 "APN = TPN + (N/2)·a_T⊥ 恒等式");
+        const Vec3 v_rel = V_T - V_M;
+        const double Vc = closing_velocity(r, v_rel, R);
+        const Vec3 w = los_rate_vector(r, v_rel, R);
+        const Vec3 a_tpn = pn_tpn(w, u, Vc, p.N);
+        const Vec3 a_perp = a_T - u * dot(a_T, u);  // 手工投影
+        near_vec(c.a_cmd_unsat - a_tpn, a_perp * (p.N * 0.5), 1e-9, "APN = TPN + (N/2)·a_T⊥ 恒等式");
     }
 }
 
@@ -269,14 +244,14 @@ static void test_guidance_step_laws() {
 //  6. 三条铁律
 // ============================================================
 static void test_iron_rules() {
-    const Vec3   r = P_T - P_M;
+    const Vec3 r = P_T - P_M;
     const double R = norm(r);
-    const Vec3   u = normalized(r);
+    const Vec3 u = normalized(r);
 
     GuidanceParams p;
-    p.law             = GuidanceLaw::TPN;
-    p.N               = 4.0;
-    p.t_go_freeze     = 0.3;
+    p.law = GuidanceLaw::TPN;
+    p.N = 4.0;
+    p.t_go_freeze = 0.3;
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
     // --- 铁律②：过载限幅 = 矢量等比缩放 ---
@@ -333,27 +308,27 @@ static void test_iron_rules() {
 // ============================================================
 static void test_los_rate_source_switch() {
     section("7. ω 来源切换（FROM_LOS_DIFFERENCE 在 guidance_step 中生效）");
-    const Vec3   r      = P_T - P_M;
-    const double R      = norm(r);
-    const Vec3   u      = normalized(r);
-    const Vec3   w_true = los_rate_vector(r, V_T - V_M, R);
+    const Vec3 r = P_T - P_M;
+    const double R = norm(r);
+    const Vec3 u = normalized(r);
+    const Vec3 w_true = los_rate_vector(r, V_T - V_M, R);
 
     GuidanceParams p;
-    p.law             = GuidanceLaw::TPN;
-    p.N               = 4.0;
-    p.a_max           = 1000.0;
-    p.t_go_freeze     = 0.3;
+    p.law = GuidanceLaw::TPN;
+    p.N = 4.0;
+    p.a_max = 1000.0;
+    p.t_go_freeze = 0.3;
     p.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
 
     GuidanceMemory m;
-    const double   dt = 1e-3;
+    const double dt = 1e-3;
 
     // 第一帧：无历史 → ω 保持为零
     const PureGuidanceCmd c1 = guidance_step(make_state(0.0, R, u, V_M, V_T), p, m);
     near(c1.lam_dot, 0.0, 1e-12, "首帧无历史 → lam_dot = 0");
 
     // 第二帧：视线转过一小步 → 差分法应还原出 ω
-    const Vec3        u2 = normalized(u + cross(w_true, u) * dt);
+    const Vec3 u2 = normalized(u + cross(w_true, u) * dt);
     const PureGuidanceCmd c2 = guidance_step(make_state(dt, R, u2, V_M, V_T), p, m);
     near(c2.lam_dot, norm(w_true), 1e-4, "次帧差分法 lam_dot ≈ 真值");
 }
@@ -363,13 +338,13 @@ static void test_los_rate_source_switch() {
 // ============================================================
 static TruthState make_truth_for_sensor() {
     TruthState tr;
-    tr.t   = 0.0;
+    tr.t = 0.0;
     tr.p_M = Vec3(0, 0, 0);
     tr.v_M = Vec3(30, 0, 0);
     tr.p_T = Vec3(300, 30, 10);
     tr.v_T = Vec3(-30, 0, 0);
     tr.a_T = Vec3(0, 0, 0);
-    quat_from_forward(tr.v_M, tr.q);   // 机头朝速度方向
+    quat_from_forward(tr.v_M, tr.q);  // 机头朝速度方向
     return tr;
 }
 
@@ -378,13 +353,13 @@ static void test_sensor_projection() {
     const TruthState tr = make_truth_for_sensor();
 
     SensorConfig cfg;
-    cfg.fidelity        = SensorFidelity::SEMI_REAL;
-    cfg.pixel_noise_std = 0.0;     // 关噪声
+    cfg.fidelity = SensorFidelity::SEMI_REAL;
+    cfg.pixel_noise_std = 0.0;  // 关噪声
     cfg.range_scale_err = 0.0;
     Sensor sensor(cfg);
 
     const GuidanceState st = sensor.observe(tr, 0.0);
-    const Vec3          r  = tr.p_T - tr.p_M;
+    const Vec3 r = tr.p_T - tr.p_M;
 
     ok(st.valid, "有效帧");
     near_vec(st.los_hat, normalized(r), 1e-9, "还原视线方向 û（世界→像素→世界）");
@@ -400,27 +375,23 @@ static void test_quat() {
     section("9. 姿态四元数（分量顺序 [w,x,y,z]，机头朝速度方向）");
     double q[4];
     quat_from_forward(Vec3(1, 0, 0), q);
-    near_vec(quat_rotate_vec(q, Vec3(0, 0, 1)), Vec3(1, 0, 0), 1e-12,
-             "R(q)·(0,0,1) = 前向");
+    near_vec(quat_rotate_vec(q, Vec3(0, 0, 1)), Vec3(1, 0, 0), 1e-12, "R(q)·(0,0,1) = 前向");
     const Vec3 w(3, -2, 5);
     near_vec(quat_rotate_vec(q, quat_rotate_vec_inv(q, w)), w, 1e-12, "旋转往返");
 
     quat_from_forward(Vec3(0, 0, 1), q);
     near(q[0], 1.0, 1e-12, "forward = +z → 单位四元数（q[0]=w=1）");
 
-    // ★★ 分量顺序锁定 [w,x,y,z]（与 PX4 / MAVLink 一致）★★
+    //  分量顺序锁定 [w,x,y,z]（与 PX4 / MAVLink 一致）
     //    绕世界 +z(上) 转 +90° 的四元数 = [cos45, 0, 0, sin45]。
     //    若有人把顺序改回 [x,y,z,w]，下面两条会立刻 FAIL。
     {
-        const double s2   = std::sqrt(0.5);
-        const double qz[4] = {s2, 0.0, 0.0, s2};      // [w, x, y, z]
-        near_vec(quat_rotate_vec(qz, Vec3(1, 0, 0)), Vec3(0, 1, 0), 1e-12,
-                 "顺序锁定：绕 +z 转 90° 把东→北");
-        near_vec(quat_rotate_vec(qz, Vec3(0, 1, 0)), Vec3(-1, 0, 0), 1e-12,
-                 "顺序锁定：绕 +z 转 90° 把北→西");
+        const double s2 = std::sqrt(0.5);
+        const double qz[4] = {s2, 0.0, 0.0, s2};  // [w, x, y, z]
+        near_vec(quat_rotate_vec(qz, Vec3(1, 0, 0)), Vec3(0, 1, 0), 1e-12, "顺序锁定：绕 +z 转 90° 把东→北");
+        near_vec(quat_rotate_vec(qz, Vec3(0, 1, 0)), Vec3(-1, 0, 0), 1e-12, "顺序锁定：绕 +z 转 90° 把北→西");
     }
-    near(GuidanceState{}.q[0], 1.0, 1e-12,
-         "GuidanceState 默认 q = [1,0,0,0]（[w,x,y,z] 单位四元数）");
+    near(GuidanceState{}.q[0], 1.0, 1e-12, "GuidanceState 默认 q = [1,0,0,0]（[w,x,y,z] 单位四元数）");
 }
 
 // ============================================================
@@ -453,7 +424,7 @@ static void test_sensor_drop() {
     const TruthState tr = make_truth_for_sensor();
 
     SensorConfig cfg;
-    cfg.fidelity  = SensorFidelity::FULL_REAL;
+    cfg.fidelity = SensorFidelity::FULL_REAL;
     cfg.drop_rate = 1.0;
     Sensor sensor(cfg);
 
@@ -474,14 +445,14 @@ static void test_sensor_latency() {
     const TruthState tr = make_truth_for_sensor();
 
     SensorConfig cfg;
-    cfg.fidelity   = SensorFidelity::FULL_REAL;
-    cfg.drop_rate  = 0.0;
-    cfg.latency_s  = 0.05;
+    cfg.fidelity = SensorFidelity::FULL_REAL;
+    cfg.drop_rate = 0.0;
+    cfg.latency_s = 0.05;
     Sensor sensor(cfg);
 
     const double dt = 0.01;
     GuidanceState st;
-    for (int i = 0; i <= 20; ++i) st = sensor.observe(tr, i * dt);   // t = 0 .. 0.20
+    for (int i = 0; i <= 20; ++i) st = sensor.observe(tr, i * dt);  // t = 0 .. 0.20
 
     near(st.t, 0.20 - 0.05, 1e-9, "输出滞后 ≈ latency（t_out = t - 50ms）");
 }
@@ -538,8 +509,7 @@ static void test_target_model() {
         TargetModel m(c);
         const double t = 1.3;
         const TargetState s = m.state(t);
-        near_vec(s.p, Vec3(5 * t, 0, 10 + 8 * t - 0.5 * 9.81 * t * t), 1e-9,
-                 "BALLISTIC p = p0 + v0·t + ½g·t²");
+        near_vec(s.p, Vec3(5 * t, 0, 10 + 8 * t - 0.5 * 9.81 * t * t), 1e-9, "BALLISTIC p = p0 + v0·t + ½g·t²");
         near_vec(s.v, Vec3(5, 0, 8 - 9.81 * t), 1e-9, "BALLISTIC v = v0 + g·t");
         near_vec(s.a, Vec3(0, 0, -9.81), 1e-12, "BALLISTIC a = g");
         // 10 + 8t − 4.905t² = 0 → t = (8 + √(64 + 196.2)) / 9.81
@@ -548,7 +518,7 @@ static void test_target_model() {
         ok(m.hits_ground(), "BALLISTIC 标记为落地");
     }
 
-    // --- 13.4 ★ 交叉验证：DART 且 Cd=0 应当 ≡ BALLISTIC ---
+    // --- 13.4  交叉验证：DART 且 Cd=0 应当 ≡ BALLISTIC ---
     {
         TargetConfig cd;
         cd.type = TargetType::DART;
@@ -576,8 +546,8 @@ static void test_target_model() {
         c.type = TargetType::DART;
         c.p0 = Vec3(0, 0, 1.0);
         c.launch_speed = 18.0;
-        c.launch_elev  = 0.5;
-        c.launch_azim  = kPi;
+        c.launch_elev = 0.5;
+        c.launch_azim = kPi;
         TargetModel md(c);
 
         TargetConfig c0 = c;
@@ -609,13 +579,13 @@ static void test_target_model() {
         c.type = TargetType::DART;
         c.p0 = Vec3(0, 0, 10);
         c.launch_speed = 20.0;
-        c.launch_elev  = 0.0;
-        c.launch_azim  = 0.0;
+        c.launch_elev = 0.0;
+        c.launch_azim = 0.0;
         TargetModel m(c);
 
         const TargetState s = m.state(0.0);
-        const Vec3   a_drag = s.a - c.gravity;   // 剥离重力
-        const double k      = 0.5 * c.rho * c.drag_cd * c.drag_area / c.mass;
+        const Vec3 a_drag = s.a - c.gravity;  // 剥离重力
+        const double k = 0.5 * c.rho * c.drag_cd * c.drag_area / c.mass;
         near_vec(a_drag, s.v * (-k * norm(s.v)), 1e-9, "a_drag = −k·|v|·v");
         ok(dot(a_drag, s.v) < 0.0, "阻力与速度反向（点积 < 0）");
         ok(norm(s.a) > norm(c.gravity), "水平发射时 |a_T| > g（阻力叠在重力上）");
@@ -649,7 +619,7 @@ static void test_target_model() {
         c.type = TargetType::SNAKE;
         c.p0 = Vec3(0, 0, 5);
         c.v0 = Vec3(10, 0, 0);
-        c.snake_acc  = 5.0;
+        c.snake_acc = 5.0;
         c.snake_freq = 2.0;
         TargetModel m(c);
 
@@ -665,8 +635,8 @@ static void test_target_model() {
         c.type = TargetType::DART;
         c.p0 = Vec3(10, 0, 3);
         c.launch_speed = 15.0;
-        c.launch_elev  = 0.4;
-        c.launch_azim  = kPi;
+        c.launch_elev = 0.4;
+        c.launch_azim = kPi;
         TargetModel m(c);
 
         near_vec(m.state(0.0).p, c.p0, 1e-12, "state(0).p = 初始位置");
@@ -690,21 +660,21 @@ static void test_target_model() {
 // ============================================================
 static void test_freeze_criterion() {
     section("14. 末端冻结判据（t_go / R / 两者取或）");
-    const Vec3   r  = P_T - P_M;
-    const Vec3   u  = normalized(r);
-    const double Vc = closing_velocity(r, V_T - V_M, norm(r));   // ≈ 42.6 m/s
+    const Vec3 r = P_T - P_M;
+    const Vec3 u = normalized(r);
+    const double Vc = closing_velocity(r, V_T - V_M, norm(r));  // ≈ 42.6 m/s
 
     GuidanceParams p;
-    p.law             = GuidanceLaw::TPN;
-    p.N               = 4.0;
-    p.a_max           = 1000.0;   // 本组不限幅
+    p.law = GuidanceLaw::TPN;
+    p.N = 4.0;
+    p.a_max = 1000.0;  // 本组不限幅
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
     // --- 14.1 R 基准：R < R_freeze → HOLD，并沿用上一帧指令 ---
     {
         GuidanceParams pr = p;
         pr.freeze_criterion = FreezeCriterion::BY_RANGE;
-        pr.R_freeze         = 5.0;
+        pr.R_freeze = 5.0;
 
         GuidanceMemory m;
         const PureGuidanceCmd c1 = guidance_step(make_state(0.0, 100.0, u, V_M, V_T), pr, m);
@@ -718,15 +688,15 @@ static void test_freeze_criterion() {
     {
         GuidanceParams a = p;
         a.freeze_criterion = FreezeCriterion::BY_TGO;
-        a.t_go_freeze      = 0.15;
+        a.t_go_freeze = 0.15;
 
         GuidanceParams b = p;
         b.freeze_criterion = FreezeCriterion::BY_RANGE;
-        b.R_freeze         = Vc * 0.15;   // ≈ 6.4 m
+        b.R_freeze = Vc * 0.15;  // ≈ 6.4 m
 
         bool agree = true;
         for (int i = 0; i <= 40; ++i) {
-            const double R = 20.0 - 19.0 * i / 40.0;   // 20 → 1 m
+            const double R = 20.0 - 19.0 * i / 40.0;  // 20 → 1 m
             GuidanceMemory ma, mb;
             const PureGuidanceCmd ca = guidance_step(make_state(0.0, R, u, V_M, V_T), a, ma);
             const PureGuidanceCmd cb = guidance_step(make_state(0.0, R, u, V_M, V_T), b, mb);
@@ -742,19 +712,18 @@ static void test_freeze_criterion() {
     //     加上 R 兜底后仍能在近距冻结。
     {
         GuidanceState st = make_state(0.0, 3.0, Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 10, 0));
-        near(closing_velocity(Vec3(3, 0, 0), Vec3(0, 10, 0), 3.0), 0.0, 1e-12,
-             "构造 Vc = 0（v_rel ⊥ r）");
+        near(closing_velocity(Vec3(3, 0, 0), Vec3(0, 10, 0), 3.0), 0.0, 1e-12, "构造 Vc = 0（v_rel ⊥ r）");
 
         GuidanceParams pt = p;
         pt.freeze_criterion = FreezeCriterion::BY_TGO;
-        pt.t_go_freeze      = 0.15;
+        pt.t_go_freeze = 0.15;
         GuidanceMemory mt;
         const PureGuidanceCmd ct = guidance_step(st, pt, mt);
         ok(ct.mode != PureGuidanceMode::HOLD, "Vc=0：仅 t_go 基准 → 不冻结（t_go 发散）");
 
         GuidanceParams ph = pt;
         ph.freeze_criterion = FreezeCriterion::BY_TGO_OR_RANGE;
-        ph.R_freeze         = 5.0;
+        ph.R_freeze = 5.0;
         GuidanceMemory mh;
         const PureGuidanceCmd ch = guidance_step(st, ph, mh);
         ok(ch.mode == PureGuidanceMode::HOLD, "Vc=0：R 兜底 → 冻结（R=3 < 5）");
@@ -762,7 +731,7 @@ static void test_freeze_criterion() {
 }
 
 // ============================================================
-//  15. ★ 不变量（invariant）—— 内部口径冻结
+//  15.  不变量（invariant）—— 内部口径冻结
 // ============================================================
 //
 // 《数据对齐-自决项详解.md》④「内部口径冻结」要求的四类不变量：
@@ -771,16 +740,16 @@ static void test_freeze_criterion() {
 // 只要转换为内部口径后违反其中任何一条，制导就必然出错。
 // 本组测试把它们钉死，防止后续改动悄悄破坏。
 //
-// 配套：适配层侧还有一套更完整的自检实现（`src/guidance/adapter/include/state_check.hpp`，
+// 配套：适配层侧还有一套更完整的自检实现（`src/guidance/adapter/include/guidance_state_check.hpp`，
 //       收到一帧就能体检并指出是哪个字段的问题），本组只做制导核的契约级验证。
 static void test_invariants() {
     section("15. 不变量（内部口径冻结）");
 
-    // 判据（与 state_check.hpp 的阈值保持一致）
+    // 判据（与 guidance_state_check.hpp 的阈值保持一致）
     const double kQuatNormTol = 1e-9;
-    const double kLosNormTol  = 1e-9;
+    const double kLosNormTol = 1e-9;
 
-    GuidanceParams p;   // 默认 PPN / N = 4 / a_max = 30
+    GuidanceParams p;  // 默认 PPN / N = 4 / a_max = 30
 
     // --- 15.1 正常闭环：所有不变量成立 ---
     {
@@ -789,8 +758,7 @@ static void test_invariants() {
         const PureGuidanceCmd c = guidance_step(st, p, m);
 
         // |q| = 1（默认单位四元数）
-        const double qn = std::sqrt(st.q[0] * st.q[0] + st.q[1] * st.q[1] +
-                                    st.q[2] * st.q[2] + st.q[3] * st.q[3]);
+        const double qn = std::sqrt(st.q[0] * st.q[0] + st.q[1] * st.q[1] + st.q[2] * st.q[2] + st.q[3] * st.q[3]);
         near(qn, 1.0, kQuatNormTol, "不变量 |q| = 1（默认 [1,0,0,0]）");
         near(st.q[0], 1.0, 0.0, "  四元数顺序 [w,x,y,z]：q[0] = w = 1");
 
@@ -801,8 +769,7 @@ static void test_invariants() {
         ok(st.range >= 0.0, "不变量 range ≥ 0");
 
         // 指令有限、限幅内
-        ok(std::isfinite(c.a_cmd.x) && std::isfinite(c.a_cmd.y) && std::isfinite(c.a_cmd.z),
-           "不变量 a_cmd 三个分量有限");
+        ok(std::isfinite(c.a_cmd.x) && std::isfinite(c.a_cmd.y) && std::isfinite(c.a_cmd.z), "不变量 a_cmd 三个分量有限");
         ok(norm(c.a_cmd) <= p.a_max + 1e-9, "不变量 |a_cmd| ≤ a_max");
 
         // |a_cmd| 与 a_cmd_norm 一致
@@ -869,9 +836,10 @@ static void test_invariants() {
         // 第二帧时间戳倒退（上游乱序）⇒ 制导核自身不做保护（防除零只挡 dt≈0）
         GuidanceState s2 = make_state(0.5, 100.0, Vec3(1, 0.01, 0), Vec3(20, 0, 0), Vec3(0, 0, 0));
         const PureGuidanceCmd cd = guidance_step(s2, pd, md);
-        std::printf("  （提示：时间戳倒退时 dt = %.3f s，制导不自行纠正 —— "
-                    "单调性由上游保证，见 state_adapter::StateTimeTracker）\n",
-                    s2.t - s1.t);
+        std::printf(
+            "  （提示：时间戳倒退时 dt = %.3f s，制导不自行纠正 —— "
+            "单调性由上游保证，见 guidance::adapter::GuidanceStateTimeTracker）\n",
+            s2.t - s1.t);
         ok(std::isfinite(norm(cd.a_cmd)), "时间戳倒退时输出仍有限（不产生 NaN/Inf）");
     }
 
@@ -888,13 +856,12 @@ static void test_invariants() {
         const Vec3 omega = los_rate_vector(r, v_rel, st.range);
         near(norm(omega), c.lam_dot, 1e-12, "λ̇ 量纲/数值：|ω| 与 cmd.lam_dot 一致 (rad/s)");
         const Vec3 a_expect = pn_ppn(omega, st.v_M, p.N);
-        near_vec(c.a_cmd_unsat, a_expect, 1e-9,
-                 "PPN：a = N(ω × v_M)（单位 m/s²，世界系）");
+        near_vec(c.a_cmd_unsat, a_expect, 1e-9, "PPN：a = N(ω × v_M)（单位 m/s²，世界系）");
     }
 }
 
 // ============================================================
-//  16. ★ 机载主循环外壳 GuidanceLoop
+//  16.  机载主循环外壳 GuidanceLoop
 // ============================================================
 //
 // 它把"纯函数内核"包成有状态、可替换数据源的外壳。本组验证五件事：
@@ -905,72 +872,81 @@ static void test_invariants() {
 //   ⑤ 统计计数
 namespace {
 
-struct LoopStubIns : app::IInsSource {
-    app::InsSample next;
+struct LoopStubIns : flight::GuidanceInsSource {
+    flight::GuidanceInsSample next;
     bool pending = false;
-    bool poll(app::InsSample &o) override {
+    bool poll(flight::GuidanceInsSample &o) override {
         if (!pending) return false;
         o = next;
         pending = false;
         return true;
     }
-    bool alive() const override { return true; }
+    bool alive() const override {
+        return true;
+    }
 };
 
-struct LoopStubTgt : app::ITargetSource {
-    app::TargetSample next;
+struct LoopStubTgt : flight::GuidanceTargetSource {
+    flight::GuidanceTargetSample next;
     bool pending = false;
-    bool poll(app::TargetSample &o) override {
+    bool poll(flight::GuidanceTargetSample &o) override {
         if (!pending) return false;
         o = next;
         pending = false;
         return true;
     }
-    bool alive() const override { return true; }
+    bool alive() const override {
+        return true;
+    }
 };
 
-struct LoopStubSink : app::ICommandSink {
-    app::GuidanceOutput last;
+struct LoopStubSink : flight::GuidanceCommandSink {
+    flight::GuidanceOutput last;
     int sends = 0;
-    bool send(const app::GuidanceOutput &o) override {
+    bool send(const flight::GuidanceOutput &o) override {
         last = o;
         ++sends;
         return true;
     }
-    bool alive() const override { return true; }
+    bool alive() const override {
+        return true;
+    }
 };
 
 // 相机：针孔 f=500、主点 (320,240)；外参 = 相机(x右,y下,z前) → 机体 FRD(x前,y右,z下)
-app::CameraModel loop_cam() {
-    app::CameraModel c;
-    c.fx = 500.0; c.fy = 500.0; c.cx = 320.0; c.cy = 240.0;
-    const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};   // 行主序
+flight::GuidanceCameraModel loop_cam() {
+    flight::GuidanceCameraModel c;
+    c.fx = 500.0;
+    c.fy = 500.0;
+    c.cx = 320.0;
+    c.cy = 240.0;
+    const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};  // 行主序
     for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
     return c;
 }
 
-app::InsSample loop_ins(std::uint64_t us) {
-    app::InsSample s;
+flight::GuidanceInsSample loop_ins(std::uint64_t us) {
+    flight::GuidanceInsSample s;
     s.boot_us = us;
-    s.p = Vec3(0.0, 0.0, -5.0);      // NED：z=-5 ⇒ 高度 5 m
-    s.v = Vec3(10.0, 0.0, 0.0);      // 朝 +x（北）10 m/s
-    s.q[0] = 1.0;                    // 单位四元数：机体与局部系对齐
+    s.p = Vec3(0.0, 0.0, -5.0);  // NED：z=-5 ⇒ 高度 5 m
+    s.v = Vec3(10.0, 0.0, 0.0);  // 朝 +x（北）10 m/s
+    s.q[0] = 1.0;                // 单位四元数：机体与局部系对齐
     s.has_position = true;
     s.has_attitude = true;
     return s;
 }
 
 // 目标：世界视线朝 +x 偏 +y（右），tanθ 给定；像素由内参反算 ⇒ 顺带验证反投影
-app::TargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
-    app::TargetSample t;
-    t.boot_us   = us;
-    t.u_px      = 320.0 + 500.0 * tan_theta;
-    t.v_px      = 240.0;
-    t.present   = present;
+flight::GuidanceTargetSample loop_tgt(std::uint64_t us, double tan_theta, bool present = true) {
+    flight::GuidanceTargetSample t;
+    t.boot_us = us;
+    t.u_px = 320.0 + 500.0 * tan_theta;
+    t.v_px = 240.0;
+    t.present = present;
     t.has_range = true;
-    t.range_m   = 50.0;
-    t.has_v_T   = true;              // 仿真真值：目标静止 ⇒ 可用真值法算 ω
-    t.v_T       = Vec3(0.0, 0.0, 0.0);
+    t.range_m = 50.0;
+    t.has_v_T = true;  // 仿真真值：目标静止 ⇒ 可用真值法算 ω
+    t.v_T = Vec3(0.0, 0.0, 0.0);
     return t;
 }
 
@@ -979,77 +955,209 @@ GuidanceParams loop_params() {
     p.law = GuidanceLaw::PPN;
     p.N = 4.0;
     p.a_max = 30.0;
-    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;   // 仿真真值法
+    p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;  // 仿真真值法
     return p;
 }
 
 }  // namespace
 
+static void test_missing_guidance_inputs() {
+    section("制导缺失测距、姿态和时间基检查");
+    for (auto criterion : {FreezeCriterion::BY_TGO, FreezeCriterion::BY_RANGE, FreezeCriterion::BY_TGO_OR_RANGE}) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        auto params = loop_params();
+        params.freeze_criterion = criterion;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(params, cfg, ins, tgt, sink);
+        ok(loop.init(), "range-free PPN loop initializes");
+        flight::GuidanceOutput out;
+        for (int frame = 0; frame < 2; ++frame) {
+            const auto stamp = 1000000ULL + static_cast<unsigned long long>(frame) * 20000ULL;
+            ins.next = loop_ins(stamp);
+            ins.pending = true;
+            tgt.next = loop_tgt(stamp, 0.1 + 0.1 * frame);
+            tgt.next.has_range = false;
+            tgt.next.range_m = 0;
+            tgt.next.has_v_T = false;
+            tgt.pending = true;
+            loop.run_once(&out);
+        }
+        ok(out.valid && out.health == flight::GuidanceInputHealth::kOk && out.mode == PureGuidanceMode::PN, "PPN without range uses LOS difference and does not enter zero-range HOLD");
+        ok(out.a_cmd_norm > 0, "changing LOS without range yields nonzero PPN acceleration");
+        for (auto law : {GuidanceLaw::TPN, GuidanceLaw::APN}) {
+            params.law = law;
+            flight::GuidanceLoop needs_range(params, cfg, ins, tgt, sink);
+            needs_range.init();
+            ins.next = loop_ins(2000000ULL);
+            ins.pending = true;
+            tgt.next = loop_tgt(2000000ULL, 0.2);
+            tgt.next.has_range = false;
+            tgt.pending = true;
+            needs_range.run_once(&out);
+            ok(!out.valid && out.health == flight::GuidanceInputHealth::kNoRange, "TPN/APN without range is invalid under every freeze criterion");
+        }
+    }
+    for (int invalid_input = 0; invalid_input < 5; ++invalid_input) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
+        loop.run_once(&out);
+        ok(out.valid, "valid reference precedes hard input failure");
+        ins.next = loop_ins(1020000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1020000ULL, 0.3);
+        tgt.pending = true;
+        if (invalid_input == 0) ins.next.has_attitude = false;
+        if (invalid_input == 1) tgt.next.boot_us += 5000000ULL;
+        if (invalid_input == 2) ins.next.boot_us = 0;
+        if (invalid_input == 3) tgt.next.boot_us = 0;
+        if (invalid_input == 4) {
+            ins.next.has_attitude = false;
+            tgt.next.boot_us -= 500000ULL;
+        }
+        const int sends_before_invalid = sink.sends;
+        const auto invalid_status = loop.run_once(&out);
+        ok(!out.valid && out.a_cmd_norm == 0 && out.mode == PureGuidanceMode::SEARCH, "missing attitude, future target or unknown timestamps cannot retain valid previous control");
+        if (invalid_input == 0 || invalid_input == 4) {
+            ok(out.health == flight::GuidanceInputHealth::kNoAttitude, "missing attitude cannot be masked by stale target");
+            ok(sink.sends == sends_before_invalid && invalid_status == flight::GuidanceLoopStatus::kUnhealthyInput, "missing attitude produces no command even under the default hold policy");
+        }
+        if (invalid_input == 1) ok(out.health == flight::GuidanceInputHealth::kTimeBackwards, "future-time health");
+    }
+    GuidanceState state;
+    state.valid = true;
+    state.has_range = false;
+    state.los_hat = Vec3(1, 0, 0);
+    state.v_M = Vec3(1, 0, 0);
+    auto params = loop_params();
+    params.law = GuidanceLaw::TPN;
+    GuidanceMemory memory;
+    ok(!guidance_step(state, params, memory).valid, "direct core also rejects missing range for TPN");
+    params.law = GuidanceLaw::APN;
+    ok(!guidance_step(state, params, memory).valid, "direct core also rejects missing range for APN");
+    for (int scenario = 0; scenario < 3; ++scenario) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        if (scenario == 1) cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kStop;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
+        loop.run_once(&out);
+        ins.next = loop_ins(1020000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(scenario == 2 ? 990000ULL : 1070000ULL, 0.3);
+        tgt.pending = true;
+        if (scenario == 1) ins.next.has_attitude = false;
+        const int previous_sends = sink.sends;
+        const auto status = loop.run_once(&out);
+        if (scenario == 0) ok(out.valid && out.health == flight::GuidanceInputHealth::kOk, "future-time tolerance includes exactly 50 ms");
+        if (scenario == 1) ok(!out.valid && status == flight::GuidanceLoopStatus::kUnhealthyInput && sink.sends == previous_sends, "stop policy with missing attitude emits no command and clears previous valid result");
+        if (scenario == 2) ok(!out.valid && out.health == flight::GuidanceInputHealth::kTimeBackwards, "target sampling time rollback is rejected even when age is within stale limit");
+    }
+}
+
 static void test_guidance_loop() {
+    test_missing_guidance_inputs();
     section("16. 机载主循环（GuidanceLoop）");
 
     // --- 16.1 init 校验：相机模型必须有（目标数据是像素）---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg;                       // cam 未填
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;  // cam 未填
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         ok(!loop.init(), "无相机模型 ⇒ init 失败");
 
-        app::LoopConfig cfg2;
+        flight::GuidanceLoopConfig cfg2;
         cfg2.cam = loop_cam();
         cfg2.loop_hz = 50;
-        app::GuidanceLoop loop2(loop_params(), cfg2, ins, tgt, sink);
+        flight::GuidanceLoop loop2(loop_params(), cfg2, ins, tgt, sink);
         ok(loop2.init(), "相机模型有效 + 50 Hz ⇒ init 成功");
     }
 
     // --- 16.2 正常制导：像素反投影 + PPN 方向 ---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        cfg.loop_hz = 50;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;   // 右偏 11.3°
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2);
+        tgt.pending = true;  // 右偏 11.3°
 
-        app::GuidanceOutput out;
-        const app::LoopStatus s = loop.run_once(&out);
-        ok(s == app::LoopStatus::kOk, "run_once 返回 kOk");
-        ok(out.health == app::InputHealth::kOk, "体检通过");
+        flight::GuidanceOutput out;
+        const flight::GuidanceLoopStatus s = loop.run_once(&out);
+        ok(s == flight::GuidanceLoopStatus::kOk, "run_once 返回 kOk");
+        ok(out.health == flight::GuidanceInputHealth::kOk, "体检通过");
         ok(out.mode == PureGuidanceMode::PN, "mode = PN");
         ok(out.valid, "valid = true");
-        ok(out.ctrl == app::ControlMode::kAcceleration, "ctrl = 加速度");
+        ok(out.ctrl == flight::GuidanceControlMode::kAcceleration, "ctrl = 加速度");
         ok(out.a_cmd_ned.y > 0.5, "加速度指向 +y（目标所在侧）");
         near(out.a_cmd_ned.x, 0.0, 1e-9, "x 分量≈0（PPN 只出横向）");
         near(out.a_cmd_ned.z, 0.0, 1e-9, "z 分量≈0（共面）");
         ok(out.R > 40.0 && out.R < 60.0, "R 在 50 m 附近（像素反投影出的距离）");
-        std::printf("        a_ned=(%.4f, %.4f, %.4f)  R=%.2f  Vc=%.2f\n",
-                    out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.R, out.Vc);
+        std::printf("        a_ned=(%.4f, %.4f, %.4f)  R=%.2f  Vc=%.2f\n", out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.R, out.Vc);
         ok(sink.sends == 1, "发出 1 条指令");
     }
 
     // --- 16.3 共线目标：ω=0 ⇒ 零指令（与 §3 的零速/共线退化一致）---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.0); tgt.pending = true;
-        app::GuidanceOutput out;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.0);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
         loop.run_once(&out);
         ok(out.a_cmd_norm < 1e-9, "正前方共线 ⇒ 指令为零");
     }
 
     // --- 16.4 目标丢失：SEARCH + 零指令 ---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.2, /*present=*/false); tgt.pending = true;
-        app::GuidanceOutput out;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2, /*present=*/false);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
         loop.run_once(&out);
         ok(out.mode == PureGuidanceMode::SEARCH, "present=false ⇒ mode = SEARCH");
         ok(!out.valid, "  valid = false");
@@ -1058,55 +1166,66 @@ static void test_guidance_loop() {
 
     // --- 16.5 脏数据（NaN 像素）→ 限时保持上一拍 ---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand;
         cfg.hold_last_max_s = 0.2;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput good, bad;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput good, bad;
         loop.run_once(&good);
 
-        ins.next = loop_ins(1020000ull); ins.pending = true;
+        ins.next = loop_ins(1020000ull);
+        ins.pending = true;
         tgt.next = loop_tgt(1020000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
         loop.run_once(&bad);
 
-        ok(bad.health != app::InputHealth::kOk, "脏数据被体检抓到");
-        ok(bad.ctrl == app::ControlMode::kAcceleration, "限时内仍走加速度通道（保持）");
+        ok(bad.health != flight::GuidanceInputHealth::kOk, "脏数据被体检抓到");
+        ok(bad.ctrl == flight::GuidanceControlMode::kAcceleration, "限时内仍走加速度通道（保持）");
         near(bad.a_cmd_ned.y, good.a_cmd_ned.y, 1e-12, "保持的是上一拍指令");
         ok(loop.stats().unhealthy == 1, "unhealthy 计数 +1");
     }
 
-    // --- 16.6 脏数据持续超时 → 零速度悬停（★ 保持窗口从"最后一条好指令"起算）---
+    // --- 16.6 脏数据持续超时 → 零速度悬停（ 保持窗口从"最后一条好指令"起算）---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kHoldLastCommand;
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand;
         cfg.hold_last_max_s = 0.05;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
 
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(80));   // 超过 0.05 s
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));  // 超过 0.05 s
 
-        ins.next = loop_ins(1080000ull); ins.pending = true;
+        ins.next = loop_ins(1080000ull);
+        ins.pending = true;
         tgt.next = loop_tgt(1080000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
         loop.run_once(&o);
 
-        ok(o.ctrl == app::ControlMode::kVelocity, "超时后转速度通道");
-        ok(o.v_cmd_ned.x == 0.0 && o.v_cmd_ned.y == 0.0 && o.v_cmd_ned.z == 0.0,
-           "  速度指令为零（真悬停，不是零加速度）");
+        ok(o.ctrl == flight::GuidanceControlMode::kVelocity, "超时后转速度通道");
+        ok(o.v_cmd_ned.x == 0.0 && o.v_cmd_ned.y == 0.0 && o.v_cmd_ned.z == 0.0, "  速度指令为零（真悬停，不是零加速度）");
         near(o.a_cmd_norm, 0.0, 1e-12, "  加速度归零");
         ok(o.hold_yaw, "  不干预航向");
         ok(loop.stats().safe_hover == 1, "  safe_hover 计数 +1");
@@ -1114,48 +1233,64 @@ static void test_guidance_loop() {
 
     // --- 16.7 策略直接 kSafeHover：脏数据立刻悬停 ---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        cfg.on_unhealthy = app::LoopConfig::OnUnhealthy::kSafeHover;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ull); ins.pending = true;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
         tgt.next = loop_tgt(1000000ull, 0.2);
         tgt.next.u_px = std::nan("");
         tgt.pending = true;
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
-        ok(o.ctrl == app::ControlMode::kVelocity, "ctrl = 速度");
+        ok(o.ctrl == flight::GuidanceControlMode::kVelocity, "ctrl = 速度");
         ok(o.v_cmd_ned.x == 0.0, "零速度");
     }
 
     // --- 16.8 数据过期（目标帧落后 1 s > 0.1 s）---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.max_sample_age_s = 0.10;
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        cfg.max_sample_age_s = 0.10;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(3000000ull); ins.pending = true;          // ins 3.0 s
-        tgt.next = loop_tgt(2000000ull, 0.2); tgt.pending = true;     // tgt 2.0 s
-        app::GuidanceOutput o;
+        ins.next = loop_ins(3000000ull);
+        ins.pending = true;  // ins 3.0 s
+        tgt.next = loop_tgt(2000000ull, 0.2);
+        tgt.pending = true;  // tgt 2.0 s
+        flight::GuidanceOutput o;
         loop.run_once(&o);
-        ok(o.health == app::InputHealth::kStale, "health = kStale");
-        ok(o.ctrl == app::ControlMode::kVelocity, "过期 ⇒ 降级（首拍无历史 ⇒ 零速度悬停）");
+        ok(o.health == flight::GuidanceInputHealth::kStale, "health = kStale");
+        ok(o.ctrl == flight::GuidanceControlMode::kVelocity, "过期 ⇒ 降级（首拍无历史 ⇒ 零速度悬停）");
     }
 
     // --- 16.9 没有新目标帧：仍然重发（PX4 offboard 需要持续到达）---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
-        ins.next = loop_ins(1000000ull); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull, 0.2); tgt.pending = true;
-        app::GuidanceOutput first, resent;
+        ins.next = loop_ins(1000000ull);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput first, resent;
         loop.run_once(&first);
         const int sends_before = sink.sends;
 
-        ins.next = loop_ins(1020000ull); ins.pending = true;          // 只有飞控帧
+        ins.next = loop_ins(1020000ull);
+        ins.pending = true;  // 只有飞控帧
         loop.run_once(&resent);
         ok(sink.sends == sends_before + 1, "没有新的目标帧也照样发");
         near(resent.a_cmd_ned.y, first.a_cmd_ned.y, 1e-12, "  重发的是上一拍指令");
@@ -1164,17 +1299,22 @@ static void test_guidance_loop() {
 
     // --- 16.10 统计计数 ---
     {
-        LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-        app::LoopConfig cfg; cfg.cam = loop_cam();
-        app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
         loop.init();
         for (int k = 0; k < 5; ++k) {
-            ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
-            tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-            app::GuidanceOutput o;
+            ins.next = loop_ins(1000000ull + 20000ull * k);
+            ins.pending = true;
+            tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
+            tgt.pending = true;
+            flight::GuidanceOutput o;
             loop.run_once(&o);
         }
-        const app::LoopStats &st = loop.stats();
+        const flight::GuidanceLoopStats &st = loop.stats();
         ok(st.ticks == 5, "ticks = 5");
         ok(st.ins_frames == 5, "ins_frames = 5");
         ok(st.tgt_frames == 5, "tgt_frames = 5");
@@ -1184,11 +1324,11 @@ static void test_guidance_loop() {
 }
 
 // ============================================================
-//  17. ★ 端到端闭环回归（合成世界）
+//  17.  端到端闭环回归（合成世界）
 // ============================================================
 //
 // 为什么需要这一组：§1~§16 都是**分段**验证（每个函数各自拿桩数据测）。
-// 分段全绿 ≠ 整条链没坏 —— 2026-10-20 就踩过：HOLD 保持窗口的起算点写错，
+// 分段全绿 ≠ 整条链没坏 —— 曾就踩过：HOLD 保持窗口的起算点写错，
 // 分段测试全过，是行为测试才抓到的。
 //
 // 本组把"像素 → 反投影 → 制导核 → 出口换算 → 点质量积分 → 再拍成像素"整条链
@@ -1197,23 +1337,24 @@ static void test_guidance_loop() {
 namespace {
 
 struct FirstOutCtx {
-    app::GuidanceOutput first{};
+    flight::GuidanceOutput first{};
     int n = 0;
 };
 
-void first_out_hook(void *user, int, const app::SyntheticWorld &,
-                    const app::GuidanceOutput &o) {
+void first_out_hook(void *user, int, const app::GuidanceSyntheticWorld &, const flight::GuidanceOutput &o) {
     auto *ctx = static_cast<FirstOutCtx *>(user);
     if (ctx->n++ == 0) ctx->first = o;
 }
 
-struct CollectSink : app::ICommandSink {
-    std::vector<app::GuidanceOutput> outs;
-    bool send(const app::GuidanceOutput &o) override {
+struct CollectSink : flight::GuidanceCommandSink {
+    std::vector<flight::GuidanceOutput> outs;
+    bool send(const flight::GuidanceOutput &o) override {
         outs.push_back(o);
         return true;
     }
-    bool alive() const override { return true; }
+    bool alive() const override {
+        return true;
+    }
 };
 
 }  // namespace
@@ -1221,50 +1362,48 @@ struct CollectSink : app::ICommandSink {
 static void test_closed_loop_regression() {
     section("17. 端到端闭环回归（合成世界）");
 
-    app::SceneConfig sc;   // 默认场景：5 m 高、朝 +x 8 m/s、靶 40 m 前右偏 3 m
-    sc.dt = 0.02;          // 50 Hz
+    app::GuidanceSceneConfig sc;  // 默认场景：5 m 高、朝 +x 8 m/s、靶 40 m 前右偏 3 m
+    sc.dt = 0.02;                 // 50 Hz
 
-    app::SyntheticWorld world(app::demo_camera(), sc);
+    app::GuidanceSyntheticWorld world(app::guidance_demo_camera(), sc);
 
     GuidanceParams p;
-    p.law   = GuidanceLaw::PPN;
-    p.N     = 4.0;
+    p.law = GuidanceLaw::PPN;
+    p.N = 4.0;
     p.a_max = 10.0;
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
 
-    app::LoopConfig cfg;
-    cfg.cam              = app::demo_camera();
-    cfg.loop_hz          = 50;
-    cfg.max_sample_age_s = 0.2;   // 合成世界每拍都更新
+    flight::GuidanceLoopConfig cfg;
+    cfg.cam = app::guidance_demo_camera();
+    cfg.loop_hz = 50;
+    cfg.max_sample_age_s = 0.2;  // 合成世界每拍都更新
 
-    app::GuidanceLoop loop(p, cfg, world, world, world);
+    flight::GuidanceLoop loop(p, cfg, world, world, world);
     ok(loop.init(), "§17 init 成功");
 
     FirstOutCtx ctx;
-    const app::ClosedLoopReport rep =
-        app::run_synthetic_closed_loop(world, loop, 400, first_out_hook, &ctx);
+    const app::GuidanceClosedLoopReport rep = app::guidance_run_closed_loop(world, loop, 400, first_out_hook, &ctx);
 
     // ---- 闭环结果 ----
     ok(rep.ticks > 200, "跑够拍数（> 200 拍）");
-    ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；2026-10-20 实测 0.033）");
+    ok(rep.min_r <= 0.10, "最近距离 ≤ 0.10 m（真的打到靶；历史实测 0.033）");
     ok(rep.min_r > 0.0, "最近距离 > 0（不是退化成一出发就在靶点）");
     ok(rep.min_r_tick > 100, "最近距离出现在交会后段（> 100 拍）");
-    ok(rep.stop == app::LoopStatus::kOk, "跑满拍数、没被异常状态打断");
-    ok(loop.stats().tgt_frames < loop.stats().ticks,
-       "后段目标飞越出画：目标帧数 < 拍数（否则说明像素一直有效，几何写错了）");
+    ok(rep.stop == flight::GuidanceLoopStatus::kOk, "跑满拍数、没被异常状态打断");
+    ok(loop.stats().tgt_frames < loop.stats().ticks, "后段目标飞越出画：目标帧数 < 拍数（否则说明像素一直有效，几何写错了）");
 
     // ---- 指令链路（算法一改就红）----
     ok(ctx.n > 200, "每拍都产出了指令（hook 被回调）");
     ok(ctx.first.mode == PureGuidanceMode::PN, "首拍 mode = PN");
     ok(ctx.first.a_cmd_ned.y > 0.3, "首拍加速度指向靶侧（+y）");
-    // ★ PPN 的加速度**垂直于速度**（不是垂直于视线）：速度沿 NED +x ⇒ 沿 x 的分量必须为 0。
-    //   2026-10-21 实测 a_ned=(0.000000, 0.481135, 0.000000)：
+    //  PPN 的加速度**垂直于速度**（不是垂直于视线）：速度沿 NED +x ⇒ 沿 x 的分量必须为 0。
+    //   历史实测 a_ned=(0.000000, 0.481135, 0.000000)：
     //   4 × |v_M|(8) × |ω|(0.015035) = 0.4811 ⇒ 与被测实现逐位吻合。
     near(ctx.first.a_cmd_ned.x, 0.0, 1e-12, "首拍沿速度方向的分量为 0（PPN 垂直于速度）");
     near(ctx.first.a_cmd_ned.z, 0.0, 1e-12, "首拍 z = 0（共面，不出纵向加速度）");
 
     // ---- PX4 的硬要求：指令必须每拍都发（不是"只在有新数据时才发"）----
-    const app::LoopStats &s = loop.stats();
+    const flight::GuidanceLoopStats &s = loop.stats();
     ok(s.sent == s.ticks, "每拍都发出指令（sent == ticks）");
     ok(s.sink_errors == 0, "无发送失败");
     ok(s.saturated == 0, "全程不饱和（a_max=10 够用）");
@@ -1272,7 +1411,7 @@ static void test_closed_loop_regression() {
 }
 
 // ============================================================
-//  18. ★ CSV 录制 → 回放（黑匣子）
+//  18.  CSV 录制 → 回放（黑匣子）
 // ============================================================
 //
 // 验证三件事：
@@ -1284,7 +1423,7 @@ namespace {
 
 // CSV 路径放在当前工作目录（测试从 bin/test 运行），结束会删掉
 const char *kRoundTripCsv = "test_guidance_roundtrip.csv";
-const char *kCmdCsv       = "test_guidance_cmd.csv";
+const char *kCmdCsv = "test_guidance_cmd.csv";
 
 // 当前进程打开着的句柄数（-1 = 该平台取不到）。
 // Windows：内核句柄数（FILE* / 串口 fd 都算）；Linux：/proc/self/fd 条目数。
@@ -1305,17 +1444,17 @@ long count_open_handles() {
 
 GuidanceParams csv_params() {
     GuidanceParams p;
-    p.law   = GuidanceLaw::PPN;
-    p.N     = 4.0;
+    p.law = GuidanceLaw::PPN;
+    p.N = 4.0;
     p.a_max = 10.0;
     p.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
     return p;
 }
 
-app::LoopConfig csv_config() {
-    app::LoopConfig cfg;
-    cfg.cam              = app::demo_camera();
-    cfg.loop_hz          = 50;
+flight::GuidanceLoopConfig csv_config() {
+    flight::GuidanceLoopConfig cfg;
+    cfg.cam = app::guidance_demo_camera();
+    cfg.loop_hz = 50;
     cfg.max_sample_age_s = 0.2;
     return cfg;
 }
@@ -1330,19 +1469,19 @@ static void test_csv_roundtrip() {
 
     // ---- ① 录制：跑 n 拍，输入落盘，同时收集输出 ----
     {
-        app::SceneConfig sc;
+        app::GuidanceSceneConfig sc;
         sc.dt = 0.02;
-        app::SyntheticWorld world(app::demo_camera(), sc);
+        app::GuidanceSyntheticWorld world(app::guidance_demo_camera(), sc);
 
-        app::InputRecorder rec;
+        app::GuidanceInputRecorder rec;
         ok(rec.open(kRoundTripCsv), "§18 打开录制文件");
-        if (!rec.ok()) return;   // 打不开就没法继续（不给假绿）
+        if (!rec.ok()) return;  // 打不开就没法继续（不给假绿）
 
-        app::RecordingInsSource    rins(world, rec);
-        app::RecordingTargetSource rtgt(world, rec);
-        app::TeeSink               tee(world, rec_outs);   // 执行器 + 收集
+        app::GuidanceRecordingInsSource rins(world, rec);
+        app::GuidanceRecordingTargetSource rtgt(world, rec);
+        app::GuidanceTeeSink tee(world, rec_outs);  // 执行器 + 收集
 
-        app::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
+        flight::GuidanceLoop loop(csv_params(), csv_config(), rins, rtgt, tee);
         ok(loop.init(), "§18 录制 loop init");
 
         for (int k = 0; k < n; ++k) {
@@ -1351,15 +1490,15 @@ static void test_csv_roundtrip() {
         }
         ok(rec.rows() == static_cast<std::uint64_t>(n), "录制行数 = 拍数");
         ok(rec_outs.outs.size() == static_cast<std::size_t>(n), "收集到 n 条指令");
-        rec.close();   // ★ 必须 close 才会 flush，回读才看得到内容
+        rec.close();  //  必须 close 才会 flush，回读才看得到内容
         ok(rec.ok(), "录制无写错误");
     }
 
     // ---- ② 回读：格式与字段 ----
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "§18 打开回读文件");
-        app::CsvRow row;
+        app::GuidanceCsvRow row;
         ok(rd.next(row), "读到第一行");
         ok(row.tick == 0, "首行 tick = 0");
         ok(row.ins_new, "首行 ins_new = 1（合成世界每拍都有新帧）");
@@ -1374,19 +1513,20 @@ static void test_csv_roundtrip() {
         ok(rd.next(row), "读到第二行");
         ok(row.tick == 1, "第二行 tick = 1");
         ok(rd.rows() == 2, "已解析 2 行");
-        while (rd.next(row)) {}
+        while (rd.next(row)) {
+        }
         ok(rd.rows() == static_cast<std::uint64_t>(n), "总行数 = 拍数");
         ok(rd.error() == nullptr, "无解析错误");
     }
 
     // ---- ③ 回放：同一份输入 → 同一个 loop ⇒ 输出必须逐位一致 ----
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "§18 重新打开回放文件");
-        app::CsvReplaySource src(rd);
+        app::GuidanceCsvReplaySource src(rd);
 
         CollectSink replay_outs;
-        app::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
+        flight::GuidanceLoop loop(csv_params(), csv_config(), src, src, replay_outs);
         ok(loop.init(), "§18 回放 loop init");
 
         for (int k = 0; k < n && !src.done(); ++k) loop.run_once(nullptr);
@@ -1395,17 +1535,13 @@ static void test_csv_roundtrip() {
         ok(replay_outs.outs.size() == rec_outs.outs.size(), "指令条数一致");
 
         bool same = (replay_outs.outs.size() == rec_outs.outs.size());
-        int  first_bad = -1;
+        int first_bad = -1;
         if (same) {
             for (std::size_t i = 0; i < replay_outs.outs.size(); ++i) {
-                const app::GuidanceOutput &a = rec_outs.outs[i];
-                const app::GuidanceOutput &b = replay_outs.outs[i];
-                if (a.boot_us != b.boot_us || a.ctrl != b.ctrl || a.mode != b.mode ||
-                    a.valid != b.valid || a.sat != b.sat || a.health != b.health ||
-                    a.a_cmd_ned.x != b.a_cmd_ned.x || a.a_cmd_ned.y != b.a_cmd_ned.y ||
-                    a.a_cmd_ned.z != b.a_cmd_ned.z || a.a_cmd_norm != b.a_cmd_norm ||
-                    a.t_go != b.t_go || a.Vc != b.Vc || a.R != b.R ||
-                    a.lam_dot != b.lam_dot) {
+                const flight::GuidanceOutput &a = rec_outs.outs[i];
+                const flight::GuidanceOutput &b = replay_outs.outs[i];
+                if (a.boot_us != b.boot_us || a.ctrl != b.ctrl || a.mode != b.mode || a.valid != b.valid || a.sat != b.sat || a.health != b.health || a.a_cmd_ned.x != b.a_cmd_ned.x || a.a_cmd_ned.y != b.a_cmd_ned.y || a.a_cmd_ned.z != b.a_cmd_ned.z || a.a_cmd_norm != b.a_cmd_norm ||
+                    a.t_go != b.t_go || a.Vc != b.Vc || a.R != b.R || a.lam_dot != b.lam_dot) {
                     same = false;
                     first_bad = static_cast<int>(i);
                     break;
@@ -1423,36 +1559,36 @@ static void test_csv_roundtrip() {
     //   ② close() 幂等（析构里再关一次不能 double-free）；
     //   ③ close() 之后 next()/send() 不能去碰野句柄。
     {
-        app::CsvReader rd;
+        app::GuidanceCsvReader rd;
         ok(rd.open(kRoundTripCsv), "④ 首次 open");
         ok(rd.is_open(), "④ is_open = true");
         ok(rd.open(kRoundTripCsv), "④ 重复 open 成功（内部先关旧句柄，不泄漏）");
-        app::CsvRow row;
+        app::GuidanceCsvRow row;
         ok(rd.next(row), "④ 重复 open 后仍能读");
         ok(row.tick == 0, "④ 读到的仍是文件开头（rows_ 已复位）");
         rd.close();
         ok(!rd.is_open(), "④ close 后 is_open = false");
         ok(!rd.next(row), "④ close 后 next() 返回 false（不碰已关闭的句柄）");
-        rd.close();                                   // 幂等：二次 close 必须安全
+        rd.close();  // 幂等：二次 close 必须安全
         ok(rd.open(kRoundTripCsv), "④ close 后可以重新 open");
         ok(rd.next(row), "④ 重开后能正常读");
         ok(rd.error() == nullptr, "④ 全程无错误信息");
     }
     {
-        app::InputRecorder rec;
+        app::GuidanceInputRecorder rec;
         ok(rec.open(kRoundTripCsv), "④ 录制器首次 open");
         ok(rec.is_open(), "④ 录制器 is_open = true");
         ok(rec.open(kRoundTripCsv), "④ 录制器重复 open 成功（不泄漏）");
         rec.close();
-        rec.close();                                  // 幂等
+        rec.close();  // 幂等
         ok(!rec.is_open(), "④ 录制器 close 后 is_open = false");
         ok(rec.ok(), "④ 五次 open/close 后仍无 I/O 错误（状态没被弄脏）");
     }
     {
         // close() 必须把数据真的刷到磁盘 —— 否则"进程内立刻回读"会读到半截文件
-        app::CsvAccelSink sink(kCmdCsv);
+        app::GuidanceCsvAccelSink sink(kCmdCsv);
         ok(sink.alive(), "④ 落盘器打开成功");
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         o.boot_us = 1234;
         o.a_cmd_ned = Vec3(1.0, 2.0, 3.0);
         ok(sink.send(o), "④ 写入一条指令");
@@ -1481,14 +1617,14 @@ static void test_csv_roundtrip() {
     {
         // 失败路径必须如实报告：ok() 说谎会让上层误以为"黑匣子在录"，
         // 真出事时才发现没有数据。
-        app::CsvAccelSink bad("no_such_dir_xyz/out.csv");
+        app::GuidanceCsvAccelSink bad("no_such_dir_xyz/out.csv");
         ok(!bad.ok(), "④ 打不开落盘路径 → ok() = false");
         ok(!bad.alive(), "④ 打不开落盘路径 → alive() = false");
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         ok(!bad.send(o), "④ 打不开落盘路径 → send() 返回 false（上层据此计 sink_err）");
 
-        app::CsvReader rd;
-        app::CsvRow row;
+        app::GuidanceCsvReader rd;
+        app::GuidanceCsvRow row;
         ok(!rd.open("no_such_dir_xyz/in.csv"), "④ 读不存在的文件 → open 返回 false");
         ok(rd.error() != nullptr, "④ 并给出错误原因（error() 非空）");
         ok(!rd.next(row), "④ 未打开时 next() 直接返回 false（不碰空句柄）");
@@ -1498,22 +1634,23 @@ static void test_csv_roundtrip() {
     //
     // 上面 ④ 只能证明"行为对"，证明不了"没泄漏"。这里直接量：
     // 反复 open/write/read/close 200 轮，进程句柄数必须回到原地。
-    // 2026-10-23 实测：修 CsvReader::open（原来重复 open 会漏句柄）之后，
+    // 历史实测：修 GuidanceCsvReader::open（原来重复 open 会漏句柄）之后，
     // 200 轮前后句柄数**完全相同**；修复前每轮 +1。
     {
         // 预热 5 轮，把 CRT/运行时的惰性句柄（stdio 缓冲等）先建立起来
         for (int i = 0; i < 5; ++i) {
-            app::InputRecorder rec;
+            app::GuidanceInputRecorder rec;
             rec.open(kCmdCsv);
-            app::InsSample ins;
-            app::TargetSample tgt;
+            flight::GuidanceInsSample ins;
+            flight::GuidanceTargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
             rec.close();
-            app::CsvReader rd;
+            app::GuidanceCsvReader rd;
             rd.open(kCmdCsv);
-            app::CsvRow row;
-            while (rd.next(row)) {}
+            app::GuidanceCsvRow row;
+            while (rd.next(row)) {
+            }
             rd.close();
         }
 
@@ -1521,21 +1658,34 @@ static void test_csv_roundtrip() {
         int failures = 0;
         const int kRounds = 200;
         for (int i = 0; i < kRounds; ++i) {
-            app::InputRecorder rec;                    // 析构自动 close
-            if (!rec.open(kCmdCsv)) { ++failures; continue; }
-            // ★ 重复 open：正是"重启/换文件"时最容易漏句柄的地方
-            //   （修复前 CsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
-            if (!rec.open(kCmdCsv)) { ++failures; continue; }
-            app::InsSample ins;
-            app::TargetSample tgt;
+            app::GuidanceInputRecorder rec;  // 析构自动 close
+            if (!rec.open(kCmdCsv)) {
+                ++failures;
+                continue;
+            }
+            //  重复 open：正是"重启/换文件"时最容易漏句柄的地方
+            //   （修复前 GuidanceCsvReader::open 不先 close 旧句柄 ⇒ 每轮漏一个 FILE*）
+            if (!rec.open(kCmdCsv)) {
+                ++failures;
+                continue;
+            }
+            flight::GuidanceInsSample ins;
+            flight::GuidanceTargetSample tgt;
             rec.on_ins(ins, true);
             rec.on_target(tgt, true);
 
-            app::CsvReader rd;                          // 析构自动 close
-            if (!rd.open(kCmdCsv)) { ++failures; continue; }
-            if (!rd.open(kCmdCsv)) { ++failures; continue; }   // ★ 重复 open
-            app::CsvRow row;
-            while (rd.next(row)) {}
+            app::GuidanceCsvReader rd;  // 析构自动 close
+            if (!rd.open(kCmdCsv)) {
+                ++failures;
+                continue;
+            }
+            if (!rd.open(kCmdCsv)) {
+                ++failures;
+                continue;
+            }  //  重复 open
+            app::GuidanceCsvRow row;
+            while (rd.next(row)) {
+            }
         }
         const long after = count_open_handles();
 
@@ -1559,7 +1709,7 @@ static void test_params() {
     section("19. 参数加载（YAML 子集 / 校验）");
 
     // ---- 默认值必须与 main.cpp 旧硬编码一致（接入加载器后行为不变）----
-    const app::AppParams d = app::default_params();
+    const app::GuidanceAppParams d = app::guidance_default_params();
     near(d.guidance.N, 4.0, 1e-12, "默认 N=4");
     near(d.guidance.a_max, 10.0, 1e-12, "默认 a_max=10");
     ok(d.guidance.law == GuidanceLaw::PPN, "默认 law=PPN");
@@ -1588,76 +1738,69 @@ cam:
   cy: 240
   R_body_cam: 1,0,0, 0,1,0, 0,0,1
 )YAML";
-    app::AppParams p = app::default_params();
-    app::ParamResult r = app::load_yaml_text(yaml, &p);
+    app::GuidanceAppParams p = app::guidance_default_params();
+    app::GuidanceParamResult r = app::guidance_load_yaml_text(yaml, &p);
     ok(r.ok, r.ok ? "嵌套 YAML 解析成功" : r.error.c_str());
     ok(p.guidance.law == GuidanceLaw::TPN, "嵌套 law=TPN");
     near(p.guidance.N, 3.5, 1e-12, "嵌套 N=3.5");
     near(p.guidance.a_max, 12.0, 1e-12, "嵌套 a_max=12");
-    ok(p.guidance.freeze_criterion == FreezeCriterion::BY_TGO_OR_RANGE,
-       "嵌套 freeze=BY_TGO_OR_RANGE");
-    ok(p.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE,
-       "嵌套 los=FROM_LOS_DIFFERENCE");
+    ok(p.guidance.freeze_criterion == FreezeCriterion::BY_TGO_OR_RANGE, "嵌套 freeze=BY_TGO_OR_RANGE");
+    ok(p.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE, "嵌套 los=FROM_LOS_DIFFERENCE");
     ok(p.loop.loop_hz == 100, "嵌套 loop_hz=100");
-    ok(p.loop.on_unhealthy == app::LoopConfig::OnUnhealthy::kSafeHover,
-       "嵌套 on_unhealthy=SAFE_HOVER");
+    ok(p.loop.on_unhealthy == flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover, "嵌套 on_unhealthy=SAFE_HOVER");
     ok(!p.loop.send_on_every_tick, "嵌套 send_on_every_tick=false");
     ok(p.loop.cam.valid(), "嵌套相机有效");
     near(p.loop.cam.fx, 432.0, 1e-12, "嵌套 fx=432");
     near(p.loop.cam.R_body_cam[8], 1.0, 1e-12, "嵌套 R_body_cam[8]=1");
 
     // ---- 扁平点号键 + 行尾注释 ----
-    app::AppParams q = app::default_params();
-    r = app::load_yaml_text("guidance.law: APN\nguidance.N: 6  # 行尾注释\n", &q);
+    app::GuidanceAppParams q = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.law: APN\nguidance.N: 6  # 行尾注释\n", &q);
     ok(r.ok, "扁平点号 + 注释解析成功");
     ok(q.guidance.law == GuidanceLaw::APN, "扁平 law=APN");
     near(q.guidance.N, 6.0, 1e-12, "扁平 N=6");
 
     // ---- 失败路径：未知键 / 类型错 / 重复键 / 矩阵数量错 ----
-    app::AppParams u = app::default_params();
-    r = app::load_yaml_text("guidance.N: 4\nguidance.typo: 1\n", &u);
-    ok(!r.ok && r.error.find("typo") != std::string::npos,
-       "未知键被拒绝且错误里带键名");
+    app::GuidanceAppParams u = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: 4\nguidance.typo: 1\n", &u);
+    ok(!r.ok && r.error.find("typo") != std::string::npos, "未知键被拒绝且错误里带键名");
 
-    app::AppParams t = app::default_params();
-    r = app::load_yaml_text("guidance.N: abc\n", &t);
+    app::GuidanceAppParams t = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: abc\n", &t);
     ok(!r.ok, "非数字被拒绝");
 
-    app::AppParams dup = app::default_params();
-    r = app::load_yaml_text("guidance.N: 4\nguidance.N: 5\n", &dup);
+    app::GuidanceAppParams dup = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("guidance.N: 4\nguidance.N: 5\n", &dup);
     ok(!r.ok, "重复键被拒绝");
 
-    app::AppParams m = app::default_params();
-    r = app::load_yaml_text("cam.R_body_cam: 1,0,0\n", &m);
+    app::GuidanceAppParams m = app::guidance_default_params();
+    r = app::guidance_load_yaml_text("cam.R_body_cam: 1,0,0\n", &m);
     ok(!r.ok, "R_body_cam 不是 9 个被拒绝");
 
     // ---- 校验：范围与一致性 ----
-    app::AppParams v = app::default_params();
+    app::GuidanceAppParams v = app::guidance_default_params();
     v.guidance.N = 0.0;
-    ok(!app::validate(v).ok, "N=0 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "N=0 校验失败");
+    v = app::guidance_default_params();
     v.guidance.a_max = -1.0;
-    ok(!app::validate(v).ok, "a_max<0 校验失败");
-    v = app::default_params();
+    ok(!app::guidance_validate_params(v).ok, "a_max<0 校验失败");
+    v = app::guidance_default_params();
     v.loop.loop_hz = 0;
-    ok(!app::validate(v).ok, "loop_hz=0 校验失败");
-    v = app::default_params();
-    v.loop.sensor_timeout_s = 0.05;   // < max_sample_age(0.2)
-    ok(!app::validate(v).ok, "sensor_timeout < max_sample_age 校验失败");
-    v = app::default_params();
-    v.loop.hold_last_max_s = 1.0;     // > sensor_timeout(0.5)
-    ok(!app::validate(v).ok, "hold_last_max > sensor_timeout 校验失败");
-    v = app::default_params();
-    v.loop.cam.fx = 400.0;            // 只配 fx、不配 fy
-    ok(!app::validate(v).ok, "相机只配 fx 校验失败");
-    ok(app::validate(app::default_params()).ok, "默认参数校验通过");
+    ok(!app::guidance_validate_params(v).ok, "loop_hz=0 校验失败");
+    v = app::guidance_default_params();
+    v.loop.sensor_timeout_s = 0.05;  // < max_sample_age(0.2)
+    ok(!app::guidance_validate_params(v).ok, "sensor_timeout < max_sample_age 校验失败");
+    v = app::guidance_default_params();
+    v.loop.hold_last_max_s = 1.0;  // > sensor_timeout(0.5)
+    ok(!app::guidance_validate_params(v).ok, "hold_last_max > sensor_timeout 校验失败");
+    v = app::guidance_default_params();
+    v.loop.cam.fx = 400.0;  // 只配 fx、不配 fy
+    ok(!app::guidance_validate_params(v).ok, "相机只配 fx 校验失败");
+    ok(app::guidance_validate_params(app::guidance_default_params()).ok, "默认参数校验通过");
 
     // ---- 打印（便于 --print-params / 两次配置 diff）----
-    const std::string s = app::to_string(app::default_params());
-    ok(s.find("guidance.N") != std::string::npos &&
-       s.find("loop.loop_hz") != std::string::npos &&
-       s.find("cam.R_body_cam") != std::string::npos,
-       "to_string 含关键键");
+    const std::string s = app::guidance_params_to_string(app::guidance_default_params());
+    ok(s.find("guidance.N") != std::string::npos && s.find("loop.loop_hz") != std::string::npos && s.find("cam.R_body_cam") != std::string::npos, "guidance_params_to_string 含关键键");
 }
 
 // ============================================================
@@ -1667,34 +1810,40 @@ static void test_latency() {
     section("20. 端到端打点（P50/P95/max + 环形缓冲）");
 
     // ---- 空统计：所有分位数都是 0，不许除零 ----
-    app::LatencyStats empty;
+    flight::GuidanceLatencyStats empty;
     ok(empty.count() == 0, "空统计 count=0");
     ok(empty.size() == 0, "空统计 size=0");
-    ok(empty.percentile_ns(app::LatencyStats::Stage::kTotal, 0.95) == 0, "空统计 p95=0");
-    ok(empty.max_ns(app::LatencyStats::Stage::kTotal) == 0, "空统计 max=0");
+    ok(empty.percentile_ns(flight::GuidanceLatencyStats::Stage::kTotal, 0.95) == 0, "空统计 p95=0");
+    ok(empty.max_ns(flight::GuidanceLatencyStats::Stage::kTotal) == 0, "空统计 max=0");
 
     // ---- 跑 300 拍（> kCap=128）验证环形回绕 ----
-    LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-    app::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+    LoopStubIns ins;
+    LoopStubTgt tgt;
+    LoopStubSink sink;
+    flight::GuidanceLoopConfig cfg;
+    cfg.cam = loop_cam();
+    cfg.loop_hz = 50;
+    flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
     ok(loop.init(), "§20 init");
 
     const int ticks = 300;
     for (int k = 0; k < ticks; ++k) {
-        ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        ins.next = loop_ins(1000000ull + 20000ull * k);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput o;
         loop.run_once(&o);
     }
-    const app::LoopStats &st = loop.stats();
+    const flight::GuidanceLoopStats &st = loop.stats();
     ok(st.latency.count() == static_cast<std::uint64_t>(ticks), "打点样本数 = 拍数（含回绕）");
-    ok(st.latency.size() == app::LatencyStats::kCap, "环形只保留 kCap 个样本");
+    ok(st.latency.size() == flight::GuidanceLatencyStats::kCap, "环形只保留 kCap 个样本");
     ok(st.ticks == static_cast<std::uint64_t>(ticks), "ticks 同步");
 
     // ---- P50 ≤ P95 ≤ max；总延迟 ≥ 任一段（逐样本单调 ⇒ 分位数也单调）----
-    using S = app::LatencyStats::Stage;
-    const std::uint64_t t50  = st.latency.percentile_ns(S::kTotal, 0.50);
-    const std::uint64_t t95  = st.latency.percentile_ns(S::kTotal, 0.95);
+    using S = flight::GuidanceLatencyStats::Stage;
+    const std::uint64_t t50 = st.latency.percentile_ns(S::kTotal, 0.50);
+    const std::uint64_t t95 = st.latency.percentile_ns(S::kTotal, 0.95);
     const std::uint64_t tmax = st.latency.max_ns(S::kTotal);
     ok(t50 <= t95 && t95 <= tmax, "总延迟 P50 ≤ P95 ≤ max");
     ok(tmax > 0, "总延迟 max > 0（时钟真的在走）");
@@ -1710,18 +1859,18 @@ static void test_latency() {
 static void test_ring_log() {
     section("21. 黑匣子（环形缓冲 / 时间窗 dump）");
 
-    app::RingLog log;
+    flight::GuidanceRingLog log;
     ok(log.empty() && log.count() == 0 && log.size() == 0, "空黑匣子");
 
     // 稀疏样本：每 1 s 一条
     for (int k = 0; k < 5; ++k) {
-        app::GuidanceOutput o;
-        o.boot_us   = static_cast<std::uint64_t>(k) * 1000000ull;
+        flight::GuidanceOutput o;
+        o.boot_us = static_cast<std::uint64_t>(k) * 1000000ull;
         o.a_cmd_ned = Vec3(0.1 * k, 0.2 * k, 0.3 * k);
         o.a_cmd_norm = 0.1 * k;
-        o.mode      = PureGuidanceMode::PN;
-        o.health    = app::InputHealth::kOk;
-        o.valid     = true;
+        o.mode = PureGuidanceMode::PN;
+        o.health = flight::GuidanceInputHealth::kOk;
+        o.valid = true;
         log.push(o);
     }
     ok(log.size() == 5 && log.count() == 5, "push 5 条");
@@ -1737,7 +1886,7 @@ static void test_ring_log() {
     ok(f != nullptr, "dump 文件可打开");
     if (f != nullptr) {
         char line[256];
-        int  lines = 0;
+        int lines = 0;
         bool header = false;
         bool last_ok = false;
         while (std::fgets(line, sizeof(line), f) != nullptr) {
@@ -1760,29 +1909,32 @@ static void test_ring_log() {
 
     // 环形回绕：push kCap+10 条
     log.clear();
-    const int total = app::RingLog::kCap + 10;
+    const int total = flight::GuidanceRingLog::kCap + 10;
     for (int k = 0; k < total; ++k) {
-        app::GuidanceOutput o;
+        flight::GuidanceOutput o;
         o.boot_us = static_cast<std::uint64_t>(k) * 1000ull;
         log.push(o);
     }
-    ok(log.size() == app::RingLog::kCap, "回绕后 size = kCap");
+    ok(log.size() == flight::GuidanceRingLog::kCap, "回绕后 size = kCap");
     ok(log.count() == static_cast<std::uint64_t>(total), "count 累计不丢");
-    ok(log.at(0).boot_us ==
-           static_cast<std::uint64_t>(total - app::RingLog::kCap) * 1000ull,
-       "回绕后最旧 = 第 (total-kCap) 条");
-    ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ull,
-       "回绕后最新 = 最后一条");
+    ok(log.at(0).boot_us == static_cast<std::uint64_t>(total - flight::GuidanceRingLog::kCap) * 1000ull, "回绕后最旧 = 第 (total-kCap) 条");
+    ok(log.newest().boot_us == static_cast<std::uint64_t>(total - 1) * 1000ull, "回绕后最新 = 最后一条");
 
     // 集成：GuidanceLoop 每拍都进黑匣子
-    LoopStubIns ins; LoopStubTgt tgt; LoopStubSink sink;
-    app::LoopConfig cfg; cfg.cam = loop_cam(); cfg.loop_hz = 50;
-    app::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
+    LoopStubIns ins;
+    LoopStubTgt tgt;
+    LoopStubSink sink;
+    flight::GuidanceLoopConfig cfg;
+    cfg.cam = loop_cam();
+    cfg.loop_hz = 50;
+    flight::GuidanceLoop lp(loop_params(), cfg, ins, tgt, sink);
     ok(lp.init(), "§21 init");
     for (int k = 0; k < 60; ++k) {
-        ins.next = loop_ins(1000000ull + 20000ull * k); ins.pending = true;
-        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2); tgt.pending = true;
-        app::GuidanceOutput o;
+        ins.next = loop_ins(1000000ull + 20000ull * k);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ull + 20000ull * k, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput o;
         lp.run_once(&o);
     }
     ok(lp.blackbox().size() == 60, "GuidanceLoop 每拍都进黑匣子（60 条）");

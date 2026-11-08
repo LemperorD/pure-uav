@@ -258,78 +258,10 @@ void caseResetWrapBoundary() {
     CHECK(odo.quality == 90);
 }
 
-// 用例 7：DISTANCE_SENSOR（VIO 深度测距 → 飞控）。不是 ODOMETRY，但同一条链路、同一回归。
-void caseDistanceSensor() {
-    std::printf("[用例7] DISTANCE_SENSOR 打包\n");
-    pure_uav::MavlinkLink::DistanceSensor s;
-    s.time_boot_ms = 123456789u;
-    s.min_distance_cm = 15;
-    s.max_distance_cm = 1000;
-    s.current_distance_cm = 114;  // 1.14 m
-    s.type = 0;                   // MAV_DISTANCE_SENSOR_LASER
-    s.id = 0;                     // RNGFND1
-    s.orientation = 0;            // MAV_SENSOR_ROTATION_NONE（前视）
-    s.covariance = 0xFF;          // 未知
-
-    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeDistanceSensor(s, 2, 1, buf, sizeof(buf));
-    CHECK(len > 0);
-    CHECK(len <= sizeof(buf));
-
-    mavlink_message_t msg{};
-    CHECK(parseFrame(buf, len, msg));
-    CHECK(msg.msgid == MAVLINK_MSG_ID_DISTANCE_SENSOR);
-
-    mavlink_distance_sensor_t ds{};
-    mavlink_msg_distance_sensor_decode(&msg, &ds);
-    CHECK(ds.time_boot_ms == s.time_boot_ms);
-    CHECK(ds.min_distance == s.min_distance_cm);
-    CHECK(ds.max_distance == s.max_distance_cm);
-    CHECK(ds.current_distance == s.current_distance_cm);
-    CHECK(ds.type == s.type);
-    CHECK(ds.id == s.id);
-    CHECK(ds.orientation == s.orientation);
-    CHECK(ds.covariance == s.covariance);
-
-    // ---- 线上字节层（独立于 decode）：前 14 字节的经典字段小端布局 ----
-    const uint16_t overhead = static_cast<uint16_t>(len - msg.len - 2);
-    CHECK(overhead == 6 || overhead == 10);
-    const uint8_t* payload = buf + overhead;
-    auto rd16 = [](const uint8_t* q) {
-        return static_cast<uint16_t>(q[0] | (q[1] << 8));
-    };
-    auto rd32 = [](const uint8_t* q) {
-        return static_cast<uint32_t>(q[0]) | (static_cast<uint32_t>(q[1]) << 8) |
-               (static_cast<uint32_t>(q[2]) << 16) | (static_cast<uint32_t>(q[3]) << 24);
-    };
-    CHECK(rd32(payload + 0) == s.time_boot_ms);
-    CHECK(rd16(payload + 4) == s.min_distance_cm);
-    CHECK(rd16(payload + 6) == s.max_distance_cm);
-    CHECK(rd16(payload + 8) == s.current_distance_cm);
-    CHECK(payload[10] == s.type);
-    CHECK(payload[11] == s.id);
-    CHECK(payload[12] == s.orientation);
-    CHECK(payload[13] == s.covariance);
-
-    // 0 或越界的距离不是有效观测：编码必须拒绝，不能发出去冒充测距。
-    auto bad = s;
-    bad.current_distance_cm = 0;
-    CHECK(pure_uav::MavlinkLink::encodeDistanceSensor(bad, 2, 1, buf, sizeof(buf)) == 0);
-    bad.current_distance_cm = 1001;
-    CHECK(pure_uav::MavlinkLink::encodeDistanceSensor(bad, 2, 1, buf, sizeof(buf)) == 0);
-    bad = s;
-    bad.min_distance_cm = bad.max_distance_cm = 100;
-    CHECK(pure_uav::MavlinkLink::encodeDistanceSensor(bad, 2, 1, buf, sizeof(buf)) == 0);
-
-    // 没 start 的链路不能“假装发送成功”（纯录制/无飞控时）。
-    pure_uav::MavlinkLink link;
-    CHECK(!link.sendDistanceSensor(s));
-}
-
 }  // namespace
 
 int main() {
-    std::printf("===== ODOMETRY / DISTANCE_SENSOR 打包/解析回归测试 =====\n");
+    std::printf("===== ODOMETRY 打包/解析回归测试 =====\n");
     caseNormal();
     caseDegradedKeepsReset();
     caseUnknownCovariance();
@@ -337,10 +269,9 @@ int main() {
     caseQualityClamp();
     caseSmallBuffer();
     caseResetWrapBoundary();
-    caseDistanceSensor();
 
     if (g_failed == 0) {
-        std::printf("PASS: ODOMETRY 字段顺序、协方差、质量夹紧 + DISTANCE_SENSOR 打包全部正确\n");
+        std::printf("PASS: ODOMETRY 字段顺序、协方差、质量夹紧全部正确\n");
         return 0;
     }
     std::printf("FAILED: %d 处不通过\n", g_failed);

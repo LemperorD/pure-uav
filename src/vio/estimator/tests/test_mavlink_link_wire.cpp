@@ -10,7 +10,9 @@
 //
 // 运行：./bin/test_mavlink_link_wire
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -24,19 +26,18 @@
 #include <thread>
 
 #include "common/mavlink.h"
-
 #include "mavlink_link.hpp"
 
 namespace {
 
 int g_failed = 0;
 
-#define CHECK(cond)                                                      \
-    do {                                                                 \
-        if (!(cond)) {                                                   \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
-            ++g_failed;                                                  \
-        }                                                                \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
 bool writeAll(int fd, const uint8_t* buf, size_t len) {
@@ -59,23 +60,19 @@ bool sendMsg(int fd, const mavlink_message_t& msg) {
     return writeAll(fd, buf, len);
 }
 
-bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot,
-                   uint8_t base_mode) {
+bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot, uint8_t base_mode) {
     mavlink_message_t msg;
-    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0,
-                               MAV_STATE_ACTIVE);
+    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0, MAV_STATE_ACTIVE);
     return sendMsg(fd, msg);
 }
 
 bool sendImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
     mavlink_message_t msg;
-    mavlink_msg_highres_imu_pack(
-        sysid, 1, &msg, t_us,
-        ax, 0.0f, 9.8f,                 // xacc yacc zacc
-        0.0f, 0.0f, 0.0f,               // gyro
-        NAN, NAN, NAN,                  // mag
-        0.0f, 0.0f, 0.0f, 0.0f,         // pressure/temperature
-        0, 0);
+    mavlink_msg_highres_imu_pack(sysid, 1, &msg, t_us, ax, 0.0f, 9.8f,  // xacc yacc zacc
+                                 0.0f, 0.0f, 0.0f,                      // gyro
+                                 NAN, NAN, NAN,                         // mag
+                                 0.0f, 0.0f, 0.0f, 0.0f,                // pressure/temperature
+                                 0, 0);
     return sendMsg(fd, msg);
 }
 
@@ -126,39 +123,29 @@ int main() {
     }
 
     // ---- 1) 目标飞控心跳：锁定 + 解锁 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA,
-                        MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED));
-    CHECK(waitFor([&] { return link.connected() && link.armed() && link.fcuSysId() == 1; },
-                  2000));
+    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED));
+    CHECK(waitFor([&] { return link.connected() && link.armed() && link.fcuSysId() == 1; }, 2000));
     CHECK(link.targetLocked());
-    std::printf("[1] 飞控心跳 OK: connected=%d armed=%d sysid=%u\n",
-                static_cast<int>(link.connected()), static_cast<int>(link.armed()),
-                static_cast<unsigned>(link.fcuSysId()));
+    std::printf("[1] 飞控心跳 OK: connected=%d armed=%d sysid=%u\n", static_cast<int>(link.connected()), static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
 
     // ---- 2) 地面站心跳（sysid=255 / type=GCS / autopilot=INVALID）不得覆盖状态 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
-                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
-    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
-                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    CHECK(link.armed());          // 关键：不能被地面站的"未解锁"覆盖
+    CHECK(link.armed());  // 关键：不能被地面站的"未解锁"覆盖
     CHECK(link.connected());
     CHECK(link.fcuSysId() == 1);  // 关键：sysid 不能被改成 255
-    std::printf("[2] 地面站心跳被忽略 OK: armed=%d sysid=%u\n",
-                static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
+    std::printf("[2] 地面站心跳被忽略 OK: armed=%d sysid=%u\n", static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
 
     // ---- 3) 已锁定后，其他飞行器(sysid=42)的心跳也不得改状态 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/42, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/42, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
     CHECK(link.armed());
     CHECK(link.fcuSysId() == 1);
     std::printf("[3] 其他飞行器心跳被忽略 OK\n");
 
     // ---- 4) 目标飞控自己发未解锁心跳：必须生效 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
     CHECK(waitFor([&] { return !link.armed(); }, 1000));
     CHECK(link.connected());
     std::printf("[4] 飞控未解锁心跳生效 OK\n");
@@ -210,13 +197,12 @@ int main() {
         std::string err2;
         CHECK(link2.start(cfg2, &err2));
 
-        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitFor([&] { return link2.connected() && link2.armed(); }, 2000));
         const uint64_t rx_before = link2.receivedImu();
         CHECK(sendImu(master_a, 1, 3000000ULL, 1.0f));
         CHECK(waitFor([&] { return link2.receivedImu() > rx_before; }, 2000));
-        CHECK(link2.imuQueueSize() >= 1);   // 故意不取走，留给断线清理检查
+        CHECK(link2.imuQueueSize() >= 1);  // 故意不取走，留给断线清理检查
 
         // 模拟设备拔出
         ::close(master_a);
@@ -230,13 +216,11 @@ int main() {
         CHECK(::symlink(slave_b.c_str(), link_path.c_str()) == 0);
 
         CHECK(waitFor([&] { return link2.reconnectCount() >= 1; }, 6000));
-        CHECK(link2.imuQueueSize() == 0);   // 旧时间基的帧必须清掉
+        CHECK(link2.imuQueueSize() == 0);  // 旧时间基的帧必须清掉
 
         // 重连后重新学习身份：故意把 sysid 换成 7，证明锁定被重置
-        CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
-        CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; },
-                      3000));
+        CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; }, 3000));
         const uint64_t rx2 = link2.receivedImu();
         CHECK(sendImu(master_b, 7, 4000000ULL, 2.0f));
         CHECK(waitFor([&] { return link2.receivedImu() > rx2; }, 2000));

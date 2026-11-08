@@ -5,10 +5,6 @@
 基于 OpenVINS v2.7.0（mono MSCKF + IMU）改的视觉惯性里程计。输入相机图像 + 飞控 IMU，
 输出 `LOCAL_FRD` 位置/姿态/速度，经 MAVLink `ODOMETRY` 发给 ArduPilot。
 
-深度距离可直接填入 `app::TargetSample.has_range/range_m`，见 [深度测距接口与验收](docs/DEPTH_RANGE_OUTPUT.md)。
-`vio_live --range-pixel` 还会把同一测距以 MAVLink `DISTANCE_SENSOR` 沿飞控链路发出去
-（飞控端 ArduPilot 需配 `RNGFNDx_TYPE=10`；细节见同一文档）。
-
 ## 目录
 
 | 路径 | 作用 |
@@ -103,15 +99,11 @@ python3 scripts/depth_closure.py --dataset datasets/run1 --tum out/run1/traj_saf
 | `--use-depth-init` | 用深度给特征初始化 3D 位置（**可用性的关键**） |
 | `--init-vel-zero` | 初始化静止时把初速度强制置 0 |
 | `--no-depth` | 不开深度流（排查帧率上限用） |
-| `--range-pixel U V` | 固定像素深度测距：写 `--range-out` CSV，并随 ODOMETRY 发 `DISTANCE_SENSOR` |
-| `--no-send` | 不发飞控（ODOMETRY 和 DISTANCE_SENSOR 都不发；手持演示） |
+| `--no-send` | 不发飞控（手持演示） |
 
 ## 已知限制
 
 - 曝光 10.4ms、场景深度 2m 时，平移包络约 0.4–1.0 m/s（模糊受限）；缩短曝光可成倍放宽。
 - 深度比彩色旧 17–35ms（无硬件帧同步），代码只接受 ≤35ms。
-- 深度测距的 `DISTANCE_SENSOR.time_boot_ms` 用**目标帧曝光时刻**，深度帧实际旧 27–48ms；
-  两路时间戳差在长跑中还会漂移（2026-11-01 实测 10s 内 27→48ms），长时间运行前先看
-  状态行的 `[cam] 深度年龄`。
 - `HIGHRES_IMU` 实测最高 200Hz（请求 400Hz 会得到更差的时间戳）。
 - 精度口径为"深度几何一致性参考"，非外部真值；实测约 1–2%（路径长比例）。

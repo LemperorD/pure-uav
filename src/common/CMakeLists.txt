@@ -30,7 +30,7 @@ target_include_directories(pure_math_tools PUBLIC
 #    vec3.hpp 全是 inline 函数 / 结构体，没有 .cpp，编译不出库文件；
 #    做成 INTERFACE 后，任何 `target_link_libraries(x pure_vec3)` 只继承 include
 #    目录、**不引入运行时依赖** —— 这正是"机载少带一个 .so"想要的效果。
-#  使用方：guidance_core / guidance_sim / state_adapter / test_state_adapter。
+#  使用方：guidance_core / guidance_sim / guidance_state_adapter / test_state_adapter。
 # ------------------------------------------------------------
 add_library(pure_vec3 INTERFACE)
 target_include_directories(pure_vec3 INTERFACE

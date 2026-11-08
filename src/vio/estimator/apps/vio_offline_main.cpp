@@ -287,8 +287,6 @@ int main(int argc, char** argv) {
     int logged = 0;
     uint64_t last_logged_ts = 0;
     double sum_vio_ms = 0.0;
-    auto previous_health_state = pure_uav::VioHealthState::UNKNOWN;
-    auto previous_health_reason = pure_uav::HealthReason::NONE;
 
     struct HealthRow {
         int sec;
@@ -385,15 +383,6 @@ int main(int argc, char** argv) {
                 last_logged_ts = pose.timestamp_us;
                 logger.log(pose);
                 logged++;
-                const auto diagnostic = est.healthReport();
-                if (diagnostic.state != previous_health_state || diagnostic.reason != previous_health_reason) {
-                    std::printf("[health] t=%.6f state=%s reason=%s rate=%.3f features=%d since_update=%.3f\n",
-                                pose.timestamp_us * 1e-6, pure_uav::toString(diagnostic.state),
-                                pure_uav::toString(diagnostic.reason), diagnostic.update_rate,
-                                diagnostic.features, diagnostic.since_update_s);
-                    previous_health_state = diagnostic.state;
-                    previous_health_reason = diagnostic.reason;
-                }
 
                 pure_uav::VioEstimator::RawState raw;
                 if (raw_tum.is_open() && est.getLatestRawState(raw)) {

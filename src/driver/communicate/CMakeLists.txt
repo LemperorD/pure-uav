@@ -10,12 +10,8 @@ add_library(communicate SHARED
 target_include_directories(communicate PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src/common
-)
-target_include_directories(communicate SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mavlink
 )
-
-target_compile_features(communicate PUBLIC cxx_std_17)
 
 target_link_libraries(communicate PUBLIC 
     Threads::Threads

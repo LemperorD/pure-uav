@@ -1,0 +1,6 @@
+detection-rt:
+  model: "yolov5s"
+  confidence_threshold: 0.5
+  iou_threshold: 0.4
+  input_size: [640, 640]
+  device: "cuda"

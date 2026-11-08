@@ -30,10 +30,6 @@ enum class VioHealthState { UNKNOWN, OK, DEGRADED, LOST };
 
 const char* toString(VioHealthState s);
 
-// Diagnostic only: does not alter any health threshold or recovery decision.
-enum class HealthReason { NONE, UPDATE_RATE, VISUAL_TIMEOUT, FEATURES, DEPTH, TILT, PHYSICAL };
-const char* toString(HealthReason reason);
-
 struct HealthConfig {
     bool enabled = true;
 
@@ -116,8 +112,6 @@ struct HealthConfig {
 
 struct HealthReport {
     VioHealthState state = VioHealthState::UNKNOWN;
-    HealthReason reason = HealthReason::NONE;
-    double update_rate = -1.0;      // Fraction in the health window; -1 = warming up.
     bool publishable = false;       // 是否应该把位姿发给飞控
     int features = 0;               // 最近一帧的特征数
     bool updated_this_frame = false;
@@ -157,7 +151,6 @@ public:
 private:
     HealthConfig cfg_;
     VioHealthState state_ = VioHealthState::UNKNOWN;
-    HealthReason reason_ = HealthReason::NONE;
 
     // 滑窗更新率：窗口内每帧是否有更新
     std::vector<double> win_time_;
