@@ -22,6 +22,8 @@
 #ifndef OV_TYPE_TYPE_IMU_H
 #define OV_TYPE_TYPE_IMU_H
 
+#include <memory>
+
 #include "PoseJPL.h"
 #include "utils/quat_ops.h"
 
@@ -40,10 +42,10 @@ public:
   IMU() : Type(15) {
 
     // Create all the sub-variables
-    _pose = std::shared_ptr<PoseJPL>(new PoseJPL());
-    _v = std::shared_ptr<Vec>(new Vec(3));
-    _bg = std::shared_ptr<Vec>(new Vec(3));
-    _ba = std::shared_ptr<Vec>(new Vec(3));
+    _pose = std::make_shared<PoseJPL>();
+    _v = std::make_shared<Vec>(3);
+    _bg = std::make_shared<Vec>(3);
+    _ba = std::make_shared<Vec>(3);
 
     // Set our default state value
     Eigen::VectorXd imu0 = Eigen::VectorXd::Zero(16, 1);
@@ -52,7 +54,7 @@ public:
     set_fej_internal(imu0);
   }
 
-  ~IMU() {}
+  ~IMU() override = default;
 
   /**
    * @brief Sets id used to track location of variable in the filter covariance
@@ -117,53 +119,78 @@ public:
   std::shared_ptr<Type> check_if_subvariable(const std::shared_ptr<Type> check) override {
     if (check == _pose) {
       return _pose;
-    } else if (check == _pose->check_if_subvariable(check)) {
-      return _pose->check_if_subvariable(check);
+    }
+    if (check == _pose->check_if_subvariable(check)) {
+        return _pose->check_if_subvariable(check);
     } else if (check == _v) {
-      return _v;
+        return _v;
     } else if (check == _bg) {
-      return _bg;
+        return _bg;
     } else if (check == _ba) {
-      return _ba;
+        return _ba;
     }
     return nullptr;
   }
 
   /// Rotation access
-  Eigen::Matrix<double, 3, 3> Rot() const { return _pose->Rot(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot() const {
+      return _pose->Rot();
+  }
 
   /// FEJ Rotation access
-  Eigen::Matrix<double, 3, 3> Rot_fej() const { return _pose->Rot_fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot_fej() const {
+      return _pose->Rot_fej();
+  }
 
   /// Rotation access quaternion
-  Eigen::Matrix<double, 4, 1> quat() const { return _pose->quat(); }
+  [[nodiscard]] Eigen::Matrix<double, 4, 1> quat() const {
+      return _pose->quat();
+  }
 
   /// FEJ Rotation access quaternion
-  Eigen::Matrix<double, 4, 1> quat_fej() const { return _pose->quat_fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 4, 1> quat_fej() const {
+      return _pose->quat_fej();
+  }
 
   /// Position access
-  Eigen::Matrix<double, 3, 1> pos() const { return _pose->pos(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> pos() const {
+      return _pose->pos();
+  }
 
   /// FEJ position access
-  Eigen::Matrix<double, 3, 1> pos_fej() const { return _pose->pos_fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> pos_fej() const {
+      return _pose->pos_fej();
+  }
 
   /// Velocity access
-  Eigen::Matrix<double, 3, 1> vel() const { return _v->value(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> vel() const {
+      return _v->value();
+  }
 
   // FEJ velocity access
-  Eigen::Matrix<double, 3, 1> vel_fej() const { return _v->fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> vel_fej() const {
+      return _v->fej();
+  }
 
   /// Gyro bias access
-  Eigen::Matrix<double, 3, 1> bias_g() const { return _bg->value(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> bias_g() const {
+      return _bg->value();
+  }
 
   /// FEJ gyro bias access
-  Eigen::Matrix<double, 3, 1> bias_g_fej() const { return _bg->fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> bias_g_fej() const {
+      return _bg->fej();
+  }
 
   /// Accel bias access
-  Eigen::Matrix<double, 3, 1> bias_a() const { return _ba->value(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> bias_a() const {
+      return _ba->value();
+  }
 
   // FEJ accel bias access
-  Eigen::Matrix<double, 3, 1> bias_a_fej() const { return _ba->fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> bias_a_fej() const {
+      return _ba->fej();
+  }
 
   /// Pose type access
   std::shared_ptr<PoseJPL> pose() { return _pose; }

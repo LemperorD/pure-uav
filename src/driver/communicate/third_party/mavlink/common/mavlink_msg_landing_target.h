@@ -3,35 +3,31 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LANDING_TARGET 149
+enum { MAVLINK_MSG_ID_LANDING_TARGET = 149 };
 
-MAVPACKED(
-typedef struct __mavlink_landing_target_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float angle_x; /*< [rad] X-axis angular offset of the target from the center of the image*/
- float angle_y; /*< [rad] Y-axis angular offset of the target from the center of the image*/
- float distance; /*< [m] Distance to the target from the vehicle*/
- float size_x; /*< [rad] Size of target along x-axis*/
- float size_y; /*< [rad] Size of target along y-axis*/
- uint8_t target_num; /*<  The ID of the target if multiple targets are present*/
- uint8_t frame; /*<  Coordinate frame used for following fields.*/
- float x; /*< [m] X Position of the landing target in MAV_FRAME*/
- float y; /*< [m] Y Position of the landing target in MAV_FRAME*/
- float z; /*< [m] Z Position of the landing target in MAV_FRAME*/
- float q[4]; /*<  Quaternion of landing target orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
- uint8_t type; /*<  Type of landing target*/
- uint8_t position_valid; /*<  Position fields (x, y, z, q, type) contain valid target position information (MAV_BOOL_TRUE). A value of MAV_BOOL_FALSE indicates the position information is invalid. Values not equal to 0 or 1 are invalid.*/
-}) mavlink_landing_target_t;
+MAVPACKED(typedef struct MavlinkLandingTargetT {
+    uint64_t time_usec;     /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float angle_x;          /*< [rad] X-axis angular offset of the target from the center of the image*/
+    float angle_y;          /*< [rad] Y-axis angular offset of the target from the center of the image*/
+    float distance;         /*< [m] Distance to the target from the vehicle*/
+    float size_x;           /*< [rad] Size of target along x-axis*/
+    float size_y;           /*< [rad] Size of target along y-axis*/
+    uint8_t target_num;     /*<  The ID of the target if multiple targets are present*/
+    uint8_t frame;          /*<  Coordinate frame used for following fields.*/
+    float x;                /*< [m] X Position of the landing target in MAV_FRAME*/
+    float y;                /*< [m] Y Position of the landing target in MAV_FRAME*/
+    float z;                /*< [m] Z Position of the landing target in MAV_FRAME*/
+    float q[4];             /*<  Quaternion of landing target orientation (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
+    uint8_t type;           /*<  Type of landing target*/
+    uint8_t position_valid; /*<  Position fields (x, y, z, q, type) contain valid target position information (MAV_BOOL_TRUE). A value of MAV_BOOL_FALSE indicates the position information is invalid. Values not equal to 0 or 1 are invalid.*/
+})
+mavlink_landing_target_t;
 
-#define MAVLINK_MSG_ID_LANDING_TARGET_LEN 60
-#define MAVLINK_MSG_ID_LANDING_TARGET_MIN_LEN 30
-#define MAVLINK_MSG_ID_149_LEN 60
-#define MAVLINK_MSG_ID_149_MIN_LEN 30
+enum { MAVLINK_MSG_ID_LANDING_TARGET_LEN = 60, MAVLINK_MSG_ID_LANDING_TARGET_MIN_LEN = 30, MAVLINK_MSG_ID_149_LEN = 60, MAVLINK_MSG_ID_149_MIN_LEN = 30 };
 
-#define MAVLINK_MSG_ID_LANDING_TARGET_CRC 200
-#define MAVLINK_MSG_ID_149_CRC 200
+enum { MAVLINK_MSG_ID_LANDING_TARGET_CRC = 200, MAVLINK_MSG_ID_149_CRC = 200 };
 
-#define MAVLINK_MSG_LANDING_TARGET_FIELD_Q_LEN 4
+enum { MAVLINK_MSG_LANDING_TARGET_FIELD_Q_LEN = 4 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LANDING_TARGET { \

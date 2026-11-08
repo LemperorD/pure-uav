@@ -3,25 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_STATUSTEXT 253
+enum { MAVLINK_MSG_ID_STATUSTEXT = 253 };
 
-MAVPACKED(
-typedef struct __mavlink_statustext_t {
- uint8_t severity; /*<  Severity of status. Relies on the definitions within RFC-5424.*/
- char text[50]; /*<  Status text message, without null termination character. UTF-8 encoded.*/
- uint16_t id; /*<  Unique (opaque) identifier for this statustext message.  May be used to reassemble a logical long-statustext message from a sequence of chunks.  A value of zero indicates this is the only chunk in the sequence and the message can be emitted immediately.*/
- uint8_t chunk_seq; /*<  This chunk's sequence number; indexing is from zero.  Any null character in the text field is taken to mean this was the last chunk.*/
-}) mavlink_statustext_t;
+MAVPACKED(typedef struct MavlinkStatustextT {
+    uint8_t severity;  /*<  Severity of status. Relies on the definitions within RFC-5424.*/
+    char text[50];     /*<  Status text message, without null termination character. UTF-8 encoded.*/
+    uint16_t id;       /*<  Unique (opaque) identifier for this statustext message.  May be used to reassemble a logical long-statustext message from a sequence of chunks.  A value of zero indicates this is the only chunk in the sequence and the message can be emitted immediately.*/
+    uint8_t chunk_seq; /*<  This chunk's sequence number; indexing is from zero.  Any null character in the text field is taken to mean this was the last chunk.*/
+})
+mavlink_statustext_t;
 
-#define MAVLINK_MSG_ID_STATUSTEXT_LEN 54
-#define MAVLINK_MSG_ID_STATUSTEXT_MIN_LEN 51
-#define MAVLINK_MSG_ID_253_LEN 54
-#define MAVLINK_MSG_ID_253_MIN_LEN 51
+enum { MAVLINK_MSG_ID_STATUSTEXT_LEN = 54, MAVLINK_MSG_ID_STATUSTEXT_MIN_LEN = 51, MAVLINK_MSG_ID_253_LEN = 54, MAVLINK_MSG_ID_253_MIN_LEN = 51 };
 
-#define MAVLINK_MSG_ID_STATUSTEXT_CRC 83
-#define MAVLINK_MSG_ID_253_CRC 83
+enum { MAVLINK_MSG_ID_STATUSTEXT_CRC = 83, MAVLINK_MSG_ID_253_CRC = 83 };
 
-#define MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN 50
+enum { MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN = 50 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_STATUSTEXT { \

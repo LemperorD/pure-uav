@@ -3,23 +3,16 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SYSTEM_TIME 2
+enum { MAVLINK_MSG_ID_SYSTEM_TIME = 2 };
 
+using mavlink_system_time_t = struct __mavlink_system_time_t {
+    uint64_t time_unix_usec; /*< [us] Timestamp (UNIX epoch time).*/
+    uint32_t time_boot_ms;   /*< [ms] Timestamp (time since system boot).*/
+};
 
-typedef struct __mavlink_system_time_t {
- uint64_t time_unix_usec; /*< [us] Timestamp (UNIX epoch time).*/
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
-} mavlink_system_time_t;
+enum { MAVLINK_MSG_ID_SYSTEM_TIME_LEN = 12, MAVLINK_MSG_ID_SYSTEM_TIME_MIN_LEN = 12, MAVLINK_MSG_ID_2_LEN = 12, MAVLINK_MSG_ID_2_MIN_LEN = 12 };
 
-#define MAVLINK_MSG_ID_SYSTEM_TIME_LEN 12
-#define MAVLINK_MSG_ID_SYSTEM_TIME_MIN_LEN 12
-#define MAVLINK_MSG_ID_2_LEN 12
-#define MAVLINK_MSG_ID_2_MIN_LEN 12
-
-#define MAVLINK_MSG_ID_SYSTEM_TIME_CRC 137
-#define MAVLINK_MSG_ID_2_CRC 137
-
-
+enum { MAVLINK_MSG_ID_SYSTEM_TIME_CRC = 137, MAVLINK_MSG_ID_2_CRC = 137 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SYSTEM_TIME { \

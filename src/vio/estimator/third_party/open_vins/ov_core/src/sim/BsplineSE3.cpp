@@ -21,6 +21,8 @@
 
 #include "BsplineSE3.h"
 
+#include <algorithm>
+
 using namespace ov_core;
 
 void BsplineSE3::feed_trajectory(std::vector<Eigen::VectorXd> traj_points) {
@@ -48,12 +50,8 @@ void BsplineSE3::feed_trajectory(std::vector<Eigen::VectorXd> traj_points) {
   double timestamp_min = INFINITY;
   double timestamp_max = -INFINITY;
   for (const auto &pose : trajectory_points) {
-    if (pose.first <= timestamp_min) {
-      timestamp_min = pose.first;
-    }
-    if (pose.first >= timestamp_max) {
-      timestamp_max = pose.first;
-    }
+      timestamp_min = std::min(pose.first, timestamp_min);
+      timestamp_max = std::max(pose.first, timestamp_max);
   }
   PRINT_DEBUG("[B-SPLINE]: trajectory start time = %.6f\n", timestamp_min);
   PRINT_DEBUG("[B-SPLINE]: trajectory end time = %.6f\n", timestamp_max);
@@ -63,16 +61,19 @@ void BsplineSE3::feed_trajectory(std::vector<Eigen::VectorXd> traj_points) {
   while (true) {
 
     // Get bounding posed for the current time
-    double t0, t1;
-    Eigen::Matrix4d pose0, pose1;
+    double t0;
+    double t1;
+    Eigen::Matrix4d pose0;
+    Eigen::Matrix4d pose1;
     bool success = find_bounding_poses(timestamp_curr, trajectory_points, t0, pose0, t1, pose1);
     // PRINT_DEBUG("[SIM]: time curr = %.6f | lambda = %.3f | dt = %.3f | dtmeas =
     // %.3f\n",timestamp_curr,(timestamp_curr-t0)/(t1-t0),dt,(t1-t0));
 
     // If we didn't find a bounding pose, then that means we are at the end of the dataset
     // Thus break out of this loop since we have created our max number of control points
-    if (!success)
-      break;
+    if (!success) {
+        break;
+    }
 
     // Linear interpolation and append to our control points
     double lambda = (timestamp_curr - t0) / (t1 - t0);
@@ -85,15 +86,21 @@ void BsplineSE3::feed_trajectory(std::vector<Eigen::VectorXd> traj_points) {
   }
 
   // The start time of the system is two dt in since we need at least two older control points
-  timestamp_start = timestamp_min + 2 * dt;
+  timestamp_start = timestamp_min + (2 * dt);
   PRINT_DEBUG("[B-SPLINE]: start trajectory time of %.6f\n", timestamp_start);
 }
 
 bool BsplineSE3::get_pose(double timestamp, Eigen::Matrix3d &R_GtoI, Eigen::Vector3d &p_IinG) {
 
   // Get the bounding poses for the desired timestamp
-  double t0, t1, t2, t3;
-  Eigen::Matrix4d pose0, pose1, pose2, pose3;
+  double t0;
+  double t1;
+  double t2;
+  double t3;
+  Eigen::Matrix4d pose0;
+  Eigen::Matrix4d pose1;
+  Eigen::Matrix4d pose2;
+  Eigen::Matrix4d pose3;
   bool success = find_bounding_control_points(timestamp, control_points, t0, pose0, t1, pose1, t2, pose2, t3, pose3);
   // PRINT_DEBUG("[SIM]: time curr = %.6f | dt1 = %.3f | dt2 = %.3f | dt3 = %.3f | dt4 = %.3f | success =
   // %d\n",timestamp,t0-timestamp,t1-timestamp,t2-timestamp,t3-timestamp,(int)success);
@@ -128,8 +135,14 @@ bool BsplineSE3::get_velocity(double timestamp, Eigen::Matrix3d &R_GtoI, Eigen::
                               Eigen::Vector3d &v_IinG) {
 
   // Get the bounding poses for the desired timestamp
-  double t0, t1, t2, t3;
-  Eigen::Matrix4d pose0, pose1, pose2, pose3;
+  double t0;
+  double t1;
+  double t2;
+  double t3;
+  Eigen::Matrix4d pose0;
+  Eigen::Matrix4d pose1;
+  Eigen::Matrix4d pose2;
+  Eigen::Matrix4d pose3;
   bool success = find_bounding_control_points(timestamp, control_points, t0, pose0, t1, pose1, t2, pose2, t3, pose3);
   // PRINT_DEBUG("[SIM]: time curr = %.6f | dt1 = %.3f | dt2 = %.3f | dt3 = %.3f | dt4 = %.3f | success =
   // %d\n",timestamp,t0-timestamp,t1-timestamp,t2-timestamp,t3-timestamp,(int)success);
@@ -181,8 +194,14 @@ bool BsplineSE3::get_acceleration(double timestamp, Eigen::Matrix3d &R_GtoI, Eig
                                   Eigen::Vector3d &v_IinG, Eigen::Vector3d &alpha_IinI, Eigen::Vector3d &a_IinG) {
 
   // Get the bounding poses for the desired timestamp
-  double t0, t1, t2, t3;
-  Eigen::Matrix4d pose0, pose1, pose2, pose3;
+  double t0;
+  double t1;
+  double t2;
+  double t3;
+  Eigen::Matrix4d pose0;
+  Eigen::Matrix4d pose1;
+  Eigen::Matrix4d pose2;
+  Eigen::Matrix4d pose3;
   bool success = find_bounding_control_points(timestamp, control_points, t0, pose0, t1, pose1, t2, pose2, t3, pose3);
 
   // Return failure if we can't get bounding poses
@@ -291,8 +310,9 @@ bool BsplineSE3::find_bounding_poses(const double timestamp, const AlignedEigenM
   }
 
   // Assert the timestamps
-  if (found_older && found_newer)
-    assert(t0 < t1);
+  if (found_older && found_newer) {
+      assert(t0 < t1);
+  }
 
   // Return true if we found both bounds
   return (found_older && found_newer);
@@ -316,8 +336,9 @@ bool BsplineSE3::find_bounding_control_points(const double timestamp, const Alig
   bool success = find_bounding_poses(timestamp, poses, t1, pose1, t2, pose2);
 
   // Return false if this was a failure
-  if (!success)
-    return false;
+  if (!success) {
+      return false;
+  }
 
   // Now find the poses that are below and above
   auto iter_t1 = poses.find(t1);

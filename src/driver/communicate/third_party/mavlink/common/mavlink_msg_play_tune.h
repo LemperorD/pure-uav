@@ -3,26 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PLAY_TUNE 258
+enum { MAVLINK_MSG_ID_PLAY_TUNE = 258 };
 
+using mavlink_play_tune_t = struct __mavlink_play_tune_t {
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    char tune[30];            /*<  tune in board specific format*/
+    char tune2[200];          /*<  tune extension (appended to tune)*/
+};
 
-typedef struct __mavlink_play_tune_t {
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- char tune[30]; /*<  tune in board specific format*/
- char tune2[200]; /*<  tune extension (appended to tune)*/
-} mavlink_play_tune_t;
+enum { MAVLINK_MSG_ID_PLAY_TUNE_LEN = 232, MAVLINK_MSG_ID_PLAY_TUNE_MIN_LEN = 32, MAVLINK_MSG_ID_258_LEN = 232, MAVLINK_MSG_ID_258_MIN_LEN = 32 };
 
-#define MAVLINK_MSG_ID_PLAY_TUNE_LEN 232
-#define MAVLINK_MSG_ID_PLAY_TUNE_MIN_LEN 32
-#define MAVLINK_MSG_ID_258_LEN 232
-#define MAVLINK_MSG_ID_258_MIN_LEN 32
+enum { MAVLINK_MSG_ID_PLAY_TUNE_CRC = 187, MAVLINK_MSG_ID_258_CRC = 187 };
 
-#define MAVLINK_MSG_ID_PLAY_TUNE_CRC 187
-#define MAVLINK_MSG_ID_258_CRC 187
-
-#define MAVLINK_MSG_PLAY_TUNE_FIELD_TUNE_LEN 30
-#define MAVLINK_MSG_PLAY_TUNE_FIELD_TUNE2_LEN 200
+enum { MAVLINK_MSG_PLAY_TUNE_FIELD_TUNE_LEN = 30, MAVLINK_MSG_PLAY_TUNE_FIELD_TUNE2_LEN = 200 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PLAY_TUNE { \
@@ -324,11 +318,10 @@ static inline void mavlink_msg_play_tune_decode(const mavlink_message_t* msg, ma
         memset(play_tune, 0, MAVLINK_MSG_ID_PLAY_TUNE_LEN);
     memcpy(play_tune, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         play_tune->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

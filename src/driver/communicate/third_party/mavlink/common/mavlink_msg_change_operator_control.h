@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL 5
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL = 5 };
 
+using mavlink_change_operator_control_t = struct __mavlink_change_operator_control_t {
+    uint8_t target_system;   /*<  System the GCS requests control for*/
+    uint8_t control_request; /*<  0: request control of this MAV, 1: Release control of this MAV*/
+    uint8_t version;         /*<  0: key as plaintext, 1-255: future, different hashing/encryption variants. The GCS should in general use the safest mode possible initially and then gradually move down the encryption level if it gets a NACK message indicating an encryption mismatch.*/
+    char passkey[25];        /*<  Password / Key, depending on version plaintext or encrypted. 25 or less characters, NULL terminated. The characters may involve A-Z, a-z, 0-9, and "!?,.-"*/
+};
 
-typedef struct __mavlink_change_operator_control_t {
- uint8_t target_system; /*<  System the GCS requests control for*/
- uint8_t control_request; /*<  0: request control of this MAV, 1: Release control of this MAV*/
- uint8_t version; /*<  0: key as plaintext, 1-255: future, different hashing/encryption variants. The GCS should in general use the safest mode possible initially and then gradually move down the encryption level if it gets a NACK message indicating an encryption mismatch.*/
- char passkey[25]; /*<  Password / Key, depending on version plaintext or encrypted. 25 or less characters, NULL terminated. The characters may involve A-Z, a-z, 0-9, and "!?,.-"*/
-} mavlink_change_operator_control_t;
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_LEN = 28, MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_MIN_LEN = 28, MAVLINK_MSG_ID_5_LEN = 28, MAVLINK_MSG_ID_5_MIN_LEN = 28 };
 
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_LEN 28
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_MIN_LEN 28
-#define MAVLINK_MSG_ID_5_LEN 28
-#define MAVLINK_MSG_ID_5_MIN_LEN 28
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_CRC = 217, MAVLINK_MSG_ID_5_CRC = 217 };
 
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_CRC 217
-#define MAVLINK_MSG_ID_5_CRC 217
-
-#define MAVLINK_MSG_CHANGE_OPERATOR_CONTROL_FIELD_PASSKEY_LEN 25
+enum { MAVLINK_MSG_CHANGE_OPERATOR_CONTROL_FIELD_PASSKEY_LEN = 25 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CHANGE_OPERATOR_CONTROL { \
@@ -323,11 +318,10 @@ static inline void mavlink_msg_change_operator_control_decode(const mavlink_mess
         memset(change_operator_control, 0, MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_LEN);
     memcpy(change_operator_control, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         change_operator_control->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

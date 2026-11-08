@@ -93,11 +93,12 @@ public:
       if (imu_data_tmp.at(i + 1).timestamp > time1) {
         if (imu_data_tmp.at(i).timestamp > time1 && i == 0) {
           break;
-        } else if (imu_data_tmp.at(i).timestamp > time1) {
-          ov_core::ImuData data = interpolate_data(imu_data_tmp.at(i - 1), imu_data_tmp.at(i), time1);
-          prop_data.push_back(data);
+        }
+        if (imu_data_tmp.at(i).timestamp > time1) {
+            ov_core::ImuData data = interpolate_data(imu_data_tmp.at(i - 1), imu_data_tmp.at(i), time1);
+            prop_data.push_back(data);
         } else {
-          prop_data.push_back(imu_data_tmp.at(i));
+            prop_data.push_back(imu_data_tmp.at(i));
         }
         if (prop_data.at(prop_data.size() - 1).timestamp != time1) {
           ov_core::ImuData data = interpolate_data(imu_data_tmp.at(i), imu_data_tmp.at(i + 1), time1);
@@ -140,7 +141,8 @@ public:
     // This will find an orthogonal vector to gravity which is our local z-axis
     // We need to ensure we normalize after each one such that we obtain unit vectors
     Eigen::Vector3d z_axis = gravity_inI / gravity_inI.norm();
-    Eigen::Vector3d x_axis, y_axis;
+    Eigen::Vector3d x_axis;
+    Eigen::Vector3d y_axis;
     Eigen::Vector3d e_1(1.0, 0.0, 0.0);
     Eigen::Vector3d e_2(0.0, 1.0, 0.0);
     double inner1 = e_1.dot(z_axis) / z_axis.norm();
@@ -186,98 +188,72 @@ public:
     assert(D.rows() == 3);
     assert(D.cols() == 3);
     assert(d.rows() == 3);
-    double D1_1 = D(0, 0), D1_2 = D(0, 1), D1_3 = D(0, 2);
-    double D2_1 = D(1, 0), D2_2 = D(1, 1), D2_3 = D(1, 2);
-    double D3_1 = D(2, 0), D3_2 = D(2, 1), D3_3 = D(2, 2);
-    double d1 = d(0, 0), d2 = d(1, 0), d3 = d(2, 0);
+    double D1_1 = D(0, 0);
+    double D1_2 = D(0, 1);
+    double D1_3 = D(0, 2);
+    double D2_1 = D(1, 0);
+    double D2_2 = D(1, 1);
+    double D2_3 = D(1, 2);
+    double D3_1 = D(2, 0);
+    double D3_2 = D(2, 1);
+    double D3_3 = D(2, 2);
+    double d1 = d(0, 0);
+    double d2 = d(1, 0);
+    double d3 = d(2, 0);
     double g = gravity_mag;
 
     // squared version we subbed for x^2
-    double D1_1_sq = D1_1 * D1_1, D1_2_sq = D1_2 * D1_2, D1_3_sq = D1_3 * D1_3;
-    double D2_1_sq = D2_1 * D2_1, D2_2_sq = D2_2 * D2_2, D2_3_sq = D2_3 * D2_3;
-    double D3_1_sq = D3_1 * D3_1, D3_2_sq = D3_2 * D3_2, D3_3_sq = D3_3 * D3_3;
-    double d1_sq = d1 * d1, d2_sq = d2 * d2, d3_sq = d3 * d3;
+    double D1_1_sq = D1_1 * D1_1;
+    double D1_2_sq = D1_2 * D1_2;
+    double D1_3_sq = D1_3 * D1_3;
+    double D2_1_sq = D2_1 * D2_1;
+    double D2_2_sq = D2_2 * D2_2;
+    double D2_3_sq = D2_3 * D2_3;
+    double D3_1_sq = D3_1 * D3_1;
+    double D3_2_sq = D3_2 * D3_2;
+    double D3_3_sq = D3_3 * D3_3;
+    double d1_sq = d1 * d1;
+    double d2_sq = d2 * d2;
+    double d3_sq = d3 * d3;
     double g_sq = g * g;
 
     // Compute the coefficients
     Eigen::Matrix<double, 7, 1> coeff = Eigen::Matrix<double, 7, 1>::Zero();
-    coeff(6) =
-        -(-D1_1_sq * D2_2_sq * D3_3_sq * g_sq + D1_1_sq * D2_2_sq * d3_sq + 2 * D1_1_sq * D2_2 * D2_3 * D3_2 * D3_3 * g_sq -
-          D1_1_sq * D2_2 * D2_3 * d2 * d3 - D1_1_sq * D2_2 * D3_2 * d2 * d3 - D1_1_sq * D2_3_sq * D3_2_sq * g_sq +
-          D1_1_sq * D2_3 * D3_2 * d2_sq + D1_1_sq * D2_3 * D3_2 * d3_sq - D1_1_sq * D2_3 * D3_3 * d2 * d3 -
-          D1_1_sq * D3_2 * D3_3 * d2 * d3 + D1_1_sq * D3_3_sq * d2_sq + 2 * D1_1 * D1_2 * D2_1 * D2_2 * D3_3_sq * g_sq -
-          2 * D1_1 * D1_2 * D2_1 * D2_2 * d3_sq - 2 * D1_1 * D1_2 * D2_1 * D2_3 * D3_2 * D3_3 * g_sq + D1_1 * D1_2 * D2_1 * D2_3 * d2 * d3 +
-          D1_1 * D1_2 * D2_1 * D3_2 * d2 * d3 - 2 * D1_1 * D1_2 * D2_2 * D2_3 * D3_1 * D3_3 * g_sq + D1_1 * D1_2 * D2_2 * D2_3 * d1 * d3 +
-          D1_1 * D1_2 * D2_2 * D3_1 * d2 * d3 + 2 * D1_1 * D1_2 * D2_3_sq * D3_1 * D3_2 * g_sq - D1_1 * D1_2 * D2_3 * D3_1 * d2_sq -
-          D1_1 * D1_2 * D2_3 * D3_1 * d3_sq - D1_1 * D1_2 * D2_3 * D3_2 * d1 * d2 + D1_1 * D1_2 * D2_3 * D3_3 * d1 * d3 +
-          D1_1 * D1_2 * D3_1 * D3_3 * d2 * d3 - D1_1 * D1_2 * D3_3_sq * d1 * d2 - 2 * D1_1 * D1_3 * D2_1 * D2_2 * D3_2 * D3_3 * g_sq +
-          D1_1 * D1_3 * D2_1 * D2_2 * d2 * d3 + 2 * D1_1 * D1_3 * D2_1 * D2_3 * D3_2_sq * g_sq - D1_1 * D1_3 * D2_1 * D3_2 * d2_sq -
-          D1_1 * D1_3 * D2_1 * D3_2 * d3_sq + D1_1 * D1_3 * D2_1 * D3_3 * d2 * d3 + 2 * D1_1 * D1_3 * D2_2_sq * D3_1 * D3_3 * g_sq -
-          D1_1 * D1_3 * D2_2_sq * d1 * d3 - 2 * D1_1 * D1_3 * D2_2 * D2_3 * D3_1 * D3_2 * g_sq + D1_1 * D1_3 * D2_2 * D3_2 * d1 * d2 +
-          D1_1 * D1_3 * D2_3 * D3_1 * d2 * d3 - D1_1 * D1_3 * D2_3 * D3_2 * d1 * d3 + D1_1 * D1_3 * D3_1 * D3_2 * d2 * d3 -
-          2 * D1_1 * D1_3 * D3_1 * D3_3 * d2_sq + D1_1 * D1_3 * D3_2 * D3_3 * d1 * d2 + D1_1 * D2_1 * D2_2 * D3_2 * d1 * d3 -
-          D1_1 * D2_1 * D2_3 * D3_2 * d1 * d2 + D1_1 * D2_1 * D3_2 * D3_3 * d1 * d3 - D1_1 * D2_1 * D3_3_sq * d1 * d2 -
-          D1_1 * D2_2_sq * D3_1 * d1 * d3 + D1_1 * D2_2 * D2_3 * D3_1 * d1 * d2 - D1_1 * D2_3 * D3_1 * D3_2 * d1 * d3 +
-          D1_1 * D2_3 * D3_1 * D3_3 * d1 * d2 - D1_2_sq * D2_1_sq * D3_3_sq * g_sq + D1_2_sq * D2_1_sq * d3_sq +
-          2 * D1_2_sq * D2_1 * D2_3 * D3_1 * D3_3 * g_sq - D1_2_sq * D2_1 * D2_3 * d1 * d3 - D1_2_sq * D2_1 * D3_1 * d2 * d3 -
-          D1_2_sq * D2_3_sq * D3_1_sq * g_sq + D1_2_sq * D2_3 * D3_1 * d1 * d2 + 2 * D1_2 * D1_3 * D2_1_sq * D3_2 * D3_3 * g_sq -
-          D1_2 * D1_3 * D2_1_sq * d2 * d3 - 2 * D1_2 * D1_3 * D2_1 * D2_2 * D3_1 * D3_3 * g_sq + D1_2 * D1_3 * D2_1 * D2_2 * d1 * d3 -
-          2 * D1_2 * D1_3 * D2_1 * D2_3 * D3_1 * D3_2 * g_sq + D1_2 * D1_3 * D2_1 * D3_1 * d2_sq + D1_2 * D1_3 * D2_1 * D3_1 * d3_sq -
-          D1_2 * D1_3 * D2_1 * D3_3 * d1 * d3 + 2 * D1_2 * D1_3 * D2_2 * D2_3 * D3_1_sq * g_sq - D1_2 * D1_3 * D2_2 * D3_1 * d1 * d2 -
-          D1_2 * D1_3 * D3_1_sq * d2 * d3 + D1_2 * D1_3 * D3_1 * D3_3 * d1 * d2 - D1_2 * D2_1_sq * D3_2 * d1 * d3 +
-          D1_2 * D2_1 * D2_2 * D3_1 * d1 * d3 + D1_2 * D2_1 * D2_3 * D3_2 * d1_sq + D1_2 * D2_1 * D2_3 * D3_2 * d3_sq -
-          D1_2 * D2_1 * D2_3 * D3_3 * d2 * d3 - D1_2 * D2_1 * D3_1 * D3_3 * d1 * d3 - D1_2 * D2_1 * D3_2 * D3_3 * d2 * d3 +
-          D1_2 * D2_1 * D3_3_sq * d1_sq + D1_2 * D2_1 * D3_3_sq * d2_sq - D1_2 * D2_2 * D2_3 * D3_1 * d1_sq -
-          D1_2 * D2_2 * D2_3 * D3_1 * d3_sq + D1_2 * D2_2 * D2_3 * D3_3 * d1 * d3 + D1_2 * D2_2 * D3_1 * D3_3 * d2 * d3 -
-          D1_2 * D2_2 * D3_3_sq * d1 * d2 + D1_2 * D2_3_sq * D3_1 * d2 * d3 - D1_2 * D2_3_sq * D3_2 * d1 * d3 +
-          D1_2 * D2_3 * D3_1_sq * d1 * d3 - D1_2 * D2_3 * D3_1 * D3_3 * d1_sq - D1_2 * D2_3 * D3_1 * D3_3 * d2_sq +
-          D1_2 * D2_3 * D3_2 * D3_3 * d1 * d2 - D1_3_sq * D2_1_sq * D3_2_sq * g_sq + 2 * D1_3_sq * D2_1 * D2_2 * D3_1 * D3_2 * g_sq -
-          D1_3_sq * D2_1 * D3_1 * d2 * d3 + D1_3_sq * D2_1 * D3_2 * d1 * d3 - D1_3_sq * D2_2_sq * D3_1_sq * g_sq +
-          D1_3_sq * D3_1_sq * d2_sq - D1_3_sq * D3_1 * D3_2 * d1 * d2 + D1_3 * D2_1_sq * D3_2 * d1 * d2 -
-          D1_3 * D2_1 * D2_2 * D3_1 * d1 * d2 - D1_3 * D2_1 * D2_2 * D3_2 * d1_sq - D1_3 * D2_1 * D2_2 * D3_2 * d3_sq +
-          D1_3 * D2_1 * D2_2 * D3_3 * d2 * d3 + D1_3 * D2_1 * D3_1 * D3_3 * d1 * d2 + D1_3 * D2_1 * D3_2_sq * d2 * d3 -
-          D1_3 * D2_1 * D3_2 * D3_3 * d1_sq - D1_3 * D2_1 * D3_2 * D3_3 * d2_sq + D1_3 * D2_2_sq * D3_1 * d1_sq +
-          D1_3 * D2_2_sq * D3_1 * d3_sq - D1_3 * D2_2_sq * D3_3 * d1 * d3 - D1_3 * D2_2 * D2_3 * D3_1 * d2 * d3 +
-          D1_3 * D2_2 * D2_3 * D3_2 * d1 * d3 - D1_3 * D2_2 * D3_1 * D3_2 * d2 * d3 + D1_3 * D2_2 * D3_2 * D3_3 * d1 * d2 -
-          D1_3 * D2_3 * D3_1_sq * d1 * d2 + D1_3 * D2_3 * D3_1 * D3_2 * d1_sq + D1_3 * D2_3 * D3_1 * D3_2 * d2_sq -
-          D1_3 * D2_3 * D3_2_sq * d1 * d2 + D2_1 * D2_2 * D3_2 * D3_3 * d1 * d3 - D2_1 * D2_2 * D3_3_sq * d1 * d2 -
-          D2_1 * D2_3 * D3_2_sq * d1 * d3 + D2_1 * D2_3 * D3_2 * D3_3 * d1 * d2 - D2_2_sq * D3_1 * D3_3 * d1 * d3 +
-          D2_2_sq * D3_3_sq * d1_sq + D2_2 * D2_3 * D3_1 * D3_2 * d1 * d3 + D2_2 * D2_3 * D3_1 * D3_3 * d1 * d2 -
-          2 * D2_2 * D2_3 * D3_2 * D3_3 * d1_sq - D2_3_sq * D3_1 * D3_2 * d1 * d2 + D2_3_sq * D3_2_sq * d1_sq) /
-        g_sq;
-    coeff(5) =
-        (-(2 * D1_1_sq * D2_2_sq * D3_3 * g_sq - 2 * D1_1_sq * D2_2 * D2_3 * D3_2 * g_sq + 2 * D1_1_sq * D2_2 * D3_3_sq * g_sq -
-           2 * D1_1_sq * D2_2 * d3_sq - 2 * D1_1_sq * D2_3 * D3_2 * D3_3 * g_sq + 2 * D1_1_sq * D2_3 * d2 * d3 +
-           2 * D1_1_sq * D3_2 * d2 * d3 - 2 * D1_1_sq * D3_3 * d2_sq - 4 * D1_1 * D1_2 * D2_1 * D2_2 * D3_3 * g_sq +
-           2 * D1_1 * D1_2 * D2_1 * D2_3 * D3_2 * g_sq - 2 * D1_1 * D1_2 * D2_1 * D3_3_sq * g_sq + 2 * D1_1 * D1_2 * D2_1 * d3_sq +
-           2 * D1_1 * D1_2 * D2_2 * D2_3 * D3_1 * g_sq + 2 * D1_1 * D1_2 * D2_3 * D3_1 * D3_3 * g_sq - 2 * D1_1 * D1_2 * D2_3 * d1 * d3 -
-           2 * D1_1 * D1_2 * D3_1 * d2 * d3 + 2 * D1_1 * D1_2 * D3_3 * d1 * d2 + 2 * D1_1 * D1_3 * D2_1 * D2_2 * D3_2 * g_sq +
-           2 * D1_1 * D1_3 * D2_1 * D3_2 * D3_3 * g_sq - 2 * D1_1 * D1_3 * D2_1 * d2 * d3 - 2 * D1_1 * D1_3 * D2_2_sq * D3_1 * g_sq -
-           4 * D1_1 * D1_3 * D2_2 * D3_1 * D3_3 * g_sq + 2 * D1_1 * D1_3 * D2_2 * d1 * d3 + 2 * D1_1 * D1_3 * D2_3 * D3_1 * D3_2 * g_sq +
-           2 * D1_1 * D1_3 * D3_1 * d2_sq - 2 * D1_1 * D1_3 * D3_2 * d1 * d2 - 2 * D1_1 * D2_1 * D3_2 * d1 * d3 +
-           2 * D1_1 * D2_1 * D3_3 * d1 * d2 + 2 * D1_1 * D2_2_sq * D3_3_sq * g_sq - 2 * D1_1 * D2_2_sq * d3_sq -
-           4 * D1_1 * D2_2 * D2_3 * D3_2 * D3_3 * g_sq + 2 * D1_1 * D2_2 * D2_3 * d2 * d3 + 2 * D1_1 * D2_2 * D3_1 * d1 * d3 +
-           2 * D1_1 * D2_2 * D3_2 * d2 * d3 + 2 * D1_1 * D2_3_sq * D3_2_sq * g_sq - 2 * D1_1 * D2_3 * D3_1 * d1 * d2 -
-           2 * D1_1 * D2_3 * D3_2 * d2_sq - 2 * D1_1 * D2_3 * D3_2 * d3_sq + 2 * D1_1 * D2_3 * D3_3 * d2 * d3 +
-           2 * D1_1 * D3_2 * D3_3 * d2 * d3 - 2 * D1_1 * D3_3_sq * d2_sq + 2 * D1_2_sq * D2_1_sq * D3_3 * g_sq -
-           2 * D1_2_sq * D2_1 * D2_3 * D3_1 * g_sq - 2 * D1_2 * D1_3 * D2_1_sq * D3_2 * g_sq + 2 * D1_2 * D1_3 * D2_1 * D2_2 * D3_1 * g_sq +
-           2 * D1_2 * D1_3 * D2_1 * D3_1 * D3_3 * g_sq - 2 * D1_2 * D1_3 * D2_3 * D3_1_sq * g_sq - 2 * D1_2 * D2_1 * D2_2 * D3_3_sq * g_sq +
-           2 * D1_2 * D2_1 * D2_2 * d3_sq + 2 * D1_2 * D2_1 * D2_3 * D3_2 * D3_3 * g_sq - 2 * D1_2 * D2_1 * D3_3 * d1_sq -
-           2 * D1_2 * D2_1 * D3_3 * d2_sq + 2 * D1_2 * D2_2 * D2_3 * D3_1 * D3_3 * g_sq - 2 * D1_2 * D2_2 * D2_3 * d1 * d3 -
-           2 * D1_2 * D2_2 * D3_1 * d2 * d3 + 2 * D1_2 * D2_2 * D3_3 * d1 * d2 - 2 * D1_2 * D2_3_sq * D3_1 * D3_2 * g_sq +
-           2 * D1_2 * D2_3 * D3_1 * d1_sq + 2 * D1_2 * D2_3 * D3_1 * d2_sq + 2 * D1_2 * D2_3 * D3_1 * d3_sq -
-           2 * D1_2 * D2_3 * D3_3 * d1 * d3 - 2 * D1_2 * D3_1 * D3_3 * d2 * d3 + 2 * D1_2 * D3_3_sq * d1 * d2 -
-           2 * D1_3_sq * D2_1 * D3_1 * D3_2 * g_sq + 2 * D1_3_sq * D2_2 * D3_1_sq * g_sq + 2 * D1_3 * D2_1 * D2_2 * D3_2 * D3_3 * g_sq -
-           2 * D1_3 * D2_1 * D2_2 * d2 * d3 - 2 * D1_3 * D2_1 * D2_3 * D3_2_sq * g_sq + 2 * D1_3 * D2_1 * D3_2 * d1_sq +
-           2 * D1_3 * D2_1 * D3_2 * d2_sq + 2 * D1_3 * D2_1 * D3_2 * d3_sq - 2 * D1_3 * D2_1 * D3_3 * d2 * d3 -
-           2 * D1_3 * D2_2_sq * D3_1 * D3_3 * g_sq + 2 * D1_3 * D2_2_sq * d1 * d3 + 2 * D1_3 * D2_2 * D2_3 * D3_1 * D3_2 * g_sq -
-           2 * D1_3 * D2_2 * D3_1 * d1_sq - 2 * D1_3 * D2_2 * D3_1 * d3_sq - 2 * D1_3 * D2_2 * D3_2 * d1 * d2 +
-           2 * D1_3 * D2_2 * D3_3 * d1 * d3 + 2 * D1_3 * D3_1 * D3_3 * d2_sq - 2 * D1_3 * D3_2 * D3_3 * d1 * d2 -
-           2 * D2_1 * D2_2 * D3_2 * d1 * d3 + 2 * D2_1 * D2_2 * D3_3 * d1 * d2 - 2 * D2_1 * D3_2 * D3_3 * d1 * d3 +
-           2 * D2_1 * D3_3_sq * d1 * d2 + 2 * D2_2_sq * D3_1 * d1 * d3 - 2 * D2_2_sq * D3_3 * d1_sq - 2 * D2_2 * D2_3 * D3_1 * d1 * d2 +
-           2 * D2_2 * D2_3 * D3_2 * d1_sq + 2 * D2_2 * D3_1 * D3_3 * d1 * d3 - 2 * D2_2 * D3_3_sq * d1_sq -
-           2 * D2_3 * D3_1 * D3_3 * d1 * d2 + 2 * D2_3 * D3_2 * D3_3 * d1_sq) /
-         g_sq);
+    coeff(6) = -((-D1_1_sq * D2_2_sq * D3_3_sq * g_sq) + (D1_1_sq * D2_2_sq * d3_sq) + (2 * D1_1_sq * D2_2 * D2_3 * D3_2 * D3_3 * g_sq) - (D1_1_sq * D2_2 * D2_3 * d2 * d3) - (D1_1_sq * D2_2 * D3_2 * d2 * d3) - (D1_1_sq * D2_3_sq * D3_2_sq * g_sq) + (D1_1_sq * D2_3 * D3_2 * d2_sq) +
+                 (D1_1_sq * D2_3 * D3_2 * d3_sq) - (D1_1_sq * D2_3 * D3_3 * d2 * d3) - (D1_1_sq * D3_2 * D3_3 * d2 * d3) + (D1_1_sq * D3_3_sq * d2_sq) + (2 * D1_1 * D1_2 * D2_1 * D2_2 * D3_3_sq * g_sq) - (2 * D1_1 * D1_2 * D2_1 * D2_2 * d3_sq) - (2 * D1_1 * D1_2 * D2_1 * D2_3 * D3_2 * D3_3 * g_sq) +
+                 (D1_1 * D1_2 * D2_1 * D2_3 * d2 * d3) + (D1_1 * D1_2 * D2_1 * D3_2 * d2 * d3) - (2 * D1_1 * D1_2 * D2_2 * D2_3 * D3_1 * D3_3 * g_sq) + (D1_1 * D1_2 * D2_2 * D2_3 * d1 * d3) + (D1_1 * D1_2 * D2_2 * D3_1 * d2 * d3) + (2 * D1_1 * D1_2 * D2_3_sq * D3_1 * D3_2 * g_sq) -
+                 (D1_1 * D1_2 * D2_3 * D3_1 * d2_sq) - (D1_1 * D1_2 * D2_3 * D3_1 * d3_sq) - (D1_1 * D1_2 * D2_3 * D3_2 * d1 * d2) + (D1_1 * D1_2 * D2_3 * D3_3 * d1 * d3) + (D1_1 * D1_2 * D3_1 * D3_3 * d2 * d3) - (D1_1 * D1_2 * D3_3_sq * d1 * d2) -
+                 (2 * D1_1 * D1_3 * D2_1 * D2_2 * D3_2 * D3_3 * g_sq) + (D1_1 * D1_3 * D2_1 * D2_2 * d2 * d3) + (2 * D1_1 * D1_3 * D2_1 * D2_3 * D3_2_sq * g_sq) - (D1_1 * D1_3 * D2_1 * D3_2 * d2_sq) - (D1_1 * D1_3 * D2_1 * D3_2 * d3_sq) + (D1_1 * D1_3 * D2_1 * D3_3 * d2 * d3) +
+                 (2 * D1_1 * D1_3 * D2_2_sq * D3_1 * D3_3 * g_sq) - (D1_1 * D1_3 * D2_2_sq * d1 * d3) - (2 * D1_1 * D1_3 * D2_2 * D2_3 * D3_1 * D3_2 * g_sq) + (D1_1 * D1_3 * D2_2 * D3_2 * d1 * d2) + (D1_1 * D1_3 * D2_3 * D3_1 * d2 * d3) - (D1_1 * D1_3 * D2_3 * D3_2 * d1 * d3) +
+                 (D1_1 * D1_3 * D3_1 * D3_2 * d2 * d3) - (2 * D1_1 * D1_3 * D3_1 * D3_3 * d2_sq) + (D1_1 * D1_3 * D3_2 * D3_3 * d1 * d2) + (D1_1 * D2_1 * D2_2 * D3_2 * d1 * d3) - (D1_1 * D2_1 * D2_3 * D3_2 * d1 * d2) + (D1_1 * D2_1 * D3_2 * D3_3 * d1 * d3) - (D1_1 * D2_1 * D3_3_sq * d1 * d2) -
+                 (D1_1 * D2_2_sq * D3_1 * d1 * d3) + (D1_1 * D2_2 * D2_3 * D3_1 * d1 * d2) - (D1_1 * D2_3 * D3_1 * D3_2 * d1 * d3) + (D1_1 * D2_3 * D3_1 * D3_3 * d1 * d2) - (D1_2_sq * D2_1_sq * D3_3_sq * g_sq) + (D1_2_sq * D2_1_sq * d3_sq) + (2 * D1_2_sq * D2_1 * D2_3 * D3_1 * D3_3 * g_sq) -
+                 (D1_2_sq * D2_1 * D2_3 * d1 * d3) - (D1_2_sq * D2_1 * D3_1 * d2 * d3) - (D1_2_sq * D2_3_sq * D3_1_sq * g_sq) + (D1_2_sq * D2_3 * D3_1 * d1 * d2) + (2 * D1_2 * D1_3 * D2_1_sq * D3_2 * D3_3 * g_sq) - (D1_2 * D1_3 * D2_1_sq * d2 * d3) -
+                 (2 * D1_2 * D1_3 * D2_1 * D2_2 * D3_1 * D3_3 * g_sq) + (D1_2 * D1_3 * D2_1 * D2_2 * d1 * d3) - (2 * D1_2 * D1_3 * D2_1 * D2_3 * D3_1 * D3_2 * g_sq) + (D1_2 * D1_3 * D2_1 * D3_1 * d2_sq) + (D1_2 * D1_3 * D2_1 * D3_1 * d3_sq) - (D1_2 * D1_3 * D2_1 * D3_3 * d1 * d3) +
+                 (2 * D1_2 * D1_3 * D2_2 * D2_3 * D3_1_sq * g_sq) - (D1_2 * D1_3 * D2_2 * D3_1 * d1 * d2) - (D1_2 * D1_3 * D3_1_sq * d2 * d3) + (D1_2 * D1_3 * D3_1 * D3_3 * d1 * d2) - (D1_2 * D2_1_sq * D3_2 * d1 * d3) + (D1_2 * D2_1 * D2_2 * D3_1 * d1 * d3) + (D1_2 * D2_1 * D2_3 * D3_2 * d1_sq) +
+                 (D1_2 * D2_1 * D2_3 * D3_2 * d3_sq) - (D1_2 * D2_1 * D2_3 * D3_3 * d2 * d3) - (D1_2 * D2_1 * D3_1 * D3_3 * d1 * d3) - (D1_2 * D2_1 * D3_2 * D3_3 * d2 * d3) + (D1_2 * D2_1 * D3_3_sq * d1_sq) + (D1_2 * D2_1 * D3_3_sq * d2_sq) - (D1_2 * D2_2 * D2_3 * D3_1 * d1_sq) -
+                 (D1_2 * D2_2 * D2_3 * D3_1 * d3_sq) + (D1_2 * D2_2 * D2_3 * D3_3 * d1 * d3) + (D1_2 * D2_2 * D3_1 * D3_3 * d2 * d3) - (D1_2 * D2_2 * D3_3_sq * d1 * d2) + (D1_2 * D2_3_sq * D3_1 * d2 * d3) - (D1_2 * D2_3_sq * D3_2 * d1 * d3) + (D1_2 * D2_3 * D3_1_sq * d1 * d3) -
+                 (D1_2 * D2_3 * D3_1 * D3_3 * d1_sq) - (D1_2 * D2_3 * D3_1 * D3_3 * d2_sq) + (D1_2 * D2_3 * D3_2 * D3_3 * d1 * d2) - (D1_3_sq * D2_1_sq * D3_2_sq * g_sq) + (2 * D1_3_sq * D2_1 * D2_2 * D3_1 * D3_2 * g_sq) - (D1_3_sq * D2_1 * D3_1 * d2 * d3) + (D1_3_sq * D2_1 * D3_2 * d1 * d3) -
+                 (D1_3_sq * D2_2_sq * D3_1_sq * g_sq) + (D1_3_sq * D3_1_sq * d2_sq) - (D1_3_sq * D3_1 * D3_2 * d1 * d2) + (D1_3 * D2_1_sq * D3_2 * d1 * d2) - (D1_3 * D2_1 * D2_2 * D3_1 * d1 * d2) - (D1_3 * D2_1 * D2_2 * D3_2 * d1_sq) - (D1_3 * D2_1 * D2_2 * D3_2 * d3_sq) +
+                 (D1_3 * D2_1 * D2_2 * D3_3 * d2 * d3) + (D1_3 * D2_1 * D3_1 * D3_3 * d1 * d2) + (D1_3 * D2_1 * D3_2_sq * d2 * d3) - (D1_3 * D2_1 * D3_2 * D3_3 * d1_sq) - (D1_3 * D2_1 * D3_2 * D3_3 * d2_sq) + (D1_3 * D2_2_sq * D3_1 * d1_sq) + (D1_3 * D2_2_sq * D3_1 * d3_sq) -
+                 (D1_3 * D2_2_sq * D3_3 * d1 * d3) - (D1_3 * D2_2 * D2_3 * D3_1 * d2 * d3) + (D1_3 * D2_2 * D2_3 * D3_2 * d1 * d3) - (D1_3 * D2_2 * D3_1 * D3_2 * d2 * d3) + (D1_3 * D2_2 * D3_2 * D3_3 * d1 * d2) - (D1_3 * D2_3 * D3_1_sq * d1 * d2) + (D1_3 * D2_3 * D3_1 * D3_2 * d1_sq) +
+                 (D1_3 * D2_3 * D3_1 * D3_2 * d2_sq) - (D1_3 * D2_3 * D3_2_sq * d1 * d2) + (D2_1 * D2_2 * D3_2 * D3_3 * d1 * d3) - (D2_1 * D2_2 * D3_3_sq * d1 * d2) - (D2_1 * D2_3 * D3_2_sq * d1 * d3) + (D2_1 * D2_3 * D3_2 * D3_3 * d1 * d2) - (D2_2_sq * D3_1 * D3_3 * d1 * d3) +
+                 (D2_2_sq * D3_3_sq * d1_sq) + (D2_2 * D2_3 * D3_1 * D3_2 * d1 * d3) + (D2_2 * D2_3 * D3_1 * D3_3 * d1 * d2) - (2 * D2_2 * D2_3 * D3_2 * D3_3 * d1_sq) - (D2_3_sq * D3_1 * D3_2 * d1 * d2) + (D2_3_sq * D3_2_sq * d1_sq)) /
+               g_sq;
+    coeff(5) = (-((2 * D1_1_sq * D2_2_sq * D3_3 * g_sq) - (2 * D1_1_sq * D2_2 * D2_3 * D3_2 * g_sq) + (2 * D1_1_sq * D2_2 * D3_3_sq * g_sq) - (2 * D1_1_sq * D2_2 * d3_sq) - (2 * D1_1_sq * D2_3 * D3_2 * D3_3 * g_sq) + (2 * D1_1_sq * D2_3 * d2 * d3) + (2 * D1_1_sq * D3_2 * d2 * d3) -
+                  (2 * D1_1_sq * D3_3 * d2_sq) - (4 * D1_1 * D1_2 * D2_1 * D2_2 * D3_3 * g_sq) + (2 * D1_1 * D1_2 * D2_1 * D2_3 * D3_2 * g_sq) - (2 * D1_1 * D1_2 * D2_1 * D3_3_sq * g_sq) + (2 * D1_1 * D1_2 * D2_1 * d3_sq) + (2 * D1_1 * D1_2 * D2_2 * D2_3 * D3_1 * g_sq) +
+                  (2 * D1_1 * D1_2 * D2_3 * D3_1 * D3_3 * g_sq) - (2 * D1_1 * D1_2 * D2_3 * d1 * d3) - (2 * D1_1 * D1_2 * D3_1 * d2 * d3) + (2 * D1_1 * D1_2 * D3_3 * d1 * d2) + (2 * D1_1 * D1_3 * D2_1 * D2_2 * D3_2 * g_sq) + (2 * D1_1 * D1_3 * D2_1 * D3_2 * D3_3 * g_sq) -
+                  (2 * D1_1 * D1_3 * D2_1 * d2 * d3) - (2 * D1_1 * D1_3 * D2_2_sq * D3_1 * g_sq) - (4 * D1_1 * D1_3 * D2_2 * D3_1 * D3_3 * g_sq) + (2 * D1_1 * D1_3 * D2_2 * d1 * d3) + (2 * D1_1 * D1_3 * D2_3 * D3_1 * D3_2 * g_sq) + (2 * D1_1 * D1_3 * D3_1 * d2_sq) -
+                  (2 * D1_1 * D1_3 * D3_2 * d1 * d2) - (2 * D1_1 * D2_1 * D3_2 * d1 * d3) + (2 * D1_1 * D2_1 * D3_3 * d1 * d2) + (2 * D1_1 * D2_2_sq * D3_3_sq * g_sq) - (2 * D1_1 * D2_2_sq * d3_sq) - (4 * D1_1 * D2_2 * D2_3 * D3_2 * D3_3 * g_sq) + (2 * D1_1 * D2_2 * D2_3 * d2 * d3) +
+                  (2 * D1_1 * D2_2 * D3_1 * d1 * d3) + (2 * D1_1 * D2_2 * D3_2 * d2 * d3) + (2 * D1_1 * D2_3_sq * D3_2_sq * g_sq) - (2 * D1_1 * D2_3 * D3_1 * d1 * d2) - (2 * D1_1 * D2_3 * D3_2 * d2_sq) - (2 * D1_1 * D2_3 * D3_2 * d3_sq) + (2 * D1_1 * D2_3 * D3_3 * d2 * d3) +
+                  (2 * D1_1 * D3_2 * D3_3 * d2 * d3) - (2 * D1_1 * D3_3_sq * d2_sq) + (2 * D1_2_sq * D2_1_sq * D3_3 * g_sq) - (2 * D1_2_sq * D2_1 * D2_3 * D3_1 * g_sq) - (2 * D1_2 * D1_3 * D2_1_sq * D3_2 * g_sq) + (2 * D1_2 * D1_3 * D2_1 * D2_2 * D3_1 * g_sq) +
+                  (2 * D1_2 * D1_3 * D2_1 * D3_1 * D3_3 * g_sq) - (2 * D1_2 * D1_3 * D2_3 * D3_1_sq * g_sq) - (2 * D1_2 * D2_1 * D2_2 * D3_3_sq * g_sq) + (2 * D1_2 * D2_1 * D2_2 * d3_sq) + (2 * D1_2 * D2_1 * D2_3 * D3_2 * D3_3 * g_sq) - (2 * D1_2 * D2_1 * D3_3 * d1_sq) -
+                  (2 * D1_2 * D2_1 * D3_3 * d2_sq) + (2 * D1_2 * D2_2 * D2_3 * D3_1 * D3_3 * g_sq) - (2 * D1_2 * D2_2 * D2_3 * d1 * d3) - (2 * D1_2 * D2_2 * D3_1 * d2 * d3) + (2 * D1_2 * D2_2 * D3_3 * d1 * d2) - (2 * D1_2 * D2_3_sq * D3_1 * D3_2 * g_sq) + (2 * D1_2 * D2_3 * D3_1 * d1_sq) +
+                  (2 * D1_2 * D2_3 * D3_1 * d2_sq) + (2 * D1_2 * D2_3 * D3_1 * d3_sq) - (2 * D1_2 * D2_3 * D3_3 * d1 * d3) - (2 * D1_2 * D3_1 * D3_3 * d2 * d3) + (2 * D1_2 * D3_3_sq * d1 * d2) - (2 * D1_3_sq * D2_1 * D3_1 * D3_2 * g_sq) + (2 * D1_3_sq * D2_2 * D3_1_sq * g_sq) +
+                  (2 * D1_3 * D2_1 * D2_2 * D3_2 * D3_3 * g_sq) - (2 * D1_3 * D2_1 * D2_2 * d2 * d3) - (2 * D1_3 * D2_1 * D2_3 * D3_2_sq * g_sq) + (2 * D1_3 * D2_1 * D3_2 * d1_sq) + (2 * D1_3 * D2_1 * D3_2 * d2_sq) + (2 * D1_3 * D2_1 * D3_2 * d3_sq) - (2 * D1_3 * D2_1 * D3_3 * d2 * d3) -
+                  (2 * D1_3 * D2_2_sq * D3_1 * D3_3 * g_sq) + (2 * D1_3 * D2_2_sq * d1 * d3) + (2 * D1_3 * D2_2 * D2_3 * D3_1 * D3_2 * g_sq) - (2 * D1_3 * D2_2 * D3_1 * d1_sq) - (2 * D1_3 * D2_2 * D3_1 * d3_sq) - (2 * D1_3 * D2_2 * D3_2 * d1 * d2) + (2 * D1_3 * D2_2 * D3_3 * d1 * d3) +
+                  (2 * D1_3 * D3_1 * D3_3 * d2_sq) - (2 * D1_3 * D3_2 * D3_3 * d1 * d2) - (2 * D2_1 * D2_2 * D3_2 * d1 * d3) + (2 * D2_1 * D2_2 * D3_3 * d1 * d2) - (2 * D2_1 * D3_2 * D3_3 * d1 * d3) + (2 * D2_1 * D3_3_sq * d1 * d2) + (2 * D2_2_sq * D3_1 * d1 * d3) - (2 * D2_2_sq * D3_3 * d1_sq) -
+                  (2 * D2_2 * D2_3 * D3_1 * d1 * d2) + (2 * D2_2 * D2_3 * D3_2 * d1_sq) + (2 * D2_2 * D3_1 * D3_3 * d1 * d3) - (2 * D2_2 * D3_3_sq * d1_sq) - (2 * D2_3 * D3_1 * D3_3 * d1 * d2) + (2 * D2_3 * D3_2 * D3_3 * d1_sq)) /
+                g_sq);
     coeff(4) =
         ((D1_1_sq * D2_2_sq * g_sq + 4 * D1_1_sq * D2_2 * D3_3 * g_sq - 2 * D1_1_sq * D2_3 * D3_2 * g_sq + D1_1_sq * D3_3_sq * g_sq -
           D1_1_sq * d2_sq - D1_1_sq * d3_sq - 2 * D1_1 * D1_2 * D2_1 * D2_2 * g_sq - 4 * D1_1 * D1_2 * D2_1 * D3_3 * g_sq +
@@ -307,11 +283,8 @@ public:
           2 * D1_2 * D2_3 * D3_1 * g_sq - 2 * D1_3 * D2_1 * D3_2 * g_sq + 4 * D1_3 * D2_2 * D3_1 * g_sq + 2 * D1_3 * D3_1 * D3_3 * g_sq +
           2 * D2_2 * D2_3 * D3_2 * g_sq + 2 * D2_3 * D3_2 * D3_3 * g_sq) /
          g_sq);
-    coeff(2) =
-        (-(d1_sq + d2_sq + d3_sq - D1_1_sq * g_sq - D2_2_sq * g_sq - D3_3_sq * g_sq - 4 * D1_1 * D2_2 * g_sq + 2 * D1_2 * D2_1 * g_sq -
-           4 * D1_1 * D3_3 * g_sq + 2 * D1_3 * D3_1 * g_sq - 4 * D2_2 * D3_3 * g_sq + 2 * D2_3 * D3_2 * g_sq) /
-         g_sq);
-    coeff(1) = (-(2 * D1_1 * g_sq + 2 * D2_2 * g_sq + 2 * D3_3 * g_sq) / g_sq);
+    coeff(2) = (-(d1_sq + d2_sq + d3_sq - (D1_1_sq * g_sq) - (D2_2_sq * g_sq) - (D3_3_sq * g_sq) - (4 * D1_1 * D2_2 * g_sq) + (2 * D1_2 * D2_1 * g_sq) - (4 * D1_1 * D3_3 * g_sq) + (2 * D1_3 * D3_1 * g_sq) - (4 * D2_2 * D3_3 * g_sq) + (2 * D2_3 * D3_2 * g_sq)) / g_sq);
+    coeff(1) = (-((2 * D1_1 * g_sq) + (2 * D2_2 * g_sq) + (2 * D3_3 * g_sq)) / g_sq);
     coeff(0) = 1;
 
     // finally return

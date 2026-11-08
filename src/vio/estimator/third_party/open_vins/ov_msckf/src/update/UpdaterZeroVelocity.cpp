@@ -21,8 +21,11 @@
 
 #include "UpdaterZeroVelocity.h"
 
-#include "UpdaterHelper.h"
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/math/distributions/chi_squared.hpp>
+#include <utility>
 
+#include "UpdaterHelper.h"
 #include "feat/FeatureDatabase.h"
 #include "feat/FeatureHelper.h"
 #include "state/Propagator.h"
@@ -32,38 +35,39 @@
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/math/distributions/chi_squared.hpp>
-
 using namespace ov_core;
 using namespace ov_type;
 using namespace ov_msckf;
 
-UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &noises, std::shared_ptr<ov_core::FeatureDatabase> db,
-                                         std::shared_ptr<Propagator> prop, double gravity_mag, double zupt_max_velocity,
-                                         double zupt_noise_multiplier, double zupt_max_disparity, double zupt_max_omega_deg,
-                                         double zupt_max_acc_dev, double zupt_sigma_v, int zupt_min_still_frames,
-                                         bool zupt_v_only)
-    : _options(options), _noises(noises), _db(db), _prop(prop), _zupt_max_velocity(zupt_max_velocity),
-      _zupt_noise_multiplier(zupt_noise_multiplier), _zupt_max_disparity(zupt_max_disparity),
-      _zupt_max_omega_deg(zupt_max_omega_deg), _zupt_max_acc_dev(zupt_max_acc_dev), _zupt_sigma_v(zupt_sigma_v),
-      _zupt_min_still_frames(zupt_min_still_frames), _zupt_v_only(zupt_v_only) {
+UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions& options, NoiseManager& noises, std::shared_ptr<ov_core::FeatureDatabase> db, std::shared_ptr<Propagator> prop, double gravity_mag, double zupt_max_velocity, double zupt_noise_multiplier, double zupt_max_disparity, double zupt_max_omega_deg,
+                                         double zupt_max_acc_dev, double zupt_sigma_v, int zupt_min_still_frames, bool zupt_v_only)
+    : _options(options),
+      _noises(noises),
+      _db(std::move(db)),
+      _prop(std::move(prop)),
+      _zupt_max_velocity(zupt_max_velocity),
+      _zupt_noise_multiplier(zupt_noise_multiplier),
+      _zupt_max_disparity(zupt_max_disparity),
+      _zupt_max_omega_deg(zupt_max_omega_deg),
+      _zupt_max_acc_dev(zupt_max_acc_dev),
+      _zupt_sigma_v(zupt_sigma_v),
+      _zupt_min_still_frames(zupt_min_still_frames),
+      _zupt_v_only(zupt_v_only) {
+    // Gravity
+    _gravity << 0.0, 0.0, gravity_mag;
 
-  // Gravity
-  _gravity << 0.0, 0.0, gravity_mag;
+    // Save our raw pixel noise squared
+    _noises.sigma_w_2 = std::pow(_noises.sigma_w, 2);
+    _noises.sigma_a_2 = std::pow(_noises.sigma_a, 2);
+    _noises.sigma_wb_2 = std::pow(_noises.sigma_wb, 2);
+    _noises.sigma_ab_2 = std::pow(_noises.sigma_ab, 2);
 
-  // Save our raw pixel noise squared
-  _noises.sigma_w_2 = std::pow(_noises.sigma_w, 2);
-  _noises.sigma_a_2 = std::pow(_noises.sigma_a, 2);
-  _noises.sigma_wb_2 = std::pow(_noises.sigma_wb, 2);
-  _noises.sigma_ab_2 = std::pow(_noises.sigma_ab, 2);
-
-  // Initialize the chi squared test table with confidence level 0.95
-  // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
-  for (int i = 1; i < 1000; i++) {
-    boost::math::chi_squared chi_squared_dist(i);
-    chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
-  }
+    // Initialize the chi squared test table with confidence level 0.95
+    // https://github.com/KumarRobotics/msckf_vio/blob/050c50defa5a7fd9a04c1eed5687b405f02919b5/src/msckf_vio.cpp#L215-L221
+    for (int i = 1; i < 1000; i++) {
+        boost::math::chi_squared chi_squared_dist(i);
+        chi_squared_table[i] = boost::math::quantile(chi_squared_dist, 0.95);
+    }
 }
 
 bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
@@ -120,13 +124,15 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // 不含任何状态估计，所以滤波器错得再离谱也不会影响这条判据。
   // 实测（turn4/turn5 的安静段）：|ω| 0.4~0.6 °/s、| ‖a‖ − g | < 0.02 m/s²。
   //===================================================================================
-  double mean_w_deg = 0.0, mean_acc_dev = 0.0;
+  double mean_w_deg = 0.0;
+  double mean_acc_dev = 0.0;
   {
-    double sw = 0.0, sa = 0.0;
-    for (const auto &m : imu_recent) {
-      sw += m.wm.norm();
-      sa += std::abs(m.am.norm() - _gravity.norm());
-    }
+      double sw = 0.0;
+      double sa = 0.0;
+      for (const auto& m : imu_recent) {
+          sw += m.wm.norm();
+          sa += std::abs(m.am.norm() - _gravity.norm());
+      }
     mean_w_deg = (sw / (double)imu_recent.size()) * 180.0 / M_PI;
     mean_acc_dev = sa / (double)imu_recent.size();
   }
@@ -137,20 +143,21 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // 见头文件 _zupt_v_only 的说明。这里是"停下来不许再加速"的最小充分实现。
   //===================================================================================
   if (_zupt_v_only) {
-    double disp_avg = 0.0, disp_var = 0.0;
-    int num_features = 0;
-    FeatureHelper::compute_disparity(_db, state->_timestamp, timestamp, disp_avg, disp_var, num_features);
-    last_disp_avg = disp_avg;
-    const bool vision_still = (disp_avg < _zupt_max_disparity && num_features > 20);
-    const double v_now0 = state->_imu->vel().norm();
+      double disp_avg = 0.0;
+      double disp_var = 0.0;
+      int num_features = 0;
+      FeatureHelper::compute_disparity(_db, state->_timestamp, timestamp, disp_avg, disp_var, num_features);
+      last_disp_avg = disp_avg;
+      const bool vision_still = (disp_avg < _zupt_max_disparity && num_features > 20);
+      const double v_now0 = state->_imu->vel().norm();
 
-    // 去抖：IMU 判据必须连续成立 _zupt_min_still_frames 帧（15 Hz 以上才有意义）
-    _still_streak = (imu_still && v_now0 < _zupt_max_velocity) ? (_still_streak + 1) : 0;
-    if (!vision_still || _still_streak < _zupt_min_still_frames) {
-      last_zupt_state_timestamp = 0.0;
-      last_zupt_count = 0;
-      return false;
-    }
+      // 去抖：IMU 判据必须连续成立 _zupt_min_still_frames 帧（15 Hz 以上才有意义）
+      _still_streak = (imu_still && v_now0 < _zupt_max_velocity) ? (_still_streak + 1) : 0;
+      if (!vision_still || _still_streak < _zupt_min_still_frames) {
+          last_zupt_state_timestamp = 0.0;
+          last_zupt_count = 0;
+          return false;
+      }
 
     const double sg = (_zupt_sigma_v > 1e-4) ? _zupt_sigma_v : 0.05;
     std::vector<std::shared_ptr<Type>> Hx_order;
@@ -198,7 +205,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // Large final matrices used for update (we will compress these)
   // 【2026-10-25】add_zero_velocity 时多 3 行 "v = 0"
   int h_size = (integrated_accel_constraint) ? 12 : (add_zero_velocity ? 12 : 9);
-  int m_size = 6 * ((int)imu_recent.size() - 1) + (add_zero_velocity ? 3 : 0);
+  int m_size = (6 * ((int)imu_recent.size() - 1)) + (add_zero_velocity ? 3 : 0);
   Eigen::MatrixXd H = Eigen::MatrixXd::Zero(m_size, h_size);
   Eigen::VectorXd res = Eigen::VectorXd::Zero(m_size);
 
@@ -232,23 +239,23 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     double w_accel_v = 1.0 / (std::sqrt(dt) * _noises.sigma_a);
 
     // Measurement residual (true value is zero)
-    res.block(6 * i + 0, 0, 3, 1) = -w_omega * w_hat;
+    res.block((6 * i) + 0, 0, 3, 1) = -w_omega * w_hat;
     if (!integrated_accel_constraint) {
-      res.block(6 * i + 3, 0, 3, 1) = -w_accel * (a_hat - state->_imu->Rot() * _gravity);
+        res.block((6 * i) + 3, 0, 3, 1) = -w_accel * (a_hat - state->_imu->Rot() * _gravity);
     } else {
-      res.block(6 * i + 3, 0, 3, 1) = -w_accel_v * (state->_imu->vel() - _gravity * dt + state->_imu->Rot().transpose() * a_hat * dt);
+        res.block((6 * i) + 3, 0, 3, 1) = -w_accel_v * (state->_imu->vel() - _gravity * dt + state->_imu->Rot().transpose() * a_hat * dt);
     }
 
     // Measurement Jacobian
     Eigen::Matrix3d R_GtoI_jacob = (state->_options.do_fej) ? state->_imu->Rot_fej() : state->_imu->Rot();
-    H.block(6 * i + 0, 3, 3, 3) = -w_omega * Eigen::Matrix3d::Identity();
+    H.block((6 * i) + 0, 3, 3, 3) = -w_omega * Eigen::Matrix3d::Identity();
     if (!integrated_accel_constraint) {
-      H.block(6 * i + 3, 0, 3, 3) = -w_accel * skew_x(R_GtoI_jacob * _gravity);
-      H.block(6 * i + 3, 6, 3, 3) = -w_accel * Eigen::Matrix3d::Identity();
+        H.block((6 * i) + 3, 0, 3, 3) = -w_accel * skew_x(R_GtoI_jacob * _gravity);
+        H.block((6 * i) + 3, 6, 3, 3) = -w_accel * Eigen::Matrix3d::Identity();
     } else {
-      H.block(6 * i + 3, 0, 3, 3) = -w_accel_v * R_GtoI_jacob.transpose() * skew_x(a_hat) * dt;
-      H.block(6 * i + 3, 6, 3, 3) = -w_accel_v * R_GtoI_jacob.transpose() * dt;
-      H.block(6 * i + 3, 9, 3, 3) = w_accel_v * Eigen::Matrix3d::Identity();
+        H.block((6 * i) + 3, 0, 3, 3) = -w_accel_v * R_GtoI_jacob.transpose() * skew_x(a_hat) * dt;
+        H.block((6 * i) + 3, 6, 3, 3) = -w_accel_v * R_GtoI_jacob.transpose() * dt;
+        H.block((6 * i) + 3, 9, 3, 3) = w_accel_v * Eigen::Matrix3d::Identity();
     }
     dt_summed += dt;
   }

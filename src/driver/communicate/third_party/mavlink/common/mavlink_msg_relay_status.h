@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_RELAY_STATUS 376
+enum { MAVLINK_MSG_ID_RELAY_STATUS = 376 };
 
+using mavlink_relay_status_t = struct __mavlink_relay_status_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    uint16_t on;           /*<  Relay states. Relay instance numbers are represented as individual bits in this mask by offset.*/
+    uint16_t present;      /*<  Relay present. Relay instance numbers are represented as individual bits in this mask by offset.  Bits will be true if a relay instance is configured.*/
+};
 
-typedef struct __mavlink_relay_status_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint16_t on; /*<  Relay states. Relay instance numbers are represented as individual bits in this mask by offset.*/
- uint16_t present; /*<  Relay present. Relay instance numbers are represented as individual bits in this mask by offset.  Bits will be true if a relay instance is configured.*/
-} mavlink_relay_status_t;
+enum { MAVLINK_MSG_ID_RELAY_STATUS_LEN = 8, MAVLINK_MSG_ID_RELAY_STATUS_MIN_LEN = 8, MAVLINK_MSG_ID_376_LEN = 8, MAVLINK_MSG_ID_376_MIN_LEN = 8 };
 
-#define MAVLINK_MSG_ID_RELAY_STATUS_LEN 8
-#define MAVLINK_MSG_ID_RELAY_STATUS_MIN_LEN 8
-#define MAVLINK_MSG_ID_376_LEN 8
-#define MAVLINK_MSG_ID_376_MIN_LEN 8
-
-#define MAVLINK_MSG_ID_RELAY_STATUS_CRC 199
-#define MAVLINK_MSG_ID_376_CRC 199
-
-
+enum { MAVLINK_MSG_ID_RELAY_STATUS_CRC = 199, MAVLINK_MSG_ID_376_CRC = 199 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RELAY_STATUS { \

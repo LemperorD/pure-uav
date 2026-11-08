@@ -3,23 +3,16 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_CAMERA_TRIGGER 112
+enum { MAVLINK_MSG_ID_CAMERA_TRIGGER = 112 };
 
+using mavlink_camera_trigger_t = struct __mavlink_camera_trigger_t {
+    uint64_t time_usec; /*< [us] Timestamp for image frame (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    uint32_t seq;       /*<  Image frame sequence*/
+};
 
-typedef struct __mavlink_camera_trigger_t {
- uint64_t time_usec; /*< [us] Timestamp for image frame (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- uint32_t seq; /*<  Image frame sequence*/
-} mavlink_camera_trigger_t;
+enum { MAVLINK_MSG_ID_CAMERA_TRIGGER_LEN = 12, MAVLINK_MSG_ID_CAMERA_TRIGGER_MIN_LEN = 12, MAVLINK_MSG_ID_112_LEN = 12, MAVLINK_MSG_ID_112_MIN_LEN = 12 };
 
-#define MAVLINK_MSG_ID_CAMERA_TRIGGER_LEN 12
-#define MAVLINK_MSG_ID_CAMERA_TRIGGER_MIN_LEN 12
-#define MAVLINK_MSG_ID_112_LEN 12
-#define MAVLINK_MSG_ID_112_MIN_LEN 12
-
-#define MAVLINK_MSG_ID_CAMERA_TRIGGER_CRC 174
-#define MAVLINK_MSG_ID_112_CRC 174
-
-
+enum { MAVLINK_MSG_ID_CAMERA_TRIGGER_CRC = 174, MAVLINK_MSG_ID_112_CRC = 174 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_TRIGGER { \

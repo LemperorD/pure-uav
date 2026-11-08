@@ -3,25 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PING 4
+enum { MAVLINK_MSG_ID_PING = 4 };
 
+using mavlink_ping_t = struct __mavlink_ping_t {
+    uint64_t time_usec;       /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    uint32_t seq;             /*<  PING sequence*/
+    uint8_t target_system;    /*<  0: request ping from all receiving systems. If greater than 0: message is a ping response and number is the system id of the requesting system*/
+    uint8_t target_component; /*<  0: request ping from all receiving components. If greater than 0: message is a ping response and number is the component id of the requesting component.*/
+};
 
-typedef struct __mavlink_ping_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- uint32_t seq; /*<  PING sequence*/
- uint8_t target_system; /*<  0: request ping from all receiving systems. If greater than 0: message is a ping response and number is the system id of the requesting system*/
- uint8_t target_component; /*<  0: request ping from all receiving components. If greater than 0: message is a ping response and number is the component id of the requesting component.*/
-} mavlink_ping_t;
+enum { MAVLINK_MSG_ID_PING_LEN = 14, MAVLINK_MSG_ID_PING_MIN_LEN = 14, MAVLINK_MSG_ID_4_LEN = 14, MAVLINK_MSG_ID_4_MIN_LEN = 14 };
 
-#define MAVLINK_MSG_ID_PING_LEN 14
-#define MAVLINK_MSG_ID_PING_MIN_LEN 14
-#define MAVLINK_MSG_ID_4_LEN 14
-#define MAVLINK_MSG_ID_4_MIN_LEN 14
-
-#define MAVLINK_MSG_ID_PING_CRC 237
-#define MAVLINK_MSG_ID_4_CRC 237
-
-
+enum { MAVLINK_MSG_ID_PING_CRC = 237, MAVLINK_MSG_ID_4_CRC = 237 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PING { \
@@ -333,11 +326,10 @@ static inline void mavlink_msg_ping_decode(const mavlink_message_t* msg, mavlink
         memset(ping, 0, MAVLINK_MSG_ID_PING_LEN);
     memcpy(ping, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         ping->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_BUTTON_CHANGE 257
+enum { MAVLINK_MSG_ID_BUTTON_CHANGE = 257 };
 
+using mavlink_button_change_t = struct __mavlink_button_change_t {
+    uint32_t time_boot_ms;   /*< [ms] Timestamp (time since system boot).*/
+    uint32_t last_change_ms; /*< [ms] Time of last change of button state.*/
+    uint8_t state;           /*<  Bitmap for state of buttons.*/
+};
 
-typedef struct __mavlink_button_change_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint32_t last_change_ms; /*< [ms] Time of last change of button state.*/
- uint8_t state; /*<  Bitmap for state of buttons.*/
-} mavlink_button_change_t;
+enum { MAVLINK_MSG_ID_BUTTON_CHANGE_LEN = 9, MAVLINK_MSG_ID_BUTTON_CHANGE_MIN_LEN = 9, MAVLINK_MSG_ID_257_LEN = 9, MAVLINK_MSG_ID_257_MIN_LEN = 9 };
 
-#define MAVLINK_MSG_ID_BUTTON_CHANGE_LEN 9
-#define MAVLINK_MSG_ID_BUTTON_CHANGE_MIN_LEN 9
-#define MAVLINK_MSG_ID_257_LEN 9
-#define MAVLINK_MSG_ID_257_MIN_LEN 9
-
-#define MAVLINK_MSG_ID_BUTTON_CHANGE_CRC 131
-#define MAVLINK_MSG_ID_257_CRC 131
-
-
+enum { MAVLINK_MSG_ID_BUTTON_CHANGE_CRC = 131, MAVLINK_MSG_ID_257_CRC = 131 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_BUTTON_CHANGE { \

@@ -18,16 +18,15 @@
 
 #include "common/mavlink.h"
 
-namespace pure_uav {
-namespace odom_tool {
+namespace pure_uav::odom_tool {
 
 // ---------------------------------------------------------------------------
 // 合成轨迹
 // ---------------------------------------------------------------------------
 struct PoseSample {
-    float x = 0.0f, y = 0.0f, z = 0.0f;     // m，LOCAL_FRD（z 向下为正）
-    float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z
-    float vx = 0.0f, vy = 0.0f, vz = 0.0f;  // m/s，BODY_FRD
+    float x = 0.0F, y = 0.0F, z = 0.0F;     // m，LOCAL_FRD（z 向下为正）
+    float q[4] = {1.0F, 0.0F, 0.0F, 0.0F};  // w x y z
+    float vx = 0.0F, vy = 0.0F, vz = 0.0F;  // m/s，BODY_FRD
 };
 
 struct ScriptStep {
@@ -67,19 +66,24 @@ inline PoseSample sampleScript(double t_s) {
     PoseSample p;
     auto setYaw = [&](double yaw_rad) {
         p.q[0] = static_cast<float>(std::cos(yaw_rad * 0.5));
-        p.q[1] = 0.0f;
-        p.q[2] = 0.0f;
+        p.q[1] = 0.0F;
+        p.q[2] = 0.0F;
         p.q[3] = static_cast<float>(std::sin(yaw_rad * 0.5));
     };
     auto ramp = [](double t, double t0, double t1) {
-        if (t <= t0) return 0.0;
-        if (t >= t1) return 1.0;
+        if (t <= t0) {
+            return 0.0;
+        }
+        if (t >= t1) {
+            return 1.0;
+        }
         return (t - t0) / (t1 - t0);
     };
 
     if (t_s < 3.0) {
         return p;
-    } else if (t_s < 6.0) {  // 前移 0→1
+    }
+    if (t_s < 6.0) {  // 前移 0→1
         const double s = ramp(t_s, 3.0, 6.0);
         p.x = static_cast<float>(s * 1.0);
         p.vx = 1.0f / 3.0f;
@@ -126,7 +130,9 @@ inline PoseSample sampleScript(double t_s) {
 inline int scriptPhaseIndex(double t_s) {
     const auto& steps = scriptSteps();
     for (size_t i = 0; i < steps.size(); ++i) {
-        if (t_s < steps[i].end_s) return static_cast<int>(i);
+        if (t_s < steps[i].end_s) {
+            return static_cast<int>(i);
+        }
     }
     return static_cast<int>(steps.size()) - 1;
 }
@@ -159,10 +165,12 @@ struct ProbeStats {
     void add(const mavlink_odometry_t& o, int64_t host_ns) {
         (void)host_ns;
         ++odometry;
-        const int64_t t = static_cast<int64_t>(o.time_usec);
-        if (last_time_us >= 0 && t < last_time_us) ++time_backwards;
+        const auto t = static_cast<int64_t>(o.time_usec);
+        if (last_time_us >= 0 && t < last_time_us) {
+            ++time_backwards;
+        }
         if (prev_time_us >= 0) {
-            const double dt = static_cast<double>(t - prev_time_us);
+            const auto dt = static_cast<double>(t - prev_time_us);
             if (dt > 0) {
                 intervals_us.push_back(dt);
                 interval_sum_us += dt;
@@ -173,31 +181,43 @@ struct ProbeStats {
             }
         }
         prev_time_us = t;
-        if (first_time_us < 0) first_time_us = t;
+        if (first_time_us < 0) {
+            first_time_us = t;
+        }
         last_time_us = t;
 
-        if (have_reset && o.reset_counter != last_reset) ++reset_changes;
+        if (have_reset && o.reset_counter != last_reset) {
+            ++reset_changes;
+        }
         last_reset = o.reset_counter;
         have_reset = true;
 
-        if (o.quality < min_quality) min_quality = o.quality;
-        if (o.quality > max_quality) max_quality = o.quality;
-        if (o.quality < 50) ++bad_quality;
+        min_quality = std::min(o.quality, min_quality);
+        max_quality = std::max(o.quality, max_quality);
+        if (o.quality < 50) {
+            ++bad_quality;
+        }
 
-        const double qn = std::sqrt(static_cast<double>(o.q[0]) * o.q[0] + static_cast<double>(o.q[1]) * o.q[1] + static_cast<double>(o.q[2]) * o.q[2] + static_cast<double>(o.q[3]) * o.q[3]);
-        if (std::fabs(qn - 1.0) > 1e-2) ++bad_quat;
+        const double qn = std::sqrt((static_cast<double>(o.q[0]) * o.q[0]) + (static_cast<double>(o.q[1]) * o.q[1]) + (static_cast<double>(o.q[2]) * o.q[2]) + (static_cast<double>(o.q[3]) * o.q[3]));
+        if (std::fabs(qn - 1.0) > 1e-2) {
+            ++bad_quat;
+        }
 
-        if (o.frame_id != 20 || o.child_frame_id != 12) ++bad_frame;
+        if (o.frame_id != 20 || o.child_frame_id != 12) {
+            ++bad_frame;
+        }
     }
 
-    double medianIntervalUs() const {
-        if (intervals_us.empty()) return 0.0;
+    [[nodiscard]] double medianIntervalUs() const {
+        if (intervals_us.empty()) {
+            return 0.0;
+        }
         std::vector<double> v = intervals_us;
         std::sort(v.begin(), v.end());
         return v[v.size() / 2];
     }
 
-    double rateHz() const {
+    [[nodiscard]] double rateHz() const {
         const double med = medianIntervalUs();
         return med > 1.0 ? 1e6 / med : 0.0;
     }
@@ -205,12 +225,15 @@ struct ProbeStats {
     // 检查"明显不对"的间隔：>3×中位
     void countGaps() {
         const double med = medianIntervalUs();
-        if (med <= 1.0) return;
+        if (med <= 1.0) {
+            return;
+        }
         for (double dt : intervals_us) {
-            if (dt > 3.0 * med) ++gaps;
+            if (dt > 3.0 * med) {
+                ++gaps;
+            }
         }
     }
 };
 
-}  // namespace odom_tool
-}  // namespace pure_uav
+}  // namespace pure_uav::odom_tool

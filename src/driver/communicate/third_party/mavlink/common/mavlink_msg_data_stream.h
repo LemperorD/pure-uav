@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_DATA_STREAM 67
+enum { MAVLINK_MSG_ID_DATA_STREAM = 67 };
 
+using mavlink_data_stream_t = struct __mavlink_data_stream_t {
+    uint16_t message_rate; /*< [Hz] The message rate*/
+    uint8_t stream_id;     /*<  The ID of the requested data stream.*/
+    uint8_t on_off;        /*<  1 stream is enabled, 0 stream is stopped.*/
+};
 
-typedef struct __mavlink_data_stream_t {
- uint16_t message_rate; /*< [Hz] The message rate*/
- uint8_t stream_id; /*<  The ID of the requested data stream.*/
- uint8_t on_off; /*<  1 stream is enabled, 0 stream is stopped.*/
-} mavlink_data_stream_t;
+enum { MAVLINK_MSG_ID_DATA_STREAM_LEN = 4, MAVLINK_MSG_ID_DATA_STREAM_MIN_LEN = 4, MAVLINK_MSG_ID_67_LEN = 4, MAVLINK_MSG_ID_67_MIN_LEN = 4 };
 
-#define MAVLINK_MSG_ID_DATA_STREAM_LEN 4
-#define MAVLINK_MSG_ID_DATA_STREAM_MIN_LEN 4
-#define MAVLINK_MSG_ID_67_LEN 4
-#define MAVLINK_MSG_ID_67_MIN_LEN 4
-
-#define MAVLINK_MSG_ID_DATA_STREAM_CRC 21
-#define MAVLINK_MSG_ID_67_CRC 21
-
-
+enum { MAVLINK_MSG_ID_DATA_STREAM_CRC = 21, MAVLINK_MSG_ID_67_CRC = 21 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_DATA_STREAM { \

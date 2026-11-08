@@ -3,27 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE 103
+enum { MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE = 103 };
 
+using mavlink_vision_speed_estimate_t = struct __mavlink_vision_speed_estimate_t {
+    uint64_t usec;         /*< [us] Timestamp (UNIX time or time since system boot)*/
+    float x;               /*< [m/s] Global X speed*/
+    float y;               /*< [m/s] Global Y speed*/
+    float z;               /*< [m/s] Global Z speed*/
+    float covariance[9];   /*<  Row-major representation of 3x3 linear velocity covariance matrix (states: vx, vy, vz; 1st three entries - 1st row, etc.). If unknown, assign NaN value to first element in the array.*/
+    uint8_t reset_counter; /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
+};
 
-typedef struct __mavlink_vision_speed_estimate_t {
- uint64_t usec; /*< [us] Timestamp (UNIX time or time since system boot)*/
- float x; /*< [m/s] Global X speed*/
- float y; /*< [m/s] Global Y speed*/
- float z; /*< [m/s] Global Z speed*/
- float covariance[9]; /*<  Row-major representation of 3x3 linear velocity covariance matrix (states: vx, vy, vz; 1st three entries - 1st row, etc.). If unknown, assign NaN value to first element in the array.*/
- uint8_t reset_counter; /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
-} mavlink_vision_speed_estimate_t;
+enum { MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_LEN = 57, MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_MIN_LEN = 20, MAVLINK_MSG_ID_103_LEN = 57, MAVLINK_MSG_ID_103_MIN_LEN = 20 };
 
-#define MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_LEN 57
-#define MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_MIN_LEN 20
-#define MAVLINK_MSG_ID_103_LEN 57
-#define MAVLINK_MSG_ID_103_MIN_LEN 20
+enum { MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_CRC = 208, MAVLINK_MSG_ID_103_CRC = 208 };
 
-#define MAVLINK_MSG_ID_VISION_SPEED_ESTIMATE_CRC 208
-#define MAVLINK_MSG_ID_103_CRC 208
-
-#define MAVLINK_MSG_VISION_SPEED_ESTIMATE_FIELD_COVARIANCE_LEN 9
+enum { MAVLINK_MSG_VISION_SPEED_ESTIMATE_FIELD_COVARIANCE_LEN = 9 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VISION_SPEED_ESTIMATE { \

@@ -65,13 +65,13 @@ public:
   // 先按旋转把上一帧的点投到这一帧，KLT 只需覆盖平移造成的残余位移，
   // 位移从 8–73 px 降到 2.6–8 px。转弯时的失效主要就来自这段位移。
   void set_predicted_rotation(const Eigen::Matrix3d &R_c1_to_c2) {
-    std::lock_guard<std::mutex> lk(mtx_pred_R);
-    R_pred_ = R_c1_to_c2;
-    has_pred_ = true;
+      std::scoped_lock lk(mtx_pred_R);
+      R_pred_ = R_c1_to_c2;
+      has_pred_ = true;
   }
   void clear_predicted_rotation() {
-    std::lock_guard<std::mutex> lk(mtx_pred_R);
-    has_pred_ = false;
+      std::scoped_lock lk(mtx_pred_R);
+      has_pred_ = false;
   }
 
   void feed_new_camera(const CameraData &message) override;

@@ -3,26 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_CAMERA_SETTINGS 260
+enum { MAVLINK_MSG_ID_CAMERA_SETTINGS = 260 };
 
-MAVPACKED(
-typedef struct __mavlink_camera_settings_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint8_t mode_id; /*<  Camera mode*/
- float zoomLevel; /*<  Current zoom level as a percentage of the full range (0.0 to 100.0, NaN if not known)*/
- float focusLevel; /*<  Current focus level as a percentage of the full range (0.0 to 100.0, NaN if not known)*/
- uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
-}) mavlink_camera_settings_t;
+MAVPACKED(typedef struct MavlinkCameraSettingsT {
+    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
+    uint8_t mode_id;          /*<  Camera mode*/
+    float zoomLevel;          /*<  Current zoom level as a percentage of the full range (0.0 to 100.0, NaN if not known)*/
+    float focusLevel;         /*<  Current focus level as a percentage of the full range (0.0 to 100.0, NaN if not known)*/
+    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+})
+mavlink_camera_settings_t;
 
-#define MAVLINK_MSG_ID_CAMERA_SETTINGS_LEN 14
-#define MAVLINK_MSG_ID_CAMERA_SETTINGS_MIN_LEN 5
-#define MAVLINK_MSG_ID_260_LEN 14
-#define MAVLINK_MSG_ID_260_MIN_LEN 5
+enum { MAVLINK_MSG_ID_CAMERA_SETTINGS_LEN = 14, MAVLINK_MSG_ID_CAMERA_SETTINGS_MIN_LEN = 5, MAVLINK_MSG_ID_260_LEN = 14, MAVLINK_MSG_ID_260_MIN_LEN = 5 };
 
-#define MAVLINK_MSG_ID_CAMERA_SETTINGS_CRC 146
-#define MAVLINK_MSG_ID_260_CRC 146
-
-
+enum { MAVLINK_MSG_ID_CAMERA_SETTINGS_CRC = 146, MAVLINK_MSG_ID_260_CRC = 146 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CAMERA_SETTINGS { \

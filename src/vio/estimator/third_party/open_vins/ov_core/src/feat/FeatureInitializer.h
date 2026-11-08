@@ -75,10 +75,14 @@ public:
     }
 
     /// Accessor for rotation
-    const Eigen::Matrix<double, 3, 3> &Rot() { return _Rot; }
+    const Eigen::Matrix<double, 3, 3>& Rot() const {
+        return _Rot;
+    }
 
     /// Accessor for position
-    const Eigen::Matrix<double, 3, 1> &pos() { return _pos; }
+    const Eigen::Matrix<double, 3, 1>& pos() const {
+        return _pos;
+    }
   };
 
   /**
@@ -97,7 +101,7 @@ public:
    * in global frame)
    * @return Returns false if it fails to triangulate (based on the thresholds)
    */
-  bool single_triangulation(std::shared_ptr<Feature> feat, std::unordered_map<size_t, std::unordered_map<double, ClonePose>> &clonesCAM);
+  bool single_triangulation(std::shared_ptr<Feature> feat, std::unordered_map<size_t, std::unordered_map<double, ClonePose>>& clonesCAM) const;
 
   /**
    * @brief Uses a linear triangulation to get initial estimate for the feature, treating the anchor observation as a true bearing.
@@ -110,7 +114,7 @@ public:
    * in global frame)
    * @return Returns false if it fails to triangulate (based on the thresholds)
    */
-  bool single_triangulation_1d(std::shared_ptr<Feature> feat, std::unordered_map<size_t, std::unordered_map<double, ClonePose>> &clonesCAM);
+  bool single_triangulation_1d(std::shared_ptr<Feature> feat, std::unordered_map<size_t, std::unordered_map<double, ClonePose>>& clonesCAM) const;
 
   /**
    * @brief Uses a nonlinear triangulation to refine initial linear estimate of the feature
@@ -125,7 +129,9 @@ public:
    * @brief Gets the current configuration of the feature initializer
    * @return Const feature initializer config
    */
-  const FeatureInitializerOptions config() { return _options; }
+  FeatureInitializerOptions config() {
+      return _options;
+  }
 
 protected:
   /// Contains options for the initializer process
@@ -139,8 +145,7 @@ protected:
    * @param beta y/z in anchor
    * @param rho 1/z inverse depth
    */
-  double compute_error(std::unordered_map<size_t, std::unordered_map<double, ClonePose>> &clonesCAM, std::shared_ptr<Feature> feat,
-                       double alpha, double beta, double rho);
+  static double compute_error(std::unordered_map<size_t, std::unordered_map<double, ClonePose>>& clonesCAM, std::shared_ptr<Feature> feat, double alpha, double beta, double rho);
 };
 
 } // namespace ov_core

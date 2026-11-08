@@ -3,28 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED 32
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED = 32 };
 
+using mavlink_local_position_ned_t = struct __mavlink_local_position_ned_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    float x;               /*< [m] X Position*/
+    float y;               /*< [m] Y Position*/
+    float z;               /*< [m] Z Position*/
+    float vx;              /*< [m/s] X Speed*/
+    float vy;              /*< [m/s] Y Speed*/
+    float vz;              /*< [m/s] Z Speed*/
+};
 
-typedef struct __mavlink_local_position_ned_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float x; /*< [m] X Position*/
- float y; /*< [m] Y Position*/
- float z; /*< [m] Z Position*/
- float vx; /*< [m/s] X Speed*/
- float vy; /*< [m/s] Y Speed*/
- float vz; /*< [m/s] Z Speed*/
-} mavlink_local_position_ned_t;
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_LEN = 28, MAVLINK_MSG_ID_LOCAL_POSITION_NED_MIN_LEN = 28, MAVLINK_MSG_ID_32_LEN = 28, MAVLINK_MSG_ID_32_MIN_LEN = 28 };
 
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_LEN 28
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_MIN_LEN 28
-#define MAVLINK_MSG_ID_32_LEN 28
-#define MAVLINK_MSG_ID_32_MIN_LEN 28
-
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_CRC 185
-#define MAVLINK_MSG_ID_32_CRC 185
-
-
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_CRC = 185, MAVLINK_MSG_ID_32_CRC = 185 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOCAL_POSITION_NED { \

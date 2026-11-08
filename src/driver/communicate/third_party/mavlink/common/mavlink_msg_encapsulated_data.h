@@ -3,23 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ENCAPSULATED_DATA 131
+enum { MAVLINK_MSG_ID_ENCAPSULATED_DATA = 131 };
 
+using mavlink_encapsulated_data_t = struct __mavlink_encapsulated_data_t {
+    uint16_t seqnr;    /*<  sequence number (starting with 0 on every transmission)*/
+    uint8_t data[253]; /*<  image data bytes*/
+};
 
-typedef struct __mavlink_encapsulated_data_t {
- uint16_t seqnr; /*<  sequence number (starting with 0 on every transmission)*/
- uint8_t data[253]; /*<  image data bytes*/
-} mavlink_encapsulated_data_t;
+enum { MAVLINK_MSG_ID_ENCAPSULATED_DATA_LEN = 255, MAVLINK_MSG_ID_ENCAPSULATED_DATA_MIN_LEN = 255, MAVLINK_MSG_ID_131_LEN = 255, MAVLINK_MSG_ID_131_MIN_LEN = 255 };
 
-#define MAVLINK_MSG_ID_ENCAPSULATED_DATA_LEN 255
-#define MAVLINK_MSG_ID_ENCAPSULATED_DATA_MIN_LEN 255
-#define MAVLINK_MSG_ID_131_LEN 255
-#define MAVLINK_MSG_ID_131_MIN_LEN 255
+enum { MAVLINK_MSG_ID_ENCAPSULATED_DATA_CRC = 223, MAVLINK_MSG_ID_131_CRC = 223 };
 
-#define MAVLINK_MSG_ID_ENCAPSULATED_DATA_CRC 223
-#define MAVLINK_MSG_ID_131_CRC 223
-
-#define MAVLINK_MSG_ENCAPSULATED_DATA_FIELD_DATA_LEN 253
+enum { MAVLINK_MSG_ENCAPSULATED_DATA_FIELD_DATA_LEN = 253 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ENCAPSULATED_DATA { \

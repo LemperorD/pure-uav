@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COMMAND_CANCEL 80
+enum { MAVLINK_MSG_ID_COMMAND_CANCEL = 80 };
 
+using mavlink_command_cancel_t = struct __mavlink_command_cancel_t {
+    uint16_t command;         /*<  Command ID (of command to cancel).*/
+    uint8_t target_system;    /*<  System executing long running command. Should not be broadcast (0).*/
+    uint8_t target_component; /*<  Component executing long running command.*/
+};
 
-typedef struct __mavlink_command_cancel_t {
- uint16_t command; /*<  Command ID (of command to cancel).*/
- uint8_t target_system; /*<  System executing long running command. Should not be broadcast (0).*/
- uint8_t target_component; /*<  Component executing long running command.*/
-} mavlink_command_cancel_t;
+enum { MAVLINK_MSG_ID_COMMAND_CANCEL_LEN = 4, MAVLINK_MSG_ID_COMMAND_CANCEL_MIN_LEN = 4, MAVLINK_MSG_ID_80_LEN = 4, MAVLINK_MSG_ID_80_MIN_LEN = 4 };
 
-#define MAVLINK_MSG_ID_COMMAND_CANCEL_LEN 4
-#define MAVLINK_MSG_ID_COMMAND_CANCEL_MIN_LEN 4
-#define MAVLINK_MSG_ID_80_LEN 4
-#define MAVLINK_MSG_ID_80_MIN_LEN 4
-
-#define MAVLINK_MSG_ID_COMMAND_CANCEL_CRC 14
-#define MAVLINK_MSG_ID_80_CRC 14
-
-
+enum { MAVLINK_MSG_ID_COMMAND_CANCEL_CRC = 14, MAVLINK_MSG_ID_80_CRC = 14 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMMAND_CANCEL { \
@@ -315,11 +308,10 @@ static inline void mavlink_msg_command_cancel_decode(const mavlink_message_t* ms
         memset(command_cancel, 0, MAVLINK_MSG_ID_COMMAND_CANCEL_LEN);
     memcpy(command_cancel, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         command_cancel->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

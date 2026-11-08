@@ -9,9 +9,7 @@
 
 #include "guidance_types.hpp"
 
-namespace pure_uav {
-namespace guidance {
-namespace adapter {
+namespace pure_uav::guidance::adapter {
 
 // ============================================================================
 //  §0  结果类型
@@ -70,18 +68,18 @@ struct GuidanceReport {
     int n_issues = 0;
 
     // 有没有 error（warning 不算不通过：联调时它是提示，不是阻塞）
-    bool ok() const noexcept {
+    [[nodiscard]] bool ok() const noexcept {
         return n_error == 0;
     }
 
     // 一行摘要，例如："13 项通过 / 1 项告警 / 1 项错误"
-    std::string summary() const;
+    [[nodiscard]] std::string summary() const;
 
     // 多行明细（每条 issue 一行；无 issue 时给"全部通过"）
-    std::string detail() const;
+    [[nodiscard]] std::string detail() const;
 
     // 供测试/日志：是否存在某个 code 的 error
-    bool has(GuidanceCheckCode code) const noexcept;
+    [[nodiscard]] bool has(GuidanceCheckCode code) const noexcept;
 };
 
 // 把一次检查追加进 report（满足不变量则只记 n_ok）
@@ -173,6 +171,4 @@ bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad = nullptr
 // 与 check_frame 的区别：本函数**忽略 warning**，只看硬不变量。
 bool invariants_hold(const GuidanceState& st, const PureGuidanceCmd& cmd, double a_max_mps2 = 0.0, bool has_a_max = false);
 
-}  // namespace adapter
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::adapter

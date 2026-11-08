@@ -3,30 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION 280
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION = 280 };
 
+using mavlink_gimbal_manager_information_t = struct __mavlink_gimbal_manager_information_t {
+    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
+    uint32_t cap_flags;       /*<  Bitmap of gimbal capability flags.*/
+    float roll_min;           /*< [rad] Minimum hardware roll angle (positive: rolling to the right, negative: rolling to the left)*/
+    float roll_max;           /*< [rad] Maximum hardware roll angle (positive: rolling to the right, negative: rolling to the left)*/
+    float pitch_min;          /*< [rad] Minimum pitch angle (positive: up, negative: down)*/
+    float pitch_max;          /*< [rad] Maximum pitch angle (positive: up, negative: down)*/
+    float yaw_min;            /*< [rad] Minimum yaw angle (positive: to the right, negative: to the left)*/
+    float yaw_max;            /*< [rad] Maximum yaw angle (positive: to the right, negative: to the left)*/
+    uint8_t gimbal_device_id; /*<  Gimbal device ID that this gimbal manager is responsible for. Component ID of gimbal device (or 1-6 for non-MAVLink gimbal).*/
+};
 
-typedef struct __mavlink_gimbal_manager_information_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint32_t cap_flags; /*<  Bitmap of gimbal capability flags.*/
- float roll_min; /*< [rad] Minimum hardware roll angle (positive: rolling to the right, negative: rolling to the left)*/
- float roll_max; /*< [rad] Maximum hardware roll angle (positive: rolling to the right, negative: rolling to the left)*/
- float pitch_min; /*< [rad] Minimum pitch angle (positive: up, negative: down)*/
- float pitch_max; /*< [rad] Maximum pitch angle (positive: up, negative: down)*/
- float yaw_min; /*< [rad] Minimum yaw angle (positive: to the right, negative: to the left)*/
- float yaw_max; /*< [rad] Maximum yaw angle (positive: to the right, negative: to the left)*/
- uint8_t gimbal_device_id; /*<  Gimbal device ID that this gimbal manager is responsible for. Component ID of gimbal device (or 1-6 for non-MAVLink gimbal).*/
-} mavlink_gimbal_manager_information_t;
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_LEN = 33, MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_MIN_LEN = 33, MAVLINK_MSG_ID_280_LEN = 33, MAVLINK_MSG_ID_280_MIN_LEN = 33 };
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_LEN 33
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_MIN_LEN 33
-#define MAVLINK_MSG_ID_280_LEN 33
-#define MAVLINK_MSG_ID_280_MIN_LEN 33
-
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_CRC 70
-#define MAVLINK_MSG_ID_280_CRC 70
-
-
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION_CRC = 70, MAVLINK_MSG_ID_280_CRC = 70 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_MANAGER_INFORMATION { \

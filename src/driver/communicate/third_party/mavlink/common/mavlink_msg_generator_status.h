@@ -3,32 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GENERATOR_STATUS 373
+enum { MAVLINK_MSG_ID_GENERATOR_STATUS = 373 };
 
+using mavlink_generator_status_t = struct __mavlink_generator_status_t {
+    uint64_t status;                /*<  Status flags.*/
+    float battery_current;          /*< [A] Current into/out of battery. Positive for out. Negative for in. NaN: field not provided.*/
+    float load_current;             /*< [A] Current going to the UAV. If battery current not available this is the DC current from the generator. Positive for out. Negative for in. NaN: field not provided*/
+    float power_generated;          /*< [W] The power being generated. NaN: field not provided*/
+    float bus_voltage;              /*< [V] Voltage of the bus seen at the generator, or battery bus if battery bus is controlled by generator and at a different voltage to main bus.*/
+    float bat_current_setpoint;     /*< [A] The target battery current. Positive for out. Negative for in. NaN: field not provided*/
+    uint32_t runtime;               /*< [s] Seconds this generator has run since it was rebooted. UINT32_MAX: field not provided.*/
+    int32_t time_until_maintenance; /*< [s] Seconds until this generator requires maintenance.  A negative value indicates maintenance is past-due. INT32_MAX: field not provided.*/
+    uint16_t generator_speed;       /*< [rpm] Speed of electrical generator or alternator. UINT16_MAX: field not provided.*/
+    int16_t rectifier_temperature;  /*< [degC] The temperature of the rectifier or power converter. INT16_MAX: field not provided.*/
+    int16_t generator_temperature;  /*< [degC] The temperature of the mechanical motor, fuel cell core or generator. INT16_MAX: field not provided.*/
+};
 
-typedef struct __mavlink_generator_status_t {
- uint64_t status; /*<  Status flags.*/
- float battery_current; /*< [A] Current into/out of battery. Positive for out. Negative for in. NaN: field not provided.*/
- float load_current; /*< [A] Current going to the UAV. If battery current not available this is the DC current from the generator. Positive for out. Negative for in. NaN: field not provided*/
- float power_generated; /*< [W] The power being generated. NaN: field not provided*/
- float bus_voltage; /*< [V] Voltage of the bus seen at the generator, or battery bus if battery bus is controlled by generator and at a different voltage to main bus.*/
- float bat_current_setpoint; /*< [A] The target battery current. Positive for out. Negative for in. NaN: field not provided*/
- uint32_t runtime; /*< [s] Seconds this generator has run since it was rebooted. UINT32_MAX: field not provided.*/
- int32_t time_until_maintenance; /*< [s] Seconds until this generator requires maintenance.  A negative value indicates maintenance is past-due. INT32_MAX: field not provided.*/
- uint16_t generator_speed; /*< [rpm] Speed of electrical generator or alternator. UINT16_MAX: field not provided.*/
- int16_t rectifier_temperature; /*< [degC] The temperature of the rectifier or power converter. INT16_MAX: field not provided.*/
- int16_t generator_temperature; /*< [degC] The temperature of the mechanical motor, fuel cell core or generator. INT16_MAX: field not provided.*/
-} mavlink_generator_status_t;
+enum { MAVLINK_MSG_ID_GENERATOR_STATUS_LEN = 42, MAVLINK_MSG_ID_GENERATOR_STATUS_MIN_LEN = 42, MAVLINK_MSG_ID_373_LEN = 42, MAVLINK_MSG_ID_373_MIN_LEN = 42 };
 
-#define MAVLINK_MSG_ID_GENERATOR_STATUS_LEN 42
-#define MAVLINK_MSG_ID_GENERATOR_STATUS_MIN_LEN 42
-#define MAVLINK_MSG_ID_373_LEN 42
-#define MAVLINK_MSG_ID_373_MIN_LEN 42
-
-#define MAVLINK_MSG_ID_GENERATOR_STATUS_CRC 117
-#define MAVLINK_MSG_ID_373_CRC 117
-
-
+enum { MAVLINK_MSG_ID_GENERATOR_STATUS_CRC = 117, MAVLINK_MSG_ID_373_CRC = 117 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GENERATOR_STATUS { \

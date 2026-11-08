@@ -3,31 +3,26 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV 63
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV = 63 };
 
+using mavlink_global_position_int_cov_t = struct __mavlink_global_position_int_cov_t {
+    uint64_t time_usec;     /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    int32_t lat;            /*< [degE7] Latitude*/
+    int32_t lon;            /*< [degE7] Longitude*/
+    int32_t alt;            /*< [mm] Altitude in meters above MSL*/
+    int32_t relative_alt;   /*< [mm] Altitude above ground*/
+    float vx;               /*< [m/s] Ground X Speed (Latitude)*/
+    float vy;               /*< [m/s] Ground Y Speed (Longitude)*/
+    float vz;               /*< [m/s] Ground Z Speed (Altitude)*/
+    float covariance[36];   /*<  Row-major representation of a 6x6 position and velocity 6x6 cross-covariance matrix (states: lat, lon, alt, vx, vy, vz; first six entries are the first ROW, next six entries are the second row, etc.). If unknown, assign NaN value to first element in the array.*/
+    uint8_t estimator_type; /*<  Class id of the estimator this estimate originated from.*/
+};
 
-typedef struct __mavlink_global_position_int_cov_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- int32_t lat; /*< [degE7] Latitude*/
- int32_t lon; /*< [degE7] Longitude*/
- int32_t alt; /*< [mm] Altitude in meters above MSL*/
- int32_t relative_alt; /*< [mm] Altitude above ground*/
- float vx; /*< [m/s] Ground X Speed (Latitude)*/
- float vy; /*< [m/s] Ground Y Speed (Longitude)*/
- float vz; /*< [m/s] Ground Z Speed (Altitude)*/
- float covariance[36]; /*<  Row-major representation of a 6x6 position and velocity 6x6 cross-covariance matrix (states: lat, lon, alt, vx, vy, vz; first six entries are the first ROW, next six entries are the second row, etc.). If unknown, assign NaN value to first element in the array.*/
- uint8_t estimator_type; /*<  Class id of the estimator this estimate originated from.*/
-} mavlink_global_position_int_cov_t;
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_LEN = 181, MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_MIN_LEN = 181, MAVLINK_MSG_ID_63_LEN = 181, MAVLINK_MSG_ID_63_MIN_LEN = 181 };
 
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_LEN 181
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_MIN_LEN 181
-#define MAVLINK_MSG_ID_63_LEN 181
-#define MAVLINK_MSG_ID_63_MIN_LEN 181
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_CRC = 119, MAVLINK_MSG_ID_63_CRC = 119 };
 
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_COV_CRC 119
-#define MAVLINK_MSG_ID_63_CRC 119
-
-#define MAVLINK_MSG_GLOBAL_POSITION_INT_COV_FIELD_COVARIANCE_LEN 36
+enum { MAVLINK_MSG_GLOBAL_POSITION_INT_COV_FIELD_COVARIANCE_LEN = 36 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GLOBAL_POSITION_INT_COV { \

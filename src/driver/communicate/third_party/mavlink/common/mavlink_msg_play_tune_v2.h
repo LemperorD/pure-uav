@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PLAY_TUNE_V2 400
+enum { MAVLINK_MSG_ID_PLAY_TUNE_V2 = 400 };
 
+using mavlink_play_tune_v2_t = struct __mavlink_play_tune_v2_t {
+    uint32_t format;          /*<  Tune format*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    char tune[248];           /*<  Tune definition as a NULL-terminated string.*/
+};
 
-typedef struct __mavlink_play_tune_v2_t {
- uint32_t format; /*<  Tune format*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- char tune[248]; /*<  Tune definition as a NULL-terminated string.*/
-} mavlink_play_tune_v2_t;
+enum { MAVLINK_MSG_ID_PLAY_TUNE_V2_LEN = 254, MAVLINK_MSG_ID_PLAY_TUNE_V2_MIN_LEN = 254, MAVLINK_MSG_ID_400_LEN = 254, MAVLINK_MSG_ID_400_MIN_LEN = 254 };
 
-#define MAVLINK_MSG_ID_PLAY_TUNE_V2_LEN 254
-#define MAVLINK_MSG_ID_PLAY_TUNE_V2_MIN_LEN 254
-#define MAVLINK_MSG_ID_400_LEN 254
-#define MAVLINK_MSG_ID_400_MIN_LEN 254
+enum { MAVLINK_MSG_ID_PLAY_TUNE_V2_CRC = 110, MAVLINK_MSG_ID_400_CRC = 110 };
 
-#define MAVLINK_MSG_ID_PLAY_TUNE_V2_CRC 110
-#define MAVLINK_MSG_ID_400_CRC 110
-
-#define MAVLINK_MSG_PLAY_TUNE_V2_FIELD_TUNE_LEN 248
+enum { MAVLINK_MSG_PLAY_TUNE_V2_FIELD_TUNE_LEN = 248 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PLAY_TUNE_V2 { \
@@ -323,11 +318,10 @@ static inline void mavlink_msg_play_tune_v2_decode(const mavlink_message_t* msg,
         memset(play_tune_v2, 0, MAVLINK_MSG_ID_PLAY_TUNE_V2_LEN);
     memcpy(play_tune_v2, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         play_tune_v2->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

@@ -3,26 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN 48
+enum { MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN = 48 };
 
-MAVPACKED(
-typedef struct __mavlink_set_gps_global_origin_t {
- int32_t latitude; /*< [degE7] Latitude (WGS84)*/
- int32_t longitude; /*< [degE7] Longitude (WGS84)*/
- int32_t altitude; /*< [mm] Altitude (MSL). Positive for up.*/
- uint8_t target_system; /*<  System ID*/
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
-}) mavlink_set_gps_global_origin_t;
+MAVPACKED(typedef struct MavlinkSetGpsGlobalOriginT {
+    int32_t latitude;      /*< [degE7] Latitude (WGS84)*/
+    int32_t longitude;     /*< [degE7] Longitude (WGS84)*/
+    int32_t altitude;      /*< [mm] Altitude (MSL). Positive for up.*/
+    uint8_t target_system; /*<  System ID*/
+    uint64_t time_usec;    /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+})
+mavlink_set_gps_global_origin_t;
 
-#define MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_LEN 21
-#define MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_MIN_LEN 13
-#define MAVLINK_MSG_ID_48_LEN 21
-#define MAVLINK_MSG_ID_48_MIN_LEN 13
+enum { MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_LEN = 21, MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_MIN_LEN = 13, MAVLINK_MSG_ID_48_LEN = 21, MAVLINK_MSG_ID_48_MIN_LEN = 13 };
 
-#define MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_CRC 41
-#define MAVLINK_MSG_ID_48_CRC 41
-
-
+enum { MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_CRC = 41, MAVLINK_MSG_ID_48_CRC = 41 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SET_GPS_GLOBAL_ORIGIN { \
@@ -361,11 +355,10 @@ static inline void mavlink_msg_set_gps_global_origin_decode(const mavlink_messag
         memset(set_gps_global_origin, 0, MAVLINK_MSG_ID_SET_GPS_GLOBAL_ORIGIN_LEN);
     memcpy(set_gps_global_origin, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         set_gps_global_origin->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

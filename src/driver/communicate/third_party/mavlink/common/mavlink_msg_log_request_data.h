@@ -3,26 +3,19 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOG_REQUEST_DATA 119
+enum { MAVLINK_MSG_ID_LOG_REQUEST_DATA = 119 };
 
+using mavlink_log_request_data_t = struct __mavlink_log_request_data_t {
+    uint32_t ofs;             /*<  Offset into the log*/
+    uint32_t count;           /*< [bytes] Number of bytes*/
+    uint16_t id;              /*<  Log id (from LOG_ENTRY reply)*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_log_request_data_t {
- uint32_t ofs; /*<  Offset into the log*/
- uint32_t count; /*< [bytes] Number of bytes*/
- uint16_t id; /*<  Log id (from LOG_ENTRY reply)*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_log_request_data_t;
+enum { MAVLINK_MSG_ID_LOG_REQUEST_DATA_LEN = 12, MAVLINK_MSG_ID_LOG_REQUEST_DATA_MIN_LEN = 12, MAVLINK_MSG_ID_119_LEN = 12, MAVLINK_MSG_ID_119_MIN_LEN = 12 };
 
-#define MAVLINK_MSG_ID_LOG_REQUEST_DATA_LEN 12
-#define MAVLINK_MSG_ID_LOG_REQUEST_DATA_MIN_LEN 12
-#define MAVLINK_MSG_ID_119_LEN 12
-#define MAVLINK_MSG_ID_119_MIN_LEN 12
-
-#define MAVLINK_MSG_ID_LOG_REQUEST_DATA_CRC 116
-#define MAVLINK_MSG_ID_119_CRC 116
-
-
+enum { MAVLINK_MSG_ID_LOG_REQUEST_DATA_CRC = 116, MAVLINK_MSG_ID_119_CRC = 116 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOG_REQUEST_DATA { \
@@ -361,11 +354,10 @@ static inline void mavlink_msg_log_request_data_decode(const mavlink_message_t* 
         memset(log_request_data, 0, MAVLINK_MSG_ID_LOG_REQUEST_DATA_LEN);
     memcpy(log_request_data, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         log_request_data->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

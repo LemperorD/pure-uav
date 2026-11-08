@@ -3,28 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK 12915
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK = 12915 };
 
+using mavlink_open_drone_id_message_pack_t = struct __mavlink_open_drone_id_message_pack_t {
+    uint8_t target_system;       /*<  System ID (0 for broadcast).*/
+    uint8_t target_component;    /*<  Component ID (0 for broadcast).*/
+    uint8_t id_or_mac[20];       /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+    uint8_t single_message_size; /*< [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.*/
+    uint8_t msg_pack_size;       /*<  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.*/
+    uint8_t messages[225];       /*<  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.*/
+};
 
-typedef struct __mavlink_open_drone_id_message_pack_t {
- uint8_t target_system; /*<  System ID (0 for broadcast).*/
- uint8_t target_component; /*<  Component ID (0 for broadcast).*/
- uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
- uint8_t single_message_size; /*< [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.*/
- uint8_t msg_pack_size; /*<  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.*/
- uint8_t messages[225]; /*<  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.*/
-} mavlink_open_drone_id_message_pack_t;
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN = 249, MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_MIN_LEN = 249, MAVLINK_MSG_ID_12915_LEN = 249, MAVLINK_MSG_ID_12915_MIN_LEN = 249 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN 249
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_MIN_LEN 249
-#define MAVLINK_MSG_ID_12915_LEN 249
-#define MAVLINK_MSG_ID_12915_MIN_LEN 249
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_CRC = 94, MAVLINK_MSG_ID_12915_CRC = 94 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_CRC 94
-#define MAVLINK_MSG_ID_12915_CRC 94
-
-#define MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_ID_OR_MAC_LEN 20
-#define MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_MESSAGES_LEN 225
+enum { MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_ID_OR_MAC_LEN = 20, MAVLINK_MSG_OPEN_DRONE_ID_MESSAGE_PACK_FIELD_MESSAGES_LEN = 225 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_MESSAGE_PACK { \
@@ -380,11 +374,10 @@ static inline void mavlink_msg_open_drone_id_message_pack_decode(const mavlink_m
         memset(open_drone_id_message_pack, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_MESSAGE_PACK_LEN);
     memcpy(open_drone_id_message_pack, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_message_pack->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

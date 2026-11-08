@@ -3,29 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_FUEL_STATUS 371
+enum { MAVLINK_MSG_ID_FUEL_STATUS = 371 };
 
+using mavlink_fuel_status_t = struct __mavlink_fuel_status_t {
+    float maximum_fuel;        /*<  Capacity when full. Must be provided.*/
+    float consumed_fuel;       /*<  Consumed fuel (measured). This value should not be inferred: if not measured set to NaN. NaN: field not provided.*/
+    float remaining_fuel;      /*<  Remaining fuel until empty (measured). The value should not be inferred: if not measured set to NaN. NaN: field not provided.*/
+    float flow_rate;           /*<  Positive value when emptying/using, and negative if filling/replacing. NaN: field not provided.*/
+    float temperature;         /*< [K] Fuel temperature. NaN: field not provided.*/
+    uint32_t fuel_type;        /*<  Fuel type. Defines units for fuel capacity and consumption fields above.*/
+    uint8_t id;                /*<  Fuel ID. Must match ID of other messages for same fuel system, such as BATTERY_STATUS_V2.*/
+    uint8_t percent_remaining; /*< [%] Percentage of remaining fuel, relative to full. Values: [0-100], UINT8_MAX: field not provided.*/
+};
 
-typedef struct __mavlink_fuel_status_t {
- float maximum_fuel; /*<  Capacity when full. Must be provided.*/
- float consumed_fuel; /*<  Consumed fuel (measured). This value should not be inferred: if not measured set to NaN. NaN: field not provided.*/
- float remaining_fuel; /*<  Remaining fuel until empty (measured). The value should not be inferred: if not measured set to NaN. NaN: field not provided.*/
- float flow_rate; /*<  Positive value when emptying/using, and negative if filling/replacing. NaN: field not provided.*/
- float temperature; /*< [K] Fuel temperature. NaN: field not provided.*/
- uint32_t fuel_type; /*<  Fuel type. Defines units for fuel capacity and consumption fields above.*/
- uint8_t id; /*<  Fuel ID. Must match ID of other messages for same fuel system, such as BATTERY_STATUS_V2.*/
- uint8_t percent_remaining; /*< [%] Percentage of remaining fuel, relative to full. Values: [0-100], UINT8_MAX: field not provided.*/
-} mavlink_fuel_status_t;
+enum { MAVLINK_MSG_ID_FUEL_STATUS_LEN = 26, MAVLINK_MSG_ID_FUEL_STATUS_MIN_LEN = 26, MAVLINK_MSG_ID_371_LEN = 26, MAVLINK_MSG_ID_371_MIN_LEN = 26 };
 
-#define MAVLINK_MSG_ID_FUEL_STATUS_LEN 26
-#define MAVLINK_MSG_ID_FUEL_STATUS_MIN_LEN 26
-#define MAVLINK_MSG_ID_371_LEN 26
-#define MAVLINK_MSG_ID_371_MIN_LEN 26
-
-#define MAVLINK_MSG_ID_FUEL_STATUS_CRC 10
-#define MAVLINK_MSG_ID_371_CRC 10
-
-
+enum { MAVLINK_MSG_ID_FUEL_STATUS_CRC = 10, MAVLINK_MSG_ID_371_CRC = 10 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FUEL_STATUS { \

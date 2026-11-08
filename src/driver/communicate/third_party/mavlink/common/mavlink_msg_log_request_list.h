@@ -3,25 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOG_REQUEST_LIST 117
+enum { MAVLINK_MSG_ID_LOG_REQUEST_LIST = 117 };
 
+using mavlink_log_request_list_t = struct __mavlink_log_request_list_t {
+    uint16_t start;           /*<  First log id (0 for first available)*/
+    uint16_t end;             /*<  Last log id (0xffff for last available)*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_log_request_list_t {
- uint16_t start; /*<  First log id (0 for first available)*/
- uint16_t end; /*<  Last log id (0xffff for last available)*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_log_request_list_t;
+enum { MAVLINK_MSG_ID_LOG_REQUEST_LIST_LEN = 6, MAVLINK_MSG_ID_LOG_REQUEST_LIST_MIN_LEN = 6, MAVLINK_MSG_ID_117_LEN = 6, MAVLINK_MSG_ID_117_MIN_LEN = 6 };
 
-#define MAVLINK_MSG_ID_LOG_REQUEST_LIST_LEN 6
-#define MAVLINK_MSG_ID_LOG_REQUEST_LIST_MIN_LEN 6
-#define MAVLINK_MSG_ID_117_LEN 6
-#define MAVLINK_MSG_ID_117_MIN_LEN 6
-
-#define MAVLINK_MSG_ID_LOG_REQUEST_LIST_CRC 128
-#define MAVLINK_MSG_ID_117_CRC 128
-
-
+enum { MAVLINK_MSG_ID_LOG_REQUEST_LIST_CRC = 128, MAVLINK_MSG_ID_117_CRC = 128 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOG_REQUEST_LIST { \
@@ -333,11 +326,10 @@ static inline void mavlink_msg_log_request_list_decode(const mavlink_message_t* 
         memset(log_request_list, 0, MAVLINK_MSG_ID_LOG_REQUEST_LIST_LEN);
     memcpy(log_request_list, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         log_request_list->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

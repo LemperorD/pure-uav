@@ -3,33 +3,30 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC 396
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC = 396 };
 
+using mavlink_component_information_basic_t = struct __mavlink_component_information_basic_t {
+    uint64_t capabilities;       /*<  Component capability flags*/
+    uint32_t time_boot_ms;       /*< [ms] Timestamp (time since system boot).*/
+    uint32_t time_manufacture_s; /*< [s] Date of manufacture as a UNIX Epoch time (since 1.1.1970) in seconds.*/
+    char vendor_name[32];        /*<  Name of the component vendor. Needs to be zero terminated. The field is optional and can be empty/all zeros.*/
+    char model_name[32];         /*<  Name of the component model. Needs to be zero terminated. The field is optional and can be empty/all zeros.*/
+    char software_version[24];   /*<  Software version. The recommended format is SEMVER: 'major.minor.patch'  (any format may be used). The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
+    char hardware_version[24];   /*<  Hardware version. The recommended format is SEMVER: 'major.minor.patch'  (any format may be used). The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
+    char serial_number[32];      /*<  Hardware serial number. The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
+};
 
-typedef struct __mavlink_component_information_basic_t {
- uint64_t capabilities; /*<  Component capability flags*/
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint32_t time_manufacture_s; /*< [s] Date of manufacture as a UNIX Epoch time (since 1.1.1970) in seconds.*/
- char vendor_name[32]; /*<  Name of the component vendor. Needs to be zero terminated. The field is optional and can be empty/all zeros.*/
- char model_name[32]; /*<  Name of the component model. Needs to be zero terminated. The field is optional and can be empty/all zeros.*/
- char software_version[24]; /*<  Software version. The recommended format is SEMVER: 'major.minor.patch'  (any format may be used). The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
- char hardware_version[24]; /*<  Hardware version. The recommended format is SEMVER: 'major.minor.patch'  (any format may be used). The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
- char serial_number[32]; /*<  Hardware serial number. The field must be zero terminated if it has a value. The field is optional and can be empty/all zeros.*/
-} mavlink_component_information_basic_t;
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_LEN = 160, MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_MIN_LEN = 160, MAVLINK_MSG_ID_396_LEN = 160, MAVLINK_MSG_ID_396_MIN_LEN = 160 };
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_LEN 160
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_MIN_LEN 160
-#define MAVLINK_MSG_ID_396_LEN 160
-#define MAVLINK_MSG_ID_396_MIN_LEN 160
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_CRC = 50, MAVLINK_MSG_ID_396_CRC = 50 };
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_BASIC_CRC 50
-#define MAVLINK_MSG_ID_396_CRC 50
-
-#define MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_VENDOR_NAME_LEN 32
-#define MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_MODEL_NAME_LEN 32
-#define MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_SOFTWARE_VERSION_LEN 24
-#define MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_HARDWARE_VERSION_LEN 24
-#define MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_SERIAL_NUMBER_LEN 32
+enum {
+    MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_VENDOR_NAME_LEN = 32,
+    MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_MODEL_NAME_LEN = 32,
+    MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_SOFTWARE_VERSION_LEN = 24,
+    MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_HARDWARE_VERSION_LEN = 24,
+    MAVLINK_MSG_COMPONENT_INFORMATION_BASIC_FIELD_SERIAL_NUMBER_LEN = 32
+};
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMPONENT_INFORMATION_BASIC { \

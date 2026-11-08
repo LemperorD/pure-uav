@@ -3,29 +3,24 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE 282
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE = 282 };
 
+using mavlink_gimbal_manager_set_attitude_t = struct __mavlink_gimbal_manager_set_attitude_t {
+    uint32_t flags;           /*<  High level gimbal manager flags to use.*/
+    float q[4];               /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation, the frame is depends on whether the flag GIMBAL_MANAGER_FLAGS_YAW_LOCK is set)*/
+    float angular_velocity_x; /*< [rad/s] X component of angular velocity, positive is rolling to the right, NaN to be ignored.*/
+    float angular_velocity_y; /*< [rad/s] Y component of angular velocity, positive is pitching up, NaN to be ignored.*/
+    float angular_velocity_z; /*< [rad/s] Z component of angular velocity, positive is yawing to the right, NaN to be ignored.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
+};
 
-typedef struct __mavlink_gimbal_manager_set_attitude_t {
- uint32_t flags; /*<  High level gimbal manager flags to use.*/
- float q[4]; /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation, the frame is depends on whether the flag GIMBAL_MANAGER_FLAGS_YAW_LOCK is set)*/
- float angular_velocity_x; /*< [rad/s] X component of angular velocity, positive is rolling to the right, NaN to be ignored.*/
- float angular_velocity_y; /*< [rad/s] Y component of angular velocity, positive is pitching up, NaN to be ignored.*/
- float angular_velocity_z; /*< [rad/s] Z component of angular velocity, positive is yawing to the right, NaN to be ignored.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
-} mavlink_gimbal_manager_set_attitude_t;
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_LEN = 35, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_MIN_LEN = 35, MAVLINK_MSG_ID_282_LEN = 35, MAVLINK_MSG_ID_282_MIN_LEN = 35 };
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_LEN 35
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_MIN_LEN 35
-#define MAVLINK_MSG_ID_282_LEN 35
-#define MAVLINK_MSG_ID_282_MIN_LEN 35
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_CRC = 123, MAVLINK_MSG_ID_282_CRC = 123 };
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_CRC 123
-#define MAVLINK_MSG_ID_282_CRC 123
-
-#define MAVLINK_MSG_GIMBAL_MANAGER_SET_ATTITUDE_FIELD_Q_LEN 4
+enum { MAVLINK_MSG_GIMBAL_MANAGER_SET_ATTITUDE_FIELD_Q_LEN = 4 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_MANAGER_SET_ATTITUDE { \
@@ -435,11 +430,10 @@ static inline void mavlink_msg_gimbal_manager_set_attitude_decode(const mavlink_
         memset(gimbal_manager_set_attitude, 0, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE_LEN);
     memcpy(gimbal_manager_set_attitude, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gimbal_manager_set_attitude->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

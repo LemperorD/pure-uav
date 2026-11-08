@@ -3,29 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS 361
+enum { MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS = 361 };
 
+using mavlink_figure_eight_execution_status_t = struct __mavlink_figure_eight_execution_status_t {
+    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float major_radius; /*< [m] Major axis radius of the figure eight. Positive: orbit the north circle clockwise. Negative: orbit the north circle counter-clockwise.*/
+    float minor_radius; /*< [m] Minor axis radius of the figure eight. Defines the radius of two circles that make up the figure.*/
+    float orientation;  /*< [rad] Orientation of the figure eight major axis with respect to true north in [-pi,pi).*/
+    int32_t x;          /*<  X coordinate of center point. Coordinate system depends on frame field.*/
+    int32_t y;          /*<  Y coordinate of center point. Coordinate system depends on frame field.*/
+    float z;            /*< [m] Altitude of center point. Coordinate system depends on frame field.*/
+    uint8_t frame;      /*<  The coordinate system of the fields: x, y, z.*/
+};
 
-typedef struct __mavlink_figure_eight_execution_status_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float major_radius; /*< [m] Major axis radius of the figure eight. Positive: orbit the north circle clockwise. Negative: orbit the north circle counter-clockwise.*/
- float minor_radius; /*< [m] Minor axis radius of the figure eight. Defines the radius of two circles that make up the figure.*/
- float orientation; /*< [rad] Orientation of the figure eight major axis with respect to true north in [-pi,pi).*/
- int32_t x; /*<  X coordinate of center point. Coordinate system depends on frame field.*/
- int32_t y; /*<  Y coordinate of center point. Coordinate system depends on frame field.*/
- float z; /*< [m] Altitude of center point. Coordinate system depends on frame field.*/
- uint8_t frame; /*<  The coordinate system of the fields: x, y, z.*/
-} mavlink_figure_eight_execution_status_t;
+enum { MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_LEN = 33, MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_MIN_LEN = 33, MAVLINK_MSG_ID_361_LEN = 33, MAVLINK_MSG_ID_361_MIN_LEN = 33 };
 
-#define MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_LEN 33
-#define MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_MIN_LEN 33
-#define MAVLINK_MSG_ID_361_LEN 33
-#define MAVLINK_MSG_ID_361_MIN_LEN 33
-
-#define MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_CRC 93
-#define MAVLINK_MSG_ID_361_CRC 93
-
-
+enum { MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS_CRC = 93, MAVLINK_MSG_ID_361_CRC = 93 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FIGURE_EIGHT_EXECUTION_STATUS { \

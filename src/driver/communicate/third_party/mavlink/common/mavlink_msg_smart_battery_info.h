@@ -3,40 +3,34 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SMART_BATTERY_INFO 370
+enum { MAVLINK_MSG_ID_SMART_BATTERY_INFO = 370 };
 
-MAVPACKED(
-typedef struct __mavlink_smart_battery_info_t {
- int32_t capacity_full_specification; /*< [mAh] Capacity when full according to manufacturer, -1: field not provided.*/
- int32_t capacity_full; /*< [mAh] Capacity when full (accounting for battery degradation), -1: field not provided.*/
- uint16_t cycle_count; /*<  Charge/discharge cycle count. UINT16_MAX: field not provided.*/
- uint16_t weight; /*< [g] Battery weight. 0: field not provided.*/
- uint16_t discharge_minimum_voltage; /*< [mV] Minimum per-cell voltage when discharging. If not supplied set to UINT16_MAX value.*/
- uint16_t charging_minimum_voltage; /*< [mV] Minimum per-cell voltage when charging. If not supplied set to UINT16_MAX value.*/
- uint16_t resting_minimum_voltage; /*< [mV] Minimum per-cell voltage when resting. If not supplied set to UINT16_MAX value.*/
- uint8_t id; /*<  Battery ID*/
- uint8_t battery_function; /*<  Function of the battery*/
- uint8_t type; /*<  Type (chemistry) of the battery*/
- char serial_number[16]; /*<  Serial number in ASCII characters, 0 terminated. All 0: field not provided.*/
- char device_name[50]; /*<  Static device name in ASCII characters, 0 terminated. All 0: field not provided. Encode as manufacturer name then product name separated using an underscore.*/
- uint16_t charging_maximum_voltage; /*< [mV] Maximum per-cell voltage when charged. 0: field not provided.*/
- uint8_t cells_in_series; /*<  Number of battery cells in series. 0: field not provided.*/
- uint32_t discharge_maximum_current; /*< [mA] Maximum pack discharge current. 0: field not provided.*/
- uint32_t discharge_maximum_burst_current; /*< [mA] Maximum pack discharge burst current. 0: field not provided.*/
- char manufacture_date[11]; /*<  Manufacture date (DD/MM/YYYY) in ASCII characters, 0 terminated. All 0: field not provided.*/
-}) mavlink_smart_battery_info_t;
+MAVPACKED(typedef struct MavlinkSmartBatteryInfoT {
+    int32_t capacity_full_specification;      /*< [mAh] Capacity when full according to manufacturer, -1: field not provided.*/
+    int32_t capacity_full;                    /*< [mAh] Capacity when full (accounting for battery degradation), -1: field not provided.*/
+    uint16_t cycle_count;                     /*<  Charge/discharge cycle count. UINT16_MAX: field not provided.*/
+    uint16_t weight;                          /*< [g] Battery weight. 0: field not provided.*/
+    uint16_t discharge_minimum_voltage;       /*< [mV] Minimum per-cell voltage when discharging. If not supplied set to UINT16_MAX value.*/
+    uint16_t charging_minimum_voltage;        /*< [mV] Minimum per-cell voltage when charging. If not supplied set to UINT16_MAX value.*/
+    uint16_t resting_minimum_voltage;         /*< [mV] Minimum per-cell voltage when resting. If not supplied set to UINT16_MAX value.*/
+    uint8_t id;                               /*<  Battery ID*/
+    uint8_t battery_function;                 /*<  Function of the battery*/
+    uint8_t type;                             /*<  Type (chemistry) of the battery*/
+    char serial_number[16];                   /*<  Serial number in ASCII characters, 0 terminated. All 0: field not provided.*/
+    char device_name[50];                     /*<  Static device name in ASCII characters, 0 terminated. All 0: field not provided. Encode as manufacturer name then product name separated using an underscore.*/
+    uint16_t charging_maximum_voltage;        /*< [mV] Maximum per-cell voltage when charged. 0: field not provided.*/
+    uint8_t cells_in_series;                  /*<  Number of battery cells in series. 0: field not provided.*/
+    uint32_t discharge_maximum_current;       /*< [mA] Maximum pack discharge current. 0: field not provided.*/
+    uint32_t discharge_maximum_burst_current; /*< [mA] Maximum pack discharge burst current. 0: field not provided.*/
+    char manufacture_date[11];                /*<  Manufacture date (DD/MM/YYYY) in ASCII characters, 0 terminated. All 0: field not provided.*/
+})
+mavlink_smart_battery_info_t;
 
-#define MAVLINK_MSG_ID_SMART_BATTERY_INFO_LEN 109
-#define MAVLINK_MSG_ID_SMART_BATTERY_INFO_MIN_LEN 87
-#define MAVLINK_MSG_ID_370_LEN 109
-#define MAVLINK_MSG_ID_370_MIN_LEN 87
+enum { MAVLINK_MSG_ID_SMART_BATTERY_INFO_LEN = 109, MAVLINK_MSG_ID_SMART_BATTERY_INFO_MIN_LEN = 87, MAVLINK_MSG_ID_370_LEN = 109, MAVLINK_MSG_ID_370_MIN_LEN = 87 };
 
-#define MAVLINK_MSG_ID_SMART_BATTERY_INFO_CRC 75
-#define MAVLINK_MSG_ID_370_CRC 75
+enum { MAVLINK_MSG_ID_SMART_BATTERY_INFO_CRC = 75, MAVLINK_MSG_ID_370_CRC = 75 };
 
-#define MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_SERIAL_NUMBER_LEN 16
-#define MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_DEVICE_NAME_LEN 50
-#define MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_MANUFACTURE_DATE_LEN 11
+enum { MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_SERIAL_NUMBER_LEN = 16, MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_DEVICE_NAME_LEN = 50, MAVLINK_MSG_SMART_BATTERY_INFO_FIELD_MANUFACTURE_DATE_LEN = 11 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SMART_BATTERY_INFO { \

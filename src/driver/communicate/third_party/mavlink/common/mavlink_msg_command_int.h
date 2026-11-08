@@ -3,34 +3,27 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COMMAND_INT 75
+enum { MAVLINK_MSG_ID_COMMAND_INT = 75 };
 
+using mavlink_command_int_t = struct __mavlink_command_int_t {
+    float param1;             /*<  PARAM1, see MAV_CMD enum*/
+    float param2;             /*<  PARAM2, see MAV_CMD enum*/
+    float param3;             /*<  PARAM3, see MAV_CMD enum*/
+    float param4;             /*<  PARAM4, see MAV_CMD enum*/
+    int32_t x;                /*<  PARAM5 / local: x position in meters * 1e4, global: latitude in degrees * 10^7*/
+    int32_t y;                /*<  PARAM6 / local: y position in meters * 1e4, global: longitude in degrees * 10^7*/
+    float z;                  /*<  PARAM7 / z position: global: altitude in meters (relative or absolute, depending on frame).*/
+    uint16_t command;         /*<  The scheduled action for the mission item.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t frame;            /*<  The coordinate system of the COMMAND.*/
+    uint8_t current;          /*<  Not used.*/
+    uint8_t autocontinue;     /*<  Not used (set 0).*/
+};
 
-typedef struct __mavlink_command_int_t {
- float param1; /*<  PARAM1, see MAV_CMD enum*/
- float param2; /*<  PARAM2, see MAV_CMD enum*/
- float param3; /*<  PARAM3, see MAV_CMD enum*/
- float param4; /*<  PARAM4, see MAV_CMD enum*/
- int32_t x; /*<  PARAM5 / local: x position in meters * 1e4, global: latitude in degrees * 10^7*/
- int32_t y; /*<  PARAM6 / local: y position in meters * 1e4, global: longitude in degrees * 10^7*/
- float z; /*<  PARAM7 / z position: global: altitude in meters (relative or absolute, depending on frame).*/
- uint16_t command; /*<  The scheduled action for the mission item.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t frame; /*<  The coordinate system of the COMMAND.*/
- uint8_t current; /*<  Not used.*/
- uint8_t autocontinue; /*<  Not used (set 0).*/
-} mavlink_command_int_t;
+enum { MAVLINK_MSG_ID_COMMAND_INT_LEN = 35, MAVLINK_MSG_ID_COMMAND_INT_MIN_LEN = 35, MAVLINK_MSG_ID_75_LEN = 35, MAVLINK_MSG_ID_75_MIN_LEN = 35 };
 
-#define MAVLINK_MSG_ID_COMMAND_INT_LEN 35
-#define MAVLINK_MSG_ID_COMMAND_INT_MIN_LEN 35
-#define MAVLINK_MSG_ID_75_LEN 35
-#define MAVLINK_MSG_ID_75_MIN_LEN 35
-
-#define MAVLINK_MSG_ID_COMMAND_INT_CRC 158
-#define MAVLINK_MSG_ID_75_CRC 158
-
-
+enum { MAVLINK_MSG_ID_COMMAND_INT_CRC = 158, MAVLINK_MSG_ID_75_CRC = 158 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMMAND_INT { \
@@ -585,11 +578,10 @@ static inline void mavlink_msg_command_int_decode(const mavlink_message_t* msg, 
         memset(command_int, 0, MAVLINK_MSG_ID_COMMAND_INT_LEN);
     memcpy(command_int, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         command_int->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

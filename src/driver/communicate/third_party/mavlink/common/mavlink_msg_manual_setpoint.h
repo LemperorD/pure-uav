@@ -3,28 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_MANUAL_SETPOINT 81
+enum { MAVLINK_MSG_ID_MANUAL_SETPOINT = 81 };
 
+using mavlink_manual_setpoint_t = struct __mavlink_manual_setpoint_t {
+    uint32_t time_boot_ms;          /*< [ms] Timestamp (time since system boot).*/
+    float roll;                     /*< [rad/s] Desired roll rate*/
+    float pitch;                    /*< [rad/s] Desired pitch rate*/
+    float yaw;                      /*< [rad/s] Desired yaw rate*/
+    float thrust;                   /*<  Collective thrust, normalized to 0 .. 1*/
+    uint8_t mode_switch;            /*<  Flight mode switch position, 0.. 255*/
+    uint8_t manual_override_switch; /*<  Override mode switch position, 0.. 255*/
+};
 
-typedef struct __mavlink_manual_setpoint_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float roll; /*< [rad/s] Desired roll rate*/
- float pitch; /*< [rad/s] Desired pitch rate*/
- float yaw; /*< [rad/s] Desired yaw rate*/
- float thrust; /*<  Collective thrust, normalized to 0 .. 1*/
- uint8_t mode_switch; /*<  Flight mode switch position, 0.. 255*/
- uint8_t manual_override_switch; /*<  Override mode switch position, 0.. 255*/
-} mavlink_manual_setpoint_t;
+enum { MAVLINK_MSG_ID_MANUAL_SETPOINT_LEN = 22, MAVLINK_MSG_ID_MANUAL_SETPOINT_MIN_LEN = 22, MAVLINK_MSG_ID_81_LEN = 22, MAVLINK_MSG_ID_81_MIN_LEN = 22 };
 
-#define MAVLINK_MSG_ID_MANUAL_SETPOINT_LEN 22
-#define MAVLINK_MSG_ID_MANUAL_SETPOINT_MIN_LEN 22
-#define MAVLINK_MSG_ID_81_LEN 22
-#define MAVLINK_MSG_ID_81_MIN_LEN 22
-
-#define MAVLINK_MSG_ID_MANUAL_SETPOINT_CRC 106
-#define MAVLINK_MSG_ID_81_CRC 106
-
-
+enum { MAVLINK_MSG_ID_MANUAL_SETPOINT_CRC = 106, MAVLINK_MSG_ID_81_CRC = 106 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MANUAL_SETPOINT { \

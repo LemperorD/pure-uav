@@ -22,6 +22,8 @@
 #ifndef OV_TYPE_TYPE_POSEJPL_H
 #define OV_TYPE_TYPE_POSEJPL_H
 
+#include <memory>
+
 #include "JPLQuat.h"
 #include "Vec.h"
 #include "utils/quat_ops.h"
@@ -40,8 +42,8 @@ public:
   PoseJPL() : Type(6) {
 
     // Initialize subvariables
-    _q = std::shared_ptr<JPLQuat>(new JPLQuat());
-    _p = std::shared_ptr<Vec>(new Vec(3));
+    _q = std::make_shared<JPLQuat>();
+    _p = std::make_shared<Vec>(3);
 
     // Set our default state value
     Eigen::Matrix<double, 7, 1> pose0;
@@ -51,7 +53,7 @@ public:
     set_fej_internal(pose0);
   }
 
-  ~PoseJPL() {}
+  ~PoseJPL() override = default;
 
   /**
    * @brief Sets id used to track location of variable in the filter covariance
@@ -103,38 +105,51 @@ public:
   void set_fej(const Eigen::MatrixXd &new_value) override { set_fej_internal(new_value); }
 
   std::shared_ptr<Type> clone() override {
-    auto Clone = std::shared_ptr<PoseJPL>(new PoseJPL());
-    Clone->set_value(value());
-    Clone->set_fej(fej());
-    return Clone;
+      auto Clone = std::make_shared<PoseJPL>();
+      Clone->set_value(value());
+      Clone->set_fej(fej());
+      return Clone;
   }
 
   std::shared_ptr<Type> check_if_subvariable(const std::shared_ptr<Type> check) override {
     if (check == _q) {
       return _q;
-    } else if (check == _p) {
-      return _p;
+    }
+    if (check == _p) {
+        return _p;
     }
     return nullptr;
   }
 
   /// Rotation access
-  Eigen::Matrix<double, 3, 3> Rot() const { return _q->Rot(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot() const {
+      return _q->Rot();
+  }
 
   /// FEJ Rotation access
-  Eigen::Matrix<double, 3, 3> Rot_fej() const { return _q->Rot_fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot_fej() const {
+      return _q->Rot_fej();
+  }
 
   /// Rotation access as quaternion
-  Eigen::Matrix<double, 4, 1> quat() const { return _q->value(); }
+  [[nodiscard]] Eigen::Matrix<double, 4, 1> quat() const {
+      return _q->value();
+  }
 
   /// FEJ Rotation access as quaternion
-  Eigen::Matrix<double, 4, 1> quat_fej() const { return _q->fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 4, 1> quat_fej() const {
+      return _q->fej();
+  }
 
   /// Position access
-  Eigen::Matrix<double, 3, 1> pos() const { return _p->value(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> pos() const {
+      return _p->value();
+  }
 
   // FEJ position access
-  Eigen::Matrix<double, 3, 1> pos_fej() const { return _p->fej(); }
+  [[nodiscard]] Eigen::Matrix<double, 3, 1> pos_fej() const {
+      return _p->fej();
+  }
 
   // Quaternion type access
   std::shared_ptr<JPLQuat> q() { return _q; }

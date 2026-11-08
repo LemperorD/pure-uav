@@ -3,27 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PROTOCOL_VERSION 300
+enum { MAVLINK_MSG_ID_PROTOCOL_VERSION = 300 };
 
+using mavlink_protocol_version_t = struct __mavlink_protocol_version_t {
+    uint16_t version;                /*<  Currently active MAVLink version number * 100: v1.0 is 100, v2.0 is 200, etc.*/
+    uint16_t min_version;            /*<  Minimum MAVLink version supported*/
+    uint16_t max_version;            /*<  Maximum MAVLink version supported (set to the same value as version by default)*/
+    uint8_t spec_version_hash[8];    /*<  The first 8 bytes (not characters printed in hex!) of the git hash.*/
+    uint8_t library_version_hash[8]; /*<  The first 8 bytes (not characters printed in hex!) of the git hash.*/
+};
 
-typedef struct __mavlink_protocol_version_t {
- uint16_t version; /*<  Currently active MAVLink version number * 100: v1.0 is 100, v2.0 is 200, etc.*/
- uint16_t min_version; /*<  Minimum MAVLink version supported*/
- uint16_t max_version; /*<  Maximum MAVLink version supported (set to the same value as version by default)*/
- uint8_t spec_version_hash[8]; /*<  The first 8 bytes (not characters printed in hex!) of the git hash.*/
- uint8_t library_version_hash[8]; /*<  The first 8 bytes (not characters printed in hex!) of the git hash.*/
-} mavlink_protocol_version_t;
+enum { MAVLINK_MSG_ID_PROTOCOL_VERSION_LEN = 22, MAVLINK_MSG_ID_PROTOCOL_VERSION_MIN_LEN = 22, MAVLINK_MSG_ID_300_LEN = 22, MAVLINK_MSG_ID_300_MIN_LEN = 22 };
 
-#define MAVLINK_MSG_ID_PROTOCOL_VERSION_LEN 22
-#define MAVLINK_MSG_ID_PROTOCOL_VERSION_MIN_LEN 22
-#define MAVLINK_MSG_ID_300_LEN 22
-#define MAVLINK_MSG_ID_300_MIN_LEN 22
+enum { MAVLINK_MSG_ID_PROTOCOL_VERSION_CRC = 217, MAVLINK_MSG_ID_300_CRC = 217 };
 
-#define MAVLINK_MSG_ID_PROTOCOL_VERSION_CRC 217
-#define MAVLINK_MSG_ID_300_CRC 217
-
-#define MAVLINK_MSG_PROTOCOL_VERSION_FIELD_SPEC_VERSION_HASH_LEN 8
-#define MAVLINK_MSG_PROTOCOL_VERSION_FIELD_LIBRARY_VERSION_HASH_LEN 8
+enum { MAVLINK_MSG_PROTOCOL_VERSION_FIELD_SPEC_VERSION_HASH_LEN = 8, MAVLINK_MSG_PROTOCOL_VERSION_FIELD_LIBRARY_VERSION_HASH_LEN = 8 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PROTOCOL_VERSION { \

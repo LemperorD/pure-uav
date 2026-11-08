@@ -49,7 +49,7 @@ class GuidanceApplication {
 
     /// @brief 解析 argc/argv → 加载参数 → 分发到仿真/回放/真机。
     /// @return 0=成功/help/print，1=运行失败，2=参数错误。
-    int run(int argc, char** argv);
+    static int run(int argc, char** argv);
 };
 
 }  // namespace pure_uav::app

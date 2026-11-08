@@ -3,26 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PARAM_VALUE 22
+enum { MAVLINK_MSG_ID_PARAM_VALUE = 22 };
 
+using mavlink_param_value_t = struct __mavlink_param_value_t {
+    float param_value;    /*<  Onboard parameter value*/
+    uint16_t param_count; /*<  Total number of onboard parameters*/
+    uint16_t param_index; /*<  Index of this onboard parameter*/
+    char
+        param_id[16]; /*<  Onboard parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
+    uint8_t param_type; /*<  Onboard parameter type.*/
+};
 
-typedef struct __mavlink_param_value_t {
- float param_value; /*<  Onboard parameter value*/
- uint16_t param_count; /*<  Total number of onboard parameters*/
- uint16_t param_index; /*<  Index of this onboard parameter*/
- char param_id[16]; /*<  Onboard parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
- uint8_t param_type; /*<  Onboard parameter type.*/
-} mavlink_param_value_t;
+enum { MAVLINK_MSG_ID_PARAM_VALUE_LEN = 25, MAVLINK_MSG_ID_PARAM_VALUE_MIN_LEN = 25, MAVLINK_MSG_ID_22_LEN = 25, MAVLINK_MSG_ID_22_MIN_LEN = 25 };
 
-#define MAVLINK_MSG_ID_PARAM_VALUE_LEN 25
-#define MAVLINK_MSG_ID_PARAM_VALUE_MIN_LEN 25
-#define MAVLINK_MSG_ID_22_LEN 25
-#define MAVLINK_MSG_ID_22_MIN_LEN 25
+enum { MAVLINK_MSG_ID_PARAM_VALUE_CRC = 220, MAVLINK_MSG_ID_22_CRC = 220 };
 
-#define MAVLINK_MSG_ID_PARAM_VALUE_CRC 220
-#define MAVLINK_MSG_ID_22_CRC 220
-
-#define MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN 16
+enum { MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN = 16 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PARAM_VALUE { \

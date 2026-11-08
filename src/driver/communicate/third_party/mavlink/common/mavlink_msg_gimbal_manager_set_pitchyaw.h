@@ -3,29 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW 287
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW = 287 };
 
+using mavlink_gimbal_manager_set_pitchyaw_t = struct __mavlink_gimbal_manager_set_pitchyaw_t {
+    uint32_t flags;           /*<  High level gimbal manager flags to use.*/
+    float pitch;              /*< [rad] Pitch angle (positive: up, negative: down, NaN to be ignored).*/
+    float yaw;                /*< [rad] Yaw angle (positive: to the right, negative: to the left, NaN to be ignored).*/
+    float pitch_rate;         /*< [rad/s] Pitch angular rate (positive: up, negative: down, NaN to be ignored).*/
+    float yaw_rate;           /*< [rad/s] Yaw angular rate (positive: to the right, negative: to the left, NaN to be ignored).*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
+};
 
-typedef struct __mavlink_gimbal_manager_set_pitchyaw_t {
- uint32_t flags; /*<  High level gimbal manager flags to use.*/
- float pitch; /*< [rad] Pitch angle (positive: up, negative: down, NaN to be ignored).*/
- float yaw; /*< [rad] Yaw angle (positive: to the right, negative: to the left, NaN to be ignored).*/
- float pitch_rate; /*< [rad/s] Pitch angular rate (positive: up, negative: down, NaN to be ignored).*/
- float yaw_rate; /*< [rad/s] Yaw angular rate (positive: to the right, negative: to the left, NaN to be ignored).*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t gimbal_device_id; /*<  Component ID of gimbal device to address (or 1-6 for non-MAVLink gimbal), 0 for all gimbal device components. Send command multiple times for more than one gimbal (but not all gimbals).*/
-} mavlink_gimbal_manager_set_pitchyaw_t;
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_LEN = 23, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_MIN_LEN = 23, MAVLINK_MSG_ID_287_LEN = 23, MAVLINK_MSG_ID_287_MIN_LEN = 23 };
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_LEN 23
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_MIN_LEN 23
-#define MAVLINK_MSG_ID_287_LEN 23
-#define MAVLINK_MSG_ID_287_MIN_LEN 23
-
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_CRC 1
-#define MAVLINK_MSG_ID_287_CRC 1
-
-
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_CRC = 1, MAVLINK_MSG_ID_287_CRC = 1 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_MANAGER_SET_PITCHYAW { \
@@ -445,11 +438,10 @@ static inline void mavlink_msg_gimbal_manager_set_pitchyaw_decode(const mavlink_
         memset(gimbal_manager_set_pitchyaw, 0, MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_PITCHYAW_LEN);
     memcpy(gimbal_manager_set_pitchyaw, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gimbal_manager_set_pitchyaw->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

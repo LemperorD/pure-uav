@@ -3,40 +3,34 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GPS_INPUT 232
+enum { MAVLINK_MSG_ID_GPS_INPUT = 232 };
 
-MAVPACKED(
-typedef struct __mavlink_gps_input_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- uint32_t time_week_ms; /*< [ms] GPS time (from start of GPS week)*/
- int32_t lat; /*< [degE7] Latitude (WGS84)*/
- int32_t lon; /*< [degE7] Longitude (WGS84)*/
- float alt; /*< [m] Altitude (MSL). Positive for up.*/
- float hdop; /*<  GPS HDOP horizontal dilution of position (unitless). If unknown, set to: UINT16_MAX*/
- float vdop; /*<  GPS VDOP vertical dilution of position (unitless). If unknown, set to: UINT16_MAX*/
- float vn; /*< [m/s] GPS velocity in north direction in earth-fixed NED frame*/
- float ve; /*< [m/s] GPS velocity in east direction in earth-fixed NED frame*/
- float vd; /*< [m/s] GPS velocity in down direction in earth-fixed NED frame*/
- float speed_accuracy; /*< [m/s] GPS speed accuracy*/
- float horiz_accuracy; /*< [m] GPS horizontal accuracy*/
- float vert_accuracy; /*< [m] GPS vertical accuracy*/
- uint16_t ignore_flags; /*<  Bitmap indicating which GPS input flags fields to ignore.  All other fields must be provided.*/
- uint16_t time_week; /*<  GPS week number*/
- uint8_t gps_id; /*<  ID of the GPS for multiple GPS inputs*/
- uint8_t fix_type; /*<  GNSS fix type*/
- uint8_t satellites_visible; /*<  Number of satellites visible.*/
- uint16_t yaw; /*< [cdeg] Yaw of vehicle relative to Earth's North, zero means not available, use 36000 for north*/
-}) mavlink_gps_input_t;
+MAVPACKED(typedef struct MavlinkGpsInputT {
+    uint64_t time_usec;         /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    uint32_t time_week_ms;      /*< [ms] GPS time (from start of GPS week)*/
+    int32_t lat;                /*< [degE7] Latitude (WGS84)*/
+    int32_t lon;                /*< [degE7] Longitude (WGS84)*/
+    float alt;                  /*< [m] Altitude (MSL). Positive for up.*/
+    float hdop;                 /*<  GPS HDOP horizontal dilution of position (unitless). If unknown, set to: UINT16_MAX*/
+    float vdop;                 /*<  GPS VDOP vertical dilution of position (unitless). If unknown, set to: UINT16_MAX*/
+    float vn;                   /*< [m/s] GPS velocity in north direction in earth-fixed NED frame*/
+    float ve;                   /*< [m/s] GPS velocity in east direction in earth-fixed NED frame*/
+    float vd;                   /*< [m/s] GPS velocity in down direction in earth-fixed NED frame*/
+    float speed_accuracy;       /*< [m/s] GPS speed accuracy*/
+    float horiz_accuracy;       /*< [m] GPS horizontal accuracy*/
+    float vert_accuracy;        /*< [m] GPS vertical accuracy*/
+    uint16_t ignore_flags;      /*<  Bitmap indicating which GPS input flags fields to ignore.  All other fields must be provided.*/
+    uint16_t time_week;         /*<  GPS week number*/
+    uint8_t gps_id;             /*<  ID of the GPS for multiple GPS inputs*/
+    uint8_t fix_type;           /*<  GNSS fix type*/
+    uint8_t satellites_visible; /*<  Number of satellites visible.*/
+    uint16_t yaw;               /*< [cdeg] Yaw of vehicle relative to Earth's North, zero means not available, use 36000 for north*/
+})
+mavlink_gps_input_t;
 
-#define MAVLINK_MSG_ID_GPS_INPUT_LEN 65
-#define MAVLINK_MSG_ID_GPS_INPUT_MIN_LEN 63
-#define MAVLINK_MSG_ID_232_LEN 65
-#define MAVLINK_MSG_ID_232_MIN_LEN 63
+enum { MAVLINK_MSG_ID_GPS_INPUT_LEN = 65, MAVLINK_MSG_ID_GPS_INPUT_MIN_LEN = 63, MAVLINK_MSG_ID_232_LEN = 65, MAVLINK_MSG_ID_232_MIN_LEN = 63 };
 
-#define MAVLINK_MSG_ID_GPS_INPUT_CRC 151
-#define MAVLINK_MSG_ID_232_CRC 151
-
-
+enum { MAVLINK_MSG_ID_GPS_INPUT_CRC = 151, MAVLINK_MSG_ID_232_CRC = 151 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GPS_INPUT { \

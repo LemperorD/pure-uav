@@ -3,45 +3,38 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_HIGH_LATENCY 234
+enum { MAVLINK_MSG_ID_HIGH_LATENCY = 234 };
 
+using mavlink_high_latency_t = struct __mavlink_high_latency_t {
+    uint32_t custom_mode;      /*<  A bitfield for use for autopilot-specific flags.*/
+    int32_t latitude;          /*< [degE7] Latitude*/
+    int32_t longitude;         /*< [degE7] Longitude*/
+    int16_t roll;              /*< [cdeg] roll*/
+    int16_t pitch;             /*< [cdeg] pitch*/
+    uint16_t heading;          /*< [cdeg] heading*/
+    int16_t heading_sp;        /*< [cdeg] heading setpoint*/
+    int16_t altitude_amsl;     /*< [m] Altitude above mean sea level*/
+    int16_t altitude_sp;       /*< [m] Altitude setpoint relative to the home position*/
+    uint16_t wp_distance;      /*< [m] distance to target*/
+    uint8_t base_mode;         /*<  Bitmap of enabled system modes.*/
+    uint8_t landed_state;      /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
+    int8_t throttle;           /*< [%] throttle (percentage)*/
+    uint8_t airspeed;          /*< [m/s] airspeed*/
+    uint8_t airspeed_sp;       /*< [m/s] airspeed setpoint*/
+    uint8_t groundspeed;       /*< [m/s] groundspeed*/
+    int8_t climb_rate;         /*< [m/s] climb rate*/
+    uint8_t gps_nsat;          /*<  Number of satellites visible. If unknown, set to UINT8_MAX*/
+    uint8_t gps_fix_type;      /*<  GPS Fix type.*/
+    uint8_t battery_remaining; /*< [%] Remaining battery (percentage)*/
+    int8_t temperature;        /*< [degC] Autopilot temperature (degrees C)*/
+    int8_t temperature_air;    /*< [degC] Air temperature (degrees C) from airspeed sensor*/
+    uint8_t failsafe;          /*<  failsafe (each bit represents a failsafe where 0=ok, 1=failsafe active (bit0:RC, bit1:batt, bit2:GPS, bit3:GCS, bit4:fence)*/
+    uint8_t wp_num;            /*<  current waypoint number*/
+};
 
-typedef struct __mavlink_high_latency_t {
- uint32_t custom_mode; /*<  A bitfield for use for autopilot-specific flags.*/
- int32_t latitude; /*< [degE7] Latitude*/
- int32_t longitude; /*< [degE7] Longitude*/
- int16_t roll; /*< [cdeg] roll*/
- int16_t pitch; /*< [cdeg] pitch*/
- uint16_t heading; /*< [cdeg] heading*/
- int16_t heading_sp; /*< [cdeg] heading setpoint*/
- int16_t altitude_amsl; /*< [m] Altitude above mean sea level*/
- int16_t altitude_sp; /*< [m] Altitude setpoint relative to the home position*/
- uint16_t wp_distance; /*< [m] distance to target*/
- uint8_t base_mode; /*<  Bitmap of enabled system modes.*/
- uint8_t landed_state; /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
- int8_t throttle; /*< [%] throttle (percentage)*/
- uint8_t airspeed; /*< [m/s] airspeed*/
- uint8_t airspeed_sp; /*< [m/s] airspeed setpoint*/
- uint8_t groundspeed; /*< [m/s] groundspeed*/
- int8_t climb_rate; /*< [m/s] climb rate*/
- uint8_t gps_nsat; /*<  Number of satellites visible. If unknown, set to UINT8_MAX*/
- uint8_t gps_fix_type; /*<  GPS Fix type.*/
- uint8_t battery_remaining; /*< [%] Remaining battery (percentage)*/
- int8_t temperature; /*< [degC] Autopilot temperature (degrees C)*/
- int8_t temperature_air; /*< [degC] Air temperature (degrees C) from airspeed sensor*/
- uint8_t failsafe; /*<  failsafe (each bit represents a failsafe where 0=ok, 1=failsafe active (bit0:RC, bit1:batt, bit2:GPS, bit3:GCS, bit4:fence)*/
- uint8_t wp_num; /*<  current waypoint number*/
-} mavlink_high_latency_t;
+enum { MAVLINK_MSG_ID_HIGH_LATENCY_LEN = 40, MAVLINK_MSG_ID_HIGH_LATENCY_MIN_LEN = 40, MAVLINK_MSG_ID_234_LEN = 40, MAVLINK_MSG_ID_234_MIN_LEN = 40 };
 
-#define MAVLINK_MSG_ID_HIGH_LATENCY_LEN 40
-#define MAVLINK_MSG_ID_HIGH_LATENCY_MIN_LEN 40
-#define MAVLINK_MSG_ID_234_LEN 40
-#define MAVLINK_MSG_ID_234_MIN_LEN 40
-
-#define MAVLINK_MSG_ID_HIGH_LATENCY_CRC 150
-#define MAVLINK_MSG_ID_234_CRC 150
-
-
+enum { MAVLINK_MSG_ID_HIGH_LATENCY_CRC = 150, MAVLINK_MSG_ID_234_CRC = 150 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIGH_LATENCY { \

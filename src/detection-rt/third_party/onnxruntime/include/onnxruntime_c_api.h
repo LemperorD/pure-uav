@@ -38,7 +38,7 @@
  *
  * This value is used by some API functions to behave as this version of the header expects.
  */
-#define ORT_API_VERSION 23
+enum { ORT_API_VERSION = 23 };
 
 #ifdef __cplusplus
 extern "C" {
@@ -181,53 +181,40 @@ extern "C" {
 /** Copied from TensorProto::DataType
  * Currently, Ort doesn't support complex64, complex128
  */
-typedef enum ONNXTensorElementDataType {
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED,
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,   // maps to c type float
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8,   // maps to c type uint8_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8,    // maps to c type int8_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16,  // maps to c type uint16_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16,   // maps to c type int16_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,   // maps to c type int32_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,   // maps to c type int64_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,  // maps to c++ type std::string
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL,
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,      // maps to c type double
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32,      // maps to c type uint32_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64,      // maps to c type uint64_t
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX64,   // complex with float32 real and imaginary components
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX128,  // complex with float64 real and imaginary components
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16,    // Non-IEEE floating-point format based on IEEE754 single-precision
-  // float 8 types were introduced in onnx 1.14, see https://onnx.ai/onnx/technical/float8.html
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E4M3FN,    // Non-IEEE floating-point format based on IEEE754 single-precision
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E4M3FNUZ,  // Non-IEEE floating-point format based on IEEE754 single-precision
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E5M2,      // Non-IEEE floating-point format based on IEEE754 single-precision
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E5M2FNUZ,  // Non-IEEE floating-point format based on IEEE754 single-precision
-  // Int4 types were introduced in ONNX 1.16. See https://onnx.ai/onnx/technical/int4.html
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT4,  // maps to a pair of packed uint4 values (size == 1 byte)
-  ONNX_TENSOR_ELEMENT_DATA_TYPE_INT4    // maps to a pair of packed int4 values (size == 1 byte)
-} ONNXTensorElementDataType;
+using ONNXTensorElementDataType = enum ONNXTensorElementDataType {
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED,
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,   // maps to c type float
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8,   // maps to c type uint8_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8,    // maps to c type int8_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16,  // maps to c type uint16_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16,   // maps to c type int16_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,   // maps to c type int32_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,   // maps to c type int64_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,  // maps to c++ type std::string
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL,
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,      // maps to c type double
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32,      // maps to c type uint32_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64,      // maps to c type uint64_t
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX64,   // complex with float32 real and imaginary components
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_COMPLEX128,  // complex with float64 real and imaginary components
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16,    // Non-IEEE floating-point format based on IEEE754 single-precision
+    // float 8 types were introduced in onnx 1.14, see https://onnx.ai/onnx/technical/float8.html
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E4M3FN,    // Non-IEEE floating-point format based on IEEE754 single-precision
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E4M3FNUZ,  // Non-IEEE floating-point format based on IEEE754 single-precision
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E5M2,      // Non-IEEE floating-point format based on IEEE754 single-precision
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT8E5M2FNUZ,  // Non-IEEE floating-point format based on IEEE754 single-precision
+    // Int4 types were introduced in ONNX 1.16. See https://onnx.ai/onnx/technical/int4.html
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT4,  // maps to a pair of packed uint4 values (size == 1 byte)
+    ONNX_TENSOR_ELEMENT_DATA_TYPE_INT4    // maps to a pair of packed int4 values (size == 1 byte)
+};
 
 // Synced with onnx TypeProto oneof
-typedef enum ONNXType {
-  ONNX_TYPE_UNKNOWN,
-  ONNX_TYPE_TENSOR,
-  ONNX_TYPE_SEQUENCE,
-  ONNX_TYPE_MAP,
-  ONNX_TYPE_OPAQUE,
-  ONNX_TYPE_SPARSETENSOR,
-  ONNX_TYPE_OPTIONAL
-} ONNXType;
+using ONNXType = enum ONNXType { ONNX_TYPE_UNKNOWN, ONNX_TYPE_TENSOR, ONNX_TYPE_SEQUENCE, ONNX_TYPE_MAP, ONNX_TYPE_OPAQUE, ONNX_TYPE_SPARSETENSOR, ONNX_TYPE_OPTIONAL };
 
 // These types are synced with internal
 // SparseFormatFlags
-typedef enum OrtSparseFormat {
-  ORT_SPARSE_UNDEFINED = 0,
-  ORT_SPARSE_COO = 0x1,
-  ORT_SPARSE_CSRC = 0x2,
-  ORT_SPARSE_BLOCK_SPARSE = 0x4
-} OrtSparseFormat;
+using OrtSparseFormat = enum OrtSparseFormat { ORT_SPARSE_UNDEFINED = 0, ORT_SPARSE_COO = 0x1, ORT_SPARSE_CSRC = 0x2, ORT_SPARSE_BLOCK_SPARSE = 0x4 };
 
 // Enum allows to query sparse tensor indices
 enum OrtSparseIndicesFormat {
@@ -241,43 +228,43 @@ enum OrtSparseIndicesFormat {
  *
  * In typical API usage, specifying a logging severity level specifies the minimum severity of log messages to show.
  */
-typedef enum OrtLoggingLevel {
-  ORT_LOGGING_LEVEL_VERBOSE,  ///< Verbose informational messages (least severe).
-  ORT_LOGGING_LEVEL_INFO,     ///< Informational messages.
-  ORT_LOGGING_LEVEL_WARNING,  ///< Warning messages.
-  ORT_LOGGING_LEVEL_ERROR,    ///< Error messages.
-  ORT_LOGGING_LEVEL_FATAL,    ///< Fatal error messages (most severe).
-} OrtLoggingLevel;
+using OrtLoggingLevel = enum OrtLoggingLevel {
+    ORT_LOGGING_LEVEL_VERBOSE,  ///< Verbose informational messages (least severe).
+    ORT_LOGGING_LEVEL_INFO,     ///< Informational messages.
+    ORT_LOGGING_LEVEL_WARNING,  ///< Warning messages.
+    ORT_LOGGING_LEVEL_ERROR,    ///< Error messages.
+    ORT_LOGGING_LEVEL_FATAL,    ///< Fatal error messages (most severe).
+};
 
-typedef enum OrtErrorCode {
-  ORT_OK,
-  ORT_FAIL,
-  ORT_INVALID_ARGUMENT,
-  ORT_NO_SUCHFILE,
-  ORT_NO_MODEL,
-  ORT_ENGINE_ERROR,
-  ORT_RUNTIME_EXCEPTION,
-  ORT_INVALID_PROTOBUF,
-  ORT_MODEL_LOADED,
-  ORT_NOT_IMPLEMENTED,
-  ORT_INVALID_GRAPH,
-  ORT_EP_FAIL,
-  ORT_MODEL_LOAD_CANCELED,
-  ORT_MODEL_REQUIRES_COMPILATION,
-  ORT_NOT_FOUND,
-} OrtErrorCode;
+using OrtErrorCode = enum OrtErrorCode {
+    ORT_OK,
+    ORT_FAIL,
+    ORT_INVALID_ARGUMENT,
+    ORT_NO_SUCHFILE,
+    ORT_NO_MODEL,
+    ORT_ENGINE_ERROR,
+    ORT_RUNTIME_EXCEPTION,
+    ORT_INVALID_PROTOBUF,
+    ORT_MODEL_LOADED,
+    ORT_NOT_IMPLEMENTED,
+    ORT_INVALID_GRAPH,
+    ORT_EP_FAIL,
+    ORT_MODEL_LOAD_CANCELED,
+    ORT_MODEL_REQUIRES_COMPILATION,
+    ORT_NOT_FOUND,
+};
 
-typedef enum OrtOpAttrType {
-  ORT_OP_ATTR_UNDEFINED = 0,
-  ORT_OP_ATTR_INT,
-  ORT_OP_ATTR_INTS,
-  ORT_OP_ATTR_FLOAT,
-  ORT_OP_ATTR_FLOATS,
-  ORT_OP_ATTR_STRING,
-  ORT_OP_ATTR_STRINGS,
-  ORT_OP_ATTR_GRAPH,
-  ORT_OP_ATTR_TENSOR,
-} OrtOpAttrType;
+using OrtOpAttrType = enum OrtOpAttrType {
+    ORT_OP_ATTR_UNDEFINED = 0,
+    ORT_OP_ATTR_INT,
+    ORT_OP_ATTR_INTS,
+    ORT_OP_ATTR_FLOAT,
+    ORT_OP_ATTR_FLOATS,
+    ORT_OP_ATTR_STRING,
+    ORT_OP_ATTR_STRINGS,
+    ORT_OP_ATTR_GRAPH,
+    ORT_OP_ATTR_TENSOR,
+};
 
 //! @}
 #define ORT_RUNTIME_CLASS(X) \
@@ -332,7 +319,7 @@ ORT_RUNTIME_CLASS(ExternalInitializerInfo);
 #ifdef _MSC_VER
 typedef _Return_type_success_(return == 0) OrtStatus* OrtStatusPtr;
 #else
-typedef OrtStatus* OrtStatusPtr;
+using OrtStatusPtr = OrtStatus*;
 #endif
 
 /** \brief Memory allocation interface
@@ -341,169 +328,157 @@ typedef OrtStatus* OrtStatusPtr;
  *
  * When an allocator is passed to any function, be sure that the allocator object is not destroyed until the last allocated object using it is freed.
  */
-typedef struct OrtAllocator {
-  uint32_t version;  ///< Must be initialized to ORT_API_VERSION
+using OrtAllocator = struct OrtAllocator {
+    uint32_t version;  ///< Must be initialized to ORT_API_VERSION
 
-  /// Returns a pointer to an allocated block of `size` bytes
-  void*(ORT_API_CALL* Alloc)(struct OrtAllocator* this_, size_t size);
+    /// Returns a pointer to an allocated block of `size` bytes
+    void*(ORT_API_CALL* Alloc)(struct OrtAllocator* this_, size_t size);
 
-  /// Free a block of memory previously allocated with OrtAllocator::Alloc
-  void(ORT_API_CALL* Free)(struct OrtAllocator* this_, void* p);
+    /// Free a block of memory previously allocated with OrtAllocator::Alloc
+    void(ORT_API_CALL* Free)(struct OrtAllocator* this_, void* p);
 
-  /// Return a pointer to an ::OrtMemoryInfo that describes this allocator
-  const struct OrtMemoryInfo*(ORT_API_CALL* Info)(const struct OrtAllocator* this_);
-  /**
-   * @brief Optional allocation function to use for memory allocations made during session initialization.
-   * Use this function if you want to separate allocations made by ORT during Run() calls from
-   * those made during session initialization. This allows for separate memory management strategies for these
-   * allocations.
-   *
-   * \return pointer to an allocated block of `size` bytes. nullptr if size was 0 or allocation failed.
-   *
-   * \since 1.18
-   */
-  void*(ORT_API_CALL* Reserve)(struct OrtAllocator* this_, size_t size);
+    /// Return a pointer to an ::OrtMemoryInfo that describes this allocator
+    const struct OrtMemoryInfo*(ORT_API_CALL* Info)(const struct OrtAllocator* this_);
+    /**
+     * @brief Optional allocation function to use for memory allocations made during session initialization.
+     * Use this function if you want to separate allocations made by ORT during Run() calls from
+     * those made during session initialization. This allows for separate memory management strategies for these
+     * allocations.
+     *
+     * \return pointer to an allocated block of `size` bytes. nullptr if size was 0 or allocation failed.
+     *
+     * \since 1.18
+     */
+    void*(ORT_API_CALL* Reserve)(struct OrtAllocator* this_, size_t size);
 
-  /**
-   * @brief Function used to get the statistics of the allocator.
-   *
-   * Return a pointer to the OrtKeyValuePairs structure that contains the statistics of the allocator.
-   * The user should call OrtApi::ReleaseKeyValuePairs when done.
-   *
-   * Current known keys are:
-   * - Limit: Bytes limit of the allocator. -1 if no limit is set.
-   * - InUse: Number of bytes in use.
-   * - TotalAllocated: The total number of allocated bytes by the allocator.
-   * - MaxInUse: The maximum bytes in use.
-   * - NumAllocs: Number of allocations.
-   * - NumReserves: Number of reserves. (Number of calls to Reserve() in arena-based allocators)
-   * - NumArenaExtensions: Number of arena extensions (Relevant only for arena based allocators)
-   * - NumArenaShrinkages: Number of arena shrinkages (Relevant only for arena based allocators)
-   * - MaxAllocSize: The max single allocation seen.
-   *
-   * The allocator is free to add other entries as appropriate.
-   *
-   * \note Implementation of this function is optional and GetStats may be set to a nullptr.
-   *       If the OrtAllocator is wrapping an internal ORT allocator that does not implement GetStats
-   *       the returned OrtKeyValuePairs instance will be empty.
-   *
-   * \since 1.23
-   */
-  ORT_API2_STATUS(GetStats, _In_ const struct OrtAllocator* this_, _Outptr_ OrtKeyValuePairs** out);
+    /**
+     * @brief Function used to get the statistics of the allocator.
+     *
+     * Return a pointer to the OrtKeyValuePairs structure that contains the statistics of the allocator.
+     * The user should call OrtApi::ReleaseKeyValuePairs when done.
+     *
+     * Current known keys are:
+     * - Limit: Bytes limit of the allocator. -1 if no limit is set.
+     * - InUse: Number of bytes in use.
+     * - TotalAllocated: The total number of allocated bytes by the allocator.
+     * - MaxInUse: The maximum bytes in use.
+     * - NumAllocs: Number of allocations.
+     * - NumReserves: Number of reserves. (Number of calls to Reserve() in arena-based allocators)
+     * - NumArenaExtensions: Number of arena extensions (Relevant only for arena based allocators)
+     * - NumArenaShrinkages: Number of arena shrinkages (Relevant only for arena based allocators)
+     * - MaxAllocSize: The max single allocation seen.
+     *
+     * The allocator is free to add other entries as appropriate.
+     *
+     * \note Implementation of this function is optional and GetStats may be set to a nullptr.
+     *       If the OrtAllocator is wrapping an internal ORT allocator that does not implement GetStats
+     *       the returned OrtKeyValuePairs instance will be empty.
+     *
+     * \since 1.23
+     */
+    ORT_API2_STATUS(GetStats, _In_ const struct OrtAllocator* this_, _Outptr_ OrtKeyValuePairs** out);
 
-  /** \brief Allocate using a stream.
-   *
-   * If the allocator is stream aware this performs allocation using a stream.
-   *
-   * Alloc will be used if this is nullptr.
-   *
-   * \param[in] this_ OrtAllocator instance
-   * \param[in] size Size of the allocation in bytes. nullptr if size was 0 or allocation failed.
-   * \param[in] stream The stream to allocate on.
-   *
-   * \return pointer to an allocated block of `size` bytes
-   *
-   * \note Implementation of this function is optional and AllocOnStream may be set to a nullptr.
-   * \since 1.23
-   */
-  void*(ORT_API_CALL* AllocOnStream)(struct OrtAllocator* this_, size_t size, OrtSyncStream* stream);
-} OrtAllocator;
+    /** \brief Allocate using a stream.
+     *
+     * If the allocator is stream aware this performs allocation using a stream.
+     *
+     * Alloc will be used if this is nullptr.
+     *
+     * \param[in] this_ OrtAllocator instance
+     * \param[in] size Size of the allocation in bytes. nullptr if size was 0 or allocation failed.
+     * \param[in] stream The stream to allocate on.
+     *
+     * \return pointer to an allocated block of `size` bytes
+     *
+     * \note Implementation of this function is optional and AllocOnStream may be set to a nullptr.
+     * \since 1.23
+     */
+    void*(ORT_API_CALL* AllocOnStream)(struct OrtAllocator* this_, size_t size, OrtSyncStream* stream);
+};
 
-typedef void(ORT_API_CALL* OrtLoggingFunction)(
-    void* param, OrtLoggingLevel severity, const char* category, const char* logid, const char* code_location,
-    const char* message);
+using OrtLoggingFunction = void(ORT_API_CALL*)(void* param, OrtLoggingLevel severity, const char* category, const char* logid, const char* code_location, const char* message);
 
 /** \brief Graph optimization level
  *
  * Refer to https://www.onnxruntime.ai/docs/performance/graph-optimizations.html#graph-optimization-levels
  * for an in-depth understanding of the Graph Optimization Levels.
  */
-typedef enum GraphOptimizationLevel {
-  ORT_DISABLE_ALL = 0,
-  ORT_ENABLE_BASIC = 1,
-  ORT_ENABLE_EXTENDED = 2,
-  ORT_ENABLE_LAYOUT = 3,
-  ORT_ENABLE_ALL = 99
-} GraphOptimizationLevel;
+using GraphOptimizationLevel = enum GraphOptimizationLevel { ORT_DISABLE_ALL = 0, ORT_ENABLE_BASIC = 1, ORT_ENABLE_EXTENDED = 2, ORT_ENABLE_LAYOUT = 3, ORT_ENABLE_ALL = 99 };
 
-typedef enum ExecutionMode {
-  ORT_SEQUENTIAL = 0,
-  ORT_PARALLEL = 1,
-} ExecutionMode;
+using ExecutionMode = enum ExecutionMode {
+    ORT_SEQUENTIAL = 0,
+    ORT_PARALLEL = 1,
+};
 
 /** \brief Language projection identifiers
  * /see OrtApi::SetLanguageProjection
  */
-typedef enum OrtLanguageProjection {
-  ORT_PROJECTION_C = 0,
-  ORT_PROJECTION_CPLUSPLUS = 1,
-  ORT_PROJECTION_CSHARP = 2,
-  ORT_PROJECTION_PYTHON = 3,
-  ORT_PROJECTION_JAVA = 4,
-  ORT_PROJECTION_WINML = 5,
-  ORT_PROJECTION_NODEJS = 6,
-} OrtLanguageProjection;
+using OrtLanguageProjection = enum OrtLanguageProjection {
+    ORT_PROJECTION_C = 0,
+    ORT_PROJECTION_CPLUSPLUS = 1,
+    ORT_PROJECTION_CSHARP = 2,
+    ORT_PROJECTION_PYTHON = 3,
+    ORT_PROJECTION_JAVA = 4,
+    ORT_PROJECTION_WINML = 5,
+    ORT_PROJECTION_NODEJS = 6,
+};
 
 struct OrtKernelInfo;
-typedef struct OrtKernelInfo OrtKernelInfo;
+using OrtKernelInfo = struct OrtKernelInfo;
 struct OrtKernelContext;
-typedef struct OrtKernelContext OrtKernelContext;
+using OrtKernelContext = struct OrtKernelContext;
 struct OrtCustomOp;
-typedef struct OrtCustomOp OrtCustomOp;
+using OrtCustomOp = struct OrtCustomOp;
 
-typedef enum OrtAllocatorType {
-  OrtInvalidAllocator = -1,
-  OrtDeviceAllocator = 0,
-  OrtArenaAllocator = 1,
-  OrtReadOnlyAllocator = 2,
-} OrtAllocatorType;
+using OrtAllocatorType = enum OrtAllocatorType {
+    OrtInvalidAllocator = -1,
+    OrtDeviceAllocator = 0,
+    OrtArenaAllocator = 1,
+    OrtReadOnlyAllocator = 2,
+};
 
 /** \brief Memory types for allocated memory, execution provider specific types should be extended in each provider.
  */
 // Whenever this struct is updated, please also update the MakeKey function in onnxruntime / core / framework / execution_provider.cc
-typedef enum OrtMemType {
-  /// Any CPU memory used by non-CPU execution provider
-  OrtMemTypeCPUInput = -2,
-  /// CPU accessible memory outputted by non-CPU execution provider, i.e. HOST_ACCESSIBLE
-  OrtMemTypeCPUOutput = -1,
-  /// CPU accessible memory allocated by non-CPU execution provider, i.e. HOST_ACCESSIBLE
-  OrtMemTypeCPU = OrtMemTypeCPUOutput,
-  /// The default allocator for execution provider
-  OrtMemTypeDefault = 0,
-} OrtMemType;
+using OrtMemType = enum OrtMemType {
+    /// Any CPU memory used by non-CPU execution provider
+    OrtMemTypeCPUInput = -2,
+    /// CPU accessible memory outputted by non-CPU execution provider, i.e. HOST_ACCESSIBLE
+    OrtMemTypeCPUOutput = -1,
+    /// CPU accessible memory allocated by non-CPU execution provider, i.e. HOST_ACCESSIBLE
+    OrtMemTypeCPU = OrtMemTypeCPUOutput,
+    /// The default allocator for execution provider
+    OrtMemTypeDefault = 0,
+};
 
 /** \brief This matches OrtDevice::MemoryType values */
-typedef enum OrtDeviceMemoryType {
-  OrtDeviceMemoryType_DEFAULT = 0,          ///< Device memory
-  OrtDeviceMemoryType_HOST_ACCESSIBLE = 5,  ///< Shared/pinned memory for transferring between CPU and the device
-} OrtDeviceMemoryType;
+using OrtDeviceMemoryType = enum OrtDeviceMemoryType {
+    OrtDeviceMemoryType_DEFAULT = 0,          ///< Device memory
+    OrtDeviceMemoryType_HOST_ACCESSIBLE = 5,  ///< Shared/pinned memory for transferring between CPU and the device
+};
 
 /** \brief This mimics OrtDevice type constants so they can be returned in the API
  */
-typedef enum OrtMemoryInfoDeviceType {
-  OrtMemoryInfoDeviceType_CPU = 0,
-  OrtMemoryInfoDeviceType_GPU = 1,
-  OrtMemoryInfoDeviceType_FPGA = 2,
-  OrtMemoryInfoDeviceType_NPU = 3,
-} OrtMemoryInfoDeviceType;
+using OrtMemoryInfoDeviceType = enum OrtMemoryInfoDeviceType {
+    OrtMemoryInfoDeviceType_CPU = 0,
+    OrtMemoryInfoDeviceType_GPU = 1,
+    OrtMemoryInfoDeviceType_FPGA = 2,
+    OrtMemoryInfoDeviceType_NPU = 3,
+};
 
-typedef enum OrtHardwareDeviceType {
-  OrtHardwareDeviceType_CPU,
-  OrtHardwareDeviceType_GPU,
-  OrtHardwareDeviceType_NPU
-} OrtHardwareDeviceType;
+using OrtHardwareDeviceType = enum OrtHardwareDeviceType { OrtHardwareDeviceType_CPU, OrtHardwareDeviceType_GPU, OrtHardwareDeviceType_NPU };
 
 /** \brief These are the default EP selection policies used by ORT when doing automatic EP selection.
  */
-typedef enum OrtExecutionProviderDevicePolicy {
-  OrtExecutionProviderDevicePolicy_DEFAULT,
-  OrtExecutionProviderDevicePolicy_PREFER_CPU,
-  OrtExecutionProviderDevicePolicy_PREFER_NPU,
-  OrtExecutionProviderDevicePolicy_PREFER_GPU,
-  OrtExecutionProviderDevicePolicy_MAX_PERFORMANCE,
-  OrtExecutionProviderDevicePolicy_MAX_EFFICIENCY,
-  OrtExecutionProviderDevicePolicy_MIN_OVERALL_POWER,
-} OrtExecutionProviderDevicePolicy;
+using OrtExecutionProviderDevicePolicy = enum OrtExecutionProviderDevicePolicy {
+    OrtExecutionProviderDevicePolicy_DEFAULT,
+    OrtExecutionProviderDevicePolicy_PREFER_CPU,
+    OrtExecutionProviderDevicePolicy_PREFER_NPU,
+    OrtExecutionProviderDevicePolicy_PREFER_GPU,
+    OrtExecutionProviderDevicePolicy_MAX_PERFORMANCE,
+    OrtExecutionProviderDevicePolicy_MAX_EFFICIENCY,
+    OrtExecutionProviderDevicePolicy_MIN_OVERALL_POWER,
+};
 
 /** \brief Delegate to allow providing custom OrtEpDevice selection logic
  *
@@ -524,14 +499,8 @@ typedef enum OrtExecutionProviderDevicePolicy {
  *                    Use CreateStatus to provide error info. Use ORT_FAIL as the error code.
  *                    ORT will release the OrtStatus* if not null.
  */
-typedef OrtStatus*(ORT_API_CALL* EpSelectionDelegate)(_In_ const OrtEpDevice** ep_devices,
-                                                      _In_ size_t num_devices,
-                                                      _In_ const OrtKeyValuePairs* model_metadata,
-                                                      _In_opt_ const OrtKeyValuePairs* runtime_metadata,
-                                                      _Inout_ const OrtEpDevice** selected,
-                                                      _In_ size_t max_selected,
-                                                      _Out_ size_t* num_selected,
-                                                      _In_ void* state);
+using EpSelectionDelegate = OrtStatus*(ORT_API_CALL*)(_In_ const OrtEpDevice** ep_devices, _In_ size_t num_devices, _In_ const OrtKeyValuePairs* model_metadata, _In_opt_ const OrtKeyValuePairs* runtime_metadata, _Inout_ const OrtEpDevice** selected, _In_ size_t max_selected,
+                                                      _Out_ size_t* num_selected, _In_ void* state);
 
 /** \brief Function called by ORT to write a buffer to a custom destination (e.g., file, stream, etc.).
  *
@@ -543,9 +512,7 @@ typedef OrtStatus*(ORT_API_CALL* EpSelectionDelegate)(_In_ const OrtEpDevice** e
  *                    Use CreateStatus to provide error info. Use ORT_FAIL as the error code.
  *                    ORT will release the OrtStatus* if not null.
  */
-typedef OrtStatus*(ORT_API_CALL* OrtWriteBufferFunc)(_In_ void* state,
-                                                     _In_ const void* buffer,
-                                                     _In_ size_t buffer_num_bytes);
+using OrtWriteBufferFunc = OrtStatus*(ORT_API_CALL*)(_In_ void* state, _In_ const void* buffer, _In_ size_t buffer_num_bytes);
 
 /** \brief Function called by ORT to allow user to specify how an initializer should be saved, that is, either
  * written to an external file or stored within the model. ORT calls this function for every initializer when
@@ -577,258 +544,253 @@ typedef OrtStatus*(ORT_API_CALL* OrtWriteBufferFunc)(_In_ void* state,
  *                    Use CreateStatus to provide error info. Use ORT_FAIL as the error code.
  *                    ORT will release the OrtStatus* if not null.
  */
-typedef OrtStatus*(ORT_API_CALL* OrtGetInitializerLocationFunc)(
-    _In_ void* state,
-    _In_ const char* initializer_name,
-    _In_ const OrtValue* initializer_value,
-    _In_opt_ const OrtExternalInitializerInfo* external_info,
-    _Outptr_result_maybenull_ OrtExternalInitializerInfo** new_external_info);
+using OrtGetInitializerLocationFunc = OrtStatus*(ORT_API_CALL*)(_In_ void* state, _In_ const char* initializer_name, _In_ const OrtValue* initializer_value, _In_opt_ const OrtExternalInitializerInfo* external_info, _Outptr_result_maybenull_ OrtExternalInitializerInfo** new_external_info);
 
 /** \brief Algorithm to use for cuDNN Convolution Op
  */
-typedef enum OrtCudnnConvAlgoSearch {
-  OrtCudnnConvAlgoSearchExhaustive,  // expensive exhaustive benchmarking using cudnnFindConvolutionForwardAlgorithmEx
-  OrtCudnnConvAlgoSearchHeuristic,   // lightweight heuristic based search using cudnnGetConvolutionForwardAlgorithm_v7
-  OrtCudnnConvAlgoSearchDefault,     // default algorithm using CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM
-} OrtCudnnConvAlgoSearch;
+using OrtCudnnConvAlgoSearch = enum OrtCudnnConvAlgoSearch {
+    OrtCudnnConvAlgoSearchExhaustive,  // expensive exhaustive benchmarking using cudnnFindConvolutionForwardAlgorithmEx
+    OrtCudnnConvAlgoSearchHeuristic,   // lightweight heuristic based search using cudnnGetConvolutionForwardAlgorithm_v7
+    OrtCudnnConvAlgoSearchDefault,     // default algorithm using CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM
+};
 
 /** \brief CUDA Provider Options
  *
  * \see OrtApi::SessionOptionsAppendExecutionProvider_CUDA
  */
-typedef struct OrtCUDAProviderOptions {
+using OrtCUDAProviderOptions = struct OrtCUDAProviderOptions {
 #ifdef __cplusplus
-  OrtCUDAProviderOptions()
-      : device_id{},
-        cudnn_conv_algo_search{OrtCudnnConvAlgoSearchExhaustive},
-        gpu_mem_limit{SIZE_MAX},
-        arena_extend_strategy{},
-        do_copy_in_default_stream{1},
-        has_user_compute_stream{},
-        user_compute_stream{},
-        default_memory_arena_cfg{},
-        tunable_op_enable{false},
-        tunable_op_tuning_enable{false},
-        tunable_op_max_tuning_duration_ms{} {}
+    OrtCUDAProviderOptions()
+        : device_id{},
+          cudnn_conv_algo_search{OrtCudnnConvAlgoSearchExhaustive},
+          gpu_mem_limit{SIZE_MAX},
+          arena_extend_strategy{},
+          do_copy_in_default_stream{1},
+          has_user_compute_stream{},
+          user_compute_stream{},
+          default_memory_arena_cfg{},
+          tunable_op_enable{false},
+          tunable_op_tuning_enable{false},
+          tunable_op_max_tuning_duration_ms{} {
+    }
 #endif
 
-  /** \brief CUDA device Id
-   *   Defaults to 0.
-   */
-  int device_id;
+    /** \brief CUDA device Id
+     *   Defaults to 0.
+     */
+    int device_id;
 
-  /** \brief CUDA Convolution algorithm search configuration.
-   *   See enum OrtCudnnConvAlgoSearch for more details.
-   *   Defaults to OrtCudnnConvAlgoSearchExhaustive.
-   */
-  OrtCudnnConvAlgoSearch cudnn_conv_algo_search;
+    /** \brief CUDA Convolution algorithm search configuration.
+     *   See enum OrtCudnnConvAlgoSearch for more details.
+     *   Defaults to OrtCudnnConvAlgoSearchExhaustive.
+     */
+    OrtCudnnConvAlgoSearch cudnn_conv_algo_search;
 
-  /** \brief CUDA memory limit (To use all possible memory pass in maximum size_t)
-   *   Defaults to SIZE_MAX.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  size_t gpu_mem_limit;
+    /** \brief CUDA memory limit (To use all possible memory pass in maximum size_t)
+     *   Defaults to SIZE_MAX.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    size_t gpu_mem_limit;
 
-  /** \brief Strategy used to grow the memory arena
-   *   0 = kNextPowerOfTwo<br>
-   *   1 = kSameAsRequested<br>
-   *   Defaults to 0.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  int arena_extend_strategy;
+    /** \brief Strategy used to grow the memory arena
+     *   0 = kNextPowerOfTwo<br>
+     *   1 = kSameAsRequested<br>
+     *   Defaults to 0.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    int arena_extend_strategy;
 
-  /** \brief Flag indicating if copying needs to take place on the same stream as the compute stream in the CUDA EP
-   *   0 = Use separate streams for copying and compute.
-   *   1 = Use the same stream for copying and compute.
-   *   Defaults to 1.
-   *   WARNING: Setting this to 0 may result in data races for some models.
-   *   Please see issue #4829 for more details.
-   */
-  int do_copy_in_default_stream;
+    /** \brief Flag indicating if copying needs to take place on the same stream as the compute stream in the CUDA EP
+     *   0 = Use separate streams for copying and compute.
+     *   1 = Use the same stream for copying and compute.
+     *   Defaults to 1.
+     *   WARNING: Setting this to 0 may result in data races for some models.
+     *   Please see issue #4829 for more details.
+     */
+    int do_copy_in_default_stream;
 
-  /** \brief Flag indicating if there is a user provided compute stream
-   *   Defaults to 0.
-   */
-  int has_user_compute_stream;
+    /** \brief Flag indicating if there is a user provided compute stream
+     *   Defaults to 0.
+     */
+    int has_user_compute_stream;
 
-  /** \brief User provided compute stream.
-   *   If provided, please set `has_user_compute_stream` to 1.
-   */
-  void* user_compute_stream;
+    /** \brief User provided compute stream.
+     *   If provided, please set `has_user_compute_stream` to 1.
+     */
+    void* user_compute_stream;
 
-  /** \brief CUDA memory arena configuration parameters
-   */
-  OrtArenaCfg* default_memory_arena_cfg;
+    /** \brief CUDA memory arena configuration parameters
+     */
+    OrtArenaCfg* default_memory_arena_cfg;
 
-  /** \brief Enable TunableOp for using.
-   *   Set it to 1/0 to enable/disable TunableOp. Otherwise, it is disabled by default.
-   *   This option can be overridden by environment variable ORT_CUDA_TUNABLE_OP_ENABLE.
-   */
-  int tunable_op_enable;
+    /** \brief Enable TunableOp for using.
+     *   Set it to 1/0 to enable/disable TunableOp. Otherwise, it is disabled by default.
+     *   This option can be overridden by environment variable ORT_CUDA_TUNABLE_OP_ENABLE.
+     */
+    int tunable_op_enable;
 
-  /** \brief Enable TunableOp for tuning.
-   *   Set it to 1/0 to enable/disable TunableOp tuning. Otherwise, it is disabled by default.
-   *   This option can be overridden by environment variable ORT_CUDA_TUNABLE_OP_TUNING_ENABLE.
-   */
-  int tunable_op_tuning_enable;
+    /** \brief Enable TunableOp for tuning.
+     *   Set it to 1/0 to enable/disable TunableOp tuning. Otherwise, it is disabled by default.
+     *   This option can be overridden by environment variable ORT_CUDA_TUNABLE_OP_TUNING_ENABLE.
+     */
+    int tunable_op_tuning_enable;
 
-  /** \brief Max tuning duration time limit for each instance of TunableOp.
-   *   Defaults to 0 to disable the limit.
-   */
-  int tunable_op_max_tuning_duration_ms;
-
-} OrtCUDAProviderOptions;
+    /** \brief Max tuning duration time limit for each instance of TunableOp.
+     *   Defaults to 0 to disable the limit.
+     */
+    int tunable_op_max_tuning_duration_ms;
+};
 
 /** \brief ROCM Provider Options
  *
  * \see OrtApi::SessionOptionsAppendExecutionProvider_ROCM
  */
-typedef struct OrtROCMProviderOptions {
+using OrtROCMProviderOptions = struct OrtROCMProviderOptions {
 #ifdef __cplusplus
-  OrtROCMProviderOptions()
-      : device_id{},
-        miopen_conv_exhaustive_search{0},
-        gpu_mem_limit{SIZE_MAX},
-        arena_extend_strategy{},
-        do_copy_in_default_stream{1},
-        has_user_compute_stream{},
-        user_compute_stream{},
-        default_memory_arena_cfg{},
-        enable_hip_graph{false},
-        tunable_op_enable{false},
-        tunable_op_tuning_enable{false},
-        tunable_op_max_tuning_duration_ms{} {}
+    OrtROCMProviderOptions()
+        : device_id{},
+          miopen_conv_exhaustive_search{0},
+          gpu_mem_limit{SIZE_MAX},
+          arena_extend_strategy{},
+          do_copy_in_default_stream{1},
+          has_user_compute_stream{},
+          user_compute_stream{},
+          default_memory_arena_cfg{},
+          enable_hip_graph{false},
+          tunable_op_enable{false},
+          tunable_op_tuning_enable{false},
+          tunable_op_max_tuning_duration_ms{} {
+    }
 #endif
 
-  /** \brief ROCM device Id
-   *   Defaults to 0.
-   */
-  int device_id;
+    /** \brief ROCM device Id
+     *   Defaults to 0.
+     */
+    int device_id;
 
-  /** \brief ROCM MIOpen Convolution algorithm exhaustive search option.
-   *   Defaults to 0 (false).
-   */
-  int miopen_conv_exhaustive_search;
+    /** \brief ROCM MIOpen Convolution algorithm exhaustive search option.
+     *   Defaults to 0 (false).
+     */
+    int miopen_conv_exhaustive_search;
 
-  /** \brief ROCM memory limit (To use all possible memory pass in maximum size_t)
-   *   Defaults to SIZE_MAX.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  size_t gpu_mem_limit;
+    /** \brief ROCM memory limit (To use all possible memory pass in maximum size_t)
+     *   Defaults to SIZE_MAX.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    size_t gpu_mem_limit;
 
-  /** \brief Strategy used to grow the memory arena
-   *   0 = kNextPowerOfTwo<br>
-   *   1 = kSameAsRequested<br>
-   *   Defaults to 0.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  int arena_extend_strategy;
+    /** \brief Strategy used to grow the memory arena
+     *   0 = kNextPowerOfTwo<br>
+     *   1 = kSameAsRequested<br>
+     *   Defaults to 0.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    int arena_extend_strategy;
 
-  /** \brief Flag indicating if copying needs to take place on the same stream as the compute stream in the ROCM EP
-   *   0 = Use separate streams for copying and compute.
-   *   1 = Use the same stream for copying and compute.
-   *   Defaults to 1.
-   *   WARNING: Setting this to 0 may result in data races for some models.
-   *   Please see issue #4829 for more details.
-   */
-  int do_copy_in_default_stream;
+    /** \brief Flag indicating if copying needs to take place on the same stream as the compute stream in the ROCM EP
+     *   0 = Use separate streams for copying and compute.
+     *   1 = Use the same stream for copying and compute.
+     *   Defaults to 1.
+     *   WARNING: Setting this to 0 may result in data races for some models.
+     *   Please see issue #4829 for more details.
+     */
+    int do_copy_in_default_stream;
 
-  /** \brief Flag indicating if there is a user provided compute stream
-   *   Defaults to 0.
-   */
-  int has_user_compute_stream;
+    /** \brief Flag indicating if there is a user provided compute stream
+     *   Defaults to 0.
+     */
+    int has_user_compute_stream;
 
-  /** \brief User provided compute stream.
-   *   If provided, please set `has_user_compute_stream` to 1.
-   */
-  void* user_compute_stream;
+    /** \brief User provided compute stream.
+     *   If provided, please set `has_user_compute_stream` to 1.
+     */
+    void* user_compute_stream;
 
-  /** \brief ROCM memory arena configuration parameters
-   */
-  OrtArenaCfg* default_memory_arena_cfg;
+    /** \brief ROCM memory arena configuration parameters
+     */
+    OrtArenaCfg* default_memory_arena_cfg;
 
-  int enable_hip_graph;
+    int enable_hip_graph;
 
-  /** \brief Enable TunableOp for using.
-   *   Set it to 1/0 to enable/disable TunableOp. Otherwise, it is disabled by default.
-   *   This option can be overridden by environment variable ORT_ROCM_TUNABLE_OP_ENABLE.
-   */
-  int tunable_op_enable;
+    /** \brief Enable TunableOp for using.
+     *   Set it to 1/0 to enable/disable TunableOp. Otherwise, it is disabled by default.
+     *   This option can be overridden by environment variable ORT_ROCM_TUNABLE_OP_ENABLE.
+     */
+    int tunable_op_enable;
 
-  /** \brief Enable TunableOp for tuning.
-   *   Set it to 1/0 to enable/disable TunableOp tuning. Otherwise, it is disabled by default.
-   *   This option can be overridden by environment variable ORT_ROCM_TUNABLE_OP_TUNING_ENABLE.
-   */
-  int tunable_op_tuning_enable;
+    /** \brief Enable TunableOp for tuning.
+     *   Set it to 1/0 to enable/disable TunableOp tuning. Otherwise, it is disabled by default.
+     *   This option can be overridden by environment variable ORT_ROCM_TUNABLE_OP_TUNING_ENABLE.
+     */
+    int tunable_op_tuning_enable;
 
-  /** \brief Max tuning duration time limit for each instance of TunableOp.
-   *   Defaults to 0 to disable the limit.
-   */
-  int tunable_op_max_tuning_duration_ms;
-
-} OrtROCMProviderOptions;
+    /** \brief Max tuning duration time limit for each instance of TunableOp.
+     *   Defaults to 0 to disable the limit.
+     */
+    int tunable_op_max_tuning_duration_ms;
+};
 
 /** \brief TensorRT Provider Options
  *
  * \see OrtApi::SessionOptionsAppendExecutionProvider_TensorRT
  */
-typedef struct OrtTensorRTProviderOptions {
-  int device_id;                                ///< CUDA device id (0 = default device)
-  int has_user_compute_stream;                  // indicator of user specified CUDA compute stream.
-  void* user_compute_stream;                    // user specified CUDA compute stream.
-  int trt_max_partition_iterations;             // maximum iterations for TensorRT parser to get capability
-  int trt_min_subgraph_size;                    // minimum size of TensorRT subgraphs
-  size_t trt_max_workspace_size;                // maximum workspace size for TensorRT.
-  int trt_fp16_enable;                          // enable TensorRT FP16 precision. Default 0 = false, nonzero = true
-  int trt_int8_enable;                          // enable TensorRT INT8 precision. Default 0 = false, nonzero = true
-  const char* trt_int8_calibration_table_name;  // TensorRT INT8 calibration table name.
-  int trt_int8_use_native_calibration_table;    // use native TensorRT generated calibration table. Default 0 = false, nonzero = true
-  int trt_dla_enable;                           // enable DLA. Default 0 = false, nonzero = true
-  int trt_dla_core;                             // DLA core number. Default 0
-  int trt_dump_subgraphs;                       // dump TRT subgraph. Default 0 = false, nonzero = true
-  int trt_engine_cache_enable;                  // enable engine caching. Default 0 = false, nonzero = true
-  const char* trt_engine_cache_path;            // specify engine cache path
-  int trt_engine_decryption_enable;             // enable engine decryption. Default 0 = false, nonzero = true
-  const char* trt_engine_decryption_lib_path;   // specify engine decryption library path
-  int trt_force_sequential_engine_build;        // force building TensorRT engine sequentially. Default 0 = false, nonzero = true
-  // This is the legacy struct and don't add new fields here.
-  // For new field that can be represented by string, please add it in include/onnxruntime/core/providers/tensorrt/tensorrt_provider_options.h
-  // For non-string field, need to create a new separate api to handle it.
-} OrtTensorRTProviderOptions;
+using OrtTensorRTProviderOptions = struct OrtTensorRTProviderOptions {
+    int device_id;                                ///< CUDA device id (0 = default device)
+    int has_user_compute_stream;                  // indicator of user specified CUDA compute stream.
+    void* user_compute_stream;                    // user specified CUDA compute stream.
+    int trt_max_partition_iterations;             // maximum iterations for TensorRT parser to get capability
+    int trt_min_subgraph_size;                    // minimum size of TensorRT subgraphs
+    size_t trt_max_workspace_size;                // maximum workspace size for TensorRT.
+    int trt_fp16_enable;                          // enable TensorRT FP16 precision. Default 0 = false, nonzero = true
+    int trt_int8_enable;                          // enable TensorRT INT8 precision. Default 0 = false, nonzero = true
+    const char* trt_int8_calibration_table_name;  // TensorRT INT8 calibration table name.
+    int trt_int8_use_native_calibration_table;    // use native TensorRT generated calibration table. Default 0 = false, nonzero = true
+    int trt_dla_enable;                           // enable DLA. Default 0 = false, nonzero = true
+    int trt_dla_core;                             // DLA core number. Default 0
+    int trt_dump_subgraphs;                       // dump TRT subgraph. Default 0 = false, nonzero = true
+    int trt_engine_cache_enable;                  // enable engine caching. Default 0 = false, nonzero = true
+    const char* trt_engine_cache_path;            // specify engine cache path
+    int trt_engine_decryption_enable;             // enable engine decryption. Default 0 = false, nonzero = true
+    const char* trt_engine_decryption_lib_path;   // specify engine decryption library path
+    int trt_force_sequential_engine_build;        // force building TensorRT engine sequentially. Default 0 = false, nonzero = true
+                                                  // This is the legacy struct and don't add new fields here.
+                                                  // For new field that can be represented by string, please add it in include/onnxruntime/core/providers/tensorrt/tensorrt_provider_options.h
+                                                  // For non-string field, need to create a new separate api to handle it.
+};
 
 /** \brief MIGraphX Provider Options
  *
  * \see OrtApi::SessionOptionsAppendExecutionProvider_MIGraphX
  */
-typedef struct OrtMIGraphXProviderOptions {
-  int device_id;                                     // hip device id.
-  int migraphx_fp16_enable;                          // MIGraphX FP16 precision. Default 0 = false, nonzero = true
-  int migraphx_fp8_enable;                           // MIGraphX FP8 precision. Default 0 = false, nonzero = true
-  int migraphx_int8_enable;                          // MIGraphX INT8 precision. Default 0 = false, nonzero = true
-  int migraphx_use_native_calibration_table;         // MIGraphx INT8 cal table. Default 0 = false, nonzero = true
-  const char* migraphx_int8_calibration_table_name;  // MIGraphx INT8 calibration table name
-  int migraphx_save_compiled_model;                  // migraphx save compiled model. Default 0 = false, nonzero = true
-  const char* migraphx_save_model_path;              // migraphx model path name
-  int migraphx_load_compiled_model;                  // migraphx int8 cal table. Default 0 = false, nonzero = true
-  const char* migraphx_load_model_path;              // migraphx model path name
-  bool migraphx_exhaustive_tune;                     // MIGraphX tuned compile. Default = false, nonzero = true
+using OrtMIGraphXProviderOptions = struct OrtMIGraphXProviderOptions {
+    int device_id;                                     // hip device id.
+    int migraphx_fp16_enable;                          // MIGraphX FP16 precision. Default 0 = false, nonzero = true
+    int migraphx_fp8_enable;                           // MIGraphX FP8 precision. Default 0 = false, nonzero = true
+    int migraphx_int8_enable;                          // MIGraphX INT8 precision. Default 0 = false, nonzero = true
+    int migraphx_use_native_calibration_table;         // MIGraphx INT8 cal table. Default 0 = false, nonzero = true
+    const char* migraphx_int8_calibration_table_name;  // MIGraphx INT8 calibration table name
+    int migraphx_save_compiled_model;                  // migraphx save compiled model. Default 0 = false, nonzero = true
+    const char* migraphx_save_model_path;              // migraphx model path name
+    int migraphx_load_compiled_model;                  // migraphx int8 cal table. Default 0 = false, nonzero = true
+    const char* migraphx_load_model_path;              // migraphx model path name
+    bool migraphx_exhaustive_tune;                     // MIGraphX tuned compile. Default = false, nonzero = true
 
-  /** \brief MIGraphX memory limit (To use all possible memory pass in maximum size_t)
-   *   Defaults to SIZE_MAX.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  size_t migraphx_mem_limit;
+    /** \brief MIGraphX memory limit (To use all possible memory pass in maximum size_t)
+     *   Defaults to SIZE_MAX.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    size_t migraphx_mem_limit;
 
-  /** \brief Strategy used to grow the memory arena
-   *   0 = kNextPowerOfTwo<br>
-   *   1 = kSameAsRequested<br>
-   *   Defaults to 0.
-   *   \note If a ::OrtArenaCfg has been applied, it will override this field
-   */
-  int migraphx_arena_extend_strategy;
+    /** \brief Strategy used to grow the memory arena
+     *   0 = kNextPowerOfTwo<br>
+     *   1 = kSameAsRequested<br>
+     *   Defaults to 0.
+     *   \note If a ::OrtArenaCfg has been applied, it will override this field
+     */
+    int migraphx_arena_extend_strategy;
 
-  // This is the legacy struct and don't add new fields here.
-} OrtMIGraphXProviderOptions;
+    // This is the legacy struct and don't add new fields here.
+};
 
 /** \brief OpenVINO Provider Options
  *  \brief This Struct is frozen since ORT 1.13.0. Its maintained part of Legacy API for compatibility.
@@ -839,45 +801,39 @@ typedef struct OrtMIGraphXProviderOptions {
  *  \endhtmlonly
  * \see OrtApi::SessionOptionsAppendExecutionProvider()
  */
-typedef struct OrtOpenVINOProviderOptions {
+using OrtOpenVINOProviderOptions = struct OrtOpenVINOProviderOptions {
 #ifdef __cplusplus
-  OrtOpenVINOProviderOptions() : device_type{},
-                                 enable_npu_fast_compile{},
-                                 device_id{},
-                                 num_of_threads{},
-                                 cache_dir{},
-                                 context{},
-                                 enable_opencl_throttling{},
-                                 enable_dynamic_shapes{} {}
+    OrtOpenVINOProviderOptions() : device_type{}, enable_npu_fast_compile{}, device_id{}, num_of_threads{}, cache_dir{}, context{}, enable_opencl_throttling{}, enable_dynamic_shapes{} {
+    }
 #endif
-  /** \brief Device type string
-   *
-   * Valid settings are one of: "CPU_FP32", "CPU_FP16", "GPU_FP32", "GPU_FP16"
-   */
-  const char* device_type;
-  unsigned char enable_npu_fast_compile;  ///< 0 = disabled, nonzero = enabled
-  const char* device_id;
-  size_t num_of_threads;  ///< 0 = Use default number of threads
-  const char* cache_dir;  // path is set to empty by default
-  void* context;
-  unsigned char enable_opencl_throttling;  ///< 0 = disabled, nonzero = enabled
-  unsigned char enable_dynamic_shapes;     ///< 0 = disabled, nonzero = enabled
-} OrtOpenVINOProviderOptions;
+    /** \brief Device type string
+     *
+     * Valid settings are one of: "CPU_FP32", "CPU_FP16", "GPU_FP32", "GPU_FP16"
+     */
+    const char* device_type;
+    unsigned char enable_npu_fast_compile;  ///< 0 = disabled, nonzero = enabled
+    const char* device_id;
+    size_t num_of_threads;  ///< 0 = Use default number of threads
+    const char* cache_dir;  // path is set to empty by default
+    void* context;
+    unsigned char enable_opencl_throttling;  ///< 0 = disabled, nonzero = enabled
+    unsigned char enable_dynamic_shapes;     ///< 0 = disabled, nonzero = enabled
+};
 
 struct OrtApi;
-typedef struct OrtApi OrtApi;
+using OrtApi = struct OrtApi;
 
 struct OrtTrainingApi;
-typedef struct OrtTrainingApi OrtTrainingApi;
+using OrtTrainingApi = struct OrtTrainingApi;
 
 struct OrtModelEditorApi;
-typedef struct OrtModelEditorApi OrtModelEditorApi;
+using OrtModelEditorApi = struct OrtModelEditorApi;
 
 struct OrtCompileApi;
-typedef struct OrtCompileApi OrtCompileApi;
+using OrtCompileApi = struct OrtCompileApi;
 
 struct OrtEpApi;
-typedef struct OrtEpApi OrtEpApi;
+using OrtEpApi = struct OrtEpApi;
 
 /** \brief The helper interface to get the right version of OrtApi
  *
@@ -899,10 +855,10 @@ struct OrtApiBase {
    *
    *  \return UTF-8 encoded version string. Do not deallocate the returned buffer.
    */
-  const char*(ORT_API_CALL* GetVersionString)(void)NO_EXCEPTION;
+  const char*(ORT_API_CALL* GetVersionString)() NO_EXCEPTION;
 };
 
-typedef struct OrtApiBase OrtApiBase;
+using OrtApiBase = struct OrtApiBase;
 
 /** \brief The Onnxruntime library's entry point to access the C API
  *
@@ -915,27 +871,27 @@ ORT_EXPORT const OrtApiBase* ORT_API_CALL OrtGetApiBase(void) NO_EXCEPTION;
  * Onnxruntime will provide the working loop on custom thread creation
  * Argument is an onnxruntime built-in type which will be provided when thread pool calls OrtCustomCreateThreadFn
  */
-typedef void (*OrtThreadWorkerFn)(void* ort_worker_fn_param);
+using OrtThreadWorkerFn = void (*)(void* ort_worker_fn_param);
 
-typedef const struct OrtCustomHandleType {
-  char __place_holder;
-}* OrtCustomThreadHandle;
+using OrtCustomThreadHandle = struct OrtCustomHandleType {
+    char __place_holder;
+};
 
 /** \brief Ort custom thread creation function
  *
  * The function should return a thread handle to be used in onnxruntime thread pools
  * Onnxruntime will throw exception on return value of nullptr or 0, indicating that the function failed to create a thread
  */
-typedef OrtCustomThreadHandle (*OrtCustomCreateThreadFn)(void* ort_custom_thread_creation_options, OrtThreadWorkerFn ort_thread_worker_fn, void* ort_worker_fn_param);
+using OrtCustomCreateThreadFn = OrtCustomThreadHandle (*)(void* ort_custom_thread_creation_options, OrtThreadWorkerFn ort_thread_worker_fn, void* ort_worker_fn_param);
 
 /** \brief Custom thread join function
  *
  * Onnxruntime thread pool destructor will call the function to join a custom thread.
  * Argument ort_custom_thread_handle is the value returned by OrtCustomCreateThreadFn
  */
-typedef void (*OrtCustomJoinThreadFn)(OrtCustomThreadHandle ort_custom_thread_handle);
+using OrtCustomJoinThreadFn = void (*)(OrtCustomThreadHandle ort_custom_thread_handle);
 
-typedef OrtStatus*(ORT_API_CALL* RegisterCustomOpsFn)(OrtSessionOptions* options, const OrtApiBase* api);
+using RegisterCustomOpsFn = OrtStatus*(ORT_API_CALL*)(OrtSessionOptions * options, const OrtApiBase* api);
 
 /** \brief Callback function for RunAsync
  *
@@ -944,7 +900,7 @@ typedef OrtStatus*(ORT_API_CALL* RegisterCustomOpsFn)(OrtSessionOptions* options
  * \param[out] num_outputs Number of outputs, on error, the value will be zero
  * \param[out] status On error, status will provide details
  */
-typedef void (*RunAsyncCallbackFn)(void* user_data, OrtValue** outputs, size_t num_outputs, OrtStatusPtr status);
+using RunAsyncCallbackFn = void (*)(void* user_data, OrtValue** outputs, size_t num_outputs, OrtStatusPtr status);
 
 /** \brief The C API
  *
@@ -956,12 +912,12 @@ typedef void (*RunAsyncCallbackFn)(void* user_data, OrtValue** outputs, size_t n
 /*
  * Public enum for compiled model compatibility across EPs.
  */
-typedef enum OrtCompiledModelCompatibility {
-  OrtCompiledModelCompatibility_EP_NOT_APPLICABLE = 0,
-  OrtCompiledModelCompatibility_EP_SUPPORTED_OPTIMAL,
-  OrtCompiledModelCompatibility_EP_SUPPORTED_PREFER_RECOMPILATION,
-  OrtCompiledModelCompatibility_EP_UNSUPPORTED,
-} OrtCompiledModelCompatibility;
+using OrtCompiledModelCompatibility = enum OrtCompiledModelCompatibility {
+    OrtCompiledModelCompatibility_EP_NOT_APPLICABLE = 0,
+    OrtCompiledModelCompatibility_EP_SUPPORTED_OPTIMAL,
+    OrtCompiledModelCompatibility_EP_SUPPORTED_PREFER_RECOMPILATION,
+    OrtCompiledModelCompatibility_EP_UNSUPPORTED,
+};
 
 struct OrtApi {
   /// \name OrtStatus
@@ -4601,7 +4557,7 @@ struct OrtApi {
    *
    * \since Version 1.15.
    */
-  const char*(ORT_API_CALL* GetBuildInfoString)(void);
+  const char*(ORT_API_CALL* GetBuildInfoString)();
 
   /// \name OrtROCMProviderOptions
   /// @{
@@ -6595,11 +6551,11 @@ struct OrtApi {
 //              Only the last input or output of a custom op may be marked as variadic.
 //              The homogeneity of the variadic input or output determines whether all operands must be of the same
 //              tensor element type.
-typedef enum OrtCustomOpInputOutputCharacteristic {
-  INPUT_OUTPUT_REQUIRED = 0,
-  INPUT_OUTPUT_OPTIONAL,
-  INPUT_OUTPUT_VARIADIC,
-} OrtCustomOpInputOutputCharacteristic;
+using OrtCustomOpInputOutputCharacteristic = enum OrtCustomOpInputOutputCharacteristic {
+    INPUT_OUTPUT_REQUIRED = 0,
+    INPUT_OUTPUT_OPTIONAL,
+    INPUT_OUTPUT_VARIADIC,
+};
 
 /*
  * The OrtCustomOp structure defines a custom op's schema and its kernel callbacks. The callbacks are filled in by
@@ -6707,7 +6663,7 @@ struct OrtModelEditorApi {
   // Model building/editing requires a full build. We return nullptr from GetModelEditorApi if this is a minimal
   // build, so it doesn't matter if there are no function pointers in this struct as a user will never get an
   // OrtModelEditorApi instance. We do however need a dummy field to avoid empty struct warning.
-#if defined(ORT_MINIMAL_BUILD)
+#ifdef ORT_MINIMAL_BUILD
   const bool not_defined_in_this_build;
 #else
   /** \brief Create an OrtTypeInfo instance for a Tensor.
@@ -7096,18 +7052,18 @@ struct OrtModelEditorApi {
 
 /** \brief Flags representing options to enable when compiling a model.
  */
-typedef enum OrtCompileApiFlags {
-  // Default. Do not enable any additional compilation options.
-  OrtCompileApiFlags_NONE = 0,
+using OrtCompileApiFlags = enum OrtCompileApiFlags {
+    // Default. Do not enable any additional compilation options.
+    OrtCompileApiFlags_NONE = 0,
 
-  // Force compilation to return an error (ORT_FAIL) if no nodes were compiled.
-  // Otherwise, a model with basic optimizations (ORT_ENABLE_BASIC) is still generated by default.
-  OrtCompileApiFlags_ERROR_IF_NO_NODES_COMPILED = 1 << 0,
+    // Force compilation to return an error (ORT_FAIL) if no nodes were compiled.
+    // Otherwise, a model with basic optimizations (ORT_ENABLE_BASIC) is still generated by default.
+    OrtCompileApiFlags_ERROR_IF_NO_NODES_COMPILED = 1 << 0,
 
-  // Force compilation to return an error (ORT_FAIL) if a file with the same filename as the output model exists.
-  // Otherwise, compilation will automatically overwrite the output file if it exists.
-  OrtCompileApiFlags_ERROR_IF_OUTPUT_FILE_EXISTS = 1 << 1,
-} OrtCompileApiFlags;
+    // Force compilation to return an error (ORT_FAIL) if a file with the same filename as the output model exists.
+    // Otherwise, compilation will automatically overwrite the output file if it exists.
+    OrtCompileApiFlags_ERROR_IF_OUTPUT_FILE_EXISTS = 1 << 1,
+};
 
 /**
  * \brief The OrtCompileApi struct provides functions to compile ONNX models.

@@ -3,23 +3,16 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOG_ERASE 121
+enum { MAVLINK_MSG_ID_LOG_ERASE = 121 };
 
+using mavlink_log_erase_t = struct __mavlink_log_erase_t {
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_log_erase_t {
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_log_erase_t;
+enum { MAVLINK_MSG_ID_LOG_ERASE_LEN = 2, MAVLINK_MSG_ID_LOG_ERASE_MIN_LEN = 2, MAVLINK_MSG_ID_121_LEN = 2, MAVLINK_MSG_ID_121_MIN_LEN = 2 };
 
-#define MAVLINK_MSG_ID_LOG_ERASE_LEN 2
-#define MAVLINK_MSG_ID_LOG_ERASE_MIN_LEN 2
-#define MAVLINK_MSG_ID_121_LEN 2
-#define MAVLINK_MSG_ID_121_MIN_LEN 2
-
-#define MAVLINK_MSG_ID_LOG_ERASE_CRC 237
-#define MAVLINK_MSG_ID_121_CRC 237
-
-
+enum { MAVLINK_MSG_ID_LOG_ERASE_CRC = 237, MAVLINK_MSG_ID_121_CRC = 237 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOG_ERASE { \
@@ -277,11 +270,10 @@ static inline void mavlink_msg_log_erase_decode(const mavlink_message_t* msg, ma
         memset(log_erase, 0, MAVLINK_MSG_ID_LOG_ERASE_LEN);
     memcpy(log_erase, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         log_erase->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

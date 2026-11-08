@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK 6
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK = 6 };
 
+using mavlink_change_operator_control_ack_t = struct __mavlink_change_operator_control_ack_t {
+    uint8_t gcs_system_id;   /*<  ID of the GCS this message */
+    uint8_t control_request; /*<  0: request control of this MAV, 1: Release control of this MAV*/
+    uint8_t ack;             /*<  0: ACK, 1: NACK: Wrong passkey, 2: NACK: Unsupported passkey encryption method, 3: NACK: Already under control*/
+};
 
-typedef struct __mavlink_change_operator_control_ack_t {
- uint8_t gcs_system_id; /*<  ID of the GCS this message */
- uint8_t control_request; /*<  0: request control of this MAV, 1: Release control of this MAV*/
- uint8_t ack; /*<  0: ACK, 1: NACK: Wrong passkey, 2: NACK: Unsupported passkey encryption method, 3: NACK: Already under control*/
-} mavlink_change_operator_control_ack_t;
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_LEN = 3, MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_MIN_LEN = 3, MAVLINK_MSG_ID_6_LEN = 3, MAVLINK_MSG_ID_6_MIN_LEN = 3 };
 
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_LEN 3
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_MIN_LEN 3
-#define MAVLINK_MSG_ID_6_LEN 3
-#define MAVLINK_MSG_ID_6_MIN_LEN 3
-
-#define MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_CRC 104
-#define MAVLINK_MSG_ID_6_CRC 104
-
-
+enum { MAVLINK_MSG_ID_CHANGE_OPERATOR_CONTROL_ACK_CRC = 104, MAVLINK_MSG_ID_6_CRC = 104 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CHANGE_OPERATOR_CONTROL_ACK { \

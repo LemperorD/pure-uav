@@ -3,24 +3,19 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_WHEEL_DISTANCE 9000
+enum { MAVLINK_MSG_ID_WHEEL_DISTANCE = 9000 };
 
+using mavlink_wheel_distance_t = struct __mavlink_wheel_distance_t {
+    uint64_t time_usec;  /*< [us] Timestamp (synced to UNIX time or since system boot).*/
+    double distance[16]; /*< [m] Distance reported by individual wheel encoders. Forward rotations increase values, reverse rotations decrease them. Not all wheels will necessarily have wheel encoders; the mapping of encoders to wheel positions must be agreed/understood by the endpoints.*/
+    uint8_t count;       /*<  Number of wheels reported.*/
+};
 
-typedef struct __mavlink_wheel_distance_t {
- uint64_t time_usec; /*< [us] Timestamp (synced to UNIX time or since system boot).*/
- double distance[16]; /*< [m] Distance reported by individual wheel encoders. Forward rotations increase values, reverse rotations decrease them. Not all wheels will necessarily have wheel encoders; the mapping of encoders to wheel positions must be agreed/understood by the endpoints.*/
- uint8_t count; /*<  Number of wheels reported.*/
-} mavlink_wheel_distance_t;
+enum { MAVLINK_MSG_ID_WHEEL_DISTANCE_LEN = 137, MAVLINK_MSG_ID_WHEEL_DISTANCE_MIN_LEN = 137, MAVLINK_MSG_ID_9000_LEN = 137, MAVLINK_MSG_ID_9000_MIN_LEN = 137 };
 
-#define MAVLINK_MSG_ID_WHEEL_DISTANCE_LEN 137
-#define MAVLINK_MSG_ID_WHEEL_DISTANCE_MIN_LEN 137
-#define MAVLINK_MSG_ID_9000_LEN 137
-#define MAVLINK_MSG_ID_9000_MIN_LEN 137
+enum { MAVLINK_MSG_ID_WHEEL_DISTANCE_CRC = 113, MAVLINK_MSG_ID_9000_CRC = 113 };
 
-#define MAVLINK_MSG_ID_WHEEL_DISTANCE_CRC 113
-#define MAVLINK_MSG_ID_9000_CRC 113
-
-#define MAVLINK_MSG_WHEEL_DISTANCE_FIELD_DISTANCE_LEN 16
+enum { MAVLINK_MSG_WHEEL_DISTANCE_FIELD_DISTANCE_LEN = 16 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_WHEEL_DISTANCE { \

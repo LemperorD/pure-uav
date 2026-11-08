@@ -61,8 +61,12 @@ void printUsage(const char* argv0) {
 }
 
 std::string defaultOut(const std::string& dir, const char* name) {
-    if (dir.empty()) return name;
-    if (dir.back() == '/') return dir + name;
+    if (dir.empty()) {
+        return name;
+    }
+    if (dir.back() == '/') {
+        return dir + name;
+    }
     return dir + "/" + name;
 }
 
@@ -171,9 +175,15 @@ int main(int argc, char** argv) {
         printUsage(argv[0]);
         return 2;
     }
-    if (csv_out.empty()) csv_out = defaultOut(dataset_dir, "vio_pose.csv");
-    if (tum_out.empty()) tum_out = defaultOut(dataset_dir, "vio_traj.tum");
-    if (raw_tum_out.empty()) raw_tum_out = defaultOut(dataset_dir, "ov_raw.tum");
+    if (csv_out.empty()) {
+        csv_out = defaultOut(dataset_dir, "vio_pose.csv");
+    }
+    if (tum_out.empty()) {
+        tum_out = defaultOut(dataset_dir, "vio_traj.tum");
+    }
+    if (raw_tum_out.empty()) {
+        raw_tum_out = defaultOut(dataset_dir, "ov_raw.tum");
+    }
 
     pure_uav::OfflineDataset dataset;
     std::string err;
@@ -206,7 +216,13 @@ int main(int argc, char** argv) {
 
     // 深度元数据（录制时写进数据集的）
     bool depth_meta_valid = false;
-    double d_fx = 0, d_fy = 0, d_cx = 0, d_cy = 0, d_tx = 0, d_ty = 0, d_tz = 0;
+    double d_fx = 0;
+    double d_fy = 0;
+    double d_cx = 0;
+    double d_cy = 0;
+    double d_tx = 0;
+    double d_ty = 0;
+    double d_tz = 0;
     double d_R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // 彩色→深度 旋转（行主序）
     bool d_R_valid = false;
     {
@@ -216,25 +232,45 @@ int main(int argc, char** argv) {
         while (std::getline(dm, line)) {
             auto kv = [&](const char* k) -> double {
                 const std::string key = std::string(k) + "=";
-                if (line.rfind(key, 0) == 0) return std::atof(line.c_str() + key.size());
+                if (line.rfind(key, 0) == 0) {
+                    return std::atof(line.c_str() + key.size());
+                }
                 return 0.0;
             };
-            if (line.rfind("valid=", 0) == 0) valid = std::atoi(line.c_str() + 6);
-            if (line.rfind("fx=", 0) == 0) d_fx = kv("fx");
-            if (line.rfind("fy=", 0) == 0) d_fy = kv("fy");
-            if (line.rfind("cx=", 0) == 0) d_cx = kv("cx");
-            if (line.rfind("cy=", 0) == 0) d_cy = kv("cy");
-            if (line.rfind("tx_mm=", 0) == 0) d_tx = kv("tx_mm");
-            if (line.rfind("ty_mm=", 0) == 0) d_ty = kv("ty_mm");
-            if (line.rfind("tz_mm=", 0) == 0) d_tz = kv("tz_mm");
+            if (line.rfind("valid=", 0) == 0) {
+                valid = std::atoi(line.c_str() + 6);
+            }
+            if (line.rfind("fx=", 0) == 0) {
+                d_fx = kv("fx");
+            }
+            if (line.rfind("fy=", 0) == 0) {
+                d_fy = kv("fy");
+            }
+            if (line.rfind("cx=", 0) == 0) {
+                d_cx = kv("cx");
+            }
+            if (line.rfind("cy=", 0) == 0) {
+                d_cy = kv("cy");
+            }
+            if (line.rfind("tx_mm=", 0) == 0) {
+                d_tx = kv("tx_mm");
+            }
+            if (line.rfind("ty_mm=", 0) == 0) {
+                d_ty = kv("ty_mm");
+            }
+            if (line.rfind("tz_mm=", 0) == 0) {
+                d_tz = kv("tz_mm");
+            }
             if (line.rfind("R_c2d=", 0) == 0) {
                 const std::string val = line.substr(6);
                 size_t pos = 0;
-                for (int k = 0; k < 9; ++k) {
+                for (double& k : d_R) {
                     const size_t comma = val.find(',', pos);
                     const std::string tok = val.substr(pos, comma - pos);
-                    d_R[k] = std::atof(tok.c_str());
-                    if (comma == std::string::npos) break;
+                    k = std::atof(tok.c_str());
+                    if (comma == std::string::npos) {
+                        break;
+                    }
                     pos = comma + 1;
                 }
                 d_R_valid = true;
@@ -243,7 +279,9 @@ int main(int argc, char** argv) {
         depth_meta_valid = (valid == 1 && d_fx > 0.0);
         if (use_depth_init) {
             std::printf("深度元数据: %s", depth_meta_valid ? "有" : "无");
-            if (depth_meta_valid) std::printf("（fx=%.2f fy=%.2f cx=%.2f cy=%.2f t=[%.2f %.2f %.2f]mm 旋转=%s）", d_fx, d_fy, d_cx, d_cy, d_tx, d_ty, d_tz, d_R_valid ? "有" : "单位阵");
+            if (depth_meta_valid) {
+                std::printf("（fx=%.2f fy=%.2f cx=%.2f cy=%.2f t=[%.2f %.2f %.2f]mm 旋转=%s）", d_fx, d_fy, d_cx, d_cy, d_tx, d_ty, d_tz, d_R_valid ? "有" : "单位阵");
+            }
             std::printf("\n");
         }
     }
@@ -311,7 +349,9 @@ int main(int argc, char** argv) {
             }
             continue;
         }
-        if (max_images > 0 && processed >= max_images) break;
+        if (max_images > 0 && processed >= max_images) {
+            break;
+        }
 
         while (imu_idx < imu.size() && imu[imu_idx].timestamp_us <= img.timestamp_us) {
             est.feedImu(imu[imu_idx]);
@@ -376,7 +416,7 @@ int main(int argc, char** argv) {
 
         // ---- 健康时间线：按秒汇总，用来验证失效判定准不准 ----
         {
-            const double t_rel = static_cast<double>(img.timestamp_us) * 1e-6 - t_first_sec;
+            const double t_rel = (static_cast<double>(img.timestamp_us) * 1e-6) - t_first_sec;
             const auto h = est.healthReport();
             const int sec = static_cast<int>(std::floor(t_rel));
             if (sec != health_sec) {
@@ -391,9 +431,15 @@ int main(int argc, char** argv) {
             }
             ++health_frames;
             health_feat_sum += h.features;
-            if (h.updated_this_frame) ++health_upd;
-            if (static_cast<int>(h.state) > static_cast<int>(health_worst)) health_worst = h.state;
-            if (!h.publishable) ++health_blocked;
+            if (h.updated_this_frame) {
+                ++health_upd;
+            }
+            if (static_cast<int>(h.state) > static_cast<int>(health_worst)) {
+                health_worst = h.state;
+            }
+            if (!h.publishable) {
+                ++health_blocked;
+            }
         }
 
         if (!quiet && (processed % 30 == 0 || k + 1 == images.size())) {
@@ -417,8 +463,13 @@ int main(int argc, char** argv) {
         std::printf("  初始化时刻    : 未初始化（检查运动激励/配置）\n");
     }
     // MSCKF 更新诊断：区分"没特征可用" vs "有特征但被卡方门限全拒"
-    long long m_calls = 0, m_in = 0, m_rej = 0, m_upd = 0, m_rows = 0;
-    long long m_clean = 0, m_tri = 0;
+    long long m_calls = 0;
+    long long m_in = 0;
+    long long m_rej = 0;
+    long long m_upd = 0;
+    long long m_rows = 0;
+    long long m_clean = 0;
+    long long m_tri = 0;
     est.msckfStats(m_calls, m_in, m_rej, m_upd, m_rows, m_clean, m_tri);
     if (m_calls > 0) {
         const double rej_pct = 100.0 * static_cast<double>(m_rej) / static_cast<double>(m_in);
@@ -439,7 +490,9 @@ int main(int argc, char** argv) {
     if (!health_log.empty()) {
         int blocked_sec = 0;
         for (const auto& r : health_log) {
-            if (std::string(r.state) != "OK" && std::string(r.state) != "DEGRADED") ++blocked_sec;
+            if (std::string(r.state) != "OK" && std::string(r.state) != "DEGRADED") {
+                ++blocked_sec;
+            }
         }
         std::printf("  失效保护      : %d/%zu 秒判定为 LOST（占比 %.0f%%）｜被拦下的位姿 %lld 个\n", blocked_sec, health_log.size(), health_log.empty() ? 0.0 : 100.0 * blocked_sec / health_log.size(), health_blocked);
         std::printf("  逐秒状态      :\n");
@@ -451,7 +504,7 @@ int main(int argc, char** argv) {
     if (!safe_tum_out.empty()) {
         std::printf("  安全轨迹      : %s（%d 帧，只含判定为可发布的位姿）\n", safe_tum_out.c_str(), safe_count);
     }
-    std::printf("  用深度初始化特征: %lld 个%s\n", (long long)est.depthUsed(), use_depth_init ? "" : "（开关未开）");
+    std::printf("  用深度初始化特征: %lld 个%s\n", est.depthUsed(), use_depth_init ? "" : "（开关未开）");
     {
         long long dn = 0;
         double dmean = 0.0;

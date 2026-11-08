@@ -21,31 +21,30 @@
 
 #include "VioManager.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
 #include "feat/Feature.h"
 #include "feat/FeatureDatabase.h"
 #include "feat/FeatureInitializer.h"
+#include "init/InertialInitializer.h"
+#include "state/Propagator.h"
+#include "state/State.h"
+#include "state/StateHelper.h"
 #include "track/TrackAruco.h"
 #include "track/TrackDescriptor.h"
 #include "track/TrackKLT.h"
 #include "track/TrackSIM.h"
 #include "types/Landmark.h"
 #include "types/LandmarkRepresentation.h"
+#include "update/UpdaterMSCKF.h"
+#include "update/UpdaterSLAM.h"
+#include "update/UpdaterZeroVelocity.h"
 #include "utils/opencv_lambda_body.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 #include "utils/sensor_data.h"
-
-#include "init/InertialInitializer.h"
-
-#include "state/Propagator.h"
-#include "state/State.h"
-#include "state/StateHelper.h"
-#include "update/UpdaterMSCKF.h"
-#include "update/UpdaterSLAM.h"
-#include "update/UpdaterZeroVelocity.h"
 
 using namespace ov_core;
 using namespace ov_type;
@@ -187,8 +186,9 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
   if (gyro_pred_last_cam_t_ >= 0.0) {
     if (gyro_pred_last_imu_t_ > 0.0) {
       const double dt = message.timestamp - gyro_pred_last_imu_t_;
-      if (dt > 0.0 && dt < 0.2)
-        gyro_pred_R_ = ov_core::exp_so3(-message.wm * dt) * gyro_pred_R_;
+      if (dt > 0.0 && dt < 0.2) {
+          gyro_pred_R_ = ov_core::exp_so3(-message.wm * dt) * gyro_pred_R_;
+      }
     }
     gyro_pred_last_imu_t_ = message.timestamp;
   }
@@ -274,11 +274,17 @@ void VioManager::feed_measurement_simulation(double timestamp, const std::vector
 void VioManager::get_depth_err_hist(long long &n, double &sum, long long hist[6]) const {
   n = 0;
   sum = 0.0;
-  for (int i = 0; i < 6; ++i) hist[i] = 0;
-  if (!updaterMSCKF) return;
+  for (int i = 0; i < 6; ++i) {
+      hist[i] = 0;
+  }
+  if (!updaterMSCKF) {
+      return;
+  }
   n = updaterMSCKF->diag_deperr_n;
   sum = updaterMSCKF->diag_deperr_sum;
-  for (int i = 0; i < 6; ++i) hist[i] = updaterMSCKF->diag_deperr_hist[i];
+  for (int i = 0; i < 6; ++i) {
+      hist[i] = updaterMSCKF->diag_deperr_hist[i];
+  }
 }
 
 long long VioManager::get_depth_used() const {
@@ -288,12 +294,14 @@ long long VioManager::get_depth_used() const {
 void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, double fx, double fy,
                                  double cx, double cy, const double R_c2d[9],
                                  const double t_c2d_m[3]) {
-  if (depth_mm.empty() || fx <= 0.0)
-    return;
+    if (depth_mm.empty() || fx <= 0.0) {
+        return;
+    }
   // 留 40 帧历史：特征的锚点观测可能是几帧之前的
   depth_hist_.push_back({timestamp, depth_mm});
-  while (depth_hist_.size() > 40)
-    depth_hist_.pop_front();
+  while (depth_hist_.size() > 40) {
+      depth_hist_.pop_front();
+  }
   depth_fx_ = fx;
   depth_fy_ = fy;
   depth_cx_ = cx;
@@ -301,14 +309,19 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
   // 诊断开关：OV_DEPTH_NO_EXTR=1 时强制把两相机当重合，用来看外参到底贡献多少误差
   static const bool no_extr = (std::getenv("OV_DEPTH_NO_EXTR") != nullptr);
   if (R_c2d != nullptr && !no_extr) {
-    for (int r = 0; r < 3; ++r)
-      for (int c = 0; c < 3; ++c) R_c2d_(r, c) = R_c2d[r * 3 + c];
+      for (int r = 0; r < 3; ++r) {
+          for (int c = 0; c < 3; ++c) {
+              R_c2d_(r, c) = R_c2d[(r * 3) + c];
+          }
+      }
   }
-  if (t_c2d_m != nullptr && !no_extr)
-    t_c2d_m_ = Eigen::Vector3d(t_c2d_m[0], t_c2d_m[1], t_c2d_m[2]);
+  if (t_c2d_m != nullptr && !no_extr) {
+      t_c2d_m_ = Eigen::Vector3d(t_c2d_m[0], t_c2d_m[1], t_c2d_m[2]);
+  }
 
-  if (!use_depth_init_)
-    return;
+  if (!use_depth_init_) {
+      return;
+  }
 
   // 每 300 张深度图打一次门控统计（不依赖宿主程序的诊断开关）
   if ((++diag_depth_frames % 300) == 0 && ov_core::Printer::current_print_level != ov_core::Printer::SILENT) {
@@ -338,12 +351,17 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     // 35 ms 覆盖实测 p95，只切掉最老的那一小部分。
     //=====================================================================
     constexpr double kMaxDepthAgeS = 0.035;
-    if (best == nullptr) { ++diag_depth_no_frame; return -1.0f; }
-    if (best_dt > kMaxDepthAgeS) { ++diag_depth_too_old; return -1.0f; }
+    if (best == nullptr) { ++diag_depth_no_frame;
+        return -1.0F;
+    }
+    if (best_dt > kMaxDepthAgeS) { ++diag_depth_too_old;
+        return -1.0F;
+    }
     // 2) 彩色像素去畸变 → 归一化视线 → 用深度内参投到深度图上
     auto cam_it = state->_cam_intrinsics_cameras.find(0);
-    if (cam_it == state->_cam_intrinsics_cameras.end())
-      return -1.0f;
+    if (cam_it == state->_cam_intrinsics_cameras.end()) {
+        return -1.0F;
+    }
     Eigen::Vector2d uv_n = cam_it->second->undistort_d(Eigen::Vector2d(u, v));
     const Eigen::Vector3d b(uv_n(0), uv_n(1), 1.0);   // 彩色相机系视线
     const Eigen::Vector3d Rb = R_c2d_ * b;
@@ -357,22 +375,29 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     double z_m = -1.0;
     for (int iter = 0; iter < 2; ++iter) {
       const Eigen::Vector3d Pd = R_c2d_ * (lam * b) + t_c2d_m_;
-      if (Pd.z() < 0.05) return -1.0f;
-      const int cx = static_cast<int>(std::lround(depth_fx_ * Pd.x() / Pd.z() + depth_cx_));
-      const int cy = static_cast<int>(std::lround(depth_fy_ * Pd.y() / Pd.z() + depth_cy_));
-      if (cx < 2 || cy < 2 || cx >= best->depth_mm.cols - 2 || cy >= best->depth_mm.rows - 2)
-        return -1.0f;
+      if (Pd.z() < 0.05) {
+          return -1.0F;
+      }
+      const int cx = static_cast<int>(std::lround((depth_fx_ * Pd.x() / Pd.z()) + depth_cx_));
+      const int cy = static_cast<int>(std::lround((depth_fy_ * Pd.y() / Pd.z()) + depth_cy_));
+      if (cx < 2 || cy < 2 || cx >= best->depth_mm.cols - 2 || cy >= best->depth_mm.rows - 2) {
+          return -1.0F;
+      }
       // 5x5 取有效值中位，抑制结构光空洞/噪声，也能挡掉部分深度不连续处的错值
       std::vector<unsigned short> vals;
       vals.reserve(25);
       for (int dy = -2; dy <= 2; ++dy) {
-        const unsigned short *row = best->depth_mm.ptr<unsigned short>(cy + dy);
-        for (int dx = -2; dx <= 2; ++dx) {
-          const unsigned short z = row[cx + dx];
-          if (z != 0 && z != 0xFFFF) vals.push_back(z);
+          const auto* row = best->depth_mm.ptr<unsigned short>(cy + dy);
+          for (int dx = -2; dx <= 2; ++dx) {
+              const unsigned short z = row[cx + dx];
+              if (z != 0 && z != 0xFFFF) {
+                  vals.push_back(z);
+              }
         }
       }
-      if (vals.size() < 5) return -1.0f;
+      if (vals.size() < 5) {
+          return -1.0F;
+      }
       std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
       const double d_m = static_cast<double>(vals[vals.size() / 2]) * 1e-3;
       //=================================================================
@@ -385,25 +410,34 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
       //=================================================================
       {
         const unsigned short z_center = best->depth_mm.ptr<unsigned short>(cy)[cx];
-        unsigned short vmin = vals[0], vmax = vals[0];
+        unsigned short vmin = vals[0];
+        unsigned short vmax = vals[0];
         for (auto v : vals) { vmin = std::min(vmin, v); vmax = std::max(vmax, v); }
         const double spread_m = static_cast<double>(vmax - vmin) * 1e-3;
         const double center_m = static_cast<double>(z_center) * 1e-3;
         if (z_center != 0 && z_center != 0xFFFF && spread_m > 0.15 &&
             std::fabs(d_m - center_m) > 0.03) {
           ++diag_depth_edge_rej;
-          return -1.0f;
+          return -1.0F;
         }
       }
       // P_d.z = (R·b).z·λ + t.z = d  ⇒  λ = (d − t.z)/(R·b).z
-      if (std::fabs(Rb.z()) < 1e-6) return -1.0f;
+      if (std::fabs(Rb.z()) < 1e-6) {
+          return -1.0F;
+      }
       const double lam_new = (d_m - t_c2d_m_.z()) / Rb.z();
-      if (lam_new < 0.05 || lam_new > 20.0) return -1.0f;
+      if (lam_new < 0.05 || lam_new > 20.0) {
+          return -1.0F;
+      }
       z_m = lam_new;
-      if (std::fabs(lam_new - lam) < 1e-3) break;
+      if (std::fabs(lam_new - lam) < 1e-3) {
+          break;
+      }
       lam = lam_new;
     }
-    if (z_m < 0.0) return -1.0f;
+    if (z_m < 0.0) {
+        return -1.0F;
+    }
     // 返回"沿彩色视线方向的尺度 λ"（不是深度相机系的 z），
     // 因为上层用 p_FinG = p_AinG + R_GtoAᵀ·(b·λ) 重建位置。
     return static_cast<float>(z_m);
@@ -411,21 +445,27 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
 }
 
 double VioManager::get_camera_timeoffset() const {
-  if (!state || !state->_calib_dt_CAMtoIMU)
-    return 0.0;
+    if (!state || !state->_calib_dt_CAMtoIMU) {
+        return 0.0;
+    }
   return state->_calib_dt_CAMtoIMU->value()(0);
 }
 
 bool VioManager::inflate_covariance(double scale) {
-  if (!state || !is_initialized_vio)
-    return false;
+    if (!state || !is_initialized_vio) {
+        return false;
+    }
   state->inflate_covariance(scale);
   return true;
 }
 
 double VioManager::get_msckf_tri_rate() const {
-  if (!updaterMSCKF) return -1.0;
-  if (updaterMSCKF->diag_feat_in <= 0) return -1.0;
+    if (!updaterMSCKF) {
+        return -1.0;
+    }
+    if (updaterMSCKF->diag_feat_in <= 0) {
+        return -1.0;
+    }
   return static_cast<double>(updaterMSCKF->diag_tri_ok) / static_cast<double>(updaterMSCKF->diag_feat_in);
 }
 
@@ -434,7 +474,9 @@ void VioManager::get_msckf_stats(long long &calls, long long &feat_in, long long
                                  long long &clean_drop, long long &tri_drop) const {
   calls = feat_in = chi2_rej = updates = rows = 0;
   clean_drop = tri_drop = 0;
-  if (!updaterMSCKF) return;
+  if (!updaterMSCKF) {
+      return;
+  }
   calls = updaterMSCKF->diag_calls;
   feat_in = updaterMSCKF->diag_feat_in;
   chi2_rej = updaterMSCKF->diag_feat_chi2_rej;
@@ -461,7 +503,8 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   for (size_t i = 0; i < message.sensor_ids.size() && params.downsample_cameras; i++) {
     cv::Mat img = message.images.at(i);
     cv::Mat mask = message.masks.at(i);
-    cv::Mat img_temp, mask_temp;
+    cv::Mat img_temp;
+    cv::Mat mask_temp;
     cv::pyrDown(img, img_temp, cv::Size(img.cols / 2.0, img.rows / 2.0));
     message.images.at(i) = img_temp;
     cv::pyrDown(mask, mask_temp, cv::Size(mask.cols / 2.0, mask.rows / 2.0));
@@ -482,10 +525,11 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       const double tr = std::min(1.0, std::max(-1.0, (R_pred.trace() - 1.0) * 0.5));
       const double ang = std::acos(tr);
       auto klt = std::dynamic_pointer_cast<ov_core::TrackKLT>(trackFEATS);
-      if (klt && std::isfinite(ang) && ang < 0.35) // < 20°，超过就不敢信
-        klt->set_predicted_rotation(R_pred);
-      else if (klt)
-        klt->clear_predicted_rotation();
+      if (klt && std::isfinite(ang) && ang < 0.35) {  // < 20°，超过就不敢信
+          klt->set_predicted_rotation(R_pred);
+      } else if (klt) {
+          klt->clear_predicted_rotation();
+      }
     }
   }
   // 取用完毕：清零，开始累计到下一帧
@@ -521,7 +565,9 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
           auto feat = db->get_feature(ids_it->second[k]);
           if (feat) {
             auto t_it = feat->timestamps.find(cam.first);
-            if (t_it != feat->timestamps.end()) tp.len = static_cast<int>(t_it->second.size());
+            if (t_it != feat->timestamps.end()) {
+                tp.len = static_cast<int>(t_it->second.size());
+            }
           }
         }
         tracked_points.push_back(tp);
@@ -599,11 +645,29 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
       diag_of.flush();
     }
   }
-  int d_lost = 0, d_marg = 0, d_max = 0, d_raw = 0, d_cap = 0, d_slamupd = 0;
-  double d_mean_obs = -1.0, d_mean_len = -1.0;
-  long long d_c0 = 0, d_fi0 = 0, d_cd0 = 0, d_td0 = 0, d_cr0 = 0, d_u0 = 0, d_r0 = 0;
-  long long d_tok0 = 0, d_chiok0 = 0, d_ctm0 = 0, d_cz0 = 0, d_tft0 = 0, d_tfr0 = 0;
-  double d_rr0 = 0.0, d_ro0 = 0.0;
+  int d_lost = 0;
+  int d_marg = 0;
+  int d_max = 0;
+  int d_raw = 0;
+  int d_cap = 0;
+  int d_slamupd = 0;
+  double d_mean_obs = -1.0;
+  double d_mean_len = -1.0;
+  long long d_c0 = 0;
+  long long d_fi0 = 0;
+  long long d_cd0 = 0;
+  long long d_td0 = 0;
+  long long d_cr0 = 0;
+  long long d_u0 = 0;
+  long long d_r0 = 0;
+  long long d_tok0 = 0;
+  long long d_chiok0 = 0;
+  long long d_ctm0 = 0;
+  long long d_cz0 = 0;
+  long long d_tft0 = 0;
+  long long d_tfr0 = 0;
+  double d_rr0 = 0.0;
+  double d_ro0 = 0.0;
   long long d_rh0[5] = {0, 0, 0, 0, 0};
 
   //===================================================================================
@@ -649,7 +713,9 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
 
   // Now, lets get all features that should be used for an update that are lost in the newest frame
   // We explicitly request features that have not been deleted (used) in another update step
-  std::vector<std::shared_ptr<Feature>> feats_lost, feats_marg, feats_slam;
+  std::vector<std::shared_ptr<Feature>> feats_lost;
+  std::vector<std::shared_ptr<Feature>> feats_marg;
+  std::vector<std::shared_ptr<Feature>> feats_slam;
   feats_lost = trackFEATS->get_feature_database()->features_not_containing_newer(state->_timestamp, false, true);
 
   // Don't need to get the oldest features until we reach our max number of clones
@@ -719,8 +785,9 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   int curr_aruco_tags = 0;
   auto it0 = state->_features_SLAM.begin();
   while (it0 != state->_features_SLAM.end()) {
-    if ((int)(*it0).second->_featid <= 4 * state->_options.max_aruco_features)
-      curr_aruco_tags++;
+      if ((int)(*it0).second->_featid <= 4 * state->_options.max_aruco_features) {
+          curr_aruco_tags++;
+      }
     it0++;
   }
 
@@ -747,19 +814,23 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   for (std::pair<const size_t, std::shared_ptr<Landmark>> &landmark : state->_features_SLAM) {
     if (trackARUCO != nullptr) {
       std::shared_ptr<Feature> feat1 = trackARUCO->get_feature_database()->get_feature(landmark.second->_featid);
-      if (feat1 != nullptr)
-        feats_slam.push_back(feat1);
+      if (feat1 != nullptr) {
+          feats_slam.push_back(feat1);
+      }
     }
     std::shared_ptr<Feature> feat2 = trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
-    if (feat2 != nullptr)
-      feats_slam.push_back(feat2);
+    if (feat2 != nullptr) {
+        feats_slam.push_back(feat2);
+    }
     assert(landmark.second->_unique_camera_id != -1);
     bool current_unique_cam =
         std::find(message.sensor_ids.begin(), message.sensor_ids.end(), landmark.second->_unique_camera_id) != message.sensor_ids.end();
-    if (feat2 == nullptr && current_unique_cam)
-      landmark.second->should_marg = true;
-    if (landmark.second->update_fail_count > 1)
-      landmark.second->should_marg = true;
+    if (feat2 == nullptr && current_unique_cam) {
+        landmark.second->should_marg = true;
+    }
+    if (landmark.second->update_fail_count > 1) {
+        landmark.second->should_marg = true;
+    }
   }
 
   // Lets marginalize out all old SLAM features here
@@ -768,17 +839,18 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   StateHelper::marginalize_slam(state);
 
   // Separate our SLAM features into new ones, and old ones
-  std::vector<std::shared_ptr<Feature>> feats_slam_DELAYED, feats_slam_UPDATE;
-  for (size_t i = 0; i < feats_slam.size(); i++) {
-    if (state->_features_SLAM.find(feats_slam.at(i)->featid) != state->_features_SLAM.end()) {
-      feats_slam_UPDATE.push_back(feats_slam.at(i));
-      // PRINT_DEBUG("[UPDATE-SLAM]: found old feature %d (%d
-      // measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
-    } else {
-      feats_slam_DELAYED.push_back(feats_slam.at(i));
-      // PRINT_DEBUG("[UPDATE-SLAM]: new feature ready %d (%d
-      // measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
-    }
+  std::vector<std::shared_ptr<Feature>> feats_slam_DELAYED;
+  std::vector<std::shared_ptr<Feature>> feats_slam_UPDATE;
+  for (auto& i : feats_slam) {
+      if (state->_features_SLAM.find(i->featid) != state->_features_SLAM.end()) {
+          feats_slam_UPDATE.push_back(i);
+          // PRINT_DEBUG("[UPDATE-SLAM]: found old feature %d (%d
+          // measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
+      } else {
+          feats_slam_DELAYED.push_back(i);
+          // PRINT_DEBUG("[UPDATE-SLAM]: new feature ready %d (%d
+          // measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
+      }
   }
 
   d_max = (int)feats_maxtracks.size();
@@ -799,10 +871,12 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   auto compare_feat = [](const std::shared_ptr<Feature> &a, const std::shared_ptr<Feature> &b) -> bool {
     size_t asize = 0;
     size_t bsize = 0;
-    for (const auto &pair : a->timestamps)
-      asize += pair.second.size();
-    for (const auto &pair : b->timestamps)
-      bsize += pair.second.size();
+    for (const auto& pair : a->timestamps) {
+        asize += pair.second.size();
+    }
+    for (const auto& pair : b->timestamps) {
+        bsize += pair.second.size();
+    }
     return asize < bsize;
   };
   std::sort(featsup_MSCKF.begin(), featsup_MSCKF.end(), compare_feat);
@@ -812,22 +886,23 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // Pass them to our MSCKF updater
   // NOTE: if we have more then the max, we select the "best" ones (i.e. max tracks) for this update
   // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
-  if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
-    featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update) {
+      featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  }
   d_cap = (int)featsup_MSCKF.size();
 
   // 诊断：这一批特征平均有几个观测、平均跨几帧（塌缩时这两个数会先变）
   if (!featsup_MSCKF.empty()) {
-    double sum_obs = 0.0, sum_len = 0.0;
-    for (const auto &feat : featsup_MSCKF) {
-      size_t maxlen = 0;
-      for (const auto &cam_ts : feat->timestamps) {
-        sum_obs += (double)cam_ts.second.size();
-        if (cam_ts.second.size() > maxlen)
-          maxlen = cam_ts.second.size();
+      double sum_obs = 0.0;
+      double sum_len = 0.0;
+      for (const auto& feat : featsup_MSCKF) {
+          size_t maxlen = 0;
+          for (const auto& cam_ts : feat->timestamps) {
+              sum_obs += (double)cam_ts.second.size();
+              maxlen = std::max(cam_ts.second.size(), maxlen);
+          }
+          sum_len += (double)maxlen;
       }
-      sum_len += (double)maxlen;
-    }
     d_mean_obs = sum_obs / (double)featsup_MSCKF.size();
     d_mean_len = sum_len / (double)featsup_MSCKF.size();
   }
@@ -848,8 +923,9 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     d_tfr0 = updaterMSCKF->diag_tri_fail_refine;
     d_rr0 = updaterMSCKF->diag_chi2_rej_ratio_sum;
     d_ro0 = updaterMSCKF->diag_chi2_ok_ratio_sum;
-    for (int i = 0; i < 5; i++)
-      d_rh0[i] = updaterMSCKF->diag_chi2_rej_hist[i];
+    for (int i = 0; i < 5; i++) {
+        d_rh0[i] = updaterMSCKF->diag_chi2_rej_hist[i];
+    }
   }
   const long long _ekf_calls0 = StateHelper::total_ekf_update_calls;
   const long long _upd_before = updaterMSCKF ? updaterMSCKF->diag_updates : 0;
@@ -982,8 +1058,9 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
       const long long nok = updaterMSCKF->diag_chi2_ok - d_chiok0;
       diag_of << nrej << "," << (nrej > 0 ? rr / (double)nrej : -1.0) << "," << updaterMSCKF->diag_chi2_rej_ratio_max
               << "," << (nok > 0 ? ro / (double)nok : -1.0) << ",";
-      for (int i = 0; i < 5; i++)
-        diag_of << (updaterMSCKF->diag_chi2_rej_hist[i] - d_rh0[i]) << ",";
+      for (int i = 0; i < 5; i++) {
+          diag_of << (updaterMSCKF->diag_chi2_rej_hist[i] - d_rh0[i]) << ",";
+      }
     }
     diag_of << (int)state->_clones_IMU.size()
             << "," << (int)state->_features_SLAM.size() << "," << v(0) << "," << v(1) << "," << v(2) << "," << state->_imu->pos()(2)

@@ -3,33 +3,29 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV 64
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV = 64 };
 
+using mavlink_local_position_ned_cov_t = struct __mavlink_local_position_ned_cov_t {
+    uint64_t time_usec;     /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float x;                /*< [m] X Position*/
+    float y;                /*< [m] Y Position*/
+    float z;                /*< [m] Z Position*/
+    float vx;               /*< [m/s] X Speed*/
+    float vy;               /*< [m/s] Y Speed*/
+    float vz;               /*< [m/s] Z Speed*/
+    float ax;               /*< [m/s/s] X Acceleration*/
+    float ay;               /*< [m/s/s] Y Acceleration*/
+    float az;               /*< [m/s/s] Z Acceleration*/
+    float covariance[45];   /*<  Row-major representation of position, velocity and acceleration 9x9 cross-covariance matrix upper right triangle (states: x, y, z, vx, vy, vz, ax, ay, az; first nine entries are the first ROW, next eight entries are the second row, etc.). If unknown, assign NaN value
+                               to first element in the array.*/
+    uint8_t estimator_type; /*<  Class id of the estimator this estimate originated from.*/
+};
 
-typedef struct __mavlink_local_position_ned_cov_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float x; /*< [m] X Position*/
- float y; /*< [m] Y Position*/
- float z; /*< [m] Z Position*/
- float vx; /*< [m/s] X Speed*/
- float vy; /*< [m/s] Y Speed*/
- float vz; /*< [m/s] Z Speed*/
- float ax; /*< [m/s/s] X Acceleration*/
- float ay; /*< [m/s/s] Y Acceleration*/
- float az; /*< [m/s/s] Z Acceleration*/
- float covariance[45]; /*<  Row-major representation of position, velocity and acceleration 9x9 cross-covariance matrix upper right triangle (states: x, y, z, vx, vy, vz, ax, ay, az; first nine entries are the first ROW, next eight entries are the second row, etc.). If unknown, assign NaN value to first element in the array.*/
- uint8_t estimator_type; /*<  Class id of the estimator this estimate originated from.*/
-} mavlink_local_position_ned_cov_t;
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_LEN = 225, MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_MIN_LEN = 225, MAVLINK_MSG_ID_64_LEN = 225, MAVLINK_MSG_ID_64_MIN_LEN = 225 };
 
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_LEN 225
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_MIN_LEN 225
-#define MAVLINK_MSG_ID_64_LEN 225
-#define MAVLINK_MSG_ID_64_MIN_LEN 225
+enum { MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_CRC = 191, MAVLINK_MSG_ID_64_CRC = 191 };
 
-#define MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_CRC 191
-#define MAVLINK_MSG_ID_64_CRC 191
-
-#define MAVLINK_MSG_LOCAL_POSITION_NED_COV_FIELD_COVARIANCE_LEN 45
+enum { MAVLINK_MSG_LOCAL_POSITION_NED_COV_FIELD_COVARIANCE_LEN = 45 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOCAL_POSITION_NED_COV { \

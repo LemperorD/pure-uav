@@ -3,25 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_REQUEST_EVENT 412
+enum { MAVLINK_MSG_ID_REQUEST_EVENT = 412 };
 
+using mavlink_request_event_t = struct __mavlink_request_event_t {
+    uint16_t first_sequence;  /*<  First sequence number of the requested event.*/
+    uint16_t last_sequence;   /*<  Last sequence number of the requested event.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_request_event_t {
- uint16_t first_sequence; /*<  First sequence number of the requested event.*/
- uint16_t last_sequence; /*<  Last sequence number of the requested event.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_request_event_t;
+enum { MAVLINK_MSG_ID_REQUEST_EVENT_LEN = 6, MAVLINK_MSG_ID_REQUEST_EVENT_MIN_LEN = 6, MAVLINK_MSG_ID_412_LEN = 6, MAVLINK_MSG_ID_412_MIN_LEN = 6 };
 
-#define MAVLINK_MSG_ID_REQUEST_EVENT_LEN 6
-#define MAVLINK_MSG_ID_REQUEST_EVENT_MIN_LEN 6
-#define MAVLINK_MSG_ID_412_LEN 6
-#define MAVLINK_MSG_ID_412_MIN_LEN 6
-
-#define MAVLINK_MSG_ID_REQUEST_EVENT_CRC 33
-#define MAVLINK_MSG_ID_412_CRC 33
-
-
+enum { MAVLINK_MSG_ID_REQUEST_EVENT_CRC = 33, MAVLINK_MSG_ID_412_CRC = 33 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_REQUEST_EVENT { \
@@ -333,11 +326,10 @@ static inline void mavlink_msg_request_event_decode(const mavlink_message_t* msg
         memset(request_event, 0, MAVLINK_MSG_ID_REQUEST_EVENT_LEN);
     memcpy(request_event, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         request_event->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

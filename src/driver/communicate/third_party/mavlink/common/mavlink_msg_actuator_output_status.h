@@ -3,24 +3,19 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS 375
+enum { MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS = 375 };
 
+using mavlink_actuator_output_status_t = struct __mavlink_actuator_output_status_t {
+    uint64_t time_usec; /*< [us] Timestamp (since system boot).*/
+    uint32_t active;    /*<  Active outputs*/
+    float actuator[32]; /*<  Servo / motor output array values. Zero values indicate unused channels.*/
+};
 
-typedef struct __mavlink_actuator_output_status_t {
- uint64_t time_usec; /*< [us] Timestamp (since system boot).*/
- uint32_t active; /*<  Active outputs*/
- float actuator[32]; /*<  Servo / motor output array values. Zero values indicate unused channels.*/
-} mavlink_actuator_output_status_t;
+enum { MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_LEN = 140, MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_MIN_LEN = 140, MAVLINK_MSG_ID_375_LEN = 140, MAVLINK_MSG_ID_375_MIN_LEN = 140 };
 
-#define MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_LEN 140
-#define MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_MIN_LEN 140
-#define MAVLINK_MSG_ID_375_LEN 140
-#define MAVLINK_MSG_ID_375_MIN_LEN 140
+enum { MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_CRC = 251, MAVLINK_MSG_ID_375_CRC = 251 };
 
-#define MAVLINK_MSG_ID_ACTUATOR_OUTPUT_STATUS_CRC 251
-#define MAVLINK_MSG_ID_375_CRC 251
-
-#define MAVLINK_MSG_ACTUATOR_OUTPUT_STATUS_FIELD_ACTUATOR_LEN 32
+enum { MAVLINK_MSG_ACTUATOR_OUTPUT_STATUS_FIELD_ACTUATOR_LEN = 32 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ACTUATOR_OUTPUT_STATUS { \

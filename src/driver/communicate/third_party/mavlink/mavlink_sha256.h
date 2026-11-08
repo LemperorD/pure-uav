@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #pragma once
 
 /*
@@ -53,14 +55,14 @@ namespace mavlink {
 #define MAVLINK_HELPER
 #endif
 
-typedef struct {
+using mavlink_sha256_ctx = struct {
     union {
         unsigned char save_bytes[64];
         uint32_t save_u32[16];
     } u;
     uint32_t counter[8];
-    uint32_t sz; // accumulated size in bytes (not bits!)
-} mavlink_sha256_ctx;
+    uint32_t sz;  // accumulated size in bytes (not bits!)
+};
 
 #define Ch(x,y,z) (((x) & (y)) ^ ((~(x)) & (z)))
 #define Maj(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
@@ -106,7 +108,14 @@ MAVLINK_HELPER void mavlink_sha256_init(mavlink_sha256_ctx *m)
 
 static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
 {
-    uint32_t AA, BB, CC, DD, EE, FF, GG, HH;
+    uint32_t AA;
+    uint32_t BB;
+    uint32_t CC;
+    uint32_t DD;
+    uint32_t EE;
+    uint32_t FF;
+    uint32_t GG;
+    uint32_t HH;
     int i;
 
     // use the 16-word input as a ring buffer to compute the message schedule
@@ -114,7 +123,7 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
     uint32_t *s = m->u.save_u32;
     // first we pack the 64 input bytes into 16 words over the top of the bytes;
     // these are the first 16 message schedule entries
-    unsigned char *b = (unsigned char*)s; // cast s to not violate strict aliasing
+    auto* b = (unsigned char*)s;  // cast s to not violate strict aliasing
     for (i = 0; i < 16; i++) {
         uint32_t w = 0;
         w |= (((uint32_t)*b++)<<24); // bytes are always packed big-endian
@@ -135,7 +144,9 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
     HH = m->counter[7];
 
     for (i = 0; i < 64; i++) {
-        uint32_t T1, T2, data;
+        uint32_t T1;
+        uint32_t T2;
+        uint32_t data;
 
         if (i < 16) {
             data = s[i];
@@ -170,16 +181,14 @@ static void mavlink_sha256_calc(mavlink_sha256_ctx *m)
 
 MAVLINK_HELPER void mavlink_sha256_update(mavlink_sha256_ctx *m, const void *v, uint32_t len)
 {
-    const unsigned char *p = (const unsigned char *)v;
+    const auto* p = (const unsigned char*)v;
     uint32_t offset;
 
     offset = m->sz % 64;
     m->sz += len;
     while(len > 0){
         uint32_t l = 64 - offset;
-        if (len < l) {
-            l = len;
-        }
+        l = std::min(len, l);
         memcpy(m->u.save_bytes + offset, p, l);
         offset += l;
         p += l;
@@ -196,7 +205,9 @@ MAVLINK_HELPER void mavlink_sha256_update(mavlink_sha256_ctx *m, const void *v, 
  */
 MAVLINK_HELPER void mavlink_sha256_final_48(mavlink_sha256_ctx *m, uint8_t result[6])
 {
-    uint32_t c0, c1, bit_length;
+    uint32_t c0;
+    uint32_t c1;
+    uint32_t bit_length;
     unsigned offset = m->sz % 64;
     bit_length = m->sz * 8;
 

@@ -9,9 +9,13 @@ int main(int argc, char** argv) try {
     int color_fps = 60;
     int depth_fps = 60;
 
-    if (argc >= 2) color_fps = std::atoi(argv[1]);
+    if (argc >= 2) {
+        color_fps = std::atoi(argv[1]);
+    }
 
-    if (argc >= 3) depth_fps = std::atoi(argv[2]);
+    if (argc >= 3) {
+        depth_fps = std::atoi(argv[2]);
+    }
 
     ob::Pipeline pipe;
     auto config = std::make_shared<ob::Config>();
@@ -44,11 +48,17 @@ int main(int argc, char** argv) try {
     while (true) {
         auto frameset = pipe.waitForFrames(1000);
 
-        if (!frameset) continue;
+        if (!frameset) {
+            continue;
+        }
 
-        if (frameset->colorFrame()) color_count++;
+        if (frameset->colorFrame()) {
+            color_count++;
+        }
 
-        if (frameset->depthFrame()) depth_count++;
+        if (frameset->depthFrame()) {
+            depth_count++;
+        }
 
         auto now = std::chrono::steady_clock::now();
 

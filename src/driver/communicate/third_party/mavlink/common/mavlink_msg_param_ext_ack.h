@@ -3,26 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PARAM_EXT_ACK 324
+enum { MAVLINK_MSG_ID_PARAM_EXT_ACK = 324 };
 
+using mavlink_param_ext_ack_t = struct __mavlink_param_ext_ack_t {
+    char param_id[16];     /*<  Parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
+    char param_value[128]; /*<  Parameter value (new value if PARAM_ACK_ACCEPTED, current value otherwise). Raw bytes, interpreted according to param_type; not a text string.*/
+    uint8_t param_type;    /*<  Parameter type.*/
+    uint8_t param_result;  /*<  Result code.*/
+};
 
-typedef struct __mavlink_param_ext_ack_t {
- char param_id[16]; /*<  Parameter id, terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
- char param_value[128]; /*<  Parameter value (new value if PARAM_ACK_ACCEPTED, current value otherwise). Raw bytes, interpreted according to param_type; not a text string.*/
- uint8_t param_type; /*<  Parameter type.*/
- uint8_t param_result; /*<  Result code.*/
-} mavlink_param_ext_ack_t;
+enum { MAVLINK_MSG_ID_PARAM_EXT_ACK_LEN = 146, MAVLINK_MSG_ID_PARAM_EXT_ACK_MIN_LEN = 146, MAVLINK_MSG_ID_324_LEN = 146, MAVLINK_MSG_ID_324_MIN_LEN = 146 };
 
-#define MAVLINK_MSG_ID_PARAM_EXT_ACK_LEN 146
-#define MAVLINK_MSG_ID_PARAM_EXT_ACK_MIN_LEN 146
-#define MAVLINK_MSG_ID_324_LEN 146
-#define MAVLINK_MSG_ID_324_MIN_LEN 146
+enum { MAVLINK_MSG_ID_PARAM_EXT_ACK_CRC = 132, MAVLINK_MSG_ID_324_CRC = 132 };
 
-#define MAVLINK_MSG_ID_PARAM_EXT_ACK_CRC 132
-#define MAVLINK_MSG_ID_324_CRC 132
-
-#define MAVLINK_MSG_PARAM_EXT_ACK_FIELD_PARAM_ID_LEN 16
-#define MAVLINK_MSG_PARAM_EXT_ACK_FIELD_PARAM_VALUE_LEN 128
+enum { MAVLINK_MSG_PARAM_EXT_ACK_FIELD_PARAM_ID_LEN = 16, MAVLINK_MSG_PARAM_EXT_ACK_FIELD_PARAM_VALUE_LEN = 128 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PARAM_EXT_ACK { \

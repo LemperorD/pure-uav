@@ -3,32 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COMMAND_LONG 76
+enum { MAVLINK_MSG_ID_COMMAND_LONG = 76 };
 
+using mavlink_command_long_t = struct __mavlink_command_long_t {
+    float param1;             /*<  Parameter 1 (for the specific command).*/
+    float param2;             /*<  Parameter 2 (for the specific command).*/
+    float param3;             /*<  Parameter 3 (for the specific command).*/
+    float param4;             /*<  Parameter 4 (for the specific command).*/
+    float param5;             /*<  Parameter 5 (for the specific command).*/
+    float param6;             /*<  Parameter 6 (for the specific command).*/
+    float param7;             /*<  Parameter 7 (for the specific command).*/
+    uint16_t command;         /*<  Command ID (of command to send).*/
+    uint8_t target_system;    /*<  System which should execute the command*/
+    uint8_t target_component; /*<  Component which should execute the command, 0 for all components*/
+    uint8_t confirmation;     /*<  0: First transmission of this command. 1-255: Confirmation transmissions (e.g. for kill command)*/
+};
 
-typedef struct __mavlink_command_long_t {
- float param1; /*<  Parameter 1 (for the specific command).*/
- float param2; /*<  Parameter 2 (for the specific command).*/
- float param3; /*<  Parameter 3 (for the specific command).*/
- float param4; /*<  Parameter 4 (for the specific command).*/
- float param5; /*<  Parameter 5 (for the specific command).*/
- float param6; /*<  Parameter 6 (for the specific command).*/
- float param7; /*<  Parameter 7 (for the specific command).*/
- uint16_t command; /*<  Command ID (of command to send).*/
- uint8_t target_system; /*<  System which should execute the command*/
- uint8_t target_component; /*<  Component which should execute the command, 0 for all components*/
- uint8_t confirmation; /*<  0: First transmission of this command. 1-255: Confirmation transmissions (e.g. for kill command)*/
-} mavlink_command_long_t;
+enum { MAVLINK_MSG_ID_COMMAND_LONG_LEN = 33, MAVLINK_MSG_ID_COMMAND_LONG_MIN_LEN = 33, MAVLINK_MSG_ID_76_LEN = 33, MAVLINK_MSG_ID_76_MIN_LEN = 33 };
 
-#define MAVLINK_MSG_ID_COMMAND_LONG_LEN 33
-#define MAVLINK_MSG_ID_COMMAND_LONG_MIN_LEN 33
-#define MAVLINK_MSG_ID_76_LEN 33
-#define MAVLINK_MSG_ID_76_MIN_LEN 33
-
-#define MAVLINK_MSG_ID_COMMAND_LONG_CRC 152
-#define MAVLINK_MSG_ID_76_CRC 152
-
-
+enum { MAVLINK_MSG_ID_COMMAND_LONG_CRC = 152, MAVLINK_MSG_ID_76_CRC = 152 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMMAND_LONG { \
@@ -529,11 +522,10 @@ static inline void mavlink_msg_command_long_decode(const mavlink_message_t* msg,
         memset(command_long, 0, MAVLINK_MSG_ID_COMMAND_LONG_LEN);
     memcpy(command_long, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         command_long->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

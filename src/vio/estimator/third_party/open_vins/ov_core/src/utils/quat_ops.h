@@ -151,8 +151,7 @@ inline Eigen::Matrix<double, 3, 3> skew_x(const Eigen::Matrix<double, 3, 1> &w) 
  */
 inline Eigen::Matrix<double, 3, 3> quat_2_Rot(const Eigen::Matrix<double, 4, 1> &q) {
   Eigen::Matrix<double, 3, 3> q_x = skew_x(q.block(0, 0, 3, 1));
-  Eigen::MatrixXd Rot = (2 * std::pow(q(3, 0), 2) - 1) * Eigen::MatrixXd::Identity(3, 3) - 2 * q(3, 0) * q_x +
-                        2 * q.block(0, 0, 3, 1) * (q.block(0, 0, 3, 1).transpose());
+  Eigen::MatrixXd Rot = ((2 * std::pow(q(3, 0), 2)) - 1) * Eigen::MatrixXd::Identity(3, 3) - 2 * q(3, 0) * q_x + 2 * q.block(0, 0, 3, 1) * (q.block(0, 0, 3, 1).transpose());
   return Rot;
 }
 
@@ -233,7 +232,8 @@ inline Eigen::Matrix<double, 3, 3> exp_so3(const Eigen::Matrix<double, 3, 1> &w)
   Eigen::Matrix<double, 3, 3> w_x = skew_x(w);
   double theta = w.norm();
   // Handle small angle values
-  double A, B;
+  double A;
+  double B;
   if (theta < 1e-7) {
     A = 1;
     B = 0.5;
@@ -273,9 +273,15 @@ inline Eigen::Matrix<double, 3, 3> exp_so3(const Eigen::Matrix<double, 3, 1> &w)
 inline Eigen::Matrix<double, 3, 1> log_so3(const Eigen::Matrix<double, 3, 3> &R) {
 
   // note switch to base 1
-  double R11 = R(0, 0), R12 = R(0, 1), R13 = R(0, 2);
-  double R21 = R(1, 0), R22 = R(1, 1), R23 = R(1, 2);
-  double R31 = R(2, 0), R32 = R(2, 1), R33 = R(2, 2);
+  double R11 = R(0, 0);
+  double R12 = R(0, 1);
+  double R13 = R(0, 2);
+  double R21 = R(1, 0);
+  double R22 = R(1, 1);
+  double R23 = R(1, 2);
+  double R31 = R(2, 0);
+  double R32 = R(2, 1);
+  double R33 = R(2, 2);
 
   // Get trace(R)
   const double tr = R.trace();
@@ -284,13 +290,14 @@ inline Eigen::Matrix<double, 3, 1> log_so3(const Eigen::Matrix<double, 3, 3> &R)
   // when trace == -1, i.e., when theta = +-pi, +-3pi, +-5pi, etc.
   // we do something special
   if (tr + 1.0 < 1e-10) {
-    if (std::abs(R33 + 1.0) > 1e-5)
-      omega = (M_PI / sqrt(2.0 + 2.0 * R33)) * Eigen::Vector3d(R13, R23, 1.0 + R33);
-    else if (std::abs(R22 + 1.0) > 1e-5)
-      omega = (M_PI / sqrt(2.0 + 2.0 * R22)) * Eigen::Vector3d(R12, 1.0 + R22, R32);
-    else
-      // if(std::abs(R.r1_.x()+1.0) > 1e-5)  This is implicit
-      omega = (M_PI / sqrt(2.0 + 2.0 * R11)) * Eigen::Vector3d(1.0 + R11, R21, R31);
+      if (std::abs(R33 + 1.0) > 1e-5) {
+          omega = (M_PI / sqrt(2.0 + (2.0 * R33))) * Eigen::Vector3d(R13, R23, 1.0 + R33);
+      } else if (std::abs(R22 + 1.0) > 1e-5) {
+          omega = (M_PI / sqrt(2.0 + (2.0 * R22))) * Eigen::Vector3d(R12, 1.0 + R22, R32);
+      } else {
+          // if(std::abs(R.r1_.x()+1.0) > 1e-5)  This is implicit
+          omega = (M_PI / sqrt(2.0 + (2.0 * R11))) * Eigen::Vector3d(1.0 + R11, R21, R31);
+      }
   } else {
     double magnitude;
     const double tr_3 = tr - 3.0; // always negative
@@ -301,7 +308,7 @@ inline Eigen::Matrix<double, 3, 1> log_so3(const Eigen::Matrix<double, 3, 3> &R)
       // when theta near 0, +-2pi, +-4pi, etc. (trace near 3.0)
       // use Taylor expansion: theta \approx 1/2-(t-3)/12 + O((t-3)^2)
       // see https://github.com/borglab/gtsam/issues/746 for details
-      magnitude = 0.5 - tr_3 / 12.0;
+      magnitude = 0.5 - (tr_3 / 12.0);
     }
     omega = magnitude * Eigen::Vector3d(R32 - R23, R13 - R31, R21 - R12);
   }
@@ -339,7 +346,9 @@ inline Eigen::Matrix4d exp_se3(Eigen::Matrix<double, 6, 1> vec) {
   wskew << 0, -w(2), w(1), w(2), 0, -w(0), -w(1), w(0), 0;
 
   // Handle small angle values
-  double A, B, C;
+  double A;
+  double B;
+  double C;
   if (theta < 1e-7) {
     A = 1;
     B = 0.5;
@@ -393,17 +402,16 @@ inline Eigen::Matrix<double, 6, 1> log_se3(Eigen::Matrix4d mat) {
     Eigen::Matrix<double, 6, 1> log;
     log << w, T;
     return log;
-  } else {
-    Eigen::Matrix3d W = skew_x(w / t);
-    // Formula from Agrawal06iros, equation (14)
-    // simplified with Mathematica, and multiplying in T to avoid matrix math
-    double Tan = tan(0.5 * t);
-    Eigen::Vector3d WT = W * T;
-    Eigen::Vector3d u = T - (0.5 * t) * WT + (1 - t / (2. * Tan)) * (W * WT);
-    Eigen::Matrix<double, 6, 1> log;
-    log << w, u;
-    return log;
   }
+  Eigen::Matrix3d W = skew_x(w / t);
+  // Formula from Agrawal06iros, equation (14)
+  // simplified with Mathematica, and multiplying in T to avoid matrix math
+  double Tan = tan(0.5 * t);
+  Eigen::Vector3d WT = W * T;
+  Eigen::Vector3d u = T - (0.5 * t) * WT + (1 - t / (2. * Tan)) * (W * WT);
+  Eigen::Matrix<double, 6, 1> log;
+  log << w, u;
+  return log;
 }
 
 /**
@@ -516,12 +524,10 @@ inline Eigen::Matrix<double, 3, 3> Jl_so3(const Eigen::Matrix<double, 3, 1> &w) 
   double theta = w.norm();
   if (theta < 1e-6) {
     return Eigen::MatrixXd::Identity(3, 3);
-  } else {
-    Eigen::Matrix<double, 3, 1> a = w / theta;
-    Eigen::Matrix<double, 3, 3> J = sin(theta) / theta * Eigen::MatrixXd::Identity(3, 3) + (1 - sin(theta) / theta) * a * a.transpose() +
-                                    ((1 - cos(theta)) / theta) * skew_x(a);
-    return J;
   }
+  Eigen::Matrix<double, 3, 1> a = w / theta;
+  Eigen::Matrix<double, 3, 3> J = sin(theta) / theta * Eigen::MatrixXd::Identity(3, 3) + (1 - sin(theta) / theta) * a * a.transpose() + ((1 - cos(theta)) / theta) * skew_x(a);
+  return J;
 }
 
 /**
@@ -548,7 +554,7 @@ inline Eigen::Matrix<double, 3, 3> Jr_so3(const Eigen::Matrix<double, 3, 1> &w) 
  */
 inline Eigen::Matrix<double, 3, 1> rot2rpy(const Eigen::Matrix<double, 3, 3> &rot) {
   Eigen::Matrix<double, 3, 1> rpy;
-  rpy(1, 0) = atan2(-rot(2, 0), sqrt(rot(0, 0) * rot(0, 0) + rot(1, 0) * rot(1, 0)));
+  rpy(1, 0) = atan2(-rot(2, 0), sqrt((rot(0, 0) * rot(0, 0)) + (rot(1, 0) * rot(1, 0))));
   if (std::abs(cos(rpy(1, 0))) > 1.0e-12) {
     rpy(2, 0) = atan2(rot(1, 0) / cos(rpy(1, 0)), rot(0, 0) / cos(rpy(1, 0)));
     rpy(0, 0) = atan2(rot(2, 1) / cos(rpy(1, 0)), rot(2, 2) / cos(rpy(1, 0)));

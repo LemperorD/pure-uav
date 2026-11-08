@@ -175,10 +175,10 @@ struct OrtSyncStreamImpl {
 };
 
 struct OrtNodeFusionOptions;
-typedef struct OrtNodeFusionOptions OrtNodeFusionOptions;
+using OrtNodeFusionOptions = struct OrtNodeFusionOptions;
 
 struct OrtNodeComputeInfo;
-typedef struct OrtNodeComputeInfo OrtNodeComputeInfo;
+using OrtNodeComputeInfo = struct OrtNodeComputeInfo;
 
 /**
  * \brief The OrtNodeFusionOptions struct specifies options for fusing nodes supported by an execution provider.
@@ -475,12 +475,12 @@ struct OrtEpApi {
  *
  * \since Version 1.23.
  */
-typedef enum OrtEpDataLayout {
-  OrtEpDataLayout_NCHW = 0,
-  OrtEpDataLayout_NHWC,
+using OrtEpDataLayout = enum OrtEpDataLayout {
+    OrtEpDataLayout_NCHW = 0,
+    OrtEpDataLayout_NHWC,
 
-  OrtEpDataLayout_Default = OrtEpDataLayout_NCHW,
-} OrtEpDataLayout;
+    OrtEpDataLayout_Default = OrtEpDataLayout_NCHW,
+};
 
 /**
  * \brief The OrtEp struct provides functions to implement for an execution provider.
@@ -747,10 +747,7 @@ struct OrtEp {
  *
  * \since Version 1.22.
  */
-typedef OrtStatus* (*CreateEpApiFactoriesFn)(_In_ const char* registered_name, _In_ const OrtApiBase* ort_api_base,
-                                             _In_ const OrtLogger* default_logger,
-                                             _Inout_ OrtEpFactory** factories, _In_ size_t max_factories,
-                                             _Out_ size_t* num_factories);
+using CreateEpApiFactoriesFn = OrtStatus* (*)(_In_ const char* registered_name, _In_ const OrtApiBase* ort_api_base, _In_ const OrtLogger* default_logger, _Inout_ OrtEpFactory** factories, _In_ size_t max_factories, _Out_ size_t* num_factories);
 
 /** \brief The function signature that ORT will call to release an OrtEpFactory instance.
  *
@@ -762,7 +759,7 @@ typedef OrtStatus* (*CreateEpApiFactoriesFn)(_In_ const char* registered_name, _
  *
  * \since Version 1.22.
  */
-typedef OrtStatus* (*ReleaseEpApiFactoryFn)(_In_ OrtEpFactory* factory);
+using ReleaseEpApiFactoryFn = OrtStatus* (*)(_In_ OrtEpFactory * factory);
 
 /**
  * \brief The OrtEpFactory provides functions to create and manage execution providers.

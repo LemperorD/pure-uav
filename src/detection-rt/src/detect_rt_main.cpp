@@ -40,7 +40,7 @@ std::atomic<bool> g_sigint{false};
 // 这样驱动/VIPLite 自己打印到 stdout 的日志不会污染 JSON。
 FILE* g_json_out = stdout;
 
-void onSigint(int) {
+void onSigint(int /*unused*/) {
     g_sigint.store(true);
 }
 
@@ -54,7 +54,7 @@ bool fileExists(const std::string& p) {
     return std::filesystem::is_regular_file(p, ec);
 }
 
-#if defined(PURE_DETECTION_BACKEND_CPU)
+#ifdef PURE_DETECTION_BACKEND_CPU
 constexpr const char* kDefaultModelRel = "assets/models/yolo26n.onnx";
 #else
 constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
@@ -63,7 +63,9 @@ constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
 // 默认模型：cwd 下的 assets/models/<模型>，其次从可执行文件向上找仓库根。
 std::string resolveDefaultModel() {
     const std::string rel = kDefaultModelRel;
-    if (fileExists(rel)) return rel;
+    if (fileExists(rel)) {
+        return rel;
+    }
 
     std::string exe;
     {
@@ -78,7 +80,9 @@ std::string resolveDefaultModel() {
         std::filesystem::path dir = std::filesystem::path(exe).parent_path();
         for (int i = 0; i < 6 && !dir.empty(); ++i) {
             const auto candidate = dir / rel;
-            if (fileExists(candidate.string())) return candidate.string();
+            if (fileExists(candidate.string())) {
+                return candidate.string();
+            }
             dir = dir.parent_path();
         }
     }
@@ -106,7 +110,7 @@ void printBoxes(const FrameResult& r, bool json) {
                          "%s{\"class_id\":%d,\"conf\":%.6f,\"x1\":%.3f,\"y1\":%.3f,"
                          "\"x2\":%.3f,\"y2\":%.3f,\"u\":%.3f,\"v\":%.3f,\"w\":%.3f,"
                          "\"h\":%.3f}",
-                         i ? "," : "", b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), u, v, w, h);
+                         (i != 0) ? "," : "", b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), u, v, w, h);
         }
         std::fprintf(out, "]}\n");
         std::fflush(out);
@@ -227,8 +231,12 @@ int runImage(const std::string& image_path, const DetectorConfig& cfg, bool json
     pure_uav::detection::postprocess(view, pp, r);
 
     printBoxes(r, json);
-    if (!dump_dir.empty()) drawAndSave(bgr, r, dump_dir, r.seq);
-    if (!stream_dir.empty()) writeStreamFrame(bgr, r, stream_dir);
+    if (!dump_dir.empty()) {
+        drawAndSave(bgr, r, dump_dir, r.seq);
+    }
+    if (!stream_dir.empty()) {
+        writeStreamFrame(bgr, r, stream_dir);
+    }
     if (!json) {
         std::printf("summary: infer_ms=%.3f count=%d present=%s\n", static_cast<double>(r.infer_ms), r.count, r.present ? "true" : "false");
     }
@@ -263,11 +271,15 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
         if (got) {
             ++processed;
             total_boxes += static_cast<uint64_t>(r.count);
-            if (r.present) ++present_frames;
+            if (r.present) {
+                ++present_frames;
+            }
             printBoxes(r, json);
             if (!dump_dir.empty()) {
                 cv::Mat frame;
-                if (det.latest_frame(frame)) drawAndSave(frame, r, dump_dir, r.seq);
+                if (det.latest_frame(frame)) {
+                    drawAndSave(frame, r, dump_dir, r.seq);
+                }
             }
             if (!stream_dir.empty()) {
                 const auto now = std::chrono::steady_clock::now();
@@ -280,7 +292,9 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
                 }
             }
         }
-        if (frames > 0 && processed >= frames) break;
+        if (frames > 0 && processed >= frames) {
+            break;
+        }
 
         const auto now = std::chrono::steady_clock::now();
         if (now - last_report >= std::chrono::seconds(1)) {
@@ -293,7 +307,9 @@ int runCamera(const DetectorConfig& cfg, long frames, bool json, const std::stri
         }
 
         // 没有新结果时短暂让出 CPU；有结果时不额外等待。
-        if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if (!got) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
     }
 
     const DetectorStats s = det.stats();
@@ -350,7 +366,7 @@ int main(int argc, char** argv) {
             image_path = requireValue("--image");
         } else if (arg == "--frames") {
             frames = std::atol(requireValue("--frames").c_str());
-            if (frames < 0) frames = 0;
+            frames = std::max<long>(frames, 0);
         } else if (arg == "--json") {
             json = true;
         } else if (arg == "--dump-dir") {
@@ -380,7 +396,7 @@ int main(int argc, char** argv) {
         const int fd = dup(STDOUT_FILENO);
         if (fd >= 0) {
             FILE* f = fdopen(fd, "w");
-            if (f) {
+            if (f != nullptr) {
                 g_json_out = f;
                 std::setvbuf(g_json_out, nullptr, _IOLBF, 0);
             } else {
@@ -390,7 +406,7 @@ int main(int argc, char** argv) {
         dup2(STDERR_FILENO, STDOUT_FILENO);
     }
 
-    if (cfg.conf_thr <= 0.0f || cfg.conf_thr > 1.0f || cfg.iou_thr <= 0.0f || cfg.iou_thr > 1.0f) {
+    if (cfg.conf_thr <= 0.0F || cfg.conf_thr > 1.0F || cfg.iou_thr <= 0.0F || cfg.iou_thr > 1.0F) {
         std::fprintf(stderr, "[error] --conf/--iou 必须在 (0,1] 内\n");
         return 2;
     }
@@ -400,7 +416,9 @@ int main(int argc, char** argv) {
     }
 
     if (!camera_arg.empty()) {
-        int w = 0, h = 0, fps = 0;
+        int w = 0;
+        int h = 0;
+        int fps = 0;
         if (!parseCamera(camera_arg, w, h, fps)) {
             std::fprintf(stderr, "[error] --camera 需要 WxH@FPS 形式，收到: %s\n", camera_arg.c_str());
             return 2;
@@ -419,7 +437,9 @@ int main(int argc, char** argv) {
     cfg.verbose = verbose;
 
     for (const auto& dir : {dump_dir, stream_dir}) {
-        if (dir.empty()) continue;
+        if (dir.empty()) {
+            continue;
+        }
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         if (ec) {

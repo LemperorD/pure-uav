@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOGGING_ACK 268
+enum { MAVLINK_MSG_ID_LOGGING_ACK = 268 };
 
+using mavlink_logging_ack_t = struct __mavlink_logging_ack_t {
+    uint16_t sequence;        /*<  sequence number (must match the one in LOGGING_DATA_ACKED)*/
+    uint8_t target_system;    /*<  system ID of the target*/
+    uint8_t target_component; /*<  component ID of the target*/
+};
 
-typedef struct __mavlink_logging_ack_t {
- uint16_t sequence; /*<  sequence number (must match the one in LOGGING_DATA_ACKED)*/
- uint8_t target_system; /*<  system ID of the target*/
- uint8_t target_component; /*<  component ID of the target*/
-} mavlink_logging_ack_t;
+enum { MAVLINK_MSG_ID_LOGGING_ACK_LEN = 4, MAVLINK_MSG_ID_LOGGING_ACK_MIN_LEN = 4, MAVLINK_MSG_ID_268_LEN = 4, MAVLINK_MSG_ID_268_MIN_LEN = 4 };
 
-#define MAVLINK_MSG_ID_LOGGING_ACK_LEN 4
-#define MAVLINK_MSG_ID_LOGGING_ACK_MIN_LEN 4
-#define MAVLINK_MSG_ID_268_LEN 4
-#define MAVLINK_MSG_ID_268_MIN_LEN 4
-
-#define MAVLINK_MSG_ID_LOGGING_ACK_CRC 14
-#define MAVLINK_MSG_ID_268_CRC 14
-
-
+enum { MAVLINK_MSG_ID_LOGGING_ACK_CRC = 14, MAVLINK_MSG_ID_268_CRC = 14 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOGGING_ACK { \
@@ -305,11 +298,10 @@ static inline void mavlink_msg_logging_ack_decode(const mavlink_message_t* msg, 
         memset(logging_ack, 0, MAVLINK_MSG_ID_LOGGING_ACK_LEN);
     memcpy(logging_ack, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         logging_ack->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

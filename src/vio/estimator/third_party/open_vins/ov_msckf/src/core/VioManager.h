@@ -103,10 +103,14 @@ public:
   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
 
   /// If we are initialized or not
-  bool initialized() { return is_initialized_vio && timelastupdate != -1; }
+  bool initialized() const {
+      return is_initialized_vio && timelastupdate != -1;
+  }
 
   /// Timestamp that the system was initialized at
-  double initialized_time() { return startup_time; }
+  double initialized_time() const {
+      return startup_time;
+  }
 
   /// Accessor for current system parameters
   VioManagerOptions get_params() { return params; }
@@ -205,9 +209,9 @@ public:
 
   /// 当前帧跟踪到的像素点（纯可视化用途，不参与估计）
   struct TrackedPoint {
-    float u = 0.f;
-    float v = 0.f;
-    int len = 0;  ///< 该点已连续跟踪多少帧；越大说明它越"结实"
+      float u = 0.F;
+      float v = 0.F;
+      int len = 0;  ///< 该点已连续跟踪多少帧；越大说明它越"结实"
   };
   const std::vector<TrackedPoint> &get_tracked_points() const { return tracked_points; }
 

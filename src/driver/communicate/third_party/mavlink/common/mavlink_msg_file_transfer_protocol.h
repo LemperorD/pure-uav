@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL 110
+enum { MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL = 110 };
 
+using mavlink_file_transfer_protocol_t = struct __mavlink_file_transfer_protocol_t {
+    uint8_t target_network;   /*<  Network ID (0 for broadcast)*/
+    uint8_t target_system;    /*<  System ID (0 for broadcast)*/
+    uint8_t target_component; /*<  Component ID (0 for broadcast)*/
+    uint8_t payload[251];     /*<  Variable length payload. The content/format of this block is defined in https://mavlink.io/en/services/ftp.html. The length is defined by the remaining message length when subtracting the header and other fields. See also MAV_FTP_OPCODE and MAV_FTP_ERR.*/
+};
 
-typedef struct __mavlink_file_transfer_protocol_t {
- uint8_t target_network; /*<  Network ID (0 for broadcast)*/
- uint8_t target_system; /*<  System ID (0 for broadcast)*/
- uint8_t target_component; /*<  Component ID (0 for broadcast)*/
- uint8_t payload[251]; /*<  Variable length payload. The content/format of this block is defined in https://mavlink.io/en/services/ftp.html. The length is defined by the remaining message length when subtracting the header and other fields. See also MAV_FTP_OPCODE and MAV_FTP_ERR.*/
-} mavlink_file_transfer_protocol_t;
+enum { MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_LEN = 254, MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_MIN_LEN = 254, MAVLINK_MSG_ID_110_LEN = 254, MAVLINK_MSG_ID_110_MIN_LEN = 254 };
 
-#define MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_LEN 254
-#define MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_MIN_LEN 254
-#define MAVLINK_MSG_ID_110_LEN 254
-#define MAVLINK_MSG_ID_110_MIN_LEN 254
+enum { MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_CRC = 84, MAVLINK_MSG_ID_110_CRC = 84 };
 
-#define MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_CRC 84
-#define MAVLINK_MSG_ID_110_CRC 84
-
-#define MAVLINK_MSG_FILE_TRANSFER_PROTOCOL_FIELD_PAYLOAD_LEN 251
+enum { MAVLINK_MSG_FILE_TRANSFER_PROTOCOL_FIELD_PAYLOAD_LEN = 251 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FILE_TRANSFER_PROTOCOL { \
@@ -323,11 +318,10 @@ static inline void mavlink_msg_file_transfer_protocol_decode(const mavlink_messa
         memset(file_transfer_protocol, 0, MAVLINK_MSG_ID_FILE_TRANSFER_PROTOCOL_LEN);
     memcpy(file_transfer_protocol, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         file_transfer_protocol->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

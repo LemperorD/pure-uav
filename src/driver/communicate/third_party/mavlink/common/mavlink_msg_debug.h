@@ -3,24 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_DEBUG 254
+enum { MAVLINK_MSG_ID_DEBUG = 254 };
 
+using mavlink_debug_t = struct __mavlink_debug_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    float value;           /*<  DEBUG value*/
+    uint8_t ind;           /*<  index of debug variable*/
+};
 
-typedef struct __mavlink_debug_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float value; /*<  DEBUG value*/
- uint8_t ind; /*<  index of debug variable*/
-} mavlink_debug_t;
+enum { MAVLINK_MSG_ID_DEBUG_LEN = 9, MAVLINK_MSG_ID_DEBUG_MIN_LEN = 9, MAVLINK_MSG_ID_254_LEN = 9, MAVLINK_MSG_ID_254_MIN_LEN = 9 };
 
-#define MAVLINK_MSG_ID_DEBUG_LEN 9
-#define MAVLINK_MSG_ID_DEBUG_MIN_LEN 9
-#define MAVLINK_MSG_ID_254_LEN 9
-#define MAVLINK_MSG_ID_254_MIN_LEN 9
-
-#define MAVLINK_MSG_ID_DEBUG_CRC 46
-#define MAVLINK_MSG_ID_254_CRC 46
-
-
+enum { MAVLINK_MSG_ID_DEBUG_CRC = 46, MAVLINK_MSG_ID_254_CRC = 46 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_DEBUG { \

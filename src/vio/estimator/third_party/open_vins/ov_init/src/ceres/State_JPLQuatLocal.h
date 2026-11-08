@@ -34,7 +34,7 @@ namespace ov_init {
  * @brief JPL quaternion CERES state parameterization
  */
 #if CERES_VERSION_MAJOR == 2 && CERES_VERSION_MINOR >= 2
-class State_JPLQuatLocal : public ceres::Manifold {
+class StateJplQuatLocal : public ceres::Manifold {
 #else
 class State_JPLQuatLocal : public ceres::LocalParameterization {
 #endif
@@ -61,8 +61,12 @@ public:
   // Jacobian of Minus
   bool MinusJacobian(const double* x, double* jacobian) const override;
 
-  int AmbientSize() const override { return 4; }
-  int TangentSize() const override { return 3; }
+  [[nodiscard]] int AmbientSize() const override {
+      return 4;
+  }
+  [[nodiscard]] int TangentSize() const override {
+      return 3;
+  }
 
 #else
 

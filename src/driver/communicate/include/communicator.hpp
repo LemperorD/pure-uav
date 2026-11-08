@@ -178,9 +178,9 @@ class Communicator {
     bool sendMessage(const uint8_t* buf, uint16_t len, bool require_connected = false,
                      std::optional<uint64_t> expected_session = std::nullopt);  // 串口写
     bool waitForAck(uint16_t command, int timeout_ms, uint8_t* result);         // 等某条命令的 ACK（超时返回 false）
-    const char* px4ModeNameCn(uint32_t custom_mode) const;                      // PX4 飞行模式 → 中文名
-    const char* arducopterModeNameCn(uint8_t custom_mode) const;                // ArduCopter 飞行模式 → 中文名
-    const char* ackResultNameCn(uint8_t result) const;                          // ACK result → 中文名
+    static const char* px4ModeNameCn(uint32_t custom_mode);                     // PX4 飞行模式 → 中文名
+    static const char* arducopterModeNameCn(uint8_t custom_mode);               // ArduCopter 飞行模式 → 中文名
+    static const char* ackResultNameCn(uint8_t result);                         // ACK result → 中文名
 
     CommConfig cfg_;  // 运行时配置（start 时保存）
     SerialPort port_;

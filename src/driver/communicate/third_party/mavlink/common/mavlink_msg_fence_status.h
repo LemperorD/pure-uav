@@ -3,26 +3,19 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_FENCE_STATUS 162
+enum { MAVLINK_MSG_ID_FENCE_STATUS = 162 };
 
+using mavlink_fence_status_t = struct __mavlink_fence_status_t {
+    uint32_t breach_time;      /*< [ms] Time (since boot) of last breach.*/
+    uint16_t breach_count;     /*<  Number of fence breaches.*/
+    uint8_t breach_status;     /*<  Breach status (0 if currently inside fence, 1 if outside).*/
+    uint8_t breach_type;       /*<  Last breach type.*/
+    uint8_t breach_mitigation; /*<  Active action to prevent fence breach*/
+};
 
-typedef struct __mavlink_fence_status_t {
- uint32_t breach_time; /*< [ms] Time (since boot) of last breach.*/
- uint16_t breach_count; /*<  Number of fence breaches.*/
- uint8_t breach_status; /*<  Breach status (0 if currently inside fence, 1 if outside).*/
- uint8_t breach_type; /*<  Last breach type.*/
- uint8_t breach_mitigation; /*<  Active action to prevent fence breach*/
-} mavlink_fence_status_t;
+enum { MAVLINK_MSG_ID_FENCE_STATUS_LEN = 9, MAVLINK_MSG_ID_FENCE_STATUS_MIN_LEN = 8, MAVLINK_MSG_ID_162_LEN = 9, MAVLINK_MSG_ID_162_MIN_LEN = 8 };
 
-#define MAVLINK_MSG_ID_FENCE_STATUS_LEN 9
-#define MAVLINK_MSG_ID_FENCE_STATUS_MIN_LEN 8
-#define MAVLINK_MSG_ID_162_LEN 9
-#define MAVLINK_MSG_ID_162_MIN_LEN 8
-
-#define MAVLINK_MSG_ID_FENCE_STATUS_CRC 189
-#define MAVLINK_MSG_ID_162_CRC 189
-
-
+enum { MAVLINK_MSG_ID_FENCE_STATUS_CRC = 189, MAVLINK_MSG_ID_162_CRC = 189 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_FENCE_STATUS { \

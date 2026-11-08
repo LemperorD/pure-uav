@@ -3,26 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_DEBUG_VECT 250
+enum { MAVLINK_MSG_ID_DEBUG_VECT = 250 };
 
+using mavlink_debug_vect_t = struct __mavlink_debug_vect_t {
+    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float x;            /*<  x*/
+    float y;            /*<  y*/
+    float z;            /*<  z*/
+    char name[10];      /*<  Name*/
+};
 
-typedef struct __mavlink_debug_vect_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float x; /*<  x*/
- float y; /*<  y*/
- float z; /*<  z*/
- char name[10]; /*<  Name*/
-} mavlink_debug_vect_t;
+enum { MAVLINK_MSG_ID_DEBUG_VECT_LEN = 30, MAVLINK_MSG_ID_DEBUG_VECT_MIN_LEN = 30, MAVLINK_MSG_ID_250_LEN = 30, MAVLINK_MSG_ID_250_MIN_LEN = 30 };
 
-#define MAVLINK_MSG_ID_DEBUG_VECT_LEN 30
-#define MAVLINK_MSG_ID_DEBUG_VECT_MIN_LEN 30
-#define MAVLINK_MSG_ID_250_LEN 30
-#define MAVLINK_MSG_ID_250_MIN_LEN 30
+enum { MAVLINK_MSG_ID_DEBUG_VECT_CRC = 49, MAVLINK_MSG_ID_250_CRC = 49 };
 
-#define MAVLINK_MSG_ID_DEBUG_VECT_CRC 49
-#define MAVLINK_MSG_ID_250_CRC 49
-
-#define MAVLINK_MSG_DEBUG_VECT_FIELD_NAME_LEN 10
+enum { MAVLINK_MSG_DEBUG_VECT_FIELD_NAME_LEN = 10 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_DEBUG_VECT { \

@@ -3,37 +3,30 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED 84
+enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED = 84 };
 
+using mavlink_set_position_target_local_ned_t = struct __mavlink_set_position_target_local_ned_t {
+    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
+    float x;                  /*< [m] X Position in NED frame*/
+    float y;                  /*< [m] Y Position in NED frame*/
+    float z;                  /*< [m] Z Position in NED frame (note, altitude is negative in NED)*/
+    float vx;                 /*< [m/s] X velocity in NED frame*/
+    float vy;                 /*< [m/s] Y velocity in NED frame*/
+    float vz;                 /*< [m/s] Z velocity in NED frame*/
+    float afx;                /*< [m/s/s] X acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+    float afy;                /*< [m/s/s] Y acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+    float afz;                /*< [m/s/s] Z acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
+    float yaw;                /*< [rad] yaw setpoint*/
+    float yaw_rate;           /*< [rad/s] yaw rate setpoint*/
+    uint16_t type_mask;       /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t coordinate_frame; /*<  Valid options are: MAV_FRAME_LOCAL_NED = 1, MAV_FRAME_LOCAL_OFFSET_NED = 7, MAV_FRAME_BODY_NED = 8, MAV_FRAME_BODY_OFFSET_NED = 9*/
+};
 
-typedef struct __mavlink_set_position_target_local_ned_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float x; /*< [m] X Position in NED frame*/
- float y; /*< [m] Y Position in NED frame*/
- float z; /*< [m] Z Position in NED frame (note, altitude is negative in NED)*/
- float vx; /*< [m/s] X velocity in NED frame*/
- float vy; /*< [m/s] Y velocity in NED frame*/
- float vz; /*< [m/s] Z velocity in NED frame*/
- float afx; /*< [m/s/s] X acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
- float afy; /*< [m/s/s] Y acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
- float afz; /*< [m/s/s] Z acceleration or force (if bit 10 of type_mask is set) in NED frame in meter / s^2 or N*/
- float yaw; /*< [rad] yaw setpoint*/
- float yaw_rate; /*< [rad/s] yaw rate setpoint*/
- uint16_t type_mask; /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t coordinate_frame; /*<  Valid options are: MAV_FRAME_LOCAL_NED = 1, MAV_FRAME_LOCAL_OFFSET_NED = 7, MAV_FRAME_BODY_NED = 8, MAV_FRAME_BODY_OFFSET_NED = 9*/
-} mavlink_set_position_target_local_ned_t;
+enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_LEN = 53, MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_MIN_LEN = 53, MAVLINK_MSG_ID_84_LEN = 53, MAVLINK_MSG_ID_84_MIN_LEN = 53 };
 
-#define MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_LEN 53
-#define MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_MIN_LEN 53
-#define MAVLINK_MSG_ID_84_LEN 53
-#define MAVLINK_MSG_ID_84_MIN_LEN 53
-
-#define MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_CRC 143
-#define MAVLINK_MSG_ID_84_CRC 143
-
-
+enum { MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_CRC = 143, MAVLINK_MSG_ID_84_CRC = 143 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SET_POSITION_TARGET_LOCAL_NED { \
@@ -669,11 +662,10 @@ static inline void mavlink_msg_set_position_target_local_ned_decode(const mavlin
         memset(set_position_target_local_ned, 0, MAVLINK_MSG_ID_SET_POSITION_TARGET_LOCAL_NED_LEN);
     memcpy(set_position_target_local_ned, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         set_position_target_local_ned->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

@@ -41,9 +41,9 @@ struct UpdaterOptions {
   double sigma_pix_sq = 1;
 
   /// Nice print function of what parameters we have loaded
-  void print() {
-    PRINT_DEBUG("    - chi2_multipler: %.1f\n", chi2_multipler);
-    PRINT_DEBUG("    - sigma_pix: %.2f\n", sigma_pix);
+  void print() const {
+      PRINT_DEBUG("    - chi2_multipler: %.1f\n", chi2_multipler);
+      PRINT_DEBUG("    - sigma_pix: %.2f\n", sigma_pix);
   }
 };
 

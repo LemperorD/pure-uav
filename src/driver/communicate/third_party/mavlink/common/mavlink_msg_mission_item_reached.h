@@ -3,22 +3,15 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_MISSION_ITEM_REACHED 46
+enum { MAVLINK_MSG_ID_MISSION_ITEM_REACHED = 46 };
 
+using mavlink_mission_item_reached_t = struct __mavlink_mission_item_reached_t {
+    uint16_t seq; /*<  Sequence*/
+};
 
-typedef struct __mavlink_mission_item_reached_t {
- uint16_t seq; /*<  Sequence*/
-} mavlink_mission_item_reached_t;
+enum { MAVLINK_MSG_ID_MISSION_ITEM_REACHED_LEN = 2, MAVLINK_MSG_ID_MISSION_ITEM_REACHED_MIN_LEN = 2, MAVLINK_MSG_ID_46_LEN = 2, MAVLINK_MSG_ID_46_MIN_LEN = 2 };
 
-#define MAVLINK_MSG_ID_MISSION_ITEM_REACHED_LEN 2
-#define MAVLINK_MSG_ID_MISSION_ITEM_REACHED_MIN_LEN 2
-#define MAVLINK_MSG_ID_46_LEN 2
-#define MAVLINK_MSG_ID_46_MIN_LEN 2
-
-#define MAVLINK_MSG_ID_MISSION_ITEM_REACHED_CRC 11
-#define MAVLINK_MSG_ID_46_CRC 11
-
-
+enum { MAVLINK_MSG_ID_MISSION_ITEM_REACHED_CRC = 11, MAVLINK_MSG_ID_46_CRC = 11 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_ITEM_REACHED { \

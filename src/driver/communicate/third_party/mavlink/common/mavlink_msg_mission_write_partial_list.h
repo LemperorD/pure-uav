@@ -3,26 +3,19 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST 38
+enum { MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST = 38 };
 
+using mavlink_mission_write_partial_list_t = struct __mavlink_mission_write_partial_list_t {
+    int16_t start_index;      /*<  Start index. Must be smaller / equal to the largest index of the current onboard list.*/
+    int16_t end_index;        /*<  End index, equal or greater than start index.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t mission_type;     /*<  Mission type.*/
+};
 
-typedef struct __mavlink_mission_write_partial_list_t {
- int16_t start_index; /*<  Start index. Must be smaller / equal to the largest index of the current onboard list.*/
- int16_t end_index; /*<  End index, equal or greater than start index.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t mission_type; /*<  Mission type.*/
-} mavlink_mission_write_partial_list_t;
+enum { MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_LEN = 7, MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_MIN_LEN = 6, MAVLINK_MSG_ID_38_LEN = 7, MAVLINK_MSG_ID_38_MIN_LEN = 6 };
 
-#define MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_LEN 7
-#define MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_MIN_LEN 6
-#define MAVLINK_MSG_ID_38_LEN 7
-#define MAVLINK_MSG_ID_38_MIN_LEN 6
-
-#define MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_CRC 9
-#define MAVLINK_MSG_ID_38_CRC 9
-
-
+enum { MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_CRC = 9, MAVLINK_MSG_ID_38_CRC = 9 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_WRITE_PARTIAL_LIST { \
@@ -361,11 +354,10 @@ static inline void mavlink_msg_mission_write_partial_list_decode(const mavlink_m
         memset(mission_write_partial_list, 0, MAVLINK_MSG_ID_MISSION_WRITE_PARTIAL_LIST_LEN);
     memcpy(mission_write_partial_list, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         mission_write_partial_list->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

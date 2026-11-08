@@ -3,41 +3,35 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ODOMETRY 331
+enum { MAVLINK_MSG_ID_ODOMETRY = 331 };
 
+using mavlink_odometry_t = struct __mavlink_odometry_t {
+    uint64_t time_usec;        /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float x;                   /*< [m] X Position*/
+    float y;                   /*< [m] Y Position*/
+    float z;                   /*< [m] Z Position*/
+    float q[4];                /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation)*/
+    float vx;                  /*< [m/s] X linear speed*/
+    float vy;                  /*< [m/s] Y linear speed*/
+    float vz;                  /*< [m/s] Z linear speed*/
+    float rollspeed;           /*< [rad/s] Roll angular speed*/
+    float pitchspeed;          /*< [rad/s] Pitch angular speed*/
+    float yawspeed;            /*< [rad/s] Yaw angular speed*/
+    float pose_covariance[21]; /*<  Row-major representation of a 6x6 pose cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
+    float velocity_covariance[21]; /*<  Row-major representation of a 6x6 velocity cross-covariance matrix upper right triangle (states: vx, vy, vz, rollspeed, pitchspeed, yawspeed; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to
+                                      first element in the array.*/
+    uint8_t frame_id;              /*<  Coordinate frame of reference for the pose data.*/
+    uint8_t child_frame_id;        /*<  Coordinate frame of reference for the velocity in free space (twist) data.*/
+    uint8_t reset_counter;         /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
+    uint8_t estimator_type;        /*<  Type of estimator that is providing the odometry.*/
+    int8_t quality;                /*< [%] Optional odometry quality metric as a percentage. -1 = odometry has failed, 0 = unknown/unset quality, 1 = worst quality, 100 = best quality*/
+};
 
-typedef struct __mavlink_odometry_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float x; /*< [m] X Position*/
- float y; /*< [m] Y Position*/
- float z; /*< [m] Z Position*/
- float q[4]; /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation)*/
- float vx; /*< [m/s] X linear speed*/
- float vy; /*< [m/s] Y linear speed*/
- float vz; /*< [m/s] Z linear speed*/
- float rollspeed; /*< [rad/s] Roll angular speed*/
- float pitchspeed; /*< [rad/s] Pitch angular speed*/
- float yawspeed; /*< [rad/s] Yaw angular speed*/
- float pose_covariance[21]; /*<  Row-major representation of a 6x6 pose cross-covariance matrix upper right triangle (states: x, y, z, roll, pitch, yaw; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
- float velocity_covariance[21]; /*<  Row-major representation of a 6x6 velocity cross-covariance matrix upper right triangle (states: vx, vy, vz, rollspeed, pitchspeed, yawspeed; first six entries are the first ROW, next five entries are the second ROW, etc.). If unknown, assign NaN value to first element in the array.*/
- uint8_t frame_id; /*<  Coordinate frame of reference for the pose data.*/
- uint8_t child_frame_id; /*<  Coordinate frame of reference for the velocity in free space (twist) data.*/
- uint8_t reset_counter; /*<  Estimate reset counter. This should be incremented when the estimate resets in any of the dimensions (position, velocity, attitude, angular speed). This is designed to be used when e.g an external SLAM system detects a loop-closure and the estimate jumps.*/
- uint8_t estimator_type; /*<  Type of estimator that is providing the odometry.*/
- int8_t quality; /*< [%] Optional odometry quality metric as a percentage. -1 = odometry has failed, 0 = unknown/unset quality, 1 = worst quality, 100 = best quality*/
-} mavlink_odometry_t;
+enum { MAVLINK_MSG_ID_ODOMETRY_LEN = 233, MAVLINK_MSG_ID_ODOMETRY_MIN_LEN = 230, MAVLINK_MSG_ID_331_LEN = 233, MAVLINK_MSG_ID_331_MIN_LEN = 230 };
 
-#define MAVLINK_MSG_ID_ODOMETRY_LEN 233
-#define MAVLINK_MSG_ID_ODOMETRY_MIN_LEN 230
-#define MAVLINK_MSG_ID_331_LEN 233
-#define MAVLINK_MSG_ID_331_MIN_LEN 230
+enum { MAVLINK_MSG_ID_ODOMETRY_CRC = 91, MAVLINK_MSG_ID_331_CRC = 91 };
 
-#define MAVLINK_MSG_ID_ODOMETRY_CRC 91
-#define MAVLINK_MSG_ID_331_CRC 91
-
-#define MAVLINK_MSG_ODOMETRY_FIELD_Q_LEN 4
-#define MAVLINK_MSG_ODOMETRY_FIELD_POSE_COVARIANCE_LEN 21
-#define MAVLINK_MSG_ODOMETRY_FIELD_VELOCITY_COVARIANCE_LEN 21
+enum { MAVLINK_MSG_ODOMETRY_FIELD_Q_LEN = 4, MAVLINK_MSG_ODOMETRY_FIELD_POSE_COVARIANCE_LEN = 21, MAVLINK_MSG_ODOMETRY_FIELD_VELOCITY_COVARIANCE_LEN = 21 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ODOMETRY { \

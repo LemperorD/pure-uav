@@ -3,28 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ATTITUDE 30
+enum { MAVLINK_MSG_ID_ATTITUDE = 30 };
 
+using mavlink_attitude_t = struct __mavlink_attitude_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    float roll;            /*< [rad] Roll angle (-pi..+pi)*/
+    float pitch;           /*< [rad] Pitch angle (-pi..+pi)*/
+    float yaw;             /*< [rad] Yaw angle (-pi..+pi)*/
+    float rollspeed;       /*< [rad/s] Roll angular speed*/
+    float pitchspeed;      /*< [rad/s] Pitch angular speed*/
+    float yawspeed;        /*< [rad/s] Yaw angular speed*/
+};
 
-typedef struct __mavlink_attitude_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float roll; /*< [rad] Roll angle (-pi..+pi)*/
- float pitch; /*< [rad] Pitch angle (-pi..+pi)*/
- float yaw; /*< [rad] Yaw angle (-pi..+pi)*/
- float rollspeed; /*< [rad/s] Roll angular speed*/
- float pitchspeed; /*< [rad/s] Pitch angular speed*/
- float yawspeed; /*< [rad/s] Yaw angular speed*/
-} mavlink_attitude_t;
+enum { MAVLINK_MSG_ID_ATTITUDE_LEN = 28, MAVLINK_MSG_ID_ATTITUDE_MIN_LEN = 28, MAVLINK_MSG_ID_30_LEN = 28, MAVLINK_MSG_ID_30_MIN_LEN = 28 };
 
-#define MAVLINK_MSG_ID_ATTITUDE_LEN 28
-#define MAVLINK_MSG_ID_ATTITUDE_MIN_LEN 28
-#define MAVLINK_MSG_ID_30_LEN 28
-#define MAVLINK_MSG_ID_30_MIN_LEN 28
-
-#define MAVLINK_MSG_ID_ATTITUDE_CRC 39
-#define MAVLINK_MSG_ID_30_CRC 39
-
-
+enum { MAVLINK_MSG_ID_ATTITUDE_CRC = 39, MAVLINK_MSG_ID_30_CRC = 39 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ATTITUDE { \

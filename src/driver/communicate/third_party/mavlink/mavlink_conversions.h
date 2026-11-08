@@ -38,10 +38,10 @@
  */
 MAVLINK_HELPER void mavlink_quaternion_to_dcm(const float quaternion[4], float dcm[3][3])
 {
-    double a = (double)quaternion[0];
-    double b = (double)quaternion[1];
-    double c = (double)quaternion[2];
-    double d = (double)quaternion[3];
+    auto a = (double)quaternion[0];
+    auto b = (double)quaternion[1];
+    auto c = (double)quaternion[2];
+    auto d = (double)quaternion[3];
     double aSq = a * a;
     double bSq = b * b;
     double cSq = c * c;
@@ -68,18 +68,20 @@ MAVLINK_HELPER void mavlink_quaternion_to_dcm(const float quaternion[4], float d
  */
 MAVLINK_HELPER void mavlink_dcm_to_euler(const float dcm[3][3], float* roll, float* pitch, float* yaw)
 {
-    float phi, theta, psi;
+    float phi;
+    float theta;
+    float psi;
     /* Clamp to [-1, 1] so floating-point rounding in
        mavlink_quaternion_to_dcm() cannot drive asinf() into NaN. */
-    theta = asinf(fminf(1.0f, fmaxf(-1.0f, -dcm[2][0])));
+    theta = asinf(fminf(1.0F, fmaxf(-1.0F, -dcm[2][0])));
 
-    if (fabsf(theta - (float)M_PI_2) < 1.0e-3f) {
-        phi = 0.0f;
+    if (fabsf(theta - (float)M_PI_2) < 1.0e-3F) {
+        phi = 0.0F;
         psi = (atan2f(dcm[1][2] - dcm[0][1],
                 dcm[0][2] + dcm[1][1]) + phi);
 
-    } else if (fabsf(theta + (float)M_PI_2) < 1.0e-3f) {
-        phi = 0.0f;
+    } else if (fabsf(theta + (float)M_PI_2) < 1.0e-3F) {
+        phi = 0.0F;
         psi = atan2f(dcm[1][2] - dcm[0][1],
                   dcm[0][2] + dcm[1][1] - phi);
 
@@ -126,14 +128,10 @@ MAVLINK_HELPER void mavlink_euler_to_quaternion(float roll, float pitch, float y
     float sinTheta_2 = sinf(pitch / 2);
     float cosPsi_2 = cosf(yaw / 2);
     float sinPsi_2 = sinf(yaw / 2);
-    quaternion[0] = (cosPhi_2 * cosTheta_2 * cosPsi_2 +
-            sinPhi_2 * sinTheta_2 * sinPsi_2);
-    quaternion[1] = (sinPhi_2 * cosTheta_2 * cosPsi_2 -
-            cosPhi_2 * sinTheta_2 * sinPsi_2);
-    quaternion[2] = (cosPhi_2 * sinTheta_2 * cosPsi_2 +
-            sinPhi_2 * cosTheta_2 * sinPsi_2);
-    quaternion[3] = (cosPhi_2 * cosTheta_2 * sinPsi_2 -
-            sinPhi_2 * sinTheta_2 * cosPsi_2);
+    quaternion[0] = ((cosPhi_2 * cosTheta_2 * cosPsi_2) + (sinPhi_2 * sinTheta_2 * sinPsi_2));
+    quaternion[1] = ((sinPhi_2 * cosTheta_2 * cosPsi_2) - (cosPhi_2 * sinTheta_2 * sinPsi_2));
+    quaternion[2] = ((cosPhi_2 * sinTheta_2 * cosPsi_2) + (sinPhi_2 * cosTheta_2 * sinPsi_2));
+    quaternion[3] = ((cosPhi_2 * cosTheta_2 * sinPsi_2) - (sinPhi_2 * sinTheta_2 * cosPsi_2));
 }
 
 
@@ -149,10 +147,10 @@ MAVLINK_HELPER void mavlink_euler_to_quaternion(float roll, float pitch, float y
 MAVLINK_HELPER void mavlink_dcm_to_quaternion(const float dcm[3][3], float quaternion[4])
 {
     float tr = dcm[0][0] + dcm[1][1] + dcm[2][2];
-    if (tr > 0.0f) {
-        float s = sqrtf(tr + 1.0f);
-        quaternion[0] = s * 0.5f;
-        s = 0.5f / s;
+    if (tr > 0.0F) {
+        float s = sqrtf(tr + 1.0F);
+        quaternion[0] = s * 0.5F;
+        s = 0.5F / s;
         quaternion[1] = (dcm[2][1] - dcm[1][2]) * s;
         quaternion[2] = (dcm[0][2] - dcm[2][0]) * s;
         quaternion[3] = (dcm[1][0] - dcm[0][1]) * s;
@@ -170,10 +168,9 @@ MAVLINK_HELPER void mavlink_dcm_to_quaternion(const float dcm[3][3], float quate
         int dcm_j = (dcm_i + 1) % 3;
         int dcm_k = (dcm_i + 2) % 3;
 
-        float s = sqrtf((dcm[dcm_i][dcm_i] - dcm[dcm_j][dcm_j] -
-                    dcm[dcm_k][dcm_k]) + 1.0f);
-        quaternion[dcm_i + 1] = s * 0.5f;
-        s = 0.5f / s;
+        float s = sqrtf((dcm[dcm_i][dcm_i] - dcm[dcm_j][dcm_j] - dcm[dcm_k][dcm_k]) + 1.0F);
+        quaternion[dcm_i + 1] = s * 0.5F;
+        s = 0.5F / s;
         quaternion[dcm_j + 1] = (dcm[dcm_i][dcm_j] + dcm[dcm_j][dcm_i]) * s;
         quaternion[dcm_k + 1] = (dcm[dcm_k][dcm_i] + dcm[dcm_i][dcm_k]) * s;
         quaternion[0] = (dcm[dcm_k][dcm_j] - dcm[dcm_j][dcm_k]) * s;
@@ -199,12 +196,12 @@ MAVLINK_HELPER void mavlink_euler_to_dcm(float roll, float pitch, float yaw, flo
     float sinPsi = sinf(yaw);
 
     dcm[0][0] = cosThe * cosPsi;
-    dcm[0][1] = -cosPhi * sinPsi + sinPhi * sinThe * cosPsi;
-    dcm[0][2] = sinPhi * sinPsi + cosPhi * sinThe * cosPsi;
+    dcm[0][1] = (-cosPhi * sinPsi) + (sinPhi * sinThe * cosPsi);
+    dcm[0][2] = (sinPhi * sinPsi) + (cosPhi * sinThe * cosPsi);
 
     dcm[1][0] = cosThe * sinPsi;
-    dcm[1][1] = cosPhi * cosPsi + sinPhi * sinThe * sinPsi;
-    dcm[1][2] = -sinPhi * cosPsi + cosPhi * sinThe * sinPsi;
+    dcm[1][1] = (cosPhi * cosPsi) + (sinPhi * sinThe * sinPsi);
+    dcm[1][2] = (-sinPhi * cosPsi) + (cosPhi * sinThe * sinPsi);
 
     dcm[2][0] = -sinThe;
     dcm[2][1] = sinPhi * cosThe;

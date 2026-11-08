@@ -3,29 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_RADIO_RC_CHANNELS 420
+enum { MAVLINK_MSG_ID_RADIO_RC_CHANNELS = 420 };
 
-MAVPACKED(
-typedef struct __mavlink_radio_rc_channels_t {
- uint32_t time_last_update_ms; /*< [ms] Time when the data in the channels field were last updated (time since boot in the receiver's time domain).*/
- uint16_t flags; /*<  Radio RC channels status flags.*/
- uint8_t target_system; /*<  System ID (ID of target system, normally flight controller).*/
- uint8_t target_component; /*<  Component ID (normally 0 for broadcast).*/
- uint8_t count; /*<  Total number of RC channels being received. This can be larger than 32, indicating that more channels are available but not given in this message.*/
- int16_t channels[32]; /*<  RC channels.
-        Channel values are in centered 13 bit format. Range is -4096 to 4096, center is 0. Conversion to PWM is x * 5/32 + 1500.
-        Channels with indexes equal or above count should be set to 0, to benefit from MAVLink's trailing-zero trimming.*/
-}) mavlink_radio_rc_channels_t;
+MAVPACKED(typedef struct MavlinkRadioRcChannelsT {
+    uint32_t time_last_update_ms; /*< [ms] Time when the data in the channels field were last updated (time since boot in the receiver's time domain).*/
+    uint16_t flags;               /*<  Radio RC channels status flags.*/
+    uint8_t target_system;        /*<  System ID (ID of target system, normally flight controller).*/
+    uint8_t target_component;     /*<  Component ID (normally 0 for broadcast).*/
+    uint8_t count;                /*<  Total number of RC channels being received. This can be larger than 32, indicating that more channels are available but not given in this message.*/
+    int16_t channels[32];         /*<  RC channels.
+                   Channel values are in centered 13 bit format. Range is -4096 to 4096, center is 0. Conversion to PWM is x * 5/32 + 1500.
+                   Channels with indexes equal or above count should be set to 0, to benefit from MAVLink's trailing-zero trimming.*/
+})
+mavlink_radio_rc_channels_t;
 
-#define MAVLINK_MSG_ID_RADIO_RC_CHANNELS_LEN 73
-#define MAVLINK_MSG_ID_RADIO_RC_CHANNELS_MIN_LEN 9
-#define MAVLINK_MSG_ID_420_LEN 73
-#define MAVLINK_MSG_ID_420_MIN_LEN 9
+enum { MAVLINK_MSG_ID_RADIO_RC_CHANNELS_LEN = 73, MAVLINK_MSG_ID_RADIO_RC_CHANNELS_MIN_LEN = 9, MAVLINK_MSG_ID_420_LEN = 73, MAVLINK_MSG_ID_420_MIN_LEN = 9 };
 
-#define MAVLINK_MSG_ID_RADIO_RC_CHANNELS_CRC 20
-#define MAVLINK_MSG_ID_420_CRC 20
+enum { MAVLINK_MSG_ID_RADIO_RC_CHANNELS_CRC = 20, MAVLINK_MSG_ID_420_CRC = 20 };
 
-#define MAVLINK_MSG_RADIO_RC_CHANNELS_FIELD_CHANNELS_LEN 32
+enum { MAVLINK_MSG_RADIO_RC_CHANNELS_FIELD_CHANNELS_LEN = 32 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RADIO_RC_CHANNELS { \
@@ -391,11 +387,10 @@ static inline void mavlink_msg_radio_rc_channels_decode(const mavlink_message_t*
         memset(radio_rc_channels, 0, MAVLINK_MSG_ID_RADIO_RC_CHANNELS_LEN);
     memcpy(radio_rc_channels, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         radio_rc_channels->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

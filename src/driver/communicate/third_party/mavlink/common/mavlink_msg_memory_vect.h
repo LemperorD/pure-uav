@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_MEMORY_VECT 249
+enum { MAVLINK_MSG_ID_MEMORY_VECT = 249 };
 
+using mavlink_memory_vect_t = struct __mavlink_memory_vect_t {
+    uint16_t address; /*<  Starting address of the debug variables*/
+    uint8_t ver;      /*<  Version code of the type variable. 0=unknown, type ignored and assumed int16_t. 1=as below*/
+    uint8_t type;     /*<  Type code of the memory variables. for ver = 1: 0=16 x int16_t, 1=16 x uint16_t, 2=16 x Q15, 3=16 x 1Q14*/
+    int8_t value[32]; /*<  Memory contents at specified address*/
+};
 
-typedef struct __mavlink_memory_vect_t {
- uint16_t address; /*<  Starting address of the debug variables*/
- uint8_t ver; /*<  Version code of the type variable. 0=unknown, type ignored and assumed int16_t. 1=as below*/
- uint8_t type; /*<  Type code of the memory variables. for ver = 1: 0=16 x int16_t, 1=16 x uint16_t, 2=16 x Q15, 3=16 x 1Q14*/
- int8_t value[32]; /*<  Memory contents at specified address*/
-} mavlink_memory_vect_t;
+enum { MAVLINK_MSG_ID_MEMORY_VECT_LEN = 36, MAVLINK_MSG_ID_MEMORY_VECT_MIN_LEN = 36, MAVLINK_MSG_ID_249_LEN = 36, MAVLINK_MSG_ID_249_MIN_LEN = 36 };
 
-#define MAVLINK_MSG_ID_MEMORY_VECT_LEN 36
-#define MAVLINK_MSG_ID_MEMORY_VECT_MIN_LEN 36
-#define MAVLINK_MSG_ID_249_LEN 36
-#define MAVLINK_MSG_ID_249_MIN_LEN 36
+enum { MAVLINK_MSG_ID_MEMORY_VECT_CRC = 204, MAVLINK_MSG_ID_249_CRC = 204 };
 
-#define MAVLINK_MSG_ID_MEMORY_VECT_CRC 204
-#define MAVLINK_MSG_ID_249_CRC 204
-
-#define MAVLINK_MSG_MEMORY_VECT_FIELD_VALUE_LEN 32
+enum { MAVLINK_MSG_MEMORY_VECT_FIELD_VALUE_LEN = 32 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MEMORY_VECT { \

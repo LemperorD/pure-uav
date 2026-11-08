@@ -3,26 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_WIFI_CONFIG_AP 299
+enum { MAVLINK_MSG_ID_WIFI_CONFIG_AP = 299 };
 
+using mavlink_wifi_config_ap_t = struct __mavlink_wifi_config_ap_t {
+    char ssid[32];     /*<  Name of Wi-Fi network (SSID). Blank to leave it unchanged when setting. Current SSID when sent back as a response.*/
+    char password[64]; /*<  Password. Blank for an open AP. MD5 hash when message is sent back as a response.*/
+    int8_t mode;       /*<  WiFi Mode.*/
+    int8_t response;   /*<  Message acceptance response (sent back to GS).*/
+};
 
-typedef struct __mavlink_wifi_config_ap_t {
- char ssid[32]; /*<  Name of Wi-Fi network (SSID). Blank to leave it unchanged when setting. Current SSID when sent back as a response.*/
- char password[64]; /*<  Password. Blank for an open AP. MD5 hash when message is sent back as a response.*/
- int8_t mode; /*<  WiFi Mode.*/
- int8_t response; /*<  Message acceptance response (sent back to GS).*/
-} mavlink_wifi_config_ap_t;
+enum { MAVLINK_MSG_ID_WIFI_CONFIG_AP_LEN = 98, MAVLINK_MSG_ID_WIFI_CONFIG_AP_MIN_LEN = 96, MAVLINK_MSG_ID_299_LEN = 98, MAVLINK_MSG_ID_299_MIN_LEN = 96 };
 
-#define MAVLINK_MSG_ID_WIFI_CONFIG_AP_LEN 98
-#define MAVLINK_MSG_ID_WIFI_CONFIG_AP_MIN_LEN 96
-#define MAVLINK_MSG_ID_299_LEN 98
-#define MAVLINK_MSG_ID_299_MIN_LEN 96
+enum { MAVLINK_MSG_ID_WIFI_CONFIG_AP_CRC = 19, MAVLINK_MSG_ID_299_CRC = 19 };
 
-#define MAVLINK_MSG_ID_WIFI_CONFIG_AP_CRC 19
-#define MAVLINK_MSG_ID_299_CRC 19
-
-#define MAVLINK_MSG_WIFI_CONFIG_AP_FIELD_SSID_LEN 32
-#define MAVLINK_MSG_WIFI_CONFIG_AP_FIELD_PASSWORD_LEN 64
+enum { MAVLINK_MSG_WIFI_CONFIG_AP_FIELD_SSID_LEN = 32, MAVLINK_MSG_WIFI_CONFIG_AP_FIELD_PASSWORD_LEN = 64 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_WIFI_CONFIG_AP { \

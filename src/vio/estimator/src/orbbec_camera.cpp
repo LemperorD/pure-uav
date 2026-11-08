@@ -49,7 +49,7 @@ cv::Mat frameToGray(const std::shared_ptr<ob::ColorFrame>& frame) {
         y16.convertTo(gray, CV_8U, 1.0 / 256.0);
         return gray;
     }
-    return cv::Mat();
+    return {};
 }
 }  // namespace
 
@@ -106,7 +106,9 @@ OrbbecCamera::~OrbbecCamera() {
 }
 
 bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback) {
-    if (impl_ && impl_->running.load()) return true;
+    if (impl_ && impl_->running.load()) {
+        return true;
+    }
 
     auto impl = std::make_unique<Impl>();
     impl->cfg = cfg;
@@ -123,7 +125,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         for (const OBFormat fmt : {OB_FORMAT_MJPG, OB_FORMAT_RGB, OB_FORMAT_YUYV}) {
             try {
                 profile = profiles->getVideoStreamProfile(cfg.width, cfg.height, fmt, cfg.fps);
-                if (profile) break;
+                if (profile) {
+                    break;
+                }
             } catch (const ob::Error&) {
                 // 尝试下一种格式
             }
@@ -138,7 +142,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         }
 
         if (!profile) {
-            if (error) {
+            if (error != nullptr) {
                 *error = "找不到 " + std::to_string(cfg.width) + "x" + std::to_string(cfg.height) + "@" + std::to_string(cfg.fps) + "fps 的彩色流";
                 // 列出可用 profile 方便排查
                 const uint32_t n = profiles->count();
@@ -146,7 +150,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 for (uint32_t i = 0; i < n; ++i) {
                     auto p = profiles->getProfile(i);
                     auto vp = p->as<ob::VideoStreamProfile>();
-                    if (!vp) continue;
+                    if (!vp) {
+                        continue;
+                    }
                     *error += " " + std::to_string(vp->width()) + "x" + std::to_string(vp->height()) + "@" + std::to_string(vp->fps()) + "f" + std::to_string(static_cast<int>(vp->format()));
                 }
             }
@@ -174,7 +180,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 std::printf("[Orbbec] 可用深度档位:");
                 for (uint32_t i = 0; i < dprofiles->count(); ++i) {
                     auto vp = dprofiles->getProfile(i)->as<ob::VideoStreamProfile>();
-                    if (!vp) continue;
+                    if (!vp) {
+                        continue;
+                    }
                     std::printf(" %ux%u@%u", vp->width(), vp->height(), vp->fps());
                 }
                 std::printf("\n");
@@ -194,11 +202,17 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 int best_fps = -1;
                 for (uint32_t i = 0; i < dprofiles->count(); ++i) {
                     auto vp = dprofiles->getProfile(i)->as<ob::VideoStreamProfile>();
-                    if (!vp) continue;
+                    if (!vp) {
+                        continue;
+                    }
                     const int fps_i = static_cast<int>(vp->fps());
                     const int w = static_cast<int>(vp->width());
-                    if (w < 640) continue;
-                    if (fps_i > depth_fps_want) continue;
+                    if (w < 640) {
+                        continue;
+                    }
+                    if (fps_i > depth_fps_want) {
+                        continue;
+                    }
                     // 先比帧率（越接近 depth_fps_want 越好），再比宽度（越小越省带宽）
                     const bool better = (fps_i > best_fps) || (fps_i == best_fps && w < best_w);
                     if (better) {
@@ -295,7 +309,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
 
         // 失败时先把流停掉再返回：不然相机被占着，下一次重试会直接打不开。
         const auto fail = [&](const std::string& msg) -> bool {
-            if (error) *error = msg;
+            if (error) {
+                *error = msg;
+            }
             try {
                 impl->pipe->stop();
             } catch (const ob::Error&) {
@@ -398,12 +414,20 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     } catch (const ob::Error&) {
                         continue;
                     }
-                    if (!set) continue;
+                    if (!set) {
+                        continue;
+                    }
                     auto color = set->colorFrame();
-                    if (!color) continue;
+                    if (!color) {
+                        continue;
+                    }
                     cv::Mat gray = frameToGray(color);
-                    if (gray.empty()) continue;
-                    if (i < settle) continue;  // 丢掉改动生效前的过渡帧
+                    if (gray.empty()) {
+                        continue;
+                    }
+                    if (i < settle) {
+                        continue;  // 丢掉改动生效前的过渡帧
+                    }
                     sum += cv::mean(gray)[0];
                     ++n;
                 }
@@ -439,7 +463,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 //        亮的时候自动退回短曝光+高转速；暗的时候自动变成长曝光+低转速，
                 //        永远不会因为"暗"而拒绝启动。
                 //===================================================================
-                const int light_cap = static_cast<int>(std::min(std::min(er.max, frame_cap), static_cast<int>(cfg.tune_max_exposure_ms * 10.0)));
+                const int light_cap = static_cast<int>(std::min({er.max, frame_cap, static_cast<int>(cfg.tune_max_exposure_ms * 10.0)}));
                 // 两级曝光：先尊重模糊预算（blur_cap），不够亮才放到现场光的上限（light_cap）。
                 // 因为暗场地必须能跑，但亮场地也不该白牺牲转速。
                 const int exp_cap = std::max(er.min + std::max(1, er.step), blur_cap);
@@ -464,7 +488,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     int bg = gr.min;
                     double bm = -1.0;
                     for (const double frac : {0.0, 0.03, 0.07, 0.12, 0.2, 0.3, 0.45, 0.65, 1.0}) {
-                        const int want = gr.min + static_cast<int>(frac * (gain_cap - gr.min) + 0.5);
+                        const int want = gr.min + static_cast<int>((frac * (gain_cap - gr.min)) + 0.5);
                         try {
                             dev->setIntProperty(OB_PROP_COLOR_EXPOSURE_INT, exp_units);
                             dev->setIntProperty(OB_PROP_COLOR_GAIN_INT, want);
@@ -472,13 +496,17 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                             break;
                         }
                         const double mean = grab_mean(4, 5);
-                        if (mean < 0) continue;
+                        if (mean < 0) {
+                            continue;
+                        }
                         std::printf("[Orbbec]   曝光 %.1f ms 增益 %d → 灰度 %.1f\n", exp_units * 0.1, want, mean);
                         if (mean > bm) {
                             bm = mean;
                             bg = want;
                         }
-                        if (mean >= cfg.tune_target_mean) break;
+                        if (mean >= cfg.tune_target_mean) {
+                            break;
+                        }
                     }
                     out_gain = bg;
                     return bm;
@@ -507,7 +535,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 } catch (const ob::Error&) {
                 }
                 double final_mean = grab_mean(4, 5);
-                if (final_mean < 0) final_mean = best_mean;
+                if (final_mean < 0) {
+                    final_mean = best_mean;
+                }
                 std::printf("[Orbbec]   锁定：曝光 %.1f ms 增益 %d → 灰度 %.1f\n", exp_used * 0.1, best_gain, final_mean);
                 // 存进 Impl 的副本（start() 的 cfg 参数是 const，不能直接写）
                 impl->cfg.exposure = exp_used;
@@ -549,7 +579,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 // session29 就是这样录的：18 ms + 增益 100，灰度只有 49.5，
                 // 结果 KLT 存活率 72%、三角化失败 55%、更新率 26%、尺度偏 5 倍。
                 // 曝光顶到了"起作用的那条限制"（相机上限/帧周期/模糊预算三者最小）就算顶死
-                const int exp_limit = std::min(std::min(er.max, frame_cap), blur_cap);
+                const int exp_limit = std::min({er.max, frame_cap, blur_cap});
                 const bool exp_pinned = exp_cap >= exp_limit - std::max(1, er.step) || blur_cap <= er.min + er.step;
                 const bool gain_pinned = best_gain >= gain_cap;
                 // "差得远"要有明确的界线：目标是 100，差 10% 以内算达标（否则灰度 99.3
@@ -567,12 +597,14 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         }
         std::fflush(stdout);
     } catch (const ob::Error& e) {
-        if (error) {
+        if (error != nullptr) {
             *error = std::string("Orbbec 初始化失败: ") + e.getName() + " " + e.getMessage();
         }
         return false;
     } catch (const std::exception& e) {
-        if (error) *error = std::string("Orbbec 初始化异常: ") + e.what();
+        if (error != nullptr) {
+            *error = std::string("Orbbec 初始化异常: ") + e.what();
+        }
         return false;
     }
 
@@ -591,10 +623,14 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         try {
             while (impl->running.load()) {
                 auto frameset = impl->pipe->waitForFrames(100);
-                if (!frameset) continue;
+                if (!frameset) {
+                    continue;
+                }
 
                 auto color = frameset->colorFrame();
-                if (!color) continue;
+                if (!color) {
+                    continue;
+                }
 
                 if (warmup > 0) {
                     --warmup;
@@ -635,12 +671,14 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                             if (!dumped) {
                                 dumped = true;
                                 // 统计一下非零深度：全 0 说明激光没开、或者目标超出结构光量程
-                                int nz = 0, mn = 1 << 30, mx = 0;
+                                int nz = 0;
+                                int mn = 1 << 30;
+                                int mx = 0;
                                 std::vector<int> vals;
-                                const unsigned short* p16 = static_cast<const unsigned short*>(df->data());
+                                const auto* p16 = static_cast<const unsigned short*>(df->data());
                                 for (int r = 0; r < h; r += 4) {
                                     for (int c = 0; c < w; c += 4) {
-                                        const unsigned short v = p16[r * w + c];
+                                        const unsigned short v = p16[(r * w) + c];
                                         if (v > 0 && v != 0xFFFF) {
                                             ++nz;
                                             vals.push_back(v);
@@ -660,10 +698,10 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                     w, h, scale, static_cast<int>(df->format()), nz, nz ? mn : 0, mx, med);
                                 std::fflush(stdout);
                             }
-                            const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 2u;
+                            const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 2U;
                             if (bytes >= need) {
                                 cv::Mat raw(h, w, CV_16UC1, df->data());
-                                if (scale > 0.0f && scale != 1.0f) {
+                                if (scale > 0.0F && scale != 1.0F) {
                                     raw.convertTo(depth_mm, CV_16UC1, static_cast<double>(scale));
                                 } else {
                                     depth_mm = raw.clone();
@@ -680,15 +718,18 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 //   sys_us    = SDK 收到帧时的**系统时间**（主机时基，可与我们的 host 比）
                 //   device_us = 设备自己的时间戳（时基不同，只能比帧间增量）
                 // 实测 timeStampUs() 每帧增量 4.998e8，不是微秒 —— 只能当相对量用。
-                int64_t device_us = -1, sys_us = -1;
+                int64_t device_us = -1;
+                int64_t sys_us = -1;
                 try {
                     device_us = static_cast<int64_t>(color->timeStampUs());
                     sys_us = static_cast<int64_t>(color->systemTimeStampUs());
                 } catch (...) {
                 }
-                cv::Mat bgr, gray;
+                cv::Mat bgr;
+                cv::Mat gray;
                 if (impl->color_callback) {
-                    const int w = color->width(), h = color->height();
+                    const int w = color->width();
+                    const int h = color->height();
                     if (color->format() == OB_FORMAT_MJPG) {
                         cv::Mat raw(1, static_cast<int>(color->dataSize()), CV_8UC1, color->data());
                         bgr = cv::imdecode(raw, cv::IMREAD_COLOR);
@@ -699,11 +740,15 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                         cv::Mat yuyv(h, w, CV_8UC2, color->data());
                         cv::cvtColor(yuyv, bgr, cv::COLOR_YUV2BGR_YUYV);
                     }
-                    if (!bgr.empty()) cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+                    if (!bgr.empty()) {
+                        cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+                    }
                 } else {
                     gray = frameToGray(color);
                 }
-                if (gray.empty()) continue;
+                if (gray.empty()) {
+                    continue;
+                }
                 //---------------------------------------------------------------
                 // 运行中重测光：滞回 + 限速（最多每 2 s 调一次）
                 //   过曝（mean>170）：先砍曝光
@@ -720,8 +765,10 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                         retune_n = 0;
                         const int64_t now_ns2 = host_ns;
                         const bool cooled = (now_ns2 - last_retune_ns) > 2000000000LL;
-                        int cur_exp = impl->cfg.exposure, cur_gain = impl->cfg.gain;
-                        int new_exp = cur_exp, new_gain = cur_gain;
+                        int cur_exp = impl->cfg.exposure;
+                        int cur_gain = impl->cfg.gain;
+                        int new_exp = cur_exp;
+                        int new_gain = cur_gain;
                         // 阈值可用环境变量压窄，用来在亮/暗场景里验证这条路径真的会触发
                         static const double hi_thr = getenv("OV_RETUNE_HI") ? atof(getenv("OV_RETUNE_HI")) : 170.0;
                         static const double lo_thr = getenv("OV_RETUNE_LO") ? atof(getenv("OV_RETUNE_LO")) : 45.0;
@@ -732,7 +779,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                         } else if (mean_now > hi_thr) {
                             // 过曝：优先砍曝光（也顺带减小模糊）
                             new_exp = std::max(impl->exp_min, static_cast<int>(cur_exp * 2.0 / 3.0));
-                            if (new_exp == cur_exp) new_gain = std::max(impl->gain_min, cur_gain - 8);
+                            if (new_exp == cur_exp) {
+                                new_gain = std::max(impl->gain_min, cur_gain - 8);
+                            }
                         } else if (mean_now < lo_thr) {
                             // 过暗：先加增益，噪声换亮度；增益顶了再放曝光
                             //=================================================================
@@ -744,10 +793,11 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                             // 报了崩塌。既然暗到这个程度，多放的曝光换不来可用特征，只会加糊。
                             // 现在：增益顶了也只放到 blur_cap，并且一次性提醒操作员"光不够，降速/补光"。
                             //=================================================================
-                            if (cur_gain < impl->gain_cap)
+                            if (cur_gain < impl->gain_cap) {
                                 new_gain = std::min(impl->gain_cap, cur_gain + 8);
-                            else
+                            } else {
                                 new_exp = std::min(impl->blur_cap, static_cast<int>(cur_exp * 4.0 / 3.0));
+                            }
                         }
                         if (cooled && (new_exp != cur_exp || new_gain != cur_gain)) {
                             try {
@@ -758,7 +808,9 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                 last_retune_ns = now_ns2;
                                 const double t_exp_s2 = new_exp * 1e-4;
                                 const double om2 = (t_exp_s2 > 1e-6 && impl->color_fx > 1.0) ? (impl->cfg.tune_blur_budget_px / (impl->color_fx * t_exp_s2)) * 180.0 / M_PI : 0.0;
-                                if (new_exp > impl->blur_cap) ++retune_over_blur;
+                                if (new_exp > impl->blur_cap) {
+                                    ++retune_over_blur;
+                                }
                                 static bool warned_dark = false;
                                 if (!warned_dark && mean_now < 60.0 && new_exp >= impl->blur_cap && new_gain >= impl->gain_cap) {
                                     warned_dark = true;
@@ -782,8 +834,12 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     }
                 }
 
-                if (impl->callback) impl->callback(gray, depth_mm, host_ns, sys_us, depth_dev_us);
-                if (impl->color_callback) impl->color_callback(bgr, host_ns);
+                if (impl->callback) {
+                    impl->callback(gray, depth_mm, host_ns, sys_us, depth_dev_us);
+                }
+                if (impl->color_callback) {
+                    impl->color_callback(bgr, host_ns);
+                }
             }
         } catch (const ob::Error& e) {
             std::fprintf(stderr, "[Orbbec] 采集异常: %s %s\n", e.getName(), e.getMessage());
@@ -797,9 +853,13 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
 }
 
 void OrbbecCamera::stop() {
-    if (!impl_) return;
+    if (!impl_) {
+        return;
+    }
     impl_->running.store(false);
-    if (impl_->thread.joinable()) impl_->thread.join();
+    if (impl_->thread.joinable()) {
+        impl_->thread.join();
+    }
 
     // 退出恢复：把 start() 之前的值写回去，不给下一个进程留下"被锁定"的状态。
     auto& snap = impl_->snapshot;
@@ -822,7 +882,9 @@ void OrbbecCamera::stop() {
     }
 
     try {
-        if (impl_->pipe) impl_->pipe->stop();
+        if (impl_->pipe) {
+            impl_->pipe->stop();
+        }
     } catch (const ob::Error&) {
     }
     impl_.reset();
@@ -830,7 +892,9 @@ void OrbbecCamera::stop() {
 
 OrbbecCamera::DepthInfo OrbbecCamera::depthInfo() const {
     DepthInfo d;
-    if (!impl_) return d;
+    if (!impl_) {
+        return d;
+    }
     d.fx = impl_->depth_fx;
     d.fy = impl_->depth_fy;
     d.cx = impl_->depth_cx;
@@ -849,12 +913,20 @@ OrbbecCamera::DepthInfo OrbbecCamera::depthInfo() const {
     const auto& R_d2c = impl_->T_color_to_depth.rot;
     const double td[3] = {impl_->T_color_to_depth.trans[0], impl_->T_color_to_depth.trans[1], impl_->T_color_to_depth.trans[2]};
     double Rc[3][3];
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c) Rc[r][c] = R_d2c[c * 3 + r];  // 转置 = 逆
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c) d.R_c2d[r * 3 + c] = Rc[r][c];
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            Rc[r][c] = R_d2c[(c * 3) + r];  // 转置 = 逆
+        }
+    }
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            d.R_c2d[(r * 3) + c] = Rc[r][c];
+        }
+    }
     // t_c2d = −R_c2d · t_d2c
-    for (int r = 0; r < 3; ++r) d.t_mm[r] = -(Rc[r][0] * td[0] + Rc[r][1] * td[1] + Rc[r][2] * td[2]);
+    for (int r = 0; r < 3; ++r) {
+        d.t_mm[r] = -((Rc[r][0] * td[0]) + (Rc[r][1] * td[1]) + (Rc[r][2] * td[2]));
+    }
     return d;
 }
 

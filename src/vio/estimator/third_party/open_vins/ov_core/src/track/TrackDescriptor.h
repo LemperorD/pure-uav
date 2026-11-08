@@ -138,9 +138,8 @@ protected:
   // Helper functions for the robust_match function
   // Original code is from the "RobustMatcher" in the opencv examples
   // https://github.com/opencv/opencv/blob/master/samples/cpp/tutorial_code/calib3d/real_time_pose_estimation/src/RobustMatcher.cpp
-  void robust_ratio_test(std::vector<std::vector<cv::DMatch>> &matches);
-  void robust_symmetry_test(std::vector<std::vector<cv::DMatch>> &matches1, std::vector<std::vector<cv::DMatch>> &matches2,
-                            std::vector<cv::DMatch> &good_matches);
+  void robust_ratio_test(std::vector<std::vector<cv::DMatch>>& matches) const;
+  static void robust_symmetry_test(std::vector<std::vector<cv::DMatch>>& matches1, std::vector<std::vector<cv::DMatch>>& matches2, std::vector<cv::DMatch>& good_matches);
 
   // Timing variables
   boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;

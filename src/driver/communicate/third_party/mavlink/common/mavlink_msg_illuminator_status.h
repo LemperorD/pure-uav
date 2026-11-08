@@ -3,32 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ILLUMINATOR_STATUS 440
+enum { MAVLINK_MSG_ID_ILLUMINATOR_STATUS = 440 };
 
+using mavlink_illuminator_status_t = struct __mavlink_illuminator_status_t {
+    uint32_t uptime_ms;      /*< [ms] Time since the start-up of the illuminator in ms*/
+    uint32_t error_status;   /*<  Errors*/
+    float brightness;        /*< [%] Illuminator brightness*/
+    float strobe_period;     /*< [s] Illuminator strobing period in seconds*/
+    float strobe_duty_cycle; /*< [%] Illuminator strobing duty cycle*/
+    float temp_c;            /*<  Temperature in Celsius*/
+    float min_strobe_period; /*< [s] Minimum strobing period in seconds*/
+    float max_strobe_period; /*< [s] Maximum strobing period in seconds*/
+    uint8_t enable;          /*<  0: Illuminators OFF, 1: Illuminators ON*/
+    uint8_t mode_bitmask;    /*<  Supported illuminator modes*/
+    uint8_t mode;            /*<  Illuminator mode*/
+};
 
-typedef struct __mavlink_illuminator_status_t {
- uint32_t uptime_ms; /*< [ms] Time since the start-up of the illuminator in ms*/
- uint32_t error_status; /*<  Errors*/
- float brightness; /*< [%] Illuminator brightness*/
- float strobe_period; /*< [s] Illuminator strobing period in seconds*/
- float strobe_duty_cycle; /*< [%] Illuminator strobing duty cycle*/
- float temp_c; /*<  Temperature in Celsius*/
- float min_strobe_period; /*< [s] Minimum strobing period in seconds*/
- float max_strobe_period; /*< [s] Maximum strobing period in seconds*/
- uint8_t enable; /*<  0: Illuminators OFF, 1: Illuminators ON*/
- uint8_t mode_bitmask; /*<  Supported illuminator modes*/
- uint8_t mode; /*<  Illuminator mode*/
-} mavlink_illuminator_status_t;
+enum { MAVLINK_MSG_ID_ILLUMINATOR_STATUS_LEN = 35, MAVLINK_MSG_ID_ILLUMINATOR_STATUS_MIN_LEN = 35, MAVLINK_MSG_ID_440_LEN = 35, MAVLINK_MSG_ID_440_MIN_LEN = 35 };
 
-#define MAVLINK_MSG_ID_ILLUMINATOR_STATUS_LEN 35
-#define MAVLINK_MSG_ID_ILLUMINATOR_STATUS_MIN_LEN 35
-#define MAVLINK_MSG_ID_440_LEN 35
-#define MAVLINK_MSG_ID_440_MIN_LEN 35
-
-#define MAVLINK_MSG_ID_ILLUMINATOR_STATUS_CRC 66
-#define MAVLINK_MSG_ID_440_CRC 66
-
-
+enum { MAVLINK_MSG_ID_ILLUMINATOR_STATUS_CRC = 66, MAVLINK_MSG_ID_440_CRC = 66 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ILLUMINATOR_STATUS { \

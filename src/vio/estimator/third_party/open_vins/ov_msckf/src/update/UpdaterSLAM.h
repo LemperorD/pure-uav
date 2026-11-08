@@ -94,8 +94,7 @@ protected:
    * @param new_anchor_timestamp Clone timestamp we want to move to
    * @param new_cam_id Which camera frame we want to move to
    */
-  void perform_anchor_change(std::shared_ptr<State> state, std::shared_ptr<ov_type::Landmark> landmark, double new_anchor_timestamp,
-                             size_t new_cam_id);
+  static void perform_anchor_change(std::shared_ptr<State> state, std::shared_ptr<ov_type::Landmark> landmark, double new_anchor_timestamp, size_t new_cam_id);
 
   /// Options used during update for slam features
   UpdaterOptions _options_slam;

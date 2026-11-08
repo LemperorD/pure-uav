@@ -3,32 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LINK_NODE_STATUS 8
+enum { MAVLINK_MSG_ID_LINK_NODE_STATUS = 8 };
 
+using mavlink_link_node_status_t = struct __mavlink_link_node_status_t {
+    uint64_t timestamp;         /*< [ms] Timestamp (time since system boot).*/
+    uint32_t tx_rate;           /*< [bytes/s] Transmit rate*/
+    uint32_t rx_rate;           /*< [bytes/s] Receive rate*/
+    uint32_t messages_sent;     /*<  Messages sent*/
+    uint32_t messages_received; /*<  Messages received (estimated from counting seq)*/
+    uint32_t messages_lost;     /*<  Messages lost (estimated from counting seq)*/
+    uint16_t rx_parse_err;      /*< [bytes] Number of bytes that could not be parsed correctly.*/
+    uint16_t tx_overflows;      /*< [bytes] Transmit buffer overflows. This number wraps around as it reaches UINT16_MAX*/
+    uint16_t rx_overflows;      /*< [bytes] Receive buffer overflows. This number wraps around as it reaches UINT16_MAX*/
+    uint8_t tx_buf;             /*< [%] Remaining free transmit buffer space*/
+    uint8_t rx_buf;             /*< [%] Remaining free receive buffer space*/
+};
 
-typedef struct __mavlink_link_node_status_t {
- uint64_t timestamp; /*< [ms] Timestamp (time since system boot).*/
- uint32_t tx_rate; /*< [bytes/s] Transmit rate*/
- uint32_t rx_rate; /*< [bytes/s] Receive rate*/
- uint32_t messages_sent; /*<  Messages sent*/
- uint32_t messages_received; /*<  Messages received (estimated from counting seq)*/
- uint32_t messages_lost; /*<  Messages lost (estimated from counting seq)*/
- uint16_t rx_parse_err; /*< [bytes] Number of bytes that could not be parsed correctly.*/
- uint16_t tx_overflows; /*< [bytes] Transmit buffer overflows. This number wraps around as it reaches UINT16_MAX*/
- uint16_t rx_overflows; /*< [bytes] Receive buffer overflows. This number wraps around as it reaches UINT16_MAX*/
- uint8_t tx_buf; /*< [%] Remaining free transmit buffer space*/
- uint8_t rx_buf; /*< [%] Remaining free receive buffer space*/
-} mavlink_link_node_status_t;
+enum { MAVLINK_MSG_ID_LINK_NODE_STATUS_LEN = 36, MAVLINK_MSG_ID_LINK_NODE_STATUS_MIN_LEN = 36, MAVLINK_MSG_ID_8_LEN = 36, MAVLINK_MSG_ID_8_MIN_LEN = 36 };
 
-#define MAVLINK_MSG_ID_LINK_NODE_STATUS_LEN 36
-#define MAVLINK_MSG_ID_LINK_NODE_STATUS_MIN_LEN 36
-#define MAVLINK_MSG_ID_8_LEN 36
-#define MAVLINK_MSG_ID_8_MIN_LEN 36
-
-#define MAVLINK_MSG_ID_LINK_NODE_STATUS_CRC 117
-#define MAVLINK_MSG_ID_8_CRC 117
-
-
+enum { MAVLINK_MSG_ID_LINK_NODE_STATUS_CRC = 117, MAVLINK_MSG_ID_8_CRC = 117 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LINK_NODE_STATUS { \

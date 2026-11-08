@@ -3,29 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT 62
+enum { MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT = 62 };
 
+using mavlink_nav_controller_output_t = struct __mavlink_nav_controller_output_t {
+    float nav_roll;         /*< [deg] Current desired roll*/
+    float nav_pitch;        /*< [deg] Current desired pitch*/
+    float alt_error;        /*< [m] Current altitude error*/
+    float aspd_error;       /*< [m/s] Current airspeed error*/
+    float xtrack_error;     /*< [m] Current crosstrack error on x-y plane*/
+    int16_t nav_bearing;    /*< [deg] Current desired heading*/
+    int16_t target_bearing; /*< [deg] Bearing to current waypoint/target*/
+    uint16_t wp_dist;       /*< [m] Distance to active waypoint*/
+};
 
-typedef struct __mavlink_nav_controller_output_t {
- float nav_roll; /*< [deg] Current desired roll*/
- float nav_pitch; /*< [deg] Current desired pitch*/
- float alt_error; /*< [m] Current altitude error*/
- float aspd_error; /*< [m/s] Current airspeed error*/
- float xtrack_error; /*< [m] Current crosstrack error on x-y plane*/
- int16_t nav_bearing; /*< [deg] Current desired heading*/
- int16_t target_bearing; /*< [deg] Bearing to current waypoint/target*/
- uint16_t wp_dist; /*< [m] Distance to active waypoint*/
-} mavlink_nav_controller_output_t;
+enum { MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_LEN = 26, MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_MIN_LEN = 26, MAVLINK_MSG_ID_62_LEN = 26, MAVLINK_MSG_ID_62_MIN_LEN = 26 };
 
-#define MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_LEN 26
-#define MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_MIN_LEN 26
-#define MAVLINK_MSG_ID_62_LEN 26
-#define MAVLINK_MSG_ID_62_MIN_LEN 26
-
-#define MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_CRC 183
-#define MAVLINK_MSG_ID_62_CRC 183
-
-
+enum { MAVLINK_MSG_ID_NAV_CONTROLLER_OUTPUT_CRC = 183, MAVLINK_MSG_ID_62_CRC = 183 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_NAV_CONTROLLER_OUTPUT { \

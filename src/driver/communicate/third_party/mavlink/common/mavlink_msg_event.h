@@ -3,28 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_EVENT 410
+enum { MAVLINK_MSG_ID_EVENT = 410 };
 
+using mavlink_event_t = struct __mavlink_event_t {
+    uint32_t id;                   /*<  Event ID (as defined in the component metadata)*/
+    uint32_t event_time_boot_ms;   /*< [ms] Timestamp (time since system boot when the event happened).*/
+    uint16_t sequence;             /*<  Sequence number.*/
+    uint8_t destination_component; /*<  Component ID*/
+    uint8_t destination_system;    /*<  System ID*/
+    uint8_t log_levels;            /*<  Log levels: 4 bits MSB: internal (for logging purposes), 4 bits LSB: external. Levels: Emergency = 0, Alert = 1, Critical = 2, Error = 3, Warning = 4, Notice = 5, Info = 6, Debug = 7, Protocol = 8, Disabled = 9*/
+    uint8_t arguments[40];         /*<  Arguments (depend on event ID).*/
+};
 
-typedef struct __mavlink_event_t {
- uint32_t id; /*<  Event ID (as defined in the component metadata)*/
- uint32_t event_time_boot_ms; /*< [ms] Timestamp (time since system boot when the event happened).*/
- uint16_t sequence; /*<  Sequence number.*/
- uint8_t destination_component; /*<  Component ID*/
- uint8_t destination_system; /*<  System ID*/
- uint8_t log_levels; /*<  Log levels: 4 bits MSB: internal (for logging purposes), 4 bits LSB: external. Levels: Emergency = 0, Alert = 1, Critical = 2, Error = 3, Warning = 4, Notice = 5, Info = 6, Debug = 7, Protocol = 8, Disabled = 9*/
- uint8_t arguments[40]; /*<  Arguments (depend on event ID).*/
-} mavlink_event_t;
+enum { MAVLINK_MSG_ID_EVENT_LEN = 53, MAVLINK_MSG_ID_EVENT_MIN_LEN = 53, MAVLINK_MSG_ID_410_LEN = 53, MAVLINK_MSG_ID_410_MIN_LEN = 53 };
 
-#define MAVLINK_MSG_ID_EVENT_LEN 53
-#define MAVLINK_MSG_ID_EVENT_MIN_LEN 53
-#define MAVLINK_MSG_ID_410_LEN 53
-#define MAVLINK_MSG_ID_410_MIN_LEN 53
+enum { MAVLINK_MSG_ID_EVENT_CRC = 160, MAVLINK_MSG_ID_410_CRC = 160 };
 
-#define MAVLINK_MSG_ID_EVENT_CRC 160
-#define MAVLINK_MSG_ID_410_CRC 160
-
-#define MAVLINK_MSG_EVENT_FIELD_ARGUMENTS_LEN 40
+enum { MAVLINK_MSG_EVENT_FIELD_ARGUMENTS_LEN = 40 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_EVENT { \

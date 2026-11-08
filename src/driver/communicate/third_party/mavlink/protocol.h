@@ -126,15 +126,15 @@ static inline uint16_t mavlink_msg_get_send_buffer_length(const mavlink_message_
 	if (msg->magic == MAVLINK_STX_MAVLINK1) {
 		return msg->len + MAVLINK_CORE_HEADER_MAVLINK1_LEN+1 + 2;
 	}
-    	uint16_t signature_len = (msg->incompat_flags & MAVLINK_IFLAG_SIGNED)?MAVLINK_SIGNATURE_BLOCK_LEN:0;
-	uint16_t ext_header_len = 0;
-	if (msg->incompat_flags & MAVLINK_IFLAG_SYSID32) {
-		ext_header_len += MAVLINK_SYSID32_HEADER_EXTRA;
-	}
-	if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
-		ext_header_len += MAVLINK_TARGET32_HEADER_EXTRA;
-	}
-	return msg->len + MAVLINK_NUM_NON_PAYLOAD_BYTES + ext_header_len + signature_len;
+        uint16_t signature_len = ((msg->incompat_flags & MAVLINK_IFLAG_SIGNED) != 0) ? MAVLINK_SIGNATURE_BLOCK_LEN : 0;
+        uint16_t ext_header_len = 0;
+        if ((msg->incompat_flags & MAVLINK_IFLAG_SYSID32) != 0) {
+            ext_header_len += MAVLINK_SYSID32_HEADER_EXTRA;
+        }
+        if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
+            ext_header_len += MAVLINK_TARGET32_HEADER_EXTRA;
+        }
+        return msg->len + MAVLINK_NUM_NON_PAYLOAD_BYTES + ext_header_len + signature_len;
 }
 
 #if MAVLINK_NEED_BYTE_SWAP
@@ -225,11 +225,11 @@ static inline void mav_array_memcpy(void *dest, const void *src, size_t n)
     // It would be nice to change such char[] types to uint8_t[] but that would change the
     // CRC_EXTRA.
 
-	if (src == NULL) {
-		memset(dest, 0, n);
-	} else {
-		memcpy(dest, src, n);
-	}
+    if (src == nullptr) {
+        memset(dest, 0, n);
+    } else {
+        memcpy(dest, src, n);
+    }
 }
 
 /*

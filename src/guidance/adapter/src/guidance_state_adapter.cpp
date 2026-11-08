@@ -3,9 +3,7 @@
 #include <cmath>
 #include <cstddef>
 
-namespace pure_uav {
-namespace guidance {
-namespace adapter {
+namespace pure_uav::guidance::adapter {
 
 // ============================================================================
 //  §0  四元数工具
@@ -72,32 +70,32 @@ Vec3 optical_axis_in_external_frame(OpticalAxis axis, GuidanceAttitudeFrame f) n
         case GuidanceAttitudeFrame::kFrd:
             switch (axis) {
                 case OpticalAxis::kRight:
-                    return Vec3(0.0, 1.0, 0.0);
+                    return {0.0, 1.0, 0.0};
                 case OpticalAxis::kDown:
-                    return Vec3(0.0, 0.0, 1.0);
+                    return {0.0, 0.0, 1.0};
                 case OpticalAxis::kForward:
-                    return Vec3(1.0, 0.0, 0.0);
+                    return {1.0, 0.0, 0.0};
             }
             break;
         case GuidanceAttitudeFrame::kFlu:
             switch (axis) {
                 case OpticalAxis::kRight:
-                    return Vec3(0.0, -1.0, 0.0);
+                    return {0.0, -1.0, 0.0};
                 case OpticalAxis::kDown:
-                    return Vec3(0.0, 0.0, -1.0);
+                    return {0.0, 0.0, -1.0};
                 case OpticalAxis::kForward:
-                    return Vec3(1.0, 0.0, 0.0);
+                    return {1.0, 0.0, 0.0};
             }
             break;
         case GuidanceAttitudeFrame::kCamFrd:
             // 外部**已经是光轴系**（按 FRD 语系书写）⇒ 光轴系三轴 = 自己的基
             switch (axis) {
                 case OpticalAxis::kRight:
-                    return Vec3(1.0, 0.0, 0.0);
+                    return {1.0, 0.0, 0.0};
                 case OpticalAxis::kDown:
-                    return Vec3(0.0, 1.0, 0.0);
+                    return {0.0, 1.0, 0.0};
                 case OpticalAxis::kForward:
-                    return Vec3(0.0, 0.0, 1.0);
+                    return {0.0, 0.0, 1.0};
             }
             break;
         case GuidanceAttitudeFrame::kCamFlu:
@@ -105,34 +103,40 @@ Vec3 optical_axis_in_external_frame(OpticalAxis axis, GuidanceAttitudeFrame f) n
             // 而 q 是原样拿到的，所以这里不做任何变换（见 convert_attitude）。
             switch (axis) {
                 case OpticalAxis::kRight:
-                    return Vec3(1.0, 0.0, 0.0);
+                    return {1.0, 0.0, 0.0};
                 case OpticalAxis::kDown:
-                    return Vec3(0.0, 1.0, 0.0);
+                    return {0.0, 1.0, 0.0};
                 case OpticalAxis::kForward:
-                    return Vec3(0.0, 0.0, 1.0);
+                    return {0.0, 0.0, 1.0};
             }
             break;
         case GuidanceAttitudeFrame::kOpticalPassthrough:
             // 对方已按光轴系给了 q ⇒ 只做世界系换算，机体轴不动
             switch (axis) {
                 case OpticalAxis::kRight:
-                    return Vec3(1.0, 0.0, 0.0);
+                    return {1.0, 0.0, 0.0};
                 case OpticalAxis::kDown:
-                    return Vec3(0.0, 1.0, 0.0);
+                    return {0.0, 1.0, 0.0};
                 case OpticalAxis::kForward:
-                    return Vec3(0.0, 0.0, 1.0);
+                    return {0.0, 0.0, 1.0};
             }
             break;
     }
-    return Vec3(0.0, 0.0, 1.0);  // 不可达
+    return {0.0, 0.0, 1.0};  // 不可达
 }
 
 // 世界系矢量：从 `from` 转到 `to`（当前只是 NED↔ENU，但写成通用形状）
 Vec3 world_to_world(const Vec3& v, GuidanceFrame from, GuidanceFrame to) noexcept {
-    if (from == to) return v;
+    if (from == to) {
+        return v;
+    }
     // ENU = (N.y, N.x, −N.z)；自逆 —— 反向同样用这个式子再转一次即可。
-    if (from == GuidanceFrame::kNed && to == GuidanceFrame::kEnu) return Vec3(v.y, v.x, -v.z);
-    if (from == GuidanceFrame::kEnu && to == GuidanceFrame::kNed) return Vec3(v.y, v.x, -v.z);
+    if (from == GuidanceFrame::kNed && to == GuidanceFrame::kEnu) {
+        return {v.y, v.x, -v.z};
+    }
+    if (from == GuidanceFrame::kEnu && to == GuidanceFrame::kNed) {
+        return {v.y, v.x, -v.z};
+    }
     return v;
 }
 
@@ -150,7 +154,7 @@ Vec3 convert_vec(const Vec3& v, GuidanceFrame from, GuidanceFrame to) noexcept {
 // ============================================================================
 
 double normalize_quat(double q[4]) noexcept {
-    const double n2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+    const double n2 = (q[0] * q[0]) + (q[1] * q[1]) + (q[2] * q[2]) + (q[3] * q[3]);
     if (!std::isfinite(n2)) {
         q[0] = 1.0;
         q[1] = q[2] = q[3] = 0.0;
@@ -185,7 +189,7 @@ bool convert_attitude(const double q_in[4], GuidanceFrame world_in, GuidanceAtti
     //   · 数量级差太远 ⇒ 大概率不是四元数（把欧拉角或别的结构填进来了）
     // 注意：容差不设成 1e-3：**未归一化的四元数很常见**（外推、插值、整数标定），
     //   只要方向对，归一化后就是同一个姿态 ⇒ 应当接受并归一化，不该拒。
-    const double n2 = q_in[0] * q_in[0] + q_in[1] * q_in[1] + q_in[2] * q_in[2] + q_in[3] * q_in[3];
+    const double n2 = (q_in[0] * q_in[0]) + (q_in[1] * q_in[1]) + (q_in[2] * q_in[2]) + (q_in[3] * q_in[3]);
     const double n = std::sqrt(n2);
     if (!(n > 1e-6) || !(n < 1e+3)) {  // 写成 !() 形式以同时挡住 NaN
         q_out[0] = 1.0;
@@ -217,11 +221,20 @@ bool convert_attitude(const double q_in[4], GuidanceFrame world_in, GuidanceAtti
     }
 
     // ---- 从旋转矩阵重建四元数（Shepperd 法：挑最大的对角项分支，数值最稳）----
-    const double m00 = col[0].x, m10 = col[0].y, m20 = col[0].z;
-    const double m01 = col[1].x, m11 = col[1].y, m21 = col[1].z;
-    const double m02 = col[2].x, m12 = col[2].y, m22 = col[2].z;
+    const double m00 = col[0].x;
+    const double m10 = col[0].y;
+    const double m20 = col[0].z;
+    const double m01 = col[1].x;
+    const double m11 = col[1].y;
+    const double m21 = col[1].z;
+    const double m02 = col[2].x;
+    const double m12 = col[2].y;
+    const double m22 = col[2].z;
 
-    double w = 1.0, x = 0.0, y = 0.0, z = 0.0;
+    double w = 1.0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
     const double tr = m00 + m11 + m22;
     if (tr > 0.0) {
         const double s = std::sqrt(tr + 1.0) * 2.0;  // s = 4w
@@ -296,21 +309,23 @@ void GuidanceStateTimeTracker::push_u64_us(uint64_t raw_us) noexcept {
 
     const uint64_t d = raw_us - prev_u64_;  // 无符号差：天然模 2^64，容纳回绕
     // 判"乱序"：差值大得离谱（> 1e7 s ≈ 115 天）不可能是真实增量
-    if (d > 10000000000000ull) {
+    if (d > 10000000000000ULL) {
         ++out_of_order_;
         last_jump_suspect_ = true;
         return;  // 不累加、不更新 prev
     }
     t_us_ += d;
     prev_u64_ = raw_us;
-    if (d > 5000000ull) last_jump_suspect_ = true;  // > 5 s：可疑（丢帧/时钟跳变）
+    if (d > 5000000ULL) {
+        last_jump_suspect_ = true;  // > 5 s：可疑（丢帧/时钟跳变）
+    }
 }
 
 void GuidanceStateTimeTracker::push_u32_ms(uint32_t raw_ms) noexcept {
     ++frames_;
     last_jump_suspect_ = false;
 
-    const uint64_t raw_us = static_cast<uint64_t>(raw_ms) * 1000ull;
+    const uint64_t raw_us = static_cast<uint64_t>(raw_ms) * 1000ULL;
     if (!has_prev_) {
         has_prev_ = true;
         prev_u64_ = raw_us;
@@ -318,17 +333,19 @@ void GuidanceStateTimeTracker::push_u32_ms(uint32_t raw_ms) noexcept {
     }
 
     // 32 位回绕安全：先在 ms 域做无符号差，再扩到 µs
-    const uint32_t prev_ms = static_cast<uint32_t>(prev_u64_ / 1000ull);
+    const auto prev_ms = static_cast<uint32_t>(prev_u64_ / 1000ULL);
     const uint32_t d_ms = mavlink_units::ms_diff_u32(raw_ms, prev_ms);
 
-    if (d_ms > 2147483647u) {  // 落在"过去"半区 ⇒ 乱序
+    if (d_ms > 2147483647U) {  // 落在"过去"半区 ⇒ 乱序
         ++out_of_order_;
         last_jump_suspect_ = true;
         return;
     }
-    t_us_ += static_cast<uint64_t>(d_ms) * 1000ull;
+    t_us_ += static_cast<uint64_t>(d_ms) * 1000ULL;
     prev_u64_ = raw_us;
-    if (d_ms > 5000u) last_jump_suspect_ = true;
+    if (d_ms > 5000U) {
+        last_jump_suspect_ = true;
+    }
 }
 
 void GuidanceStateTimeTracker::push_s(double raw_s) noexcept {
@@ -339,13 +356,13 @@ void GuidanceStateTimeTracker::push_s(double raw_s) noexcept {
         return;
     }
     // 统一在 µs 域累加（prev_u64_ 一直是"上一帧原始时标的 µs 表示"）
-    const uint64_t raw_us = static_cast<uint64_t>(raw_s * 1e6);
+    const auto raw_us = static_cast<uint64_t>(raw_s * 1e6);
     if (!has_prev_) {
         has_prev_ = true;
         prev_u64_ = raw_us;
         return;
     }
-    const double d_s = raw_s - static_cast<double>(prev_u64_) * 1e-6;
+    const double d_s = raw_s - (static_cast<double>(prev_u64_) * 1e-6);
     if (d_s < 0.0) {
         ++out_of_order_;
         last_jump_suspect_ = true;
@@ -353,7 +370,9 @@ void GuidanceStateTimeTracker::push_s(double raw_s) noexcept {
     }
     t_us_ += static_cast<uint64_t>(d_s * 1e6);
     prev_u64_ = raw_us;
-    if (d_s > 5.0) last_jump_suspect_ = true;
+    if (d_s > 5.0) {
+        last_jump_suspect_ = true;
+    }
 }
 
 void GuidanceStateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
@@ -367,7 +386,7 @@ void GuidanceStateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
     }
     // 把内部时间推进到"这一原始时刻"（含回绕安全的无符号差）
     const uint64_t d = raw_us - prev_u64_;
-    if (d <= 10000000000000ull) {  // 正常范围才推进（防乱序把参考点算歪）
+    if (d <= 10000000000000ULL) {  // 正常范围才推进（防乱序把参考点算歪）
         t_us_ += d;
         prev_u64_ = raw_us;
     }
@@ -375,7 +394,7 @@ void GuidanceStateTimeTracker::set_reference_u64_us(uint64_t raw_us) noexcept {
 }
 
 void GuidanceStateTimeTracker::set_reference_u32_ms(uint32_t raw_ms) noexcept {
-    set_reference_u64_us(static_cast<uint64_t>(raw_ms) * 1000ull);
+    set_reference_u64_us(static_cast<uint64_t>(raw_ms) * 1000ULL);
 }
 
 void GuidanceStateTimeTracker::reset() noexcept {
@@ -394,7 +413,9 @@ void GuidanceStateTimeTracker::reset() noexcept {
 // ============================================================================
 
 void fill_ins(GuidanceState& st, const Vec3& p_raw, const Vec3& v_raw, const double q_raw[4], GuidanceFrame world_in, GuidanceAttitudeFrame att_in, bool has_position, bool has_attitude) noexcept {
-    if (has_position) st.p_M = world_to_world(p_raw, world_in, GuidanceFrame::kEnu);
+    if (has_position) {
+        st.p_M = world_to_world(p_raw, world_in, GuidanceFrame::kEnu);
+    }
     st.v_M = world_to_world(v_raw, world_in, GuidanceFrame::kEnu);
     if (has_attitude) {
         GuidanceFrame dummy = GuidanceFrame::kEnu;
@@ -459,6 +480,4 @@ GuidanceState to_guidance_state(const GuidanceRawFrame& raw) noexcept {
     return st;
 }
 
-}  // namespace adapter
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::adapter

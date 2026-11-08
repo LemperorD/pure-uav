@@ -3,27 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_CANFD_FRAME 387
+enum { MAVLINK_MSG_ID_CANFD_FRAME = 387 };
 
+using mavlink_canfd_frame_t = struct __mavlink_canfd_frame_t {
+    uint32_t id;              /*<  Frame ID*/
+    uint8_t target_system;    /*<  System ID.*/
+    uint8_t target_component; /*<  Component ID.*/
+    uint8_t bus;              /*<  bus number*/
+    uint8_t len;              /*<  Frame length*/
+    uint8_t data[64];         /*<  Frame data*/
+};
 
-typedef struct __mavlink_canfd_frame_t {
- uint32_t id; /*<  Frame ID*/
- uint8_t target_system; /*<  System ID.*/
- uint8_t target_component; /*<  Component ID.*/
- uint8_t bus; /*<  bus number*/
- uint8_t len; /*<  Frame length*/
- uint8_t data[64]; /*<  Frame data*/
-} mavlink_canfd_frame_t;
+enum { MAVLINK_MSG_ID_CANFD_FRAME_LEN = 72, MAVLINK_MSG_ID_CANFD_FRAME_MIN_LEN = 72, MAVLINK_MSG_ID_387_LEN = 72, MAVLINK_MSG_ID_387_MIN_LEN = 72 };
 
-#define MAVLINK_MSG_ID_CANFD_FRAME_LEN 72
-#define MAVLINK_MSG_ID_CANFD_FRAME_MIN_LEN 72
-#define MAVLINK_MSG_ID_387_LEN 72
-#define MAVLINK_MSG_ID_387_MIN_LEN 72
+enum { MAVLINK_MSG_ID_CANFD_FRAME_CRC = 4, MAVLINK_MSG_ID_387_CRC = 4 };
 
-#define MAVLINK_MSG_ID_CANFD_FRAME_CRC 4
-#define MAVLINK_MSG_ID_387_CRC 4
-
-#define MAVLINK_MSG_CANFD_FRAME_FIELD_DATA_LEN 64
+enum { MAVLINK_MSG_CANFD_FRAME_FIELD_DATA_LEN = 64 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_CANFD_FRAME { \
@@ -379,11 +374,10 @@ static inline void mavlink_msg_canfd_frame_decode(const mavlink_message_t* msg, 
         memset(canfd_frame, 0, MAVLINK_MSG_ID_CANFD_FRAME_LEN);
     memcpy(canfd_frame, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         canfd_frame->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

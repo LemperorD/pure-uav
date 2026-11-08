@@ -3,27 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE 12919
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE = 12919 };
 
+using mavlink_open_drone_id_system_update_t = struct __mavlink_open_drone_id_system_update_t {
+    int32_t operator_latitude;   /*< [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).*/
+    int32_t operator_longitude;  /*< [degE7] Longitude of the operator. If unknown: 0 (both Lat/Lon).*/
+    float operator_altitude_geo; /*< [m] Geodetic altitude of the operator relative to WGS84. If unknown: -1000 m.*/
+    uint32_t timestamp;          /*< [s] 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
+    uint8_t target_system;       /*<  System ID (0 for broadcast).*/
+    uint8_t target_component;    /*<  Component ID (0 for broadcast).*/
+};
 
-typedef struct __mavlink_open_drone_id_system_update_t {
- int32_t operator_latitude; /*< [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).*/
- int32_t operator_longitude; /*< [degE7] Longitude of the operator. If unknown: 0 (both Lat/Lon).*/
- float operator_altitude_geo; /*< [m] Geodetic altitude of the operator relative to WGS84. If unknown: -1000 m.*/
- uint32_t timestamp; /*< [s] 32 bit Unix Timestamp in seconds since 00:00:00 01/01/2019.*/
- uint8_t target_system; /*<  System ID (0 for broadcast).*/
- uint8_t target_component; /*<  Component ID (0 for broadcast).*/
-} mavlink_open_drone_id_system_update_t;
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_LEN = 18, MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_MIN_LEN = 18, MAVLINK_MSG_ID_12919_LEN = 18, MAVLINK_MSG_ID_12919_MIN_LEN = 18 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_LEN 18
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_MIN_LEN 18
-#define MAVLINK_MSG_ID_12919_LEN 18
-#define MAVLINK_MSG_ID_12919_MIN_LEN 18
-
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_CRC 7
-#define MAVLINK_MSG_ID_12919_CRC 7
-
-
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_CRC = 7, MAVLINK_MSG_ID_12919_CRC = 7 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_SYSTEM_UPDATE { \
@@ -389,11 +382,10 @@ static inline void mavlink_msg_open_drone_id_system_update_decode(const mavlink_
         memset(open_drone_id_system_update, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_SYSTEM_UPDATE_LEN);
     memcpy(open_drone_id_system_update, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_system_update->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

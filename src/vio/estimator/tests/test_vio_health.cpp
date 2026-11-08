@@ -3,7 +3,9 @@
 
 #include "pure_uav/vio_health.hpp"
 void check(bool c, const char* why) {
-    if (!c) throw std::runtime_error(why);
+    if (!c) {
+        throw std::runtime_error(why);
+    }
 }
 int main() {
     try {
@@ -18,7 +20,9 @@ int main() {
         for (int i = 6; i <= 300; ++i) {
             health.update(i * 0.02, 200, true, 1.0, 0.0);
             check(!health.publishable(), "visual evidence cleared physical fault without rebuild");
-            if (i % 10 == 0) health.mark_implausible(i * 0.02);
+            if (i % 10 == 0) {
+                health.mark_implausible(i * 0.02);
+            }
         }
         check(health.report(6).lost_count == 1, "repeated fault changed LOST transition count");
         health.notify_recovered();
@@ -30,9 +34,13 @@ int main() {
         health.update(7, 120, true);
         check(health.publishable(), "new timebase failed to clear physical latch");
         // 纯视觉丢失仍允许已有的软恢复，不把所有 LOST 都锁死。
-        for (int i = 1; i <= 30; ++i) health.update(7 + i * 0.02, 0, false);
+        for (int i = 1; i <= 30; ++i) {
+            health.update(7 + (i * 0.02), 0, false);
+        }
         check(!health.publishable(), "visual loss not detected");
-        for (int i = 31; i <= 100; ++i) health.update(7 + i * 0.02, 150, true);
+        for (int i = 31; i <= 100; ++i) {
+            health.update(7 + (i * 0.02), 150, true);
+        }
         check(health.publishable(), "normal visual recovery regressed");
         // 首次 update 前的物理异常同样必须保持 LOST。
         health.reset();

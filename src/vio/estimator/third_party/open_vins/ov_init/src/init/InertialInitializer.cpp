@@ -21,6 +21,8 @@
 
 #include "InertialInitializer.h"
 
+#include <utility>
+
 #ifndef __ANDROID__
 #include "dynamic/DynamicInitializer.h"
 #endif
@@ -37,14 +39,12 @@ using namespace ov_core;
 using namespace ov_type;
 using namespace ov_init;
 
-InertialInitializer::InertialInitializer(InertialInitializerOptions &params_, std::shared_ptr<ov_core::FeatureDatabase> db)
-    : params(params_), _db(db) {
+InertialInitializer::InertialInitializer(InertialInitializerOptions& params_, std::shared_ptr<ov_core::FeatureDatabase> db) : params(params_), _db(std::move(db)) {
+    // Vector of our IMU data
+    imu_data = std::make_shared<std::vector<ov_core::ImuData>>();
 
-  // Vector of our IMU data
-  imu_data = std::make_shared<std::vector<ov_core::ImuData>>();
-
-  // Create initializers
-  init_static = std::make_shared<StaticInitializer>(params, _db, imu_data);
+    // Create initializers
+    init_static = std::make_shared<StaticInitializer>(params, _db, imu_data);
 #ifndef __ANDROID__
   init_dynamic = std::make_shared<DynamicInitializer>(params, _db, imu_data);
 #else
@@ -109,11 +109,13 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
 
     // Get the disparity statistics from this image to the previous
     // Only compute the disparity for the oldest half of the initialization period
-    double newest_time_allowed = newest_cam_time - 0.5 * params.init_window_time;
+    double newest_time_allowed = newest_cam_time - (0.5 * params.init_window_time);
     int num_features0 = 0;
     int num_features1 = 0;
-    double avg_disp0, avg_disp1;
-    double var_disp0, var_disp1;
+    double avg_disp0;
+    double avg_disp1;
+    double var_disp0;
+    double var_disp1;
     FeatureHelper::compute_disparity(_db, avg_disp0, var_disp0, num_features0, newest_time_allowed);
     FeatureHelper::compute_disparity(_db, avg_disp1, var_disp1, num_features1, newest_cam_time, newest_time_allowed);
 
@@ -140,22 +142,23 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
   if (((has_jerk && wait_for_jerk) || (is_still && !wait_for_jerk)) && params.init_imu_thresh > 0.0) {
     PRINT_DEBUG(GREEN "[init]: USING STATIC INITIALIZER METHOD!\n" RESET);
     return init_static->initialize(timestamp, covariance, order, t_imu, wait_for_jerk);
-  } else if (params.init_dyn_use && !is_still) {
+  }
+  if (params.init_dyn_use && !is_still) {
 #ifndef __ANDROID__
-    PRINT_DEBUG(GREEN "[init]: USING DYNAMIC INITIALIZER METHOD!\n" RESET);
-    std::map<double, std::shared_ptr<ov_type::PoseJPL>> _clones_IMU;
-    std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> _features_SLAM;
-    if (init_dynamic) {
-      return init_dynamic->initialize(timestamp, covariance, order, t_imu, _clones_IMU, _features_SLAM);
-    }
+      PRINT_DEBUG(GREEN "[init]: USING DYNAMIC INITIALIZER METHOD!\n" RESET);
+      std::map<double, std::shared_ptr<ov_type::PoseJPL>> _clones_IMU;
+      std::unordered_map<size_t, std::shared_ptr<ov_type::Landmark>> _features_SLAM;
+      if (init_dynamic) {
+          return init_dynamic->initialize(timestamp, covariance, order, t_imu, _clones_IMU, _features_SLAM);
+      }
 #else
-    PRINT_ERROR(RED "[init]: DYNAMIC INITIALIZER not available on Android (Ceres Solver not included)\n" RESET);
+      PRINT_ERROR(RED "[init]: DYNAMIC INITIALIZER not available on Android (Ceres Solver not included)\n" RESET);
 #endif
   } else {
-    std::string msg = (has_jerk) ? "" : "no accel jerk detected";
-    msg += (has_jerk || is_still) ? "" : ", ";
-    msg += (is_still) ? "" : "platform moving too much";
-    PRINT_DEBUG(YELLOW "[init]: failed static init: %s\n" RESET, msg.c_str());
+      std::string msg = (has_jerk) ? "" : "no accel jerk detected";
+      msg += (has_jerk || is_still) ? "" : ", ";
+      msg += (is_still) ? "" : "platform moving too much";
+      PRINT_DEBUG(YELLOW "[init]: failed static init: %s\n" RESET, msg.c_str());
   }
   return false;
 }

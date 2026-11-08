@@ -22,6 +22,8 @@
 #ifndef OV_TYPE_TYPE_JPLQUAT_H
 #define OV_TYPE_TYPE_JPLQUAT_H
 
+#include <memory>
+
 #include "Type.h"
 #include "utils/quat_ops.h"
 
@@ -99,7 +101,7 @@ public:
     set_fej_internal(q0);
   }
 
-  ~JPLQuat() {}
+  ~JPLQuat() override = default;
 
   /**
    * @brief Implements update operation by left-multiplying the current
@@ -137,17 +139,21 @@ public:
   void set_fej(const Eigen::MatrixXd &new_value) override { set_fej_internal(new_value); }
 
   std::shared_ptr<Type> clone() override {
-    auto Clone = std::shared_ptr<JPLQuat>(new JPLQuat());
-    Clone->set_value(value());
-    Clone->set_fej(fej());
-    return Clone;
+      auto Clone = std::make_shared<JPLQuat>();
+      Clone->set_value(value());
+      Clone->set_fej(fej());
+      return Clone;
   }
 
   /// Rotation access
-  Eigen::Matrix<double, 3, 3> Rot() const { return _R; }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot() const {
+      return _R;
+  }
 
   /// FEJ Rotation access
-  Eigen::Matrix<double, 3, 3> Rot_fej() const { return _Rfej; }
+  [[nodiscard]] Eigen::Matrix<double, 3, 3> Rot_fej() const {
+      return _Rfej;
+  }
 
 protected:
   // Stores the rotation

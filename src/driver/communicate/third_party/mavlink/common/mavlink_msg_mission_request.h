@@ -3,25 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_MISSION_REQUEST 40
+enum { MAVLINK_MSG_ID_MISSION_REQUEST = 40 };
 
+using mavlink_mission_request_t = struct __mavlink_mission_request_t {
+    uint16_t seq;             /*<  Sequence*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    uint8_t mission_type;     /*<  Mission type.*/
+};
 
-typedef struct __mavlink_mission_request_t {
- uint16_t seq; /*<  Sequence*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- uint8_t mission_type; /*<  Mission type.*/
-} mavlink_mission_request_t;
+enum { MAVLINK_MSG_ID_MISSION_REQUEST_LEN = 5, MAVLINK_MSG_ID_MISSION_REQUEST_MIN_LEN = 4, MAVLINK_MSG_ID_40_LEN = 5, MAVLINK_MSG_ID_40_MIN_LEN = 4 };
 
-#define MAVLINK_MSG_ID_MISSION_REQUEST_LEN 5
-#define MAVLINK_MSG_ID_MISSION_REQUEST_MIN_LEN 4
-#define MAVLINK_MSG_ID_40_LEN 5
-#define MAVLINK_MSG_ID_40_MIN_LEN 4
-
-#define MAVLINK_MSG_ID_MISSION_REQUEST_CRC 230
-#define MAVLINK_MSG_ID_40_CRC 230
-
-
+enum { MAVLINK_MSG_ID_MISSION_REQUEST_CRC = 230, MAVLINK_MSG_ID_40_CRC = 230 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_MISSION_REQUEST { \
@@ -333,11 +326,10 @@ static inline void mavlink_msg_mission_request_decode(const mavlink_message_t* m
         memset(mission_request, 0, MAVLINK_MSG_ID_MISSION_REQUEST_LEN);
     memcpy(mission_request, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         mission_request->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

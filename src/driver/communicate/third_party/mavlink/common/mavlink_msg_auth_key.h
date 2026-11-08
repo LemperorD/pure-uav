@@ -3,22 +3,17 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_AUTH_KEY 7
+enum { MAVLINK_MSG_ID_AUTH_KEY = 7 };
 
+using mavlink_auth_key_t = struct __mavlink_auth_key_t {
+    char key[32]; /*<  key*/
+};
 
-typedef struct __mavlink_auth_key_t {
- char key[32]; /*<  key*/
-} mavlink_auth_key_t;
+enum { MAVLINK_MSG_ID_AUTH_KEY_LEN = 32, MAVLINK_MSG_ID_AUTH_KEY_MIN_LEN = 32, MAVLINK_MSG_ID_7_LEN = 32, MAVLINK_MSG_ID_7_MIN_LEN = 32 };
 
-#define MAVLINK_MSG_ID_AUTH_KEY_LEN 32
-#define MAVLINK_MSG_ID_AUTH_KEY_MIN_LEN 32
-#define MAVLINK_MSG_ID_7_LEN 32
-#define MAVLINK_MSG_ID_7_MIN_LEN 32
+enum { MAVLINK_MSG_ID_AUTH_KEY_CRC = 119, MAVLINK_MSG_ID_7_CRC = 119 };
 
-#define MAVLINK_MSG_ID_AUTH_KEY_CRC 119
-#define MAVLINK_MSG_ID_7_CRC 119
-
-#define MAVLINK_MSG_AUTH_KEY_FIELD_KEY_LEN 32
+enum { MAVLINK_MSG_AUTH_KEY_FIELD_KEY_LEN = 32 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_AUTH_KEY { \

@@ -3,32 +3,25 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SCALED_IMU3 129
+enum { MAVLINK_MSG_ID_SCALED_IMU3 = 129 };
 
+using mavlink_scaled_imu3_t = struct __mavlink_scaled_imu3_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    int16_t xacc;          /*< [mG] X acceleration*/
+    int16_t yacc;          /*< [mG] Y acceleration*/
+    int16_t zacc;          /*< [mG] Z acceleration*/
+    int16_t xgyro;         /*< [mrad/s] Angular speed around X axis*/
+    int16_t ygyro;         /*< [mrad/s] Angular speed around Y axis*/
+    int16_t zgyro;         /*< [mrad/s] Angular speed around Z axis*/
+    int16_t xmag;          /*< [mgauss] X Magnetic field*/
+    int16_t ymag;          /*< [mgauss] Y Magnetic field*/
+    int16_t zmag;          /*< [mgauss] Z Magnetic field*/
+    int16_t temperature;   /*< [cdegC] Temperature, 0: IMU does not provide temperature values. If the IMU is at 0C it must send 1 (0.01C).*/
+};
 
-typedef struct __mavlink_scaled_imu3_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- int16_t xacc; /*< [mG] X acceleration*/
- int16_t yacc; /*< [mG] Y acceleration*/
- int16_t zacc; /*< [mG] Z acceleration*/
- int16_t xgyro; /*< [mrad/s] Angular speed around X axis*/
- int16_t ygyro; /*< [mrad/s] Angular speed around Y axis*/
- int16_t zgyro; /*< [mrad/s] Angular speed around Z axis*/
- int16_t xmag; /*< [mgauss] X Magnetic field*/
- int16_t ymag; /*< [mgauss] Y Magnetic field*/
- int16_t zmag; /*< [mgauss] Z Magnetic field*/
- int16_t temperature; /*< [cdegC] Temperature, 0: IMU does not provide temperature values. If the IMU is at 0C it must send 1 (0.01C).*/
-} mavlink_scaled_imu3_t;
+enum { MAVLINK_MSG_ID_SCALED_IMU3_LEN = 24, MAVLINK_MSG_ID_SCALED_IMU3_MIN_LEN = 22, MAVLINK_MSG_ID_129_LEN = 24, MAVLINK_MSG_ID_129_MIN_LEN = 22 };
 
-#define MAVLINK_MSG_ID_SCALED_IMU3_LEN 24
-#define MAVLINK_MSG_ID_SCALED_IMU3_MIN_LEN 22
-#define MAVLINK_MSG_ID_129_LEN 24
-#define MAVLINK_MSG_ID_129_MIN_LEN 22
-
-#define MAVLINK_MSG_ID_SCALED_IMU3_CRC 46
-#define MAVLINK_MSG_ID_129_CRC 46
-
-
+enum { MAVLINK_MSG_ID_SCALED_IMU3_CRC = 46, MAVLINK_MSG_ID_129_CRC = 46 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SCALED_IMU3 { \

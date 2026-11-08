@@ -3,28 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ATTITUDE_TARGET 83
+enum { MAVLINK_MSG_ID_ATTITUDE_TARGET = 83 };
 
+using mavlink_attitude_target_t = struct __mavlink_attitude_target_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    float q[4];            /*<  Attitude quaternion (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
+    float body_roll_rate;  /*< [rad/s] Body roll rate*/
+    float body_pitch_rate; /*< [rad/s] Body pitch rate*/
+    float body_yaw_rate;   /*< [rad/s] Body yaw rate*/
+    float thrust;          /*<  Collective thrust, normalized to 0 .. 1 (-1 .. 1 for vehicles capable of reverse thrust)*/
+    uint8_t type_mask;     /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
+};
 
-typedef struct __mavlink_attitude_target_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float q[4]; /*<  Attitude quaternion (w, x, y, z order, zero-rotation is 1, 0, 0, 0)*/
- float body_roll_rate; /*< [rad/s] Body roll rate*/
- float body_pitch_rate; /*< [rad/s] Body pitch rate*/
- float body_yaw_rate; /*< [rad/s] Body yaw rate*/
- float thrust; /*<  Collective thrust, normalized to 0 .. 1 (-1 .. 1 for vehicles capable of reverse thrust)*/
- uint8_t type_mask; /*<  Bitmap to indicate which dimensions should be ignored by the vehicle.*/
-} mavlink_attitude_target_t;
+enum { MAVLINK_MSG_ID_ATTITUDE_TARGET_LEN = 37, MAVLINK_MSG_ID_ATTITUDE_TARGET_MIN_LEN = 37, MAVLINK_MSG_ID_83_LEN = 37, MAVLINK_MSG_ID_83_MIN_LEN = 37 };
 
-#define MAVLINK_MSG_ID_ATTITUDE_TARGET_LEN 37
-#define MAVLINK_MSG_ID_ATTITUDE_TARGET_MIN_LEN 37
-#define MAVLINK_MSG_ID_83_LEN 37
-#define MAVLINK_MSG_ID_83_MIN_LEN 37
+enum { MAVLINK_MSG_ID_ATTITUDE_TARGET_CRC = 22, MAVLINK_MSG_ID_83_CRC = 22 };
 
-#define MAVLINK_MSG_ID_ATTITUDE_TARGET_CRC 22
-#define MAVLINK_MSG_ID_83_CRC 22
-
-#define MAVLINK_MSG_ATTITUDE_TARGET_FIELD_Q_LEN 4
+enum { MAVLINK_MSG_ATTITUDE_TARGET_FIELD_Q_LEN = 4 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ATTITUDE_TARGET { \

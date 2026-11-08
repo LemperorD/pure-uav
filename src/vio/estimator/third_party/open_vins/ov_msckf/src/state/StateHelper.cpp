@@ -194,8 +194,14 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
   // 如果 dP_direct/|dP_total| ≈ 0，说明测量根本没看见 ba，方差是靠互相关缩掉的。
   //===================================================================================
   static int diag_cov_on = -1;
-  if (diag_cov_on < 0) diag_cov_on = (std::getenv("OV_DIAG_UPD") != nullptr) ? 1 : 0;
-  double diag_nmHba = -1.0, diag_trPba = -1.0, diag_dPtr = -1.0, diag_dPdir = -1.0, diag_frac_dir = -1.0;
+  if (diag_cov_on < 0) {
+      diag_cov_on = (std::getenv("OV_DIAG_UPD") != nullptr) ? 1 : 0;
+  }
+  double diag_nmHba = -1.0;
+  double diag_trPba = -1.0;
+  double diag_dPtr = -1.0;
+  double diag_dPdir = -1.0;
+  double diag_frac_dir = -1.0;
   if (diag_cov_on == 1 && state->_imu != nullptr && res.rows() > 0) {
     const int idba = state->_imu->ba()->id();
     const int m = (int)res.rows();
@@ -207,8 +213,9 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
       }
     }
     Eigen::MatrixXd Hha = Eigen::MatrixXd::Zero(H.rows(), 3);
-    if (hba >= 0)
-      Hha = H.block(0, hba, H.rows(), 3);
+    if (hba >= 0) {
+        Hha = H.block(0, hba, H.rows(), 3);
+    }
     diag_nmHba = (hba < 0) ? -1.0 : Hha.norm();  // -1 = ba 根本不在 H_order 里
     Eigen::Matrix3d Pba = state->_Cov.block(idba, idba, 3, 3);
     diag_trPba = Pba.trace();
@@ -305,8 +312,9 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
     if (tot > 1e-12) {
       Eigen::VectorXd s = contrib;
       std::sort(s.data(), s.data() + s.size(), std::greater<double>());
-      for (int j = 0; j < std::min(3, m); j++)
-        frac3 += s(j);
+      for (int j = 0; j < std::min(3, m); j++) {
+          frac3 += s(j);
+      }
       frac3 /= tot;
     }
     const double sqrtS = std::sqrt(std::max(S(top, top), 1e-12));
@@ -325,8 +333,8 @@ void StateHelper::EKFUpdate(std::shared_ptr<State> state, const std::vector<std:
     upd_of.flush();
   }
 
-  for (size_t i = 0; i < state->_variables.size(); i++) {
-    state->_variables.at(i)->update(dx.block(state->_variables.at(i)->id(), 0, state->_variables.at(i)->size(), 1));
+  for (auto& _variable : state->_variables) {
+      _variable->update(dx.block(_variable->id(), 0, _variable->size(), 1));
   }
   ++total_ekf_update_calls;
 
@@ -371,8 +379,8 @@ Eigen::MatrixXd StateHelper::get_marginal_covariance(std::shared_ptr<State> stat
 
   // Calculate the marginal covariance size we need to make our matrix
   int cov_size = 0;
-  for (size_t i = 0; i < small_variables.size(); i++) {
-    cov_size += small_variables[i]->size();
+  for (const auto& small_variable : small_variables) {
+      cov_size += small_variable->size();
   }
 
   // Construct our return covariance
@@ -460,15 +468,15 @@ void StateHelper::marginalize(std::shared_ptr<State> state, std::shared_ptr<Type
   // Now we keep the remaining variables and update their ordering
   // Note: DOES NOT SUPPORT MARGINALIZING SUBVARIABLES YET!!!!!!!
   std::vector<std::shared_ptr<Type>> remaining_variables;
-  for (size_t i = 0; i < state->_variables.size(); i++) {
-    // Only keep non-marginal states
-    if (state->_variables.at(i) != marg) {
-      if (state->_variables.at(i)->id() > marg_id) {
-        // If the variable is "beyond" the marginal one in ordering, need to "move it forward"
-        state->_variables.at(i)->set_local_id(state->_variables.at(i)->id() - marg_size);
+  for (auto& _variable : state->_variables) {
+      // Only keep non-marginal states
+      if (_variable != marg) {
+          if (_variable->id() > marg_id) {
+              // If the variable is "beyond" the marginal one in ordering, need to "move it forward"
+              _variable->set_local_id(_variable->id() - marg_size);
+          }
+          remaining_variables.push_back(_variable);
       }
-      remaining_variables.push_back(state->_variables.at(i));
-    }
   }
 
   // Delete the old state variable to free up its memory
@@ -762,7 +770,7 @@ void StateHelper::marginalize_old_clone(std::shared_ptr<State> state) {
   if ((int)state->_clones_IMU.size() > state->_options.max_clone_size) {
     double marginal_time = state->margtimestep();
     // Lock the mutex to avoid deleting any elements from _clones_IMU while accessing it from other threads
-    std::lock_guard<std::mutex> lock(state->_mutex_state);
+    std::scoped_lock lock(state->_mutex_state);
     assert(marginal_time != INFINITY);
     StateHelper::marginalize(state, state->_clones_IMU.at(marginal_time));
     // Note that the marginalizer should have already deleted the clone

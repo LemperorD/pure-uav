@@ -3,33 +3,28 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS 285
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS = 285 };
 
+using mavlink_gimbal_device_attitude_status_t = struct __mavlink_gimbal_device_attitude_status_t {
+    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
+    float q[4];               /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation). The frame is described in the message description.*/
+    float angular_velocity_x; /*< [rad/s] X component of angular velocity (positive: rolling to the right). The frame is described in the message description. NaN if unknown.*/
+    float angular_velocity_y; /*< [rad/s] Y component of angular velocity (positive: pitching up). The frame is described in the message description. NaN if unknown.*/
+    float angular_velocity_z; /*< [rad/s] Z component of angular velocity (positive: yawing to the right). The frame is described in the message description. NaN if unknown.*/
+    uint32_t failure_flags;   /*<  Failure flags (0 for no failure)*/
+    uint16_t flags;           /*<  Current gimbal flags set.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    float delta_yaw;          /*< [rad] Yaw angle relating the quaternions in earth and body frames (see message description). NaN if unknown.*/
+    float delta_yaw_velocity; /*< [rad/s] Yaw angular velocity relating the angular velocities in earth and body frames (see message description). NaN if unknown.*/
+    uint8_t gimbal_device_id; /*<  This field is to be used if the gimbal manager and the gimbal device are the same component and hence have the same component ID. This field is then set a number between 1-6. If the component ID is separate, this field is not required and must be set to 0.*/
+};
 
-typedef struct __mavlink_gimbal_device_attitude_status_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float q[4]; /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation). The frame is described in the message description.*/
- float angular_velocity_x; /*< [rad/s] X component of angular velocity (positive: rolling to the right). The frame is described in the message description. NaN if unknown.*/
- float angular_velocity_y; /*< [rad/s] Y component of angular velocity (positive: pitching up). The frame is described in the message description. NaN if unknown.*/
- float angular_velocity_z; /*< [rad/s] Z component of angular velocity (positive: yawing to the right). The frame is described in the message description. NaN if unknown.*/
- uint32_t failure_flags; /*<  Failure flags (0 for no failure)*/
- uint16_t flags; /*<  Current gimbal flags set.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- float delta_yaw; /*< [rad] Yaw angle relating the quaternions in earth and body frames (see message description). NaN if unknown.*/
- float delta_yaw_velocity; /*< [rad/s] Yaw angular velocity relating the angular velocities in earth and body frames (see message description). NaN if unknown.*/
- uint8_t gimbal_device_id; /*<  This field is to be used if the gimbal manager and the gimbal device are the same component and hence have the same component ID. This field is then set a number between 1-6. If the component ID is separate, this field is not required and must be set to 0.*/
-} mavlink_gimbal_device_attitude_status_t;
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_LEN = 49, MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_MIN_LEN = 40, MAVLINK_MSG_ID_285_LEN = 49, MAVLINK_MSG_ID_285_MIN_LEN = 40 };
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_LEN 49
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_MIN_LEN 40
-#define MAVLINK_MSG_ID_285_LEN 49
-#define MAVLINK_MSG_ID_285_MIN_LEN 40
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_CRC = 137, MAVLINK_MSG_ID_285_CRC = 137 };
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_CRC 137
-#define MAVLINK_MSG_ID_285_CRC 137
-
-#define MAVLINK_MSG_GIMBAL_DEVICE_ATTITUDE_STATUS_FIELD_Q_LEN 4
+enum { MAVLINK_MSG_GIMBAL_DEVICE_ATTITUDE_STATUS_FIELD_Q_LEN = 4 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_DEVICE_ATTITUDE_STATUS { \
@@ -547,11 +542,10 @@ static inline void mavlink_msg_gimbal_device_attitude_status_decode(const mavlin
         memset(gimbal_device_attitude_status, 0, MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_LEN);
     memcpy(gimbal_device_attitude_status, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gimbal_device_attitude_status->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

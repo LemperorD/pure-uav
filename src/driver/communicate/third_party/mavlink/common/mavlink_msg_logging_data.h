@@ -3,27 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOGGING_DATA 266
+enum { MAVLINK_MSG_ID_LOGGING_DATA = 266 };
 
+using mavlink_logging_data_t = struct __mavlink_logging_data_t {
+    uint16_t sequence;            /*<  sequence number (can wrap)*/
+    uint8_t target_system;        /*<  system ID of the target*/
+    uint8_t target_component;     /*<  component ID of the target*/
+    uint8_t length;               /*< [bytes] data length*/
+    uint8_t first_message_offset; /*< [bytes] offset into data where first message starts. This can be used for recovery, when a previous message got lost (set to UINT8_MAX if no start exists).*/
+    uint8_t data[249];            /*<  logged data*/
+};
 
-typedef struct __mavlink_logging_data_t {
- uint16_t sequence; /*<  sequence number (can wrap)*/
- uint8_t target_system; /*<  system ID of the target*/
- uint8_t target_component; /*<  component ID of the target*/
- uint8_t length; /*< [bytes] data length*/
- uint8_t first_message_offset; /*< [bytes] offset into data where first message starts. This can be used for recovery, when a previous message got lost (set to UINT8_MAX if no start exists).*/
- uint8_t data[249]; /*<  logged data*/
-} mavlink_logging_data_t;
+enum { MAVLINK_MSG_ID_LOGGING_DATA_LEN = 255, MAVLINK_MSG_ID_LOGGING_DATA_MIN_LEN = 255, MAVLINK_MSG_ID_266_LEN = 255, MAVLINK_MSG_ID_266_MIN_LEN = 255 };
 
-#define MAVLINK_MSG_ID_LOGGING_DATA_LEN 255
-#define MAVLINK_MSG_ID_LOGGING_DATA_MIN_LEN 255
-#define MAVLINK_MSG_ID_266_LEN 255
-#define MAVLINK_MSG_ID_266_MIN_LEN 255
+enum { MAVLINK_MSG_ID_LOGGING_DATA_CRC = 193, MAVLINK_MSG_ID_266_CRC = 193 };
 
-#define MAVLINK_MSG_ID_LOGGING_DATA_CRC 193
-#define MAVLINK_MSG_ID_266_CRC 193
-
-#define MAVLINK_MSG_LOGGING_DATA_FIELD_DATA_LEN 249
+enum { MAVLINK_MSG_LOGGING_DATA_FIELD_DATA_LEN = 249 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOGGING_DATA { \
@@ -379,11 +374,10 @@ static inline void mavlink_msg_logging_data_decode(const mavlink_message_t* msg,
         memset(logging_data, 0, MAVLINK_MSG_ID_LOGGING_DATA_LEN);
     memcpy(logging_data, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         logging_data->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

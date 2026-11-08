@@ -33,7 +33,7 @@
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int) {
+void onSigint(int /*unused*/) {
     g_stop.store(true);
 }
 
@@ -84,7 +84,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        } else if (a == "--serial") {
+        }
+        if (a == "--serial") {
             serial = need("--serial");
         } else if (a == "--baud") {
             baud = std::stoi(need("--baud"));
@@ -158,7 +159,9 @@ int main(int argc, char** argv) {
                 timebase_changed = true;
                 break;
             }
-            if (result == pure_uav::FcuClock::AddResult::kOk) last_imu_host_ns = item.host_ns;
+            if (result == pure_uav::FcuClock::AddResult::kOk) {
+                last_imu_host_ns = item.host_ns;
+            }
         }
     };
     const int64_t imu_deadline = steadyNowNs() + static_cast<int64_t>(wait_s * 1e9);
@@ -179,7 +182,8 @@ int main(int argc, char** argv) {
     const double period_s = 1.0 / rate_hz;
     int64_t next_send_ns = t0_host_ns;
     int last_phase = -1;
-    uint64_t sent = 0, failed = 0;
+    uint64_t sent = 0;
+    uint64_t failed = 0;
     int64_t last_report_ns = t0_host_ns;
 
     bool aborted = false;
@@ -231,7 +235,7 @@ int main(int argc, char** argv) {
         pose.vy = sample.vy;
         pose.vz = sample.vz;
 
-        if (link.sendVisionPose(pose, quality, static_cast<uint8_t>(reset_counter), 0.15f, 0.25f)) {
+        if (link.sendVisionPose(pose, quality, static_cast<uint8_t>(reset_counter), 0.15F, 0.25F)) {
             ++sent;
         } else {
             ++failed;

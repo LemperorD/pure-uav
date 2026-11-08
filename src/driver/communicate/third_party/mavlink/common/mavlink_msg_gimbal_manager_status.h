@@ -3,28 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS 281
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS = 281 };
 
+using mavlink_gimbal_manager_status_t = struct __mavlink_gimbal_manager_status_t {
+    uint32_t time_boot_ms;            /*< [ms] Timestamp (time since system boot).*/
+    uint32_t flags;                   /*<  High level gimbal manager flags currently applied.*/
+    uint8_t gimbal_device_id;         /*<  Gimbal device ID that this gimbal manager is responsible for. Component ID of gimbal device (or 1-6 for non-MAVLink gimbal).*/
+    uint8_t primary_control_sysid;    /*<  System ID of MAVLink component with primary control, 0 for none.*/
+    uint8_t primary_control_compid;   /*<  Component ID of MAVLink component with primary control, 0 for none.*/
+    uint8_t secondary_control_sysid;  /*<  System ID of MAVLink component with secondary control, 0 for none.*/
+    uint8_t secondary_control_compid; /*<  Component ID of MAVLink component with secondary control, 0 for none.*/
+};
 
-typedef struct __mavlink_gimbal_manager_status_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint32_t flags; /*<  High level gimbal manager flags currently applied.*/
- uint8_t gimbal_device_id; /*<  Gimbal device ID that this gimbal manager is responsible for. Component ID of gimbal device (or 1-6 for non-MAVLink gimbal).*/
- uint8_t primary_control_sysid; /*<  System ID of MAVLink component with primary control, 0 for none.*/
- uint8_t primary_control_compid; /*<  Component ID of MAVLink component with primary control, 0 for none.*/
- uint8_t secondary_control_sysid; /*<  System ID of MAVLink component with secondary control, 0 for none.*/
- uint8_t secondary_control_compid; /*<  Component ID of MAVLink component with secondary control, 0 for none.*/
-} mavlink_gimbal_manager_status_t;
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_LEN = 13, MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_MIN_LEN = 13, MAVLINK_MSG_ID_281_LEN = 13, MAVLINK_MSG_ID_281_MIN_LEN = 13 };
 
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_LEN 13
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_MIN_LEN 13
-#define MAVLINK_MSG_ID_281_LEN 13
-#define MAVLINK_MSG_ID_281_MIN_LEN 13
-
-#define MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_CRC 48
-#define MAVLINK_MSG_ID_281_CRC 48
-
-
+enum { MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS_CRC = 48, MAVLINK_MSG_ID_281_CRC = 48 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_MANAGER_STATUS { \

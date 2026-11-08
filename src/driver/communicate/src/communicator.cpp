@@ -3,6 +3,7 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <climits>
 #include <cmath>
@@ -23,7 +24,7 @@ namespace {
 std::mutex pack_mutex;
 template <typename F, typename... Args>
 auto packMessage(F pack, Args&&... args) {
-    std::lock_guard<std::mutex> lk(pack_mutex);
+    std::scoped_lock lk(pack_mutex);
     return pack(std::forward<Args>(args)...);
 }
 
@@ -40,20 +41,25 @@ int64_t steadyNowNs() {
 }
 
 bool telemetryFresh(int64_t stamp_ns, int max_age_ms) {
-    if (stamp_ns == 0) return false;
+    if (stamp_ns == 0) {
+        return false;
+    }
     const int64_t elapsed_ns = steadyNowNs() - stamp_ns;
     return elapsed_ns >= 0 && (max_age_ms < 0 || elapsed_ns <= static_cast<int64_t>(max_age_ms) * 1000000LL);
 }
 
 // 欧拉角 → 四元数 wxyz
 void eulerToQuat(float roll, float pitch, float yaw, float q[4]) {
-    const float cy = std::cos(yaw * 0.5f), sy = std::sin(yaw * 0.5f);
-    const float cp = std::cos(pitch * 0.5f), sp = std::sin(pitch * 0.5f);
-    const float cr = std::cos(roll * 0.5f), sr = std::sin(roll * 0.5f);
-    q[0] = cr * cp * cy + sr * sp * sy;  // w
-    q[1] = sr * cp * cy - cr * sp * sy;  // x
-    q[2] = cr * sp * cy + sr * cp * sy;  // y
-    q[3] = cr * cp * sy - sr * sp * cy;  // z
+    const float cy = std::cos(yaw * 0.5f);
+    const float sy = std::sin(yaw * 0.5f);
+    const float cp = std::cos(pitch * 0.5f);
+    const float sp = std::sin(pitch * 0.5f);
+    const float cr = std::cos(roll * 0.5f);
+    const float sr = std::sin(roll * 0.5f);
+    q[0] = (cr * cp * cy) + (sr * sp * sy);  // w
+    q[1] = (sr * cp * cy) - (cr * sp * sy);  // x
+    q[2] = (cr * sp * cy) + (sr * cp * sy);  // y
+    q[3] = (cr * cp * sy) - (sr * sp * cy);  // z
 }
 }  // namespace
 
@@ -100,14 +106,24 @@ void Communicator::stop() {  // 关闭接收线程
 
 // 【2026-10-29】心跳来源筛选：只认目标飞控。
 bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
-    if (sysid == sysid_) return false;  // 自己的心跳（回环）
+    if (sysid == sysid_) {
+        return false;  // 自己的心跳（回环）
+    }
 
-    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
-    if (locked_sysid_.load() != 0) return sysid == locked_sysid_.load() && compid == locked_compid_.load();
+    if (autopilot == MAV_AUTOPILOT_INVALID || type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) {
+        return false;
+    }
+    if (locked_sysid_.load() != 0) {
+        return sysid == locked_sysid_.load() && compid == locked_compid_.load();
+    }
 
     if (cfg_.fcu_sysid != 0) {  // 显式配置优先
-        if (sysid != cfg_.fcu_sysid) return false;
-        if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
+        if (sysid != cfg_.fcu_sysid) {
+            return false;
+        }
+        if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) {
+            return false;
+        }
         locked_sysid_.store(sysid);
         locked_compid_.store(compid);
         return true;
@@ -119,9 +135,15 @@ bool Communicator::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopi
     }
 
     // 自动锁定第一个"像飞控"的心跳：排除地面站、机载计算机和无自动驾驶类型的组件。
-    if (autopilot == MAV_AUTOPILOT_INVALID) return false;
-    if (type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) return false;
-    if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) return false;
+    if (autopilot == MAV_AUTOPILOT_INVALID) {
+        return false;
+    }
+    if (type == MAV_TYPE_GCS || type == MAV_TYPE_ONBOARD_CONTROLLER) {
+        return false;
+    }
+    if (cfg_.fcu_compid != 0 && compid != cfg_.fcu_compid) {
+        return false;
+    }
 
     locked_sysid_.store(sysid);
     locked_compid_.store(compid);
@@ -136,28 +158,28 @@ void Communicator::resetSessionState() {
     connected_.store(false);
     invalidateTelemetry();
     {
-        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+        std::scoped_lock lk(imu_queue_mutex_);
         imu_queue_.clear();
     }
     dropped_imu_.store(0);
     {
-        std::lock_guard<std::mutex> lk(imu_mutex_);
+        std::scoped_lock lk(imu_mutex_);
         imu_ = ImuData{};
     }
     {
-        std::lock_guard<std::mutex> lk(attitude_mutex_);
+        std::scoped_lock lk(attitude_mutex_);
         attitude_ = Attitude{};
     }
     {
-        std::lock_guard<std::mutex> lk(battery_mutex_);
+        std::scoped_lock lk(battery_mutex_);
         battery_ = Battery{};
     }
     {
-        std::lock_guard<std::mutex> lk(local_position_mutex_);
+        std::scoped_lock lk(local_position_mutex_);
         local_pos_ = LocalPosition{};
     }
     {
-        std::lock_guard<std::mutex> lk(system_time_mutex_);
+        std::scoped_lock lk(system_time_mutex_);
         system_time_ = SystemTime{};
     }
     connected_.store(false);
@@ -182,21 +204,21 @@ void Communicator::resetSessionState() {
 
 void Communicator::invalidateTelemetry() {
     {
-        std::lock_guard<std::mutex> lock(attitude_mutex_);
+        std::scoped_lock lock(attitude_mutex_);
         last_attitude_ns_.store(0);
     }
     {
-        std::lock_guard<std::mutex> lock(local_position_mutex_);
+        std::scoped_lock lock(local_position_mutex_);
         last_local_position_ns_.store(0);
     }
     {
-        std::lock_guard<std::mutex> lock(system_time_mutex_);
+        std::scoped_lock lock(system_time_mutex_);
         last_system_time_ns_.store(0);
     }
 }
 
 void Communicator::clearImuQueue() {
-    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+    std::scoped_lock lk(imu_queue_mutex_);
     imu_queue_.clear();
 }
 
@@ -219,12 +241,12 @@ void Communicator::recvLoop() {
     while (running_.load()) {
         // 心跳超时 → 判定断开
         if (connected_.load() && steady_clock::now() - last_heartbeat > heartbeat_timeout) {
-            std::lock_guard<std::mutex> tx_lock(send_mutex_);
+            std::scoped_lock tx_lock(send_mutex_);
             connected_.store(false);
             invalidateTelemetry();
             clearImuQueue();
             {
-                std::lock_guard<std::mutex> lk(imu_mutex_);
+                std::scoped_lock lk(imu_mutex_);
                 imu_ = ImuData{};
             }
             last_ack_command_.store(0);
@@ -239,10 +261,12 @@ void Communicator::recvLoop() {
         // ---- 串口已关闭：每 500ms 用同一路径尝试重开（飞控重启会重新枚举 USB）----
         if (!port_.isOpen()) {
             std::this_thread::sleep_for(milliseconds(500));
-            if (!running_.load()) break;
+            if (!running_.load()) {
+                break;
+            }
             if (port_.open(cfg_.device, cfg_.baudrate)) {
                 {
-                    std::lock_guard<std::mutex> tx_lock(send_mutex_);
+                    std::scoped_lock tx_lock(send_mutex_);
                     rx_message = {};
                     rx_status = {};
                     status = {};
@@ -276,10 +300,10 @@ void Communicator::recvLoop() {
         // 读会一直返回 0/错误，光靠心跳超时无法触发"重新打开串口"。
         short revents = 0;
         const int pr = port_.pollIn(1, &revents);
-        if (pr > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
+        if (pr > 0 && ((revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)) {
             printf("[COMM] 串口挂断（poll revents=0x%x）：设备掉线，等待重连…\n", static_cast<unsigned>(revents));
             fflush(stdout);
-            std::lock_guard<std::mutex> tx_lock(send_mutex_);
+            std::scoped_lock tx_lock(send_mutex_);
             port_.close();
             connected_.store(false);
             invalidateTelemetry();
@@ -295,7 +319,7 @@ void Communicator::recvLoop() {
             if (++read_errors >= 5) {
                 printf("[COMM] 串口读错误（%s）：设备掉线，停止解析，等待重连…\n", std::strerror(errno));
                 fflush(stdout);
-                std::lock_guard<std::mutex> tx_lock(send_mutex_);
+                std::scoped_lock tx_lock(send_mutex_);
                 port_.close();
                 connected_.store(false);
                 invalidateTelemetry();
@@ -353,7 +377,7 @@ void Communicator::recvLoop() {
                             count_attitude_.fetch_add(1);
                             mavlink_attitude_t att;
                             mavlink_msg_attitude_decode(&msg, &att);
-                            std::lock_guard<std::mutex> lk(attitude_mutex_);
+                            std::scoped_lock lk(attitude_mutex_);
                             attitude_.time_boot_ms = att.time_boot_ms;
                             attitude_.roll = att.roll;
                             attitude_.pitch = att.pitch;
@@ -366,15 +390,15 @@ void Communicator::recvLoop() {
                             count_battery_.fetch_add(1);
                             mavlink_battery_status_t bat;
                             mavlink_msg_battery_status_decode(&msg, &bat);
-                            std::lock_guard<std::mutex> lk(battery_mutex_);
+                            std::scoped_lock lk(battery_mutex_);
                             // 累加所有有效 cell 电压得到总电压（UINT16_MAX = 该 cell 无效）
-                            float total_mv = 0.0f;
-                            for (int i = 0; i < 10; ++i) {
-                                if (bat.voltages[i] != UINT16_MAX) {
-                                    total_mv += bat.voltages[i];
+                            float total_mv = 0.0F;
+                            for (unsigned short voltage : bat.voltages) {
+                                if (voltage != UINT16_MAX) {
+                                    total_mv += voltage;
                                 }
                             }
-                            battery_.voltage = total_mv / 1000.0f;       // mV → V
+                            battery_.voltage = total_mv / 1000.0F;       // mV → V
                             battery_.remaining = bat.battery_remaining;  // %
                             break;
                         }
@@ -389,7 +413,7 @@ void Communicator::recvLoop() {
                             count_local_position_.fetch_add(1);
                             mavlink_local_position_ned_t lp;
                             mavlink_msg_local_position_ned_decode(&msg, &lp);
-                            std::lock_guard<std::mutex> lk(local_position_mutex_);
+                            std::scoped_lock lk(local_position_mutex_);
                             local_pos_.time_boot_ms = lp.time_boot_ms;
                             local_pos_.x = lp.x;
                             local_pos_.y = lp.y;
@@ -404,7 +428,7 @@ void Communicator::recvLoop() {
                             count_system_time_.fetch_add(1);
                             mavlink_system_time_t st;
                             mavlink_msg_system_time_decode(&msg, &st);
-                            std::lock_guard<std::mutex> lk(system_time_mutex_);
+                            std::scoped_lock lk(system_time_mutex_);
                             system_time_.time_unix_usec = st.time_unix_usec;
                             system_time_.time_boot_ms = st.time_boot_ms;
                             last_system_time_ns_.store(steadyNowNs());
@@ -425,7 +449,7 @@ void Communicator::recvLoop() {
                             sample.ay = imu.yacc;
                             sample.az = imu.zacc;
                             {
-                                std::lock_guard<std::mutex> lk(imu_mutex_);
+                                std::scoped_lock lk(imu_mutex_);
                                 imu_ = sample;  // 兼容旧接口：最新一帧
                             }
                             // 【2026-10-28】逐帧入队给 VIO。接收线程只做入队，
@@ -436,7 +460,7 @@ void Communicator::recvLoop() {
                                 item.session = reconnects_.load();
                                 item.imu = sample;
                                 item.host_ns = host_ns;
-                                std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+                                std::scoped_lock lk(imu_queue_mutex_);
                                 while (imu_queue_.size() >= cap) {
                                     imu_queue_.pop_front();
                                     dropped_imu_.fetch_add(1);
@@ -466,9 +490,13 @@ void Communicator::recvLoop() {
 
 // 发送底层
 bool Communicator::sendMessage(const uint8_t* buf, uint16_t len, bool require_connected, std::optional<uint64_t> expected_session) {
-    std::lock_guard<std::mutex> lk(send_mutex_);
-    if (require_connected && (!running_.load() || !connected_.load())) return false;
-    if (expected_session && reconnects_.load() != *expected_session) return false;
+    std::scoped_lock lk(send_mutex_);
+    if (require_connected && (!running_.load() || !connected_.load())) {
+        return false;
+    }
+    if (expected_session && reconnects_.load() != *expected_session) {
+        return false;
+    }
     size_t off = 0;
     while (off < len) {
         ssize_t n = port_.write(buf + off, len - off);
@@ -496,7 +524,7 @@ void Communicator::sendGcsHeartbeat() {
 }
 
 // 飞行模式 / ACK 结果 中文名映射
-const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
+const char* Communicator::px4ModeNameCn(uint32_t custom_mode) {
     const uint8_t main_mode = (custom_mode >> 16) & 0xFF;
     const uint8_t sub_mode = (custom_mode >> 24) & 0xFF;
     switch (main_mode) {
@@ -505,8 +533,12 @@ const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
         case 2:
             return "定高";
         case 3:
-            if (sub_mode == 1) return "环绕";
-            if (sub_mode == 2) return "慢速定点";
+            if (sub_mode == 1) {
+                return "环绕";
+            }
+            if (sub_mode == 2) {
+                return "慢速定点";
+            }
             return "定点";
         case 4:
             switch (sub_mode) {
@@ -544,7 +576,7 @@ const char* Communicator::px4ModeNameCn(uint32_t custom_mode) const {
     }
 }
 
-const char* Communicator::arducopterModeNameCn(uint8_t custom_mode) const {
+const char* Communicator::arducopterModeNameCn(uint8_t custom_mode) {
     switch (custom_mode) {
         case arducopter_mode::STABILIZE:
             return "自稳";
@@ -573,7 +605,7 @@ const char* Communicator::arducopterModeNameCn(uint8_t custom_mode) const {
     }
 }
 
-const char* Communicator::ackResultNameCn(uint8_t result) const {
+const char* Communicator::ackResultNameCn(uint8_t result) {
     switch (result) {
         case MAV_RESULT_ACCEPTED:
             return "已接受";  // 0
@@ -616,27 +648,27 @@ bool Communicator::sendVisionPose(const VisionPose& p, std::optional<uint64_t> e
     // 只填位置/速度对角；姿态没有估计值就保持 0（飞控会 constrain 到
     // VISO_YAW_M_NSE 之类的配置下限）。没给 sigma → NaN（MAVLink 约定 = 未知）。
     //=======================================================================
-    float pose_cov[21] = {0.0f};
-    float vel_cov[21] = {0.0f};
-    if (p.pos_sigma_m > 0.0f) {
+    float pose_cov[21] = {0.0F};
+    float vel_cov[21] = {0.0F};
+    if (p.pos_sigma_m > 0.0F) {
         pose_cov[0] = pose_cov[6] = pose_cov[11] = p.pos_sigma_m * p.pos_sigma_m;
     } else {
         // 未知：三个对角都标 NaN（只标 [0] 会让另外两个 0 被当成"完美已知"）
         pose_cov[0] = pose_cov[6] = pose_cov[11] = std::nanf("");
     }
-    if (p.vel_sigma_mps > 0.0f) {
+    if (p.vel_sigma_mps > 0.0F) {
         vel_cov[0] = vel_cov[6] = vel_cov[11] = p.vel_sigma_mps * p.vel_sigma_mps;
     } else {
         vel_cov[0] = vel_cov[6] = vel_cov[11] = std::nanf("");
     }
 
     int quality = p.quality;
-    if (quality < 0) quality = 0;
-    if (quality > 100) quality = 100;
+    quality = std::max(quality, 0);
+    quality = std::min(quality, 100);
 
     // ⚠️ 最后三个参数的顺序是 (reset_counter, estimator_type, quality)，
     //    这是 MAVLink 生成函数的签名。写反了编译器不会报错（都是整数）。
-    packMessage(mavlink_msg_odometry_pack, sysid_, compid_, &msg, p.timestamp_us, static_cast<uint8_t>(p.frame_id), static_cast<uint8_t>(p.child_frame_id), p.x, p.y, p.z, p.q, p.vx, p.vy, p.vz, 0.0f, 0.0f, 0.0f, pose_cov, vel_cov,
+    packMessage(mavlink_msg_odometry_pack, sysid_, compid_, &msg, p.timestamp_us, static_cast<uint8_t>(p.frame_id), static_cast<uint8_t>(p.child_frame_id), p.x, p.y, p.z, p.q, p.vx, p.vy, p.vz, 0.0F, 0.0F, 0.0F, pose_cov, vel_cov,
                 p.reset_counter,                // 1) 重置计数
                 MAV_ESTIMATOR_TYPE_VIO,         // 2) 估计器类型
                 static_cast<int8_t>(quality));  // 3) 质量 0-100
@@ -668,7 +700,7 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {  // 发送制导律
     } else {
         return false;  // 未知 mode，拒绝发送
     }
-    packMessage(mavlink_msg_set_position_target_local_ned_pack, sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED, type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
+    packMessage(mavlink_msg_set_position_target_local_ned_pack, sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED, type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0F, 0.0F);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     return sendMessage(buf, len, true);
 }
@@ -680,7 +712,9 @@ bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, altitude_m);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len, true)) return false;
+    if (!sendMessage(buf, len, true)) {
+        return false;
+    }
     return waitForAck(MAV_CMD_NAV_TAKEOFF, timeout_ms, result);
 }
 
@@ -691,7 +725,9 @@ bool Communicator::sendLand(int timeout_ms, uint8_t* result) {  // 命令PX4自�
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len, true)) return false;
+    if (!sendMessage(buf, len, true)) {
+        return false;
+    }
     return waitForAck(MAV_CMD_NAV_LAND, timeout_ms, result);
 }
 
@@ -710,7 +746,9 @@ bool Communicator::sendSetMode(uint32_t custom_mode, int timeout_ms, uint8_t* re
         packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_DO_SET_MODE, 0, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, main_mode, sub_mode, 0, 0, 0, 0);
     }
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len, true)) return false;
+    if (!sendMessage(buf, len, true)) {
+        return false;
+    }
     return waitForAck(MAV_CMD_DO_SET_MODE, timeout_ms, result);
 }
 
@@ -718,12 +756,14 @@ bool Communicator::sendArm(bool arm, int timeout_ms, uint8_t* result) {  // 解�
     last_ack_command_.store(0);
     last_ack_result_.store(UINT8_MAX);
     // 普通解锁/加锁遵守飞控安全检查，不能默认使用强制解锁或空中强制加锁。
-    const float force = 0.0f;
+    const float force = 0.0F;
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_COMPONENT_ARM_DISARM, 0, arm ? 1.0f : 0.0f, force, 0, 0, 0, 0, 0);
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), MAV_CMD_COMPONENT_ARM_DISARM, 0, arm ? 1.0F : 0.0F, force, 0, 0, 0, 0, 0);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    if (!sendMessage(buf, len, true)) return false;
+    if (!sendMessage(buf, len, true)) {
+        return false;
+    }
     return waitForAck(MAV_CMD_COMPONENT_ARM_DISARM, timeout_ms, result);
 }
 
@@ -742,7 +782,9 @@ bool Communicator::waitForAck(uint16_t command, int timeout_ms, uint8_t* result)
     const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
     while (steady_clock::now() < deadline) {
         if (last_ack_command_.load() == command && last_ack_result_.load() != UINT8_MAX) {
-            if (result) *result = last_ack_result_.load();
+            if (result != nullptr) {
+                *result = last_ack_result_.load();
+            }
             return true;
         }
         std::this_thread::sleep_for(milliseconds(5));
@@ -765,14 +807,16 @@ bool Communicator::getAttitude(Attitude& out) const {
 }
 
 bool Communicator::getAttitude(Attitude& out, int max_age_ms) const {
-    std::lock_guard<std::mutex> lk(attitude_mutex_);
-    if (!connected_.load() || !telemetryFresh(last_attitude_ns_.load(), max_age_ms)) return false;
+    std::scoped_lock lk(attitude_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_attitude_ns_.load(), max_age_ms)) {
+        return false;
+    }
     out = attitude_;
     return true;
 }
 
 bool Communicator::getBattery(Battery& out) const {
-    std::lock_guard<std::mutex> lk(battery_mutex_);
+    std::scoped_lock lk(battery_mutex_);
     out = battery_;
     return true;
 }
@@ -782,35 +826,39 @@ bool Communicator::getLocalPosition(LocalPosition& out) const {
 }
 
 bool Communicator::getLocalPosition(LocalPosition& out, int max_age_ms) const {
-    std::lock_guard<std::mutex> lk(local_position_mutex_);
-    if (!connected_.load() || !telemetryFresh(last_local_position_ns_.load(), max_age_ms)) return false;
+    std::scoped_lock lk(local_position_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_local_position_ns_.load(), max_age_ms)) {
+        return false;
+    }
     out = local_pos_;
     return true;
 }
 
 bool Communicator::getImu(ImuData& out) const {
-    std::lock_guard<std::mutex> lk(imu_mutex_);
+    std::scoped_lock lk(imu_mutex_);
     out = imu_;
     return true;
 }
 
 // 【2026-10-28】逐帧 IMU 交付给 VIO。
 bool Communicator::popImu(TimedImu& out) {
-    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
-    if (imu_queue_.empty()) return false;
+    std::scoped_lock lk(imu_queue_mutex_);
+    if (imu_queue_.empty()) {
+        return false;
+    }
     out = imu_queue_.front();
     imu_queue_.pop_front();
     return true;
 }
 
 size_t Communicator::imuQueueSize() const {
-    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+    std::scoped_lock lk(imu_queue_mutex_);
     return imu_queue_.size();
 }
 
 void Communicator::setImuQueueCapacity(size_t cap) {
     {
-        std::lock_guard<std::mutex> lk(imu_queue_mutex_);
+        std::scoped_lock lk(imu_queue_mutex_);
         imu_queue_capacity_.store(cap);
         // 缩小容量时立刻裁掉多余部分，避免"设置了却还占着内存"
         while (imu_queue_.size() > cap) {
@@ -822,7 +870,9 @@ void Communicator::setImuQueueCapacity(size_t cap) {
 
 int64_t Communicator::lastHeartbeatAgeMs() const {
     const int64_t last = last_heartbeat_ns_.load();
-    if (last == 0) return -1;
+    if (last == 0) {
+        return -1;
+    }
     return (steadyNowNs() - last) / 1000000;
 }
 
@@ -831,26 +881,28 @@ bool Communicator::getSystemTime(SystemTime& out) const {
 }
 
 bool Communicator::getSystemTime(SystemTime& out, int max_age_ms) const {
-    std::lock_guard<std::mutex> lk(system_time_mutex_);
-    if (!connected_.load() || !telemetryFresh(last_system_time_ns_.load(), max_age_ms)) return false;
+    std::scoped_lock lk(system_time_mutex_);
+    if (!connected_.load() || !telemetryFresh(last_system_time_ns_.load(), max_age_ms)) {
+        return false;
+    }
     out = system_time_;
     return true;
 }
 
 int64_t Communicator::attitudeAgeMs() const {
-    std::lock_guard<std::mutex> lock(attitude_mutex_);
+    std::scoped_lock lock(attitude_mutex_);
     const auto stamp = last_attitude_ns_.load();
     return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
 }
 
 int64_t Communicator::localPositionAgeMs() const {
-    std::lock_guard<std::mutex> lock(local_position_mutex_);
+    std::scoped_lock lock(local_position_mutex_);
     const auto stamp = last_local_position_ns_.load();
     return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
 }
 
 int64_t Communicator::systemTimeAgeMs() const {
-    std::lock_guard<std::mutex> lock(system_time_mutex_);
+    std::scoped_lock lock(system_time_mutex_);
     const auto stamp = last_system_time_ns_.load();
     return connected_.load() && stamp != 0 ? (steadyNowNs() - stamp) / 1000000LL : -1;
 }
@@ -875,7 +927,9 @@ const char* Communicator::getAutopilotNameCn() const {
 
 const char* Communicator::getLastAck() const {
     const uint8_t result = last_ack_result_.load();
-    if (result == UINT8_MAX) return "未收到";  // 尚未收到 ACK
+    if (result == UINT8_MAX) {
+        return "未收到";  // 尚未收到 ACK
+    }
     return ackResultNameCn(result);
 }
 
@@ -888,27 +942,54 @@ bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg) {
         }
         YAML::Node comm = root["communicate"];
         for (const char* name : {"fcu_sysid", "fcu_compid"}) {
-            if (!comm[name]) continue;
+            if (!comm[name]) {
+                continue;
+            }
             const int id = comm[name].as<int>();
-            if (id < 0 || id > 255) return false;
-            if (std::strcmp(name, "fcu_sysid") == 0)
+            if (id < 0 || id > 255) {
+                return false;
+            }
+            if (std::strcmp(name, "fcu_sysid") == 0) {
                 cfg.fcu_sysid = static_cast<uint8_t>(id);
-            else
+            } else {
                 cfg.fcu_compid = static_cast<uint8_t>(id);
+            }
         }
-        if (comm["file"]) cfg.device = comm["file"].as<std::string>();
-        if (comm["device"]) cfg.device = comm["device"].as<std::string>();
-        if (comm["port"]) cfg.device = comm["port"].as<std::string>();
-        if (comm["baudrate"]) cfg.baudrate = comm["baudrate"].as<int>();
-        if (comm["baud"]) cfg.baudrate = comm["baud"].as<int>();
-        if (comm["heartbeat_timeout_ms"]) cfg.heartbeat_timeout_ms = comm["heartbeat_timeout_ms"].as<int>();
+        if (comm["file"]) {
+            cfg.device = comm["file"].as<std::string>();
+        }
+        if (comm["device"]) {
+            cfg.device = comm["device"].as<std::string>();
+        }
+        if (comm["port"]) {
+            cfg.device = comm["port"].as<std::string>();
+        }
+        if (comm["baudrate"]) {
+            cfg.baudrate = comm["baudrate"].as<int>();
+        }
+        if (comm["baud"]) {
+            cfg.baudrate = comm["baud"].as<int>();
+        }
+        if (comm["heartbeat_timeout_ms"]) {
+            cfg.heartbeat_timeout_ms = comm["heartbeat_timeout_ms"].as<int>();
+        }
         if (comm["stream"]) {
             YAML::Node s = comm["stream"];
-            if (s["attitude_us"]) cfg.attitude_interval_us = s["attitude_us"].as<int>();
-            if (s["local_position_us"]) cfg.local_position_interval_us = s["local_position_us"].as<int>();
-            if (s["highres_imu_us"]) cfg.highres_imu_interval_us = s["highres_imu_us"].as<int>();
-            if (s["battery_us"]) cfg.battery_interval_us = s["battery_us"].as<int>();
-            if (s["system_time_us"]) cfg.system_time_interval_us = s["system_time_us"].as<int>();
+            if (s["attitude_us"]) {
+                cfg.attitude_interval_us = s["attitude_us"].as<int>();
+            }
+            if (s["local_position_us"]) {
+                cfg.local_position_interval_us = s["local_position_us"].as<int>();
+            }
+            if (s["highres_imu_us"]) {
+                cfg.highres_imu_interval_us = s["highres_imu_us"].as<int>();
+            }
+            if (s["battery_us"]) {
+                cfg.battery_interval_us = s["battery_us"].as<int>();
+            }
+            if (s["system_time_us"]) {
+                cfg.system_time_interval_us = s["system_time_us"].as<int>();
+            }
         }
         return true;
     } catch (const YAML::Exception& e) {
@@ -920,7 +1001,9 @@ bool loadCommConfig(const std::string& yaml_path, CommConfig& cfg) {
 // 自动查找配置文件
 std::string findConfigFile(const std::string& rel_path) {
     // 1. 当前工作目录直接找
-    if (access(rel_path.c_str(), F_OK) == 0) return rel_path;
+    if (access(rel_path.c_str(), F_OK) == 0) {
+        return rel_path;
+    }
     // 2. 从可执行文件位置逐层往上找
     char buf[PATH_MAX];
     ssize_t n = readlink("/proc/self/exe", buf, PATH_MAX);
@@ -930,9 +1013,13 @@ std::string findConfigFile(const std::string& rel_path) {
         dir = dir.substr(0, dir.find_last_of('/'));
         for (int i = 0; i < 6; i++) {
             std::string cand = dir + "/" + rel_path;
-            if (access(cand.c_str(), F_OK) == 0) return cand;
+            if (access(cand.c_str(), F_OK) == 0) {
+                return cand;
+            }
             auto pos = dir.find_last_of('/');
-            if (pos == std::string::npos) break;
+            if (pos == std::string::npos) {
+                break;
+            }
             dir = dir.substr(0, pos);
         }
     }

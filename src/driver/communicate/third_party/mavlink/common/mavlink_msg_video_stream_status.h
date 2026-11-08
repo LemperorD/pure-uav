@@ -3,31 +3,24 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_VIDEO_STREAM_STATUS 270
+enum { MAVLINK_MSG_ID_VIDEO_STREAM_STATUS = 270 };
 
+using mavlink_video_stream_status_t = struct __mavlink_video_stream_status_t {
+    float framerate;          /*< [Hz] Frame rate*/
+    uint32_t bitrate;         /*< [bits/s] Bit rate*/
+    uint16_t flags;           /*<  Bitmap of stream status flags*/
+    uint16_t resolution_h;    /*< [pix] Horizontal resolution*/
+    uint16_t resolution_v;    /*< [pix] Vertical resolution*/
+    uint16_t rotation;        /*< [deg] Video image rotation clockwise*/
+    uint16_t hfov;            /*< [deg] Horizontal Field of view*/
+    uint8_t stream_id;        /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
+    uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
+    uint16_t vfov;            /*< [cdeg] Vertical field of view (0 if unknown).*/
+};
 
-typedef struct __mavlink_video_stream_status_t {
- float framerate; /*< [Hz] Frame rate*/
- uint32_t bitrate; /*< [bits/s] Bit rate*/
- uint16_t flags; /*<  Bitmap of stream status flags*/
- uint16_t resolution_h; /*< [pix] Horizontal resolution*/
- uint16_t resolution_v; /*< [pix] Vertical resolution*/
- uint16_t rotation; /*< [deg] Video image rotation clockwise*/
- uint16_t hfov; /*< [deg] Horizontal Field of view*/
- uint8_t stream_id; /*<  Video Stream ID (1 for first, 2 for second, etc.)*/
- uint8_t camera_device_id; /*<  Camera id of a non-MAVLink camera attached to an autopilot (1-6).  0 if the component is a MAVLink camera (with its own component id).*/
- uint16_t vfov; /*< [cdeg] Vertical field of view (0 if unknown).*/
-} mavlink_video_stream_status_t;
+enum { MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_LEN = 22, MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_MIN_LEN = 19, MAVLINK_MSG_ID_270_LEN = 22, MAVLINK_MSG_ID_270_MIN_LEN = 19 };
 
-#define MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_LEN 22
-#define MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_MIN_LEN 19
-#define MAVLINK_MSG_ID_270_LEN 22
-#define MAVLINK_MSG_ID_270_MIN_LEN 19
-
-#define MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_CRC 59
-#define MAVLINK_MSG_ID_270_CRC 59
-
-
+enum { MAVLINK_MSG_ID_VIDEO_STREAM_STATUS_CRC = 59, MAVLINK_MSG_ID_270_CRC = 59 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VIDEO_STREAM_STATUS { \

@@ -3,28 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE 284
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE = 284 };
 
+using mavlink_gimbal_device_set_attitude_t = struct __mavlink_gimbal_device_set_attitude_t {
+    float q[4];               /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation). The frame is described in the message description. Set fields to NaN to be ignored.*/
+    float angular_velocity_x; /*< [rad/s] X component of angular velocity (positive: rolling to the right). The frame is described in the message description. NaN to be ignored.*/
+    float angular_velocity_y; /*< [rad/s] Y component of angular velocity (positive: pitching up). The frame is described in the message description. NaN to be ignored.*/
+    float angular_velocity_z; /*< [rad/s] Z component of angular velocity (positive: yawing to the right). The frame is described in the message description. NaN to be ignored.*/
+    uint16_t flags;           /*<  Low level gimbal flags.*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_gimbal_device_set_attitude_t {
- float q[4]; /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation). The frame is described in the message description. Set fields to NaN to be ignored.*/
- float angular_velocity_x; /*< [rad/s] X component of angular velocity (positive: rolling to the right). The frame is described in the message description. NaN to be ignored.*/
- float angular_velocity_y; /*< [rad/s] Y component of angular velocity (positive: pitching up). The frame is described in the message description. NaN to be ignored.*/
- float angular_velocity_z; /*< [rad/s] Z component of angular velocity (positive: yawing to the right). The frame is described in the message description. NaN to be ignored.*/
- uint16_t flags; /*<  Low level gimbal flags.*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_gimbal_device_set_attitude_t;
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_LEN = 32, MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_MIN_LEN = 32, MAVLINK_MSG_ID_284_LEN = 32, MAVLINK_MSG_ID_284_MIN_LEN = 32 };
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_LEN 32
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_MIN_LEN 32
-#define MAVLINK_MSG_ID_284_LEN 32
-#define MAVLINK_MSG_ID_284_MIN_LEN 32
+enum { MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_CRC = 99, MAVLINK_MSG_ID_284_CRC = 99 };
 
-#define MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_CRC 99
-#define MAVLINK_MSG_ID_284_CRC 99
-
-#define MAVLINK_MSG_GIMBAL_DEVICE_SET_ATTITUDE_FIELD_Q_LEN 4
+enum { MAVLINK_MSG_GIMBAL_DEVICE_SET_ATTITUDE_FIELD_Q_LEN = 4 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GIMBAL_DEVICE_SET_ATTITUDE { \
@@ -407,11 +402,10 @@ static inline void mavlink_msg_gimbal_device_set_attitude_decode(const mavlink_m
         memset(gimbal_device_set_attitude, 0, MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE_LEN);
     memcpy(gimbal_device_set_attitude, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         gimbal_device_set_attitude->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

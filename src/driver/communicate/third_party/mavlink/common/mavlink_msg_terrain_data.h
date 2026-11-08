@@ -3,26 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_TERRAIN_DATA 134
+enum { MAVLINK_MSG_ID_TERRAIN_DATA = 134 };
 
+using mavlink_terrain_data_t = struct __mavlink_terrain_data_t {
+    int32_t lat;           /*< [degE7] Latitude of SW corner of first grid*/
+    int32_t lon;           /*< [degE7] Longitude of SW corner of first grid*/
+    uint16_t grid_spacing; /*< [m] Grid spacing*/
+    int16_t data[16];      /*< [m] Terrain data MSL*/
+    uint8_t gridbit;       /*<  bit within the terrain request mask*/
+};
 
-typedef struct __mavlink_terrain_data_t {
- int32_t lat; /*< [degE7] Latitude of SW corner of first grid*/
- int32_t lon; /*< [degE7] Longitude of SW corner of first grid*/
- uint16_t grid_spacing; /*< [m] Grid spacing*/
- int16_t data[16]; /*< [m] Terrain data MSL*/
- uint8_t gridbit; /*<  bit within the terrain request mask*/
-} mavlink_terrain_data_t;
+enum { MAVLINK_MSG_ID_TERRAIN_DATA_LEN = 43, MAVLINK_MSG_ID_TERRAIN_DATA_MIN_LEN = 43, MAVLINK_MSG_ID_134_LEN = 43, MAVLINK_MSG_ID_134_MIN_LEN = 43 };
 
-#define MAVLINK_MSG_ID_TERRAIN_DATA_LEN 43
-#define MAVLINK_MSG_ID_TERRAIN_DATA_MIN_LEN 43
-#define MAVLINK_MSG_ID_134_LEN 43
-#define MAVLINK_MSG_ID_134_MIN_LEN 43
+enum { MAVLINK_MSG_ID_TERRAIN_DATA_CRC = 229, MAVLINK_MSG_ID_134_CRC = 229 };
 
-#define MAVLINK_MSG_ID_TERRAIN_DATA_CRC 229
-#define MAVLINK_MSG_ID_134_CRC 229
-
-#define MAVLINK_MSG_TERRAIN_DATA_FIELD_DATA_LEN 16
+enum { MAVLINK_MSG_TERRAIN_DATA_FIELD_DATA_LEN = 16 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_TERRAIN_DATA { \

@@ -103,7 +103,7 @@ void UpdaterHelper::get_feature_jacobian_representation(std::shared_ptr<State> s
 
   // Add anchor Jacobians to our return vector
   x_order.push_back(state->_clones_IMU.at(feature.anchor_clone_timestamp));
-  H_x.push_back(H_anc);
+  H_x.emplace_back(H_anc);
 
   // Get calibration Jacobians (for anchor clone)
   if (state->_options.do_calib_camera_pose) {
@@ -111,7 +111,7 @@ void UpdaterHelper::get_feature_jacobian_representation(std::shared_ptr<State> s
     H_calib.block(0, 0, 3, 3).noalias() = -R_CtoG * skew_x(p_FinA - p_IinC);
     H_calib.block(0, 3, 3, 3) = -R_CtoG;
     x_order.push_back(state->_calib_IMUtoCAM.at(feature.anchor_cam_id));
-    H_x.push_back(H_calib);
+    H_x.emplace_back(H_calib);
   }
 
   // If we are doing anchored XYZ feature
@@ -222,15 +222,14 @@ void UpdaterHelper::get_feature_jacobian_full(std::shared_ptr<State> state, Upda
     }
 
     // Loop through all measurements for this specific camera
-    for (size_t m = 0; m < feature.timestamps[pair.first].size(); m++) {
-
-      // Add this clone if it is not added already
-      std::shared_ptr<PoseJPL> clone_Ci = state->_clones_IMU.at(feature.timestamps[pair.first].at(m));
-      if (map_hx.find(clone_Ci) == map_hx.end()) {
-        map_hx.insert({clone_Ci, total_hx});
-        x_order.push_back(clone_Ci);
-        total_hx += clone_Ci->size();
-      }
+    for (double m : feature.timestamps[pair.first]) {
+        // Add this clone if it is not added already
+        std::shared_ptr<PoseJPL> clone_Ci = state->_clones_IMU.at(m);
+        if (map_hx.find(clone_Ci) == map_hx.end()) {
+            map_hx.insert({clone_Ci, total_hx});
+            x_order.push_back(clone_Ci);
+            total_hx += clone_Ci->size();
+        }
     }
   }
 
@@ -363,7 +362,8 @@ void UpdaterHelper::get_feature_jacobian_full(std::shared_ptr<State> state, Upda
       }
 
       // Compute Jacobians in respect to normalized image coordinates and possibly the camera intrinsics
-      Eigen::MatrixXd dz_dzn, dz_dzeta;
+      Eigen::MatrixXd dz_dzn;
+      Eigen::MatrixXd dz_dzeta;
       state->_cam_intrinsics_cameras.at(pair.first)->compute_distort_jacobian(uv_norm, dz_dzn, dz_dzeta);
 
       // Normalized coordinates in respect to projection function
@@ -456,8 +456,9 @@ void UpdaterHelper::nullspace_project_inplace(Eigen::MatrixXd &H_f, Eigen::Matri
 void UpdaterHelper::measurement_compress_inplace(Eigen::MatrixXd &H_x, Eigen::VectorXd &res) {
 
   // Return if H_x is a fat matrix (there is no need to compress in this case)
-  if (H_x.rows() <= H_x.cols())
-    return;
+  if (H_x.rows() <= H_x.cols()) {
+      return;
+  }
 
   // Do measurement compression through givens rotations
   // Based on "Matrix Computations 4th Edition by Golub and Van Loan"

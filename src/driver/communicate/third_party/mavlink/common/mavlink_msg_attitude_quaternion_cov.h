@@ -3,28 +3,22 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV 61
+enum { MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV = 61 };
 
+using mavlink_attitude_quaternion_cov_t = struct __mavlink_attitude_quaternion_cov_t {
+    uint64_t time_usec;  /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    float q[4];          /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation)*/
+    float rollspeed;     /*< [rad/s] Roll angular speed*/
+    float pitchspeed;    /*< [rad/s] Pitch angular speed*/
+    float yawspeed;      /*< [rad/s] Yaw angular speed*/
+    float covariance[9]; /*<  Row-major representation of a 3x3 attitude covariance matrix (states: roll, pitch, yaw; first three entries are the first ROW, next three entries are the second row, etc.). If unknown, assign NaN value to first element in the array.*/
+};
 
-typedef struct __mavlink_attitude_quaternion_cov_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- float q[4]; /*<  Quaternion components, w, x, y, z (1 0 0 0 is the null-rotation)*/
- float rollspeed; /*< [rad/s] Roll angular speed*/
- float pitchspeed; /*< [rad/s] Pitch angular speed*/
- float yawspeed; /*< [rad/s] Yaw angular speed*/
- float covariance[9]; /*<  Row-major representation of a 3x3 attitude covariance matrix (states: roll, pitch, yaw; first three entries are the first ROW, next three entries are the second row, etc.). If unknown, assign NaN value to first element in the array.*/
-} mavlink_attitude_quaternion_cov_t;
+enum { MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_LEN = 72, MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_MIN_LEN = 72, MAVLINK_MSG_ID_61_LEN = 72, MAVLINK_MSG_ID_61_MIN_LEN = 72 };
 
-#define MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_LEN 72
-#define MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_MIN_LEN 72
-#define MAVLINK_MSG_ID_61_LEN 72
-#define MAVLINK_MSG_ID_61_MIN_LEN 72
+enum { MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_CRC = 167, MAVLINK_MSG_ID_61_CRC = 167 };
 
-#define MAVLINK_MSG_ID_ATTITUDE_QUATERNION_COV_CRC 167
-#define MAVLINK_MSG_ID_61_CRC 167
-
-#define MAVLINK_MSG_ATTITUDE_QUATERNION_COV_FIELD_Q_LEN 4
-#define MAVLINK_MSG_ATTITUDE_QUATERNION_COV_FIELD_COVARIANCE_LEN 9
+enum { MAVLINK_MSG_ATTITUDE_QUATERNION_COV_FIELD_Q_LEN = 4, MAVLINK_MSG_ATTITUDE_QUATERNION_COV_FIELD_COVARIANCE_LEN = 9 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_ATTITUDE_QUATERNION_COV { \

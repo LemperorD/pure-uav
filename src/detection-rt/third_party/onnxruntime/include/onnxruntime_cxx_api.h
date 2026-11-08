@@ -55,8 +55,12 @@ struct Exception : std::exception {
   Exception(const std::string& string, OrtErrorCode code) : message_{string}, code_{code} {}
   Exception(std::string&& string, OrtErrorCode code) : message_{std::move(string)}, code_{code} {}
 
-  OrtErrorCode GetOrtErrorCode() const { return code_; }
-  const char* what() const noexcept override { return message_.c_str(); }
+  [[nodiscard]] OrtErrorCode GetOrtErrorCode() const {
+      return code_;
+  }
+  [[nodiscard]] const char* what() const noexcept override {
+      return message_.c_str();
+  }
 
  private:
   std::string message_;
@@ -150,11 +154,11 @@ std::vector<std::string> GetAvailableProviders();
 /// </summary>
 /// <returns>ORT C Model Editor API reference</returns>
 inline const OrtModelEditorApi& GetModelEditorApi() {
-  auto* api = GetApi().GetModelEditorApi();
-  if (api == nullptr) {
-    // minimal build
-    ORT_CXX_API_THROW("Model Editor API is not available in this build", ORT_FAIL);
-  }
+    const auto* api = GetApi().GetModelEditorApi();
+    if (api == nullptr) {
+        // minimal build
+        ORT_CXX_API_THROW("Model Editor API is not available in this build", ORT_FAIL);
+    }
 
   return *api;
 }
@@ -164,11 +168,11 @@ inline const OrtModelEditorApi& GetModelEditorApi() {
 /// </summary>
 /// <returns>ORT C Compile API reference</returns>
 inline const OrtCompileApi& GetCompileApi() {
-  auto* api = GetApi().GetCompileApi();
-  if (api == nullptr) {
-    // minimal build
-    ORT_CXX_API_THROW("Compile API is not available in this build", ORT_FAIL);
-  }
+    const auto* api = GetApi().GetCompileApi();
+    if (api == nullptr) {
+        // minimal build
+        ORT_CXX_API_THROW("Compile API is not available in this build", ORT_FAIL);
+    }
 
   return *api;
 }
@@ -178,11 +182,11 @@ inline const OrtCompileApi& GetCompileApi() {
 /// </summary>
 /// <returns>ORT C EP API reference</returns>
 inline const OrtEpApi& GetEpApi() {
-  auto* api = GetApi().GetEpApi();
-  if (api == nullptr) {
-    // minimal build
-    ORT_CXX_API_THROW("EP API is not available in this build", ORT_FAIL);
-  }
+    const auto* api = GetApi().GetEpApi();
+    if (api == nullptr) {
+        // minimal build
+        ORT_CXX_API_THROW("EP API is not available in this build", ORT_FAIL);
+    }
 
   return *api;
 }
@@ -205,129 +209,139 @@ inline const OrtEpApi& GetEpApi() {
  *
  * \endcode
  */
-struct Float16_t : onnxruntime_float16::Float16Impl<Float16_t> {
- private:
-  /// <summary>
-  /// Constructor from a 16-bit representation of a float16 value
-  /// No conversion is done here.
-  /// </summary>
-  /// <param name="v">16-bit representation</param>
-  constexpr explicit Float16_t(uint16_t v) noexcept { val = v; }
+struct Float16T : onnxruntime_float16::Float16Impl<Float16T> {
+  private:
+    /// <summary>
+    /// Constructor from a 16-bit representation of a float16 value
+    /// No conversion is done here.
+    /// </summary>
+    /// <param name="v">16-bit representation</param>
+    constexpr explicit Float16T(uint16_t v) noexcept {
+        val = v;
+    }
 
- public:
-  using Base = onnxruntime_float16::Float16Impl<Float16_t>;
+  public:
+    using Base = onnxruntime_float16::Float16Impl<Float16T>;
 
-  /// <summary>
-  /// Default constructor
-  /// </summary>
-  Float16_t() = default;
+    /// <summary>
+    /// Default constructor
+    /// </summary>
+    Float16T() = default;
 
-  /// <summary>
-  /// Explicit conversion to uint16_t representation of float16.
-  /// </summary>
-  /// <param name="v">uint16_t bit representation of float16</param>
-  /// <returns>new instance of Float16_t</returns>
-  constexpr static Float16_t FromBits(uint16_t v) noexcept { return Float16_t(v); }
+    /// <summary>
+    /// Explicit conversion to uint16_t representation of float16.
+    /// </summary>
+    /// <param name="v">uint16_t bit representation of float16</param>
+    /// <returns>new instance of Float16_t</returns>
+    constexpr static Float16T FromBits(uint16_t v) noexcept {
+        return Float16T(v);
+    }
 
-  /// <summary>
-  /// __ctor from float. Float is converted into float16 16-bit representation.
-  /// </summary>
-  /// <param name="v">float value</param>
-  explicit Float16_t(float v) noexcept { val = Base::ToUint16Impl(v); }
+    /// <summary>
+    /// __ctor from float. Float is converted into float16 16-bit representation.
+    /// </summary>
+    /// <param name="v">float value</param>
+    explicit Float16T(float v) noexcept {
+        val = Base::ToUint16Impl(v);
+    }
 
-  /// <summary>
-  /// Converts float16 to float
-  /// </summary>
-  /// <returns>float representation of float16 value</returns>
-  float ToFloat() const noexcept { return Base::ToFloatImpl(); }
+    /// <summary>
+    /// Converts float16 to float
+    /// </summary>
+    /// <returns>float representation of float16 value</returns>
+    [[nodiscard]] float ToFloat() const noexcept {
+        return Base::ToFloatImpl();
+    }
 
-  /// <summary>
-  /// Checks if the value is negative
-  /// </summary>
-  /// <returns>true if negative</returns>
-  using Base::IsNegative;
+    /// <summary>
+    /// Checks if the value is negative
+    /// </summary>
+    /// <returns>true if negative</returns>
+    using Base::IsNegative;
 
-  /// <summary>
-  /// Tests if the value is NaN
-  /// </summary>
-  /// <returns>true if NaN</returns>
-  using Base::IsNaN;
+    /// <summary>
+    /// Tests if the value is NaN
+    /// </summary>
+    /// <returns>true if NaN</returns>
+    using Base::IsNaN;
 
-  /// <summary>
-  /// Tests if the value is finite
-  /// </summary>
-  /// <returns>true if finite</returns>
-  using Base::IsFinite;
+    /// <summary>
+    /// Tests if the value is finite
+    /// </summary>
+    /// <returns>true if finite</returns>
+    using Base::IsFinite;
 
-  /// <summary>
-  /// Tests if the value represents positive infinity.
-  /// </summary>
-  /// <returns>true if positive infinity</returns>
-  using Base::IsPositiveInfinity;
+    /// <summary>
+    /// Tests if the value represents positive infinity.
+    /// </summary>
+    /// <returns>true if positive infinity</returns>
+    using Base::IsPositiveInfinity;
 
-  /// <summary>
-  /// Tests if the value represents negative infinity
-  /// </summary>
-  /// <returns>true if negative infinity</returns>
-  using Base::IsNegativeInfinity;
+    /// <summary>
+    /// Tests if the value represents negative infinity
+    /// </summary>
+    /// <returns>true if negative infinity</returns>
+    using Base::IsNegativeInfinity;
 
-  /// <summary>
-  /// Tests if the value is either positive or negative infinity.
-  /// </summary>
-  /// <returns>True if absolute value is infinity</returns>
-  using Base::IsInfinity;
+    /// <summary>
+    /// Tests if the value is either positive or negative infinity.
+    /// </summary>
+    /// <returns>True if absolute value is infinity</returns>
+    using Base::IsInfinity;
 
-  /// <summary>
-  /// Tests if the value is NaN or zero. Useful for comparisons.
-  /// </summary>
-  /// <returns>True if NaN or zero.</returns>
-  using Base::IsNaNOrZero;
+    /// <summary>
+    /// Tests if the value is NaN or zero. Useful for comparisons.
+    /// </summary>
+    /// <returns>True if NaN or zero.</returns>
+    using Base::IsNaNOrZero;
 
-  /// <summary>
-  /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
-  /// </summary>
-  /// <returns>True if so</returns>
-  using Base::IsNormal;
+    /// <summary>
+    /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
+    /// </summary>
+    /// <returns>True if so</returns>
+    using Base::IsNormal;
 
-  /// <summary>
-  /// Tests if the value is subnormal (denormal).
-  /// </summary>
-  /// <returns>True if so</returns>
-  using Base::IsSubnormal;
+    /// <summary>
+    /// Tests if the value is subnormal (denormal).
+    /// </summary>
+    /// <returns>True if so</returns>
+    using Base::IsSubnormal;
 
-  /// <summary>
-  /// Creates an instance that represents absolute value.
-  /// </summary>
-  /// <returns>Absolute value</returns>
-  using Base::Abs;
+    /// <summary>
+    /// Creates an instance that represents absolute value.
+    /// </summary>
+    /// <returns>Absolute value</returns>
+    using Base::Abs;
 
-  /// <summary>
-  /// Creates a new instance with the sign flipped.
-  /// </summary>
-  /// <returns>Flipped sign instance</returns>
-  using Base::Negate;
+    /// <summary>
+    /// Creates a new instance with the sign flipped.
+    /// </summary>
+    /// <returns>Flipped sign instance</returns>
+    using Base::Negate;
 
-  /// <summary>
-  /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check
-  /// for two values by or'ing the private bits together and stripping the sign. They are both zero,
-  /// and therefore equivalent, if the resulting value is still zero.
-  /// </summary>
-  /// <param name="lhs">first value</param>
-  /// <param name="rhs">second value</param>
-  /// <returns>True if both arguments represent zero</returns>
-  using Base::AreZero;
+    /// <summary>
+    /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check
+    /// for two values by or'ing the private bits together and stripping the sign. They are both zero,
+    /// and therefore equivalent, if the resulting value is still zero.
+    /// </summary>
+    /// <param name="lhs">first value</param>
+    /// <param name="rhs">second value</param>
+    /// <returns>True if both arguments represent zero</returns>
+    using Base::AreZero;
 
-  /// <summary>
-  /// User defined conversion operator. Converts Float16_t to float.
-  /// </summary>
-  explicit operator float() const noexcept { return ToFloat(); }
+    /// <summary>
+    /// User defined conversion operator. Converts Float16_t to float.
+    /// </summary>
+    explicit operator float() const noexcept {
+        return ToFloat();
+    }
 
-  using Base::operator==;
-  using Base::operator!=;
-  using Base::operator<;
+    using Base::operator==;
+    using Base::operator!=;
+    using Base::operator<;
 };
 
-static_assert(sizeof(Float16_t) == sizeof(uint16_t), "Sizes must match");
+static_assert(sizeof(Float16T) == sizeof(uint16_t), "Sizes must match");
 
 /** \brief bfloat16 (Brain Floating Point) data type
  *
@@ -347,198 +361,242 @@ static_assert(sizeof(Float16_t) == sizeof(uint16_t), "Sizes must match");
  *
  * \endcode
  */
-struct BFloat16_t : onnxruntime_float16::BFloat16Impl<BFloat16_t> {
- private:
-  /// <summary>
-  /// Constructor from a uint16_t representation of bfloat16
-  /// used in FromBits() to escape overload resolution issue with
-  /// constructor from float.
-  /// No conversion is done.
-  /// </summary>
-  /// <param name="v">16-bit bfloat16 value</param>
-  constexpr explicit BFloat16_t(uint16_t v) noexcept { val = v; }
+struct BFloat16T : onnxruntime_float16::BFloat16Impl<BFloat16T> {
+  private:
+    /// <summary>
+    /// Constructor from a uint16_t representation of bfloat16
+    /// used in FromBits() to escape overload resolution issue with
+    /// constructor from float.
+    /// No conversion is done.
+    /// </summary>
+    /// <param name="v">16-bit bfloat16 value</param>
+    constexpr explicit BFloat16T(uint16_t v) noexcept {
+        val = v;
+    }
 
- public:
-  using Base = onnxruntime_float16::BFloat16Impl<BFloat16_t>;
+  public:
+    using Base = onnxruntime_float16::BFloat16Impl<BFloat16T>;
 
-  BFloat16_t() = default;
+    BFloat16T() = default;
 
-  /// <summary>
-  /// Explicit conversion to uint16_t representation of bfloat16.
-  /// </summary>
-  /// <param name="v">uint16_t bit representation of bfloat16</param>
-  /// <returns>new instance of BFloat16_t</returns>
-  static constexpr BFloat16_t FromBits(uint16_t v) noexcept { return BFloat16_t(v); }
+    /// <summary>
+    /// Explicit conversion to uint16_t representation of bfloat16.
+    /// </summary>
+    /// <param name="v">uint16_t bit representation of bfloat16</param>
+    /// <returns>new instance of BFloat16_t</returns>
+    static constexpr BFloat16T FromBits(uint16_t v) noexcept {
+        return BFloat16T(v);
+    }
 
-  /// <summary>
-  /// __ctor from float. Float is converted into bfloat16 16-bit representation.
-  /// </summary>
-  /// <param name="v">float value</param>
-  explicit BFloat16_t(float v) noexcept { val = Base::ToUint16Impl(v); }
+    /// <summary>
+    /// __ctor from float. Float is converted into bfloat16 16-bit representation.
+    /// </summary>
+    /// <param name="v">float value</param>
+    explicit BFloat16T(float v) noexcept {
+        val = Base::ToUint16Impl(v);
+    }
 
-  /// <summary>
-  /// Converts bfloat16 to float
-  /// </summary>
-  /// <returns>float representation of bfloat16 value</returns>
-  float ToFloat() const noexcept { return Base::ToFloatImpl(); }
+    /// <summary>
+    /// Converts bfloat16 to float
+    /// </summary>
+    /// <returns>float representation of bfloat16 value</returns>
+    [[nodiscard]] float ToFloat() const noexcept {
+        return Base::ToFloatImpl();
+    }
 
-  /// <summary>
-  /// Checks if the value is negative
-  /// </summary>
-  /// <returns>true if negative</returns>
-  using Base::IsNegative;
+    /// <summary>
+    /// Checks if the value is negative
+    /// </summary>
+    /// <returns>true if negative</returns>
+    using Base::IsNegative;
 
-  /// <summary>
-  /// Tests if the value is NaN
-  /// </summary>
-  /// <returns>true if NaN</returns>
-  using Base::IsNaN;
+    /// <summary>
+    /// Tests if the value is NaN
+    /// </summary>
+    /// <returns>true if NaN</returns>
+    using Base::IsNaN;
 
-  /// <summary>
-  /// Tests if the value is finite
-  /// </summary>
-  /// <returns>true if finite</returns>
-  using Base::IsFinite;
+    /// <summary>
+    /// Tests if the value is finite
+    /// </summary>
+    /// <returns>true if finite</returns>
+    using Base::IsFinite;
 
-  /// <summary>
-  /// Tests if the value represents positive infinity.
-  /// </summary>
-  /// <returns>true if positive infinity</returns>
-  using Base::IsPositiveInfinity;
+    /// <summary>
+    /// Tests if the value represents positive infinity.
+    /// </summary>
+    /// <returns>true if positive infinity</returns>
+    using Base::IsPositiveInfinity;
 
-  /// <summary>
-  /// Tests if the value represents negative infinity
-  /// </summary>
-  /// <returns>true if negative infinity</returns>
-  using Base::IsNegativeInfinity;
+    /// <summary>
+    /// Tests if the value represents negative infinity
+    /// </summary>
+    /// <returns>true if negative infinity</returns>
+    using Base::IsNegativeInfinity;
 
-  /// <summary>
-  /// Tests if the value is either positive or negative infinity.
-  /// </summary>
-  /// <returns>True if absolute value is infinity</returns>
-  using Base::IsInfinity;
+    /// <summary>
+    /// Tests if the value is either positive or negative infinity.
+    /// </summary>
+    /// <returns>True if absolute value is infinity</returns>
+    using Base::IsInfinity;
 
-  /// <summary>
-  /// Tests if the value is NaN or zero. Useful for comparisons.
-  /// </summary>
-  /// <returns>True if NaN or zero.</returns>
-  using Base::IsNaNOrZero;
+    /// <summary>
+    /// Tests if the value is NaN or zero. Useful for comparisons.
+    /// </summary>
+    /// <returns>True if NaN or zero.</returns>
+    using Base::IsNaNOrZero;
 
-  /// <summary>
-  /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
-  /// </summary>
-  /// <returns>True if so</returns>
-  using Base::IsNormal;
+    /// <summary>
+    /// Tests if the value is normal (not zero, subnormal, infinite, or NaN).
+    /// </summary>
+    /// <returns>True if so</returns>
+    using Base::IsNormal;
 
-  /// <summary>
-  /// Tests if the value is subnormal (denormal).
-  /// </summary>
-  /// <returns>True if so</returns>
-  using Base::IsSubnormal;
+    /// <summary>
+    /// Tests if the value is subnormal (denormal).
+    /// </summary>
+    /// <returns>True if so</returns>
+    using Base::IsSubnormal;
 
-  /// <summary>
-  /// Creates an instance that represents absolute value.
-  /// </summary>
-  /// <returns>Absolute value</returns>
-  using Base::Abs;
+    /// <summary>
+    /// Creates an instance that represents absolute value.
+    /// </summary>
+    /// <returns>Absolute value</returns>
+    using Base::Abs;
 
-  /// <summary>
-  /// Creates a new instance with the sign flipped.
-  /// </summary>
-  /// <returns>Flipped sign instance</returns>
-  using Base::Negate;
+    /// <summary>
+    /// Creates a new instance with the sign flipped.
+    /// </summary>
+    /// <returns>Flipped sign instance</returns>
+    using Base::Negate;
 
-  /// <summary>
-  /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check
-  /// for two values by or'ing the private bits together and stripping the sign. They are both zero,
-  /// and therefore equivalent, if the resulting value is still zero.
-  /// </summary>
-  /// <param name="lhs">first value</param>
-  /// <param name="rhs">second value</param>
-  /// <returns>True if both arguments represent zero</returns>
-  using Base::AreZero;
+    /// <summary>
+    /// IEEE defines that positive and negative zero are equal, this gives us a quick equality check
+    /// for two values by or'ing the private bits together and stripping the sign. They are both zero,
+    /// and therefore equivalent, if the resulting value is still zero.
+    /// </summary>
+    /// <param name="lhs">first value</param>
+    /// <param name="rhs">second value</param>
+    /// <returns>True if both arguments represent zero</returns>
+    using Base::AreZero;
 
-  /// <summary>
-  /// User defined conversion operator. Converts BFloat16_t to float.
-  /// </summary>
-  explicit operator float() const noexcept { return ToFloat(); }
+    /// <summary>
+    /// User defined conversion operator. Converts BFloat16_t to float.
+    /// </summary>
+    explicit operator float() const noexcept {
+        return ToFloat();
+    }
 
-  // We do not have an inherited impl for the below operators
-  // as the internal class implements them a little differently
-  bool operator==(const BFloat16_t& rhs) const noexcept;
-  bool operator!=(const BFloat16_t& rhs) const noexcept { return !(*this == rhs); }
-  bool operator<(const BFloat16_t& rhs) const noexcept;
+    // We do not have an inherited impl for the below operators
+    // as the internal class implements them a little differently
+    bool operator==(const BFloat16T& rhs) const noexcept;
+    bool operator!=(const BFloat16T& rhs) const noexcept {
+        return !(*this == rhs);
+    }
+    bool operator<(const BFloat16T& rhs) const noexcept;
 };
 
-static_assert(sizeof(BFloat16_t) == sizeof(uint16_t), "Sizes must match");
+static_assert(sizeof(BFloat16T) == sizeof(uint16_t), "Sizes must match");
 
 /** \brief float8e4m3fn (Float8 Floating Point) data type
  * \details It is necessary for type dispatching to make use of C++ API
  * The type is implicitly convertible to/from uint8_t.
  * See https://onnx.ai/onnx/technical/float8.html for further details.
  */
-struct Float8E4M3FN_t {
-  uint8_t value;
-  constexpr Float8E4M3FN_t() noexcept : value(0) {}
-  constexpr Float8E4M3FN_t(uint8_t v) noexcept : value(v) {}
-  constexpr operator uint8_t() const noexcept { return value; }
-  // nan values are treated like any other value for operator ==, !=
-  constexpr bool operator==(const Float8E4M3FN_t& rhs) const noexcept { return value == rhs.value; };
-  constexpr bool operator!=(const Float8E4M3FN_t& rhs) const noexcept { return value != rhs.value; };
+struct Float8E4M3FnT {
+    uint8_t value;
+    constexpr Float8E4M3FnT() noexcept : value(0) {
+    }
+    constexpr Float8E4M3FnT(uint8_t v) noexcept : value(v) {
+    }
+    constexpr operator uint8_t() const noexcept {
+        return value;
+    }
+    // nan values are treated like any other value for operator ==, !=
+    constexpr bool operator==(const Float8E4M3FnT& rhs) const noexcept {
+        return value == rhs.value;
+    };
+    constexpr bool operator!=(const Float8E4M3FnT& rhs) const noexcept {
+        return value != rhs.value;
+    };
 };
 
-static_assert(sizeof(Float8E4M3FN_t) == sizeof(uint8_t), "Sizes must match");
+static_assert(sizeof(Float8E4M3FnT) == sizeof(uint8_t), "Sizes must match");
 
 /** \brief float8e4m3fnuz (Float8 Floating Point) data type
  * \details It is necessary for type dispatching to make use of C++ API
  * The type is implicitly convertible to/from uint8_t.
  * See https://onnx.ai/onnx/technical/float8.html for further details.
  */
-struct Float8E4M3FNUZ_t {
-  uint8_t value;
-  constexpr Float8E4M3FNUZ_t() noexcept : value(0) {}
-  constexpr Float8E4M3FNUZ_t(uint8_t v) noexcept : value(v) {}
-  constexpr operator uint8_t() const noexcept { return value; }
-  // nan values are treated like any other value for operator ==, !=
-  constexpr bool operator==(const Float8E4M3FNUZ_t& rhs) const noexcept { return value == rhs.value; };
-  constexpr bool operator!=(const Float8E4M3FNUZ_t& rhs) const noexcept { return value != rhs.value; };
+struct Float8E4M3FnuzT {
+    uint8_t value;
+    constexpr Float8E4M3FnuzT() noexcept : value(0) {
+    }
+    constexpr Float8E4M3FnuzT(uint8_t v) noexcept : value(v) {
+    }
+    constexpr operator uint8_t() const noexcept {
+        return value;
+    }
+    // nan values are treated like any other value for operator ==, !=
+    constexpr bool operator==(const Float8E4M3FnuzT& rhs) const noexcept {
+        return value == rhs.value;
+    };
+    constexpr bool operator!=(const Float8E4M3FnuzT& rhs) const noexcept {
+        return value != rhs.value;
+    };
 };
 
-static_assert(sizeof(Float8E4M3FNUZ_t) == sizeof(uint8_t), "Sizes must match");
+static_assert(sizeof(Float8E4M3FnuzT) == sizeof(uint8_t), "Sizes must match");
 
 /** \brief float8e5m2 (Float8 Floating Point) data type
  * \details It is necessary for type dispatching to make use of C++ API
  * The type is implicitly convertible to/from uint8_t.
  * See https://onnx.ai/onnx/technical/float8.html for further details.
  */
-struct Float8E5M2_t {
-  uint8_t value;
-  constexpr Float8E5M2_t() noexcept : value(0) {}
-  constexpr Float8E5M2_t(uint8_t v) noexcept : value(v) {}
-  constexpr operator uint8_t() const noexcept { return value; }
-  // nan values are treated like any other value for operator ==, !=
-  constexpr bool operator==(const Float8E5M2_t& rhs) const noexcept { return value == rhs.value; };
-  constexpr bool operator!=(const Float8E5M2_t& rhs) const noexcept { return value != rhs.value; };
+struct Float8E5M2T {
+    uint8_t value;
+    constexpr Float8E5M2T() noexcept : value(0) {
+    }
+    constexpr Float8E5M2T(uint8_t v) noexcept : value(v) {
+    }
+    constexpr operator uint8_t() const noexcept {
+        return value;
+    }
+    // nan values are treated like any other value for operator ==, !=
+    constexpr bool operator==(const Float8E5M2T& rhs) const noexcept {
+        return value == rhs.value;
+    };
+    constexpr bool operator!=(const Float8E5M2T& rhs) const noexcept {
+        return value != rhs.value;
+    };
 };
 
-static_assert(sizeof(Float8E5M2_t) == sizeof(uint8_t), "Sizes must match");
+static_assert(sizeof(Float8E5M2T) == sizeof(uint8_t), "Sizes must match");
 
 /** \brief float8e5m2fnuz (Float8 Floating Point) data type
  * \details It is necessary for type dispatching to make use of C++ API
  * The type is implicitly convertible to/from uint8_t.
  * See https://onnx.ai/onnx/technical/float8.html for further details.
  */
-struct Float8E5M2FNUZ_t {
-  uint8_t value;
-  constexpr Float8E5M2FNUZ_t() noexcept : value(0) {}
-  constexpr Float8E5M2FNUZ_t(uint8_t v) noexcept : value(v) {}
-  constexpr operator uint8_t() const noexcept { return value; }
-  // nan values are treated like any other value for operator ==, !=
-  constexpr bool operator==(const Float8E5M2FNUZ_t& rhs) const noexcept { return value == rhs.value; };
-  constexpr bool operator!=(const Float8E5M2FNUZ_t& rhs) const noexcept { return value != rhs.value; };
+struct Float8E5M2FnuzT {
+    uint8_t value;
+    constexpr Float8E5M2FnuzT() noexcept : value(0) {
+    }
+    constexpr Float8E5M2FnuzT(uint8_t v) noexcept : value(v) {
+    }
+    constexpr operator uint8_t() const noexcept {
+        return value;
+    }
+    // nan values are treated like any other value for operator ==, !=
+    constexpr bool operator==(const Float8E5M2FnuzT& rhs) const noexcept {
+        return value == rhs.value;
+    };
+    constexpr bool operator!=(const Float8E5M2FnuzT& rhs) const noexcept {
+        return value != rhs.value;
+    };
 };
 
-static_assert(sizeof(Float8E5M2FNUZ_t) == sizeof(uint8_t), "Sizes must match");
+static_assert(sizeof(Float8E5M2FnuzT) == sizeof(uint8_t), "Sizes must match");
 
 namespace detail {
 // This is used internally by the C++ API. This macro is to make it easy to generate overloaded methods for all of the various OrtRelease* functions for every Ort* type
@@ -695,7 +753,9 @@ struct AllocatedFree {
   explicit AllocatedFree(OrtAllocator* allocator)
       : allocator_(allocator) {}
   void operator()(void* ptr) const {
-    if (ptr) allocator_->Free(allocator_, ptr);
+      if (ptr != nullptr) {
+          allocator_->Free(allocator_, ptr);
+      }
   }
 };
 
@@ -732,12 +792,12 @@ struct Status : detail::Base<OrtStatus> {
   Status() = default;                              // Same as with std::nullptr_t. But can be used in re-sizable containers and represent success.
   explicit Status(std::nullptr_t) noexcept {}      ///< Create an empty object, must be assigned a valid one to be used
   explicit Status(OrtStatus* status) noexcept;     ///< Takes ownership of OrtStatus instance returned from the C API.
-  explicit Status(const Exception&);               ///< Creates status instance out of exception
-  explicit Status(const std::exception&);          ///< Creates status instance out of exception
+  explicit Status(const Exception& /*e*/);         ///< Creates status instance out of exception
+  explicit Status(const std::exception& /*e*/);    ///< Creates status instance out of exception
   Status(const char* message, OrtErrorCode code);  ///< Creates status instance out of null-terminated string message.
-  std::string GetErrorMessage() const;
-  OrtErrorCode GetErrorCode() const;
-  bool IsOK() const noexcept;  ///< Returns true if instance represents an OK (non-error) status.
+  [[nodiscard]] std::string GetErrorMessage() const;
+  [[nodiscard]] OrtErrorCode GetErrorCode() const;
+  [[nodiscard]] bool IsOK() const noexcept;  ///< Returns true if instance represents an OK (non-error) status.
 };
 
 /** \brief The ThreadingOptions
@@ -786,7 +846,7 @@ struct TensorRTProviderOptions : detail::Base<OrtTensorRTProviderOptionsV2> {
   ///< Wrapper around  OrtApi::GetTensorRTProviderOptionsByName
   void* GetOptionByName(const char* name) const;
   ///< Wrapper around  OrtApi::GetTensorRTProviderOptionsAsString
-  std::string GetTensorRTProviderOptionsAsString() const;
+  [[nodiscard]] std::string GetTensorRTProviderOptionsAsString() const;
 };
 
 /** \brief The CUDAProviderOptions (V2)
@@ -800,7 +860,7 @@ struct CUDAProviderOptions : detail::Base<OrtCUDAProviderOptionsV2> {
   ///< Wrapper around OrtApi::UpdateCUDAProviderOptions
   void Update(const std::unordered_map<std::string, std::string>& options);
   ///< Wrapper around OrtApi::GetCUDAProviderOptionsAsString
-  std::string GetCUDAProviderOptionsAsString() const;
+  [[nodiscard]] std::string GetCUDAProviderOptionsAsString() const;
   ///< Wrapper around OrtApi::UpdateCUDAProviderOptionsWithValue
   void UpdateWithValue(const char* key, void* value);
   ///< Wrapper around OrtApi::GetCUDAProviderOptionsByName
@@ -829,11 +889,11 @@ struct ConstExternalInitializerInfoImpl : Base<T> {
   using B::B;
 
   // Wraps OrtApi::ExternalInitializerInfo_GetFilePath
-  const std::basic_string<ORTCHAR_T> GetFilePath() const;
+  [[nodiscard]] const std::basic_string<ORTCHAR_T> GetFilePath() const;
   // Wraps OrtApi::ExternalInitializerInfo_GetFileOffset
-  int64_t GetFileOffset() const;
+  [[nodiscard]] int64_t GetFileOffset() const;
   // Wraps OrtApi::ExternalInitializerInfo_GetByteSize
-  size_t GetByteSize() const;
+  [[nodiscard]] size_t GetByteSize() const;
 };
 }  // namespace detail
 
@@ -852,7 +912,9 @@ struct ExternalInitializerInfo : detail::ConstExternalInitializerInfoImpl<OrtExt
   explicit ExternalInitializerInfo(OrtExternalInitializerInfo* p)
       : detail::ConstExternalInitializerInfoImpl<OrtExternalInitializerInfo>{p} {}
 
-  ConstExternalInitializerInfo GetConst() const { return ConstExternalInitializerInfo{this->p_}; }
+  [[nodiscard]] ConstExternalInitializerInfo GetConst() const {
+      return ConstExternalInitializerInfo{this->p_};
+  }
 
   ///< Wraps OrtApi::CreateExternalInitializerInfo
   ExternalInitializerInfo(const ORTCHAR_T* filepath, int64_t file_offset, size_t byte_size);
@@ -871,7 +933,7 @@ struct KeyValuePairsImpl : Ort::detail::Base<T> {
   const char* GetValue(const char* key) const;
 
   // get the pairs in unordered_map. needs to copy to std::string so the hash works as expected
-  std::unordered_map<std::string, std::string> GetKeyValuePairs() const;
+  [[nodiscard]] std::unordered_map<std::string, std::string> GetKeyValuePairs() const;
   // get the pairs in two vectors. entries will be 1:1 between keys and values. avoids copying to std::string
   void GetKeyValuePairs(std::vector<const char*>& keys, std::vector<const char*>& values) const;
 };
@@ -898,7 +960,9 @@ struct KeyValuePairs : detail::KeyValuePairsImpl<OrtKeyValuePairs> {
   /// \brief Wraps OrtApi::RemoveKeyValuePair
   void Remove(const char* key);
 
-  ConstKeyValuePairs GetConst() const { return ConstKeyValuePairs{this->p_}; }
+  [[nodiscard]] ConstKeyValuePairs GetConst() const {
+      return ConstKeyValuePairs{this->p_};
+  }
 };
 
 namespace detail {
@@ -907,13 +971,13 @@ struct MemoryInfoImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  std::string GetAllocatorName() const;             ///< Wrapper MemoryInfoGetName
-  OrtAllocatorType GetAllocatorType() const;        ///< Wrapper MemoryInfoGetType
-  int GetDeviceId() const;                          ///< Wrapper MemoryInfoGetId
-  OrtMemoryInfoDeviceType GetDeviceType() const;    ///< Wrapper MemoryInfoGetDeviceType
-  OrtMemType GetMemoryType() const;                 ///< Wrapper MemoryInfoGetMemType
-  OrtDeviceMemoryType GetDeviceMemoryType() const;  ///< Wrapper MemoryInfoGetDeviceMemType
-  uint32_t GetVendorId() const;                     ///< Wrapper MemoryInfoGetVendorId
+  [[nodiscard]] std::string GetAllocatorName() const;             ///< Wrapper MemoryInfoGetName
+  [[nodiscard]] OrtAllocatorType GetAllocatorType() const;        ///< Wrapper MemoryInfoGetType
+  [[nodiscard]] int GetDeviceId() const;                          ///< Wrapper MemoryInfoGetId
+  [[nodiscard]] OrtMemoryInfoDeviceType GetDeviceType() const;    ///< Wrapper MemoryInfoGetDeviceType
+  [[nodiscard]] OrtMemType GetMemoryType() const;                 ///< Wrapper MemoryInfoGetMemType
+  [[nodiscard]] OrtDeviceMemoryType GetDeviceMemoryType() const;  ///< Wrapper MemoryInfoGetDeviceMemType
+  [[nodiscard]] uint32_t GetVendorId() const;                     ///< Wrapper MemoryInfoGetVendorId
 
   template <typename U>
   bool operator==(const MemoryInfoImpl<U>& o) const;
@@ -933,7 +997,9 @@ struct MemoryInfo : detail::MemoryInfoImpl<OrtMemoryInfo> {
   MemoryInfo(const char* name, OrtAllocatorType type, int id, OrtMemType mem_type);
   MemoryInfo(const char* name, OrtMemoryInfoDeviceType device_type, uint32_t vendor_id, uint32_t device_id,
              OrtDeviceMemoryType mem_type, size_t alignment, OrtAllocatorType allocator_type);  ///< Wrapper around CreateMemoryInfo_V2
-  ConstMemoryInfo GetConst() const { return ConstMemoryInfo{this->p_}; }
+  [[nodiscard]] ConstMemoryInfo GetConst() const {
+      return ConstMemoryInfo{this->p_};
+  }
 };
 
 /// <summary>
@@ -947,16 +1013,18 @@ struct MemoryAllocation {
   ~MemoryAllocation();
   MemoryAllocation(const MemoryAllocation&) = delete;
   MemoryAllocation& operator=(const MemoryAllocation&) = delete;
-  MemoryAllocation(MemoryAllocation&&) noexcept;
-  MemoryAllocation& operator=(MemoryAllocation&&) noexcept;
+  MemoryAllocation(MemoryAllocation&& /*o*/) noexcept;
+  MemoryAllocation& operator=(MemoryAllocation&& /*o*/) noexcept;
 
   void* get() { return p_; }
-  size_t size() const { return size_; }
+  [[nodiscard]] size_t size() const {
+      return size_;
+  }
 
  private:
-  OrtAllocator* allocator_;
-  void* p_;
-  size_t size_;
+   OrtAllocator* allocator_{nullptr};
+   void* p_{nullptr};
+   size_t size_{0};
 };
 
 namespace detail {
@@ -968,13 +1036,13 @@ struct AllocatorImpl : Base<T> {
   void* Alloc(size_t size);
   MemoryAllocation GetAllocation(size_t size);
   void Free(void* p);
-  ConstMemoryInfo GetInfo() const;
+  [[nodiscard]] ConstMemoryInfo GetInfo() const;
 
   /** \brief Function that returns the statistics of the allocator.
    *
    * \return A pointer to a KeyValuePairs object that will be filled with the allocator statistics.
    */
-  KeyValuePairs GetStats() const;
+  [[nodiscard]] KeyValuePairs GetStats() const;
 };
 }  // namespace detail
 
@@ -992,7 +1060,7 @@ struct AllocatorWithDefaultOptions : detail::AllocatorImpl<detail::Unowned<OrtAl
 
 struct Allocator : detail::AllocatorImpl<OrtAllocator> {
   explicit Allocator(std::nullptr_t) {}  ///< Convenience to create a class member and then replace with an instance
-  Allocator(const Session& session, const OrtMemoryInfo*);
+  Allocator(const Session& session, const OrtMemoryInfo* /*mem_info*/);
 };
 
 using UnownedAllocator = detail::AllocatorImpl<detail::Unowned<OrtAllocator>>;
@@ -1026,11 +1094,11 @@ struct HardwareDeviceImpl : Ort::detail::Base<T> {
   using B = Ort::detail::Base<T>;
   using B::B;
 
-  OrtHardwareDeviceType Type() const;
-  uint32_t VendorId() const;
-  uint32_t DeviceId() const;
-  const char* Vendor() const;
-  ConstKeyValuePairs Metadata() const;
+  [[nodiscard]] OrtHardwareDeviceType Type() const;
+  [[nodiscard]] uint32_t VendorId() const;
+  [[nodiscard]] uint32_t DeviceId() const;
+  [[nodiscard]] const char* Vendor() const;
+  [[nodiscard]] ConstKeyValuePairs Metadata() const;
 };
 }  // namespace detail
 
@@ -1045,13 +1113,13 @@ struct EpDeviceImpl : Ort::detail::Base<T> {
   using B = Ort::detail::Base<T>;
   using B::B;
 
-  const char* EpName() const;
-  const char* EpVendor() const;
-  ConstKeyValuePairs EpMetadata() const;
-  ConstKeyValuePairs EpOptions() const;
-  ConstHardwareDevice Device() const;
-  ConstMemoryInfo GetMemoryInfo(OrtDeviceMemoryType memory_type) const;       ///< Wraps EpDevice_MemoryInfo
-  SyncStream CreateSyncStream(ConstKeyValuePairs stream_options = {}) const;  /// Wraps EpDevice_CreateSyncStream
+  [[nodiscard]] const char* EpName() const;
+  [[nodiscard]] const char* EpVendor() const;
+  [[nodiscard]] ConstKeyValuePairs EpMetadata() const;
+  [[nodiscard]] ConstKeyValuePairs EpOptions() const;
+  [[nodiscard]] ConstHardwareDevice Device() const;
+  [[nodiscard]] ConstMemoryInfo GetMemoryInfo(OrtDeviceMemoryType memory_type) const;       ///< Wraps EpDevice_MemoryInfo
+  [[nodiscard]] SyncStream CreateSyncStream(ConstKeyValuePairs stream_options = {}) const;  /// Wraps EpDevice_CreateSyncStream
 };
 }  // namespace detail
 
@@ -1133,7 +1201,7 @@ struct Env : detail::Base<OrtEnv> {
   Env& RegisterExecutionProviderLibrary(const char* registration_name, const std::basic_string<ORTCHAR_T>& path);  ///< Wraps OrtApi::RegisterExecutionProviderLibrary
   Env& UnregisterExecutionProviderLibrary(const char* registration_name);                                          ///< Wraps OrtApi::UnregisterExecutionProviderLibrary
 
-  std::vector<ConstEpDevice> GetEpDevices() const;
+  [[nodiscard]] std::vector<ConstEpDevice> GetEpDevices() const;
 
   Status CopyTensors(const std::vector<Value>& src_tensors,
                      const std::vector<Value>& dst_tensors,
@@ -1189,14 +1257,14 @@ struct RunOptions : detail::Base<OrtRunOptions> {
   explicit RunOptions(std::nullptr_t) {}  ///< Create an empty RunOptions object, must be assigned a valid one to be used
   RunOptions();                           ///< Wraps OrtApi::CreateRunOptions
 
-  RunOptions& SetRunLogVerbosityLevel(int);  ///< Wraps OrtApi::RunOptionsSetRunLogVerbosityLevel
-  int GetRunLogVerbosityLevel() const;       ///< Wraps OrtApi::RunOptionsGetRunLogVerbosityLevel
+  RunOptions& SetRunLogVerbosityLevel(int /*level*/);  ///< Wraps OrtApi::RunOptionsSetRunLogVerbosityLevel
+  [[nodiscard]] int GetRunLogVerbosityLevel() const;   ///< Wraps OrtApi::RunOptionsGetRunLogVerbosityLevel
 
-  RunOptions& SetRunLogSeverityLevel(int);  ///< Wraps OrtApi::RunOptionsSetRunLogSeverityLevel
-  int GetRunLogSeverityLevel() const;       ///< Wraps OrtApi::RunOptionsGetRunLogSeverityLevel
+  RunOptions& SetRunLogSeverityLevel(int /*level*/);  ///< Wraps OrtApi::RunOptionsSetRunLogSeverityLevel
+  [[nodiscard]] int GetRunLogSeverityLevel() const;   ///< Wraps OrtApi::RunOptionsGetRunLogSeverityLevel
 
   RunOptions& SetRunTag(const char* run_tag);  ///< wraps OrtApi::RunOptionsSetRunTag
-  const char* GetRunTag() const;               ///< Wraps OrtApi::RunOptionsGetRunTag
+  [[nodiscard]] const char* GetRunTag() const;  ///< Wraps OrtApi::RunOptionsGetRunTag
 
   RunOptions& AddConfigEntry(const char* config_key, const char* config_value);  ///< Wraps OrtApi::AddRunConfigEntry
   const char* GetConfigEntry(const char* config_key);                            ///< Wraps OrtApi::GetRunConfigEntry
@@ -1283,7 +1351,7 @@ struct ConstSessionOptionsImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  SessionOptions Clone() const;  ///< Creates and returns a copy of this SessionOptions object. Wraps OrtApi::CloneSessionOptions
+  [[nodiscard]] SessionOptions Clone() const;  ///< Creates and returns a copy of this SessionOptions object. Wraps OrtApi::CloneSessionOptions
 
   std::string GetConfigEntry(const char* config_key) const;  ///< Wraps OrtApi::GetSessionConfigEntry
   bool HasConfigEntry(const char* config_key) const;         ///< Wraps OrtApi::HasSessionConfigEntry
@@ -1391,8 +1459,12 @@ struct SessionOptions : detail::SessionOptionsImpl<OrtSessionOptions> {
   explicit SessionOptions(std::nullptr_t) {}                                                   ///< Create an empty SessionOptions object, must be assigned a valid one to be used
   SessionOptions();                                                                            ///< Wraps OrtApi::CreateSessionOptions
   explicit SessionOptions(OrtSessionOptions* p) : SessionOptionsImpl<OrtSessionOptions>{p} {}  ///< Used for interop with the C API
-  UnownedSessionOptions GetUnowned() const { return UnownedSessionOptions{this->p_}; }
-  ConstSessionOptions GetConst() const { return ConstSessionOptions{this->p_}; }
+  [[nodiscard]] UnownedSessionOptions GetUnowned() const {
+      return UnownedSessionOptions{this->p_};
+  }
+  [[nodiscard]] ConstSessionOptions GetConst() const {
+      return ConstSessionOptions{this->p_};
+  }
 };
 
 /** \brief Options object used when compiling a model.
@@ -1510,7 +1582,7 @@ struct ModelMetadata : detail::Base<OrtModelMetadata> {
    */
   AllocatedStringPtr LookupCustomMetadataMapAllocated(const char* key, OrtAllocator* allocator) const;  ///< Wraps OrtApi::ModelMetadataLookupCustomMetadataMap
 
-  int64_t GetVersion() const;  ///< Wraps OrtApi::ModelMetadataGetVersion
+  [[nodiscard]] int64_t GetVersion() const;  ///< Wraps OrtApi::ModelMetadataGetVersion
 };
 
 struct IoBinding;
@@ -1524,17 +1596,17 @@ struct ConstSessionImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  size_t GetInputCount() const;                   ///< Returns the number of model inputs
-  size_t GetOutputCount() const;                  ///< Returns the number of model outputs
-  size_t GetOverridableInitializerCount() const;  ///< Returns the number of inputs that have defaults that can be overridden
+  [[nodiscard]] size_t GetInputCount() const;                   ///< Returns the number of model inputs
+  [[nodiscard]] size_t GetOutputCount() const;                  ///< Returns the number of model outputs
+  [[nodiscard]] size_t GetOverridableInitializerCount() const;  ///< Returns the number of inputs that have defaults that can be overridden
 
-  std::vector<std::string> GetInputNames() const;
-  std::vector<std::string> GetOutputNames() const;
-  std::vector<std::string> GetOverridableInitializerNames() const;
+  [[nodiscard]] std::vector<std::string> GetInputNames() const;
+  [[nodiscard]] std::vector<std::string> GetOutputNames() const;
+  [[nodiscard]] std::vector<std::string> GetOverridableInitializerNames() const;
 
-  std::vector<ConstMemoryInfo> GetMemoryInfoForInputs() const;   ///< Wrapper for OrtApi::SessionGetMemoryInfoForInputs
-  std::vector<ConstMemoryInfo> GetMemoryInfoForOutputs() const;  ///< Wrapper for OrtApi::SessionGetMemoryInfoForOutputs
-  std::vector<ConstEpDevice> GetEpDeviceForInputs() const;       ///< Wrapper for OrtApi::SessionGetEpDeviceForInputs
+  [[nodiscard]] std::vector<ConstMemoryInfo> GetMemoryInfoForInputs() const;   ///< Wrapper for OrtApi::SessionGetMemoryInfoForInputs
+  [[nodiscard]] std::vector<ConstMemoryInfo> GetMemoryInfoForOutputs() const;  ///< Wrapper for OrtApi::SessionGetMemoryInfoForOutputs
+  [[nodiscard]] std::vector<ConstEpDevice> GetEpDeviceForInputs() const;       ///< Wrapper for OrtApi::SessionGetEpDeviceForInputs
 
   /** \brief Returns a copy of input name at the specified index.
    *
@@ -1563,18 +1635,18 @@ struct ConstSessionImpl : Base<T> {
    */
   AllocatedStringPtr GetOverridableInitializerNameAllocated(size_t index, OrtAllocator* allocator) const;  ///< Wraps OrtApi::SessionGetOverridableInitializerName
 
-  uint64_t GetProfilingStartTimeNs() const;  ///< Wraps OrtApi::SessionGetProfilingStartTimeNs
-  ModelMetadata GetModelMetadata() const;    ///< Wraps OrtApi::SessionGetModelMetadata
+  [[nodiscard]] uint64_t GetProfilingStartTimeNs() const;  ///< Wraps OrtApi::SessionGetProfilingStartTimeNs
+  [[nodiscard]] ModelMetadata GetModelMetadata() const;    ///< Wraps OrtApi::SessionGetModelMetadata
 
-  TypeInfo GetInputTypeInfo(size_t index) const;                   ///< Wraps OrtApi::SessionGetInputTypeInfo
-  TypeInfo GetOutputTypeInfo(size_t index) const;                  ///< Wraps OrtApi::SessionGetOutputTypeInfo
-  TypeInfo GetOverridableInitializerTypeInfo(size_t index) const;  ///< Wraps OrtApi::SessionGetOverridableInitializerTypeInfo
+  [[nodiscard]] TypeInfo GetInputTypeInfo(size_t index) const;                   ///< Wraps OrtApi::SessionGetInputTypeInfo
+  [[nodiscard]] TypeInfo GetOutputTypeInfo(size_t index) const;                  ///< Wraps OrtApi::SessionGetOutputTypeInfo
+  [[nodiscard]] TypeInfo GetOverridableInitializerTypeInfo(size_t index) const;  ///< Wraps OrtApi::SessionGetOverridableInitializerTypeInfo
 
-  int GetOpset(const std::string& domain) const;  ///< Wraps OrtApi::SessionGetOpsetForDomain
+  [[nodiscard]] int GetOpset(const std::string& domain) const;  ///< Wraps OrtApi::SessionGetOpsetForDomain
 
   // Will move before checkin if that's the case.
-  std::vector<ValueInfo> GetInputs() const;
-  std::vector<ValueInfo> GetOutputs() const;
+  [[nodiscard]] std::vector<ValueInfo> GetInputs() const;
+  [[nodiscard]] std::vector<ValueInfo> GetOutputs() const;
 };
 
 template <typename T>
@@ -1608,7 +1680,7 @@ struct SessionImpl : ConstSessionImpl<T> {
   void Run(const RunOptions& run_options, const char* const* input_names, const Value* input_values, size_t input_count,
            const char* const* output_names, Value* output_values, size_t output_count);
 
-  void Run(const RunOptions& run_options, const IoBinding&);  ///< Wraps OrtApi::RunWithBinding
+  void Run(const RunOptions& run_options, const IoBinding& /*io_binding*/);  ///< Wraps OrtApi::RunWithBinding
 
   /** \brief Run the model asynchronously in a thread owned by intra op thread pool
    *
@@ -1683,7 +1755,7 @@ struct Session : detail::SessionImpl<OrtSession> {
   Session(const Env& env, const void* model_data, size_t model_data_length, const SessionOptions& options,
           OrtPrepackedWeightsContainer* prepacked_weights_container);
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   /// Wraps OrtModelEditorApi::CreateSessionFromModel
   Session(const Env& env, const Model& model, const SessionOptions& options);
 
@@ -1695,8 +1767,12 @@ struct Session : detail::SessionImpl<OrtSession> {
                                           const SessionOptions& options);
 #endif  // !defined(ORT_MINIMAL_BUILD)
 
-  ConstSession GetConst() const { return ConstSession{this->p_}; }
-  UnownedSession GetUnowned() const { return UnownedSession{this->p_}; }
+  [[nodiscard]] ConstSession GetConst() const {
+      return ConstSession{this->p_};
+  }
+  [[nodiscard]] UnownedSession GetUnowned() const {
+      return UnownedSession{this->p_};
+  }
 };
 
 namespace detail {
@@ -1705,10 +1781,10 @@ struct TensorTypeAndShapeInfoImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  ONNXTensorElementDataType GetElementType() const;  ///< Wraps OrtApi::GetTensorElementType
-  size_t GetElementCount() const;                    ///< Wraps OrtApi::GetTensorShapeElementCount
+  [[nodiscard]] ONNXTensorElementDataType GetElementType() const;  ///< Wraps OrtApi::GetTensorElementType
+  [[nodiscard]] size_t GetElementCount() const;                    ///< Wraps OrtApi::GetTensorShapeElementCount
 
-  size_t GetDimensionsCount() const;  ///< Wraps OrtApi::GetDimensionsCount
+  [[nodiscard]] size_t GetDimensionsCount() const;  ///< Wraps OrtApi::GetDimensionsCount
 
   /** \deprecated use GetShape() returning std::vector
    * [[deprecated]]
@@ -1717,9 +1793,9 @@ struct TensorTypeAndShapeInfoImpl : Base<T> {
   [[deprecated("use GetShape()")]] void GetDimensions(int64_t* values, size_t values_count) const;  ///< Wraps OrtApi::GetDimensions
 
   void GetSymbolicDimensions(const char** values, size_t values_count) const;  ///< Wraps OrtApi::GetSymbolicDimensions
-  std::vector<const char*> GetSymbolicDimensions() const;
+  [[nodiscard]] std::vector<const char*> GetSymbolicDimensions() const;
 
-  std::vector<int64_t> GetShape() const;  ///< Uses GetDimensionsCount & GetDimensions to return a std::vector of the shape
+  [[nodiscard]] std::vector<int64_t> GetShape() const;  ///< Uses GetDimensionsCount & GetDimensions to return a std::vector of the shape
 };
 
 }  // namespace detail
@@ -1745,7 +1821,9 @@ struct TensorTypeAndShapeInfo : detail::TensorTypeAndShapeInfoImpl<OrtTensorType
                                   const std::vector<int64_t>& dims,
                                   const std::vector<std::string>* symbolic_dims = nullptr);
 
-  ConstTensorTypeAndShapeInfo GetConst() const { return ConstTensorTypeAndShapeInfo{this->p_}; }
+  [[nodiscard]] ConstTensorTypeAndShapeInfo GetConst() const {
+      return ConstTensorTypeAndShapeInfo{this->p_};
+  }
 };
 
 namespace detail {
@@ -1753,7 +1831,7 @@ template <typename T>
 struct SequenceTypeInfoImpl : Base<T> {
   using B = Base<T>;
   using B::B;
-  TypeInfo GetSequenceElementType() const;  ///< Wraps OrtApi::GetSequenceElementType
+  [[nodiscard]] TypeInfo GetSequenceElementType() const;  ///< Wraps OrtApi::GetSequenceElementType
 };
 
 }  // namespace detail
@@ -1769,7 +1847,9 @@ struct SequenceTypeInfo : detail::SequenceTypeInfoImpl<OrtSequenceTypeInfo> {
 
   explicit SequenceTypeInfo(std::nullptr_t) {}                                                         ///< Create an empty SequenceTypeInfo object, must be assigned a valid one to be used
   explicit SequenceTypeInfo(OrtSequenceTypeInfo* p) : SequenceTypeInfoImpl<OrtSequenceTypeInfo>{p} {}  ///< Used for interop with the C API
-  ConstSequenceTypeInfo GetConst() const { return ConstSequenceTypeInfo{this->p_}; }
+  [[nodiscard]] ConstSequenceTypeInfo GetConst() const {
+      return ConstSequenceTypeInfo{this->p_};
+  }
 };
 
 namespace detail {
@@ -1777,7 +1857,7 @@ template <typename T>
 struct OptionalTypeInfoImpl : Base<T> {
   using B = Base<T>;
   using B::B;
-  TypeInfo GetOptionalElementType() const;  ///< Wraps OrtApi::CastOptionalTypeToContainedTypeInfo
+  [[nodiscard]] TypeInfo GetOptionalElementType() const;  ///< Wraps OrtApi::CastOptionalTypeToContainedTypeInfo
 };
 
 }  // namespace detail
@@ -1790,8 +1870,8 @@ template <typename T>
 struct MapTypeInfoImpl : detail::Base<T> {
   using B = Base<T>;
   using B::B;
-  ONNXTensorElementDataType GetMapKeyType() const;  ///< Wraps OrtApi::GetMapKeyType
-  TypeInfo GetMapValueType() const;                 ///< Wraps OrtApi::GetMapValueType
+  [[nodiscard]] ONNXTensorElementDataType GetMapKeyType() const;  ///< Wraps OrtApi::GetMapKeyType
+  [[nodiscard]] TypeInfo GetMapValueType() const;                 ///< Wraps OrtApi::GetMapValueType
 };
 
 }  // namespace detail
@@ -1807,7 +1887,9 @@ struct MapTypeInfo : detail::MapTypeInfoImpl<OrtMapTypeInfo> {
 
   explicit MapTypeInfo(std::nullptr_t) {}                                          ///< Create an empty MapTypeInfo object, must be assigned a valid one to be used
   explicit MapTypeInfo(OrtMapTypeInfo* p) : MapTypeInfoImpl<OrtMapTypeInfo>{p} {}  ///< Used for interop with the C API
-  ConstMapTypeInfo GetConst() const { return ConstMapTypeInfo{this->p_}; }
+  [[nodiscard]] ConstMapTypeInfo GetConst() const {
+      return ConstMapTypeInfo{this->p_};
+  }
 };
 
 namespace detail {
@@ -1816,12 +1898,12 @@ struct TypeInfoImpl : detail::Base<T> {
   using B = Base<T>;
   using B::B;
 
-  ConstTensorTypeAndShapeInfo GetTensorTypeAndShapeInfo() const;  ///< Wraps OrtApi::CastTypeInfoToTensorInfo
-  ConstSequenceTypeInfo GetSequenceTypeInfo() const;              ///< Wraps OrtApi::CastTypeInfoToSequenceTypeInfo
-  ConstMapTypeInfo GetMapTypeInfo() const;                        ///< Wraps OrtApi::CastTypeInfoToMapTypeInfo
-  ConstOptionalTypeInfo GetOptionalTypeInfo() const;              ///< wraps OrtApi::CastTypeInfoToOptionalTypeInfo
+  [[nodiscard]] ConstTensorTypeAndShapeInfo GetTensorTypeAndShapeInfo() const;  ///< Wraps OrtApi::CastTypeInfoToTensorInfo
+  [[nodiscard]] ConstSequenceTypeInfo GetSequenceTypeInfo() const;              ///< Wraps OrtApi::CastTypeInfoToSequenceTypeInfo
+  [[nodiscard]] ConstMapTypeInfo GetMapTypeInfo() const;                        ///< Wraps OrtApi::CastTypeInfoToMapTypeInfo
+  [[nodiscard]] ConstOptionalTypeInfo GetOptionalTypeInfo() const;              ///< wraps OrtApi::CastTypeInfoToOptionalTypeInfo
 
-  ONNXType GetONNXType() const;
+  [[nodiscard]] ONNXType GetONNXType() const;
 };
 }  // namespace detail
 
@@ -1843,15 +1925,17 @@ struct TypeInfo : detail::TypeInfoImpl<OrtTypeInfo> {
   explicit TypeInfo(std::nullptr_t) {}
   explicit TypeInfo(OrtTypeInfo* p) : TypeInfoImpl<OrtTypeInfo>{p} {}  ///< C API Interop
 
-#if !defined(ORT_MINIMAL_BUILD)
-  static TypeInfo CreateTensorInfo(ConstTensorTypeAndShapeInfo tensor_info);
-  static TypeInfo CreateSparseTensorInfo(ConstTensorTypeAndShapeInfo sparse_tensor_info);
+#ifndef ORT_MINIMAL_BUILD
+  static TypeInfo CreateTensorInfo(ConstTensorTypeAndShapeInfo tensor_type_and_shape_info);
+  static TypeInfo CreateSparseTensorInfo(ConstTensorTypeAndShapeInfo sparse_tensor_type_and_shape_info);
   static TypeInfo CreateSequenceTypeInfo(ConstTypeInfo sequence_type);
   static TypeInfo CreateMapTypeInfo(ONNXTensorElementDataType key_type, ConstTypeInfo value_type);
   static TypeInfo CreateOptionalTypeInfo(ConstTypeInfo contained_type);
 #endif  // !defined(ORT_MINIMAL_BUILD)
 
-  ConstTypeInfo GetConst() const { return ConstTypeInfo{this->p_}; }
+  [[nodiscard]] ConstTypeInfo GetConst() const {
+      return ConstTypeInfo{this->p_};
+  }
 };
 
 namespace detail {
@@ -1888,12 +1972,12 @@ struct ConstValueImpl : Base<T> {
   /// Obtains a pointer to a user defined data for experimental purposes
   /// </summary>
   template <typename R>
-  void GetOpaqueData(const char* domain, const char* type_name, R&) const;  ///< Wraps OrtApi::GetOpaqueValue
+  void GetOpaqueData(const char* domain, const char* type_name, R& /*out*/) const;  ///< Wraps OrtApi::GetOpaqueValue
 
-  bool IsTensor() const;  ///< Returns true if Value is a tensor, false for other types like map/sequence/etc
-  bool HasValue() const;  /// < Return true if OrtValue contains data and returns false if the OrtValue is a None
+  [[nodiscard]] bool IsTensor() const;  ///< Returns true if Value is a tensor, false for other types like map/sequence/etc
+  [[nodiscard]] bool HasValue() const;  /// < Return true if OrtValue contains data and returns false if the OrtValue is a None
 
-  size_t GetCount() const;  // If a non tensor, returns 2 for map and N for sequence, where N is the number of elements
+  [[nodiscard]] size_t GetCount() const;  // If a non tensor, returns 2 for map and N for sequence, where N is the number of elements
   Value GetValue(int index, OrtAllocator* allocator) const;
 
   /// <summary>
@@ -1902,7 +1986,7 @@ struct ConstValueImpl : Base<T> {
   /// for allocating necessary memory and calling GetStringTensorContent().
   /// </summary>
   /// <returns>total length of UTF-8 encoded bytes contained. No zero terminators counted.</returns>
-  size_t GetStringTensorDataLength() const;
+  [[nodiscard]] size_t GetStringTensorDataLength() const;
 
   /// <summary>
   /// The API copies all of the UTF-8 encoded string data contained within a tensor or a sparse tensor
@@ -1933,7 +2017,7 @@ struct ConstValueImpl : Base<T> {
   /// Returns a non-typed pointer to a tensor contained data.
   /// </summary>
   /// <returns>const pointer to data, no copies made</returns>
-  const void* GetTensorRawData() const;
+  [[nodiscard]] const void* GetTensorRawData() const;
 
   /// <summary>
   /// The API returns type information for data contained in a tensor. For sparse
@@ -1941,7 +2025,7 @@ struct ConstValueImpl : Base<T> {
   /// It returns dense shape for sparse tensors.
   /// </summary>
   /// <returns>TypeInfo</returns>
-  TypeInfo GetTypeInfo() const;
+  [[nodiscard]] TypeInfo GetTypeInfo() const;
 
   /// <summary>
   /// The API returns type information for data contained in a tensor. For sparse
@@ -1949,13 +2033,13 @@ struct ConstValueImpl : Base<T> {
   /// It returns dense shape for sparse tensors.
   /// </summary>
   /// <returns>TensorTypeAndShapeInfo</returns>
-  TensorTypeAndShapeInfo GetTensorTypeAndShapeInfo() const;
+  [[nodiscard]] TensorTypeAndShapeInfo GetTensorTypeAndShapeInfo() const;
 
   /// <summary>
   /// This API returns information about the memory allocation used to hold data.
   /// </summary>
   /// <returns>Non owning instance of MemoryInfo</returns>
-  ConstMemoryInfo GetTensorMemoryInfo() const;
+  [[nodiscard]] ConstMemoryInfo GetTensorMemoryInfo() const;
 
   /// <summary>
   /// The API copies UTF-8 encoded bytes for the requested string element
@@ -1973,7 +2057,7 @@ struct ConstValueImpl : Base<T> {
   /// </summary>
   /// <param name="element_index"></param>
   /// <returns>std::string</returns>
-  std::string GetStringTensorElement(size_t element_index) const;
+  [[nodiscard]] std::string GetStringTensorElement(size_t element_index) const;
 
   /// <summary>
   /// The API returns a byte length of UTF-8 encoded string element
@@ -1981,7 +2065,7 @@ struct ConstValueImpl : Base<T> {
   /// </summary>
   /// <param name="element_index"></param>
   /// <returns>byte length for the specified string element</returns>
-  size_t GetStringTensorElementLength(size_t element_index) const;
+  [[nodiscard]] size_t GetStringTensorElementLength(size_t element_index) const;
 
   /// <summary>
   /// Returns the total size of the tensor data in bytes. Throws an exception if the OrtValue
@@ -1989,23 +2073,23 @@ struct ConstValueImpl : Base<T> {
   /// For numeric tensors, this is sizeof(element_type) * total_element_count.
   /// </summary>
   /// <returns>The total size of the tensor data in bytes</returns>
-  size_t GetTensorSizeInBytes() const;  ///< Wraps OrtApi::GetTensorSizeInBytes
+  [[nodiscard]] size_t GetTensorSizeInBytes() const;  ///< Wraps OrtApi::GetTensorSizeInBytes
 
-#if !defined(DISABLE_SPARSE_TENSORS)
+#ifndef DISABLE_SPARSE_TENSORS
   /// <summary>
   /// The API returns the sparse data format this OrtValue holds in a sparse tensor.
   /// If the sparse tensor was not fully constructed, i.e. Use*() or Fill*() API were not used
   /// the value returned is ORT_SPARSE_UNDEFINED.
   /// </summary>
   /// <returns>Format enum</returns>
-  OrtSparseFormat GetSparseFormat() const;
+  [[nodiscard]] OrtSparseFormat GetSparseFormat() const;
 
   /// <summary>
   /// The API returns type and shape information for stored non-zero values of the
   /// sparse tensor. Use GetSparseTensorValues() to obtain values buffer pointer.
   /// </summary>
   /// <returns>TensorTypeAndShapeInfo values information</returns>
-  TensorTypeAndShapeInfo GetSparseTensorValuesTypeAndShapeInfo() const;
+  [[nodiscard]] TensorTypeAndShapeInfo GetSparseTensorValuesTypeAndShapeInfo() const;
 
   /// <summary>
   /// The API returns type and shape information for the specified indices. Each supported
@@ -2014,7 +2098,7 @@ struct ConstValueImpl : Base<T> {
   /// </summary>
   /// <param name="format">enum requested</param>
   /// <returns>type and shape information</returns>
-  TensorTypeAndShapeInfo GetSparseTensorIndicesTypeShapeInfo(OrtSparseIndicesFormat format) const;
+  [[nodiscard]] TensorTypeAndShapeInfo GetSparseTensorIndicesTypeShapeInfo(OrtSparseIndicesFormat format) const;
 
   /// <summary>
   /// The API retrieves a pointer to the internal indices buffer. The API merely performs
@@ -2032,7 +2116,7 @@ struct ConstValueImpl : Base<T> {
   /// Returns true if the OrtValue contains a sparse tensor
   /// </summary>
   /// <returns></returns>
-  bool IsSparseTensor() const;
+  [[nodiscard]] bool IsSparseTensor() const;
 
   /// <summary>
   /// The API returns a pointer to an internal buffer of the sparse tensor
@@ -2105,7 +2189,7 @@ struct ValueImpl : ConstValueImpl<T> {
   /// <returns>a pointer to a writable buffer</returns>
   char* GetResizedStringTensorElementBuffer(size_t index, size_t buffer_length);
 
-#if !defined(DISABLE_SPARSE_TENSORS)
+#ifndef DISABLE_SPARSE_TENSORS
   /// <summary>
   /// Supplies COO format specific indices and marks the contained sparse tensor as being a COO format tensor.
   /// Values are supplied with a CreateSparseTensor() API. The supplied indices are not copied and the user
@@ -2201,8 +2285,12 @@ struct Value : detail::ValueImpl<OrtValue> {
   Value(Value&&) = default;
   Value& operator=(Value&&) = default;
 
-  ConstValue GetConst() const { return ConstValue{this->p_}; }
-  UnownedValue GetUnowned() const { return UnownedValue{this->p_}; }
+  [[nodiscard]] ConstValue GetConst() const {
+      return ConstValue{this->p_};
+  }
+  [[nodiscard]] UnownedValue GetUnowned() const {
+      return UnownedValue{this->p_};
+  }
 
   /** \brief Creates a tensor with a user supplied buffer. Wraps OrtApi::CreateTensorWithDataAsOrtValue.
    * \tparam T The numeric datatype. This API is not suitable for strings.
@@ -2298,9 +2386,9 @@ struct Value : detail::ValueImpl<OrtValue> {
    * \param value - the value to be wrapped.
    */
   template <typename T>
-  static Value CreateOpaque(const char* domain, const char* type_name, const T& value);  ///< Wraps OrtApi::CreateOpaqueValue
+  static Value CreateOpaque(const char* domain, const char* type_name, const T& data_container);  ///< Wraps OrtApi::CreateOpaqueValue
 
-#if !defined(DISABLE_SPARSE_TENSORS)
+#ifndef DISABLE_SPARSE_TENSORS
   /// <summary>
   /// This is a simple forwarding method to the other overload that helps deducing
   /// data type enum value from the type of the buffer.
@@ -2365,8 +2453,8 @@ struct Value : detail::ValueImpl<OrtValue> {
 namespace detail {
 namespace binding_utils {
 // Bring these out of template
-std::vector<std::string> GetOutputNamesHelper(const OrtIoBinding* binding, OrtAllocator*);
-std::vector<Value> GetOutputValuesHelper(const OrtIoBinding* binding, OrtAllocator*);
+std::vector<std::string> GetOutputNamesHelper(const OrtIoBinding* binding, OrtAllocator* /*allocator*/);
+std::vector<Value> GetOutputValuesHelper(const OrtIoBinding* binding, OrtAllocator* /*allocator*/);
 }  // namespace binding_utils
 
 template <typename T>
@@ -2374,10 +2462,10 @@ struct ConstIoBindingImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  std::vector<std::string> GetOutputNames() const;
-  std::vector<std::string> GetOutputNames(OrtAllocator*) const;
-  std::vector<Value> GetOutputValues() const;
-  std::vector<Value> GetOutputValues(OrtAllocator*) const;
+  [[nodiscard]] std::vector<std::string> GetOutputNames() const;
+  std::vector<std::string> GetOutputNames(OrtAllocator* /*allocator*/) const;
+  [[nodiscard]] std::vector<Value> GetOutputValues() const;
+  std::vector<Value> GetOutputValues(OrtAllocator* /*allocator*/) const;
 };
 
 template <typename T>
@@ -2385,9 +2473,9 @@ struct IoBindingImpl : ConstIoBindingImpl<T> {
   using B = ConstIoBindingImpl<T>;
   using B::B;
 
-  void BindInput(const char* name, const Value&);
-  void BindOutput(const char* name, const Value&);
-  void BindOutput(const char* name, const OrtMemoryInfo*);
+  void BindInput(const char* name, const Value& /*value*/);
+  void BindOutput(const char* name, const Value& /*value*/);
+  void BindOutput(const char* name, const OrtMemoryInfo* /*mem_info*/);
   void ClearBoundInputs();
   void ClearBoundOutputs();
   void SynchronizeInputs();
@@ -2405,8 +2493,12 @@ using UnownedIoBinding = detail::IoBindingImpl<detail::Unowned<OrtIoBinding>>;
 struct IoBinding : detail::IoBindingImpl<OrtIoBinding> {
   explicit IoBinding(std::nullptr_t) {}  ///< Create an empty object for convenience. Sometimes, we want to initialize members later.
   explicit IoBinding(Session& session);
-  ConstIoBinding GetConst() const { return ConstIoBinding{this->p_}; }
-  UnownedIoBinding GetUnowned() const { return UnownedIoBinding{this->p_}; }
+  [[nodiscard]] ConstIoBinding GetConst() const {
+      return ConstIoBinding{this->p_};
+  }
+  [[nodiscard]] UnownedIoBinding GetUnowned() const {
+      return UnownedIoBinding{this->p_};
+  }
 };
 
 /*! \struct Ort::ArenaCfg
@@ -2444,9 +2536,9 @@ struct ConstOpAttrImpl : Base<T> {
   using B::B;
 
   // Wraps OrtApi::OpAttr_GetName
-  std::string GetName() const;
+  [[nodiscard]] std::string GetName() const;
   // Wraps OrtApi::OpAttr_GetType
-  OrtOpAttrType GetType() const;
+  [[nodiscard]] OrtOpAttrType GetType() const;
 
   // Wraps OrtApi::ReadAttr for a single value
   // This does not support Tensor Attribute
@@ -2458,7 +2550,7 @@ struct ConstOpAttrImpl : Base<T> {
   template <typename R>
   Status GetValueArray(std::vector<R>& out) const;
   // Wraps OrtApi::OpAttr_GetTensorAttributeAsOrtValue
-  Status GetTensorAttributeAsOrtValue(Value&) const;
+  Status GetTensorAttributeAsOrtValue(Value& /*out*/) const;
 };
 }  // namespace detail
 
@@ -2475,7 +2567,9 @@ struct OpAttr : detail::ConstOpAttrImpl<OrtOpAttr> {
   explicit OpAttr(std::nullptr_t) {}
   OpAttr(const char* name, const void* data, int len, OrtOpAttrType type);
 
-  ConstOpAttr GetConst() const { return ConstOpAttr{this->p_}; }
+  [[nodiscard]] ConstOpAttr GetConst() const {
+      return ConstOpAttr{this->p_};
+  }
 };
 
 /**
@@ -2590,7 +2684,7 @@ struct Logger {
    *
    * \return The current ::OrtLoggingLevel.
    */
-  OrtLoggingLevel GetLoggingSeverityLevel() const noexcept;
+  [[nodiscard]] OrtLoggingLevel GetLoggingSeverityLevel() const noexcept;
 
   /**
    * Logs the provided message via OrtApi::Logger_LogMessage. Use the ORT_CXX_LOG or ORT_CXX_LOG_NOEXCEPT
@@ -2638,19 +2732,21 @@ struct Logger {
 /// </summary>
 struct KernelContext {
   explicit KernelContext(OrtKernelContext* context);
-  size_t GetInputCount() const;
-  size_t GetOutputCount() const;
+  [[nodiscard]] size_t GetInputCount() const;
+  [[nodiscard]] size_t GetOutputCount() const;
   // If input is optional and is not present, the method returns an empty ConstValue
   // which can be compared to nullptr.
-  ConstValue GetInput(size_t index) const;
+  [[nodiscard]] ConstValue GetInput(size_t index) const;
   // If output is optional and is not present, the method returns an empty UnownedValue
   // which can be compared to nullptr.
   UnownedValue GetOutput(size_t index, const int64_t* dim_values, size_t dim_count) const;
-  UnownedValue GetOutput(size_t index, const std::vector<int64_t>& dims) const;
-  void* GetGPUComputeStream() const;
-  Logger GetLogger() const;
-  OrtAllocator* GetAllocator(const OrtMemoryInfo& memory_info) const;
-  OrtKernelContext* GetOrtKernelContext() const { return ctx_; }
+  [[nodiscard]] UnownedValue GetOutput(size_t index, const std::vector<int64_t>& dims) const;
+  [[nodiscard]] void* GetGPUComputeStream() const;
+  [[nodiscard]] Logger GetLogger() const;
+  [[nodiscard]] OrtAllocator* GetAllocator(const OrtMemoryInfo& memory_info) const;
+  [[nodiscard]] OrtKernelContext* GetOrtKernelContext() const {
+      return ctx_;
+  }
   void ParallelFor(void (*fn)(void*, size_t), size_t total, size_t num_batch, void* usr_data) const;
 
  private:
@@ -2661,11 +2757,11 @@ struct KernelInfo;
 
 namespace detail {
 namespace attr_utils {
-void GetAttr(const OrtKernelInfo* p, const char* name, float&);
-void GetAttr(const OrtKernelInfo* p, const char* name, int64_t&);
-void GetAttr(const OrtKernelInfo* p, const char* name, std::string&);
-void GetAttrs(const OrtKernelInfo* p, const char* name, std::vector<float>&);
-void GetAttrs(const OrtKernelInfo* p, const char* name, std::vector<int64_t>&);
+void GetAttr(const OrtKernelInfo* p, const char* name, float& /*out*/);
+void GetAttr(const OrtKernelInfo* p, const char* name, int64_t& /*out*/);
+void GetAttr(const OrtKernelInfo* p, const char* name, std::string& /*result*/);
+void GetAttrs(const OrtKernelInfo* p, const char* name, std::vector<float>& /*result*/);
+void GetAttrs(const OrtKernelInfo* p, const char* name, std::vector<int64_t>& /*result*/);
 }  // namespace attr_utils
 
 template <typename T>
@@ -2673,7 +2769,7 @@ struct KernelInfoImpl : Base<T> {
   using B = Base<T>;
   using B::B;
 
-  KernelInfo Copy() const;
+  [[nodiscard]] KernelInfo Copy() const;
 
   template <typename R>  // R is only implemented for float, int64_t, and string
   R GetAttribute(const char* name) const {
@@ -2691,19 +2787,19 @@ struct KernelInfoImpl : Base<T> {
 
   Value GetTensorAttribute(const char* name, OrtAllocator* allocator) const;
 
-  size_t GetInputCount() const;
-  size_t GetOutputCount() const;
+  [[nodiscard]] size_t GetInputCount() const;
+  [[nodiscard]] size_t GetOutputCount() const;
 
-  std::string GetInputName(size_t index) const;
-  std::string GetOutputName(size_t index) const;
+  [[nodiscard]] std::string GetInputName(size_t index) const;
+  [[nodiscard]] std::string GetOutputName(size_t index) const;
 
-  TypeInfo GetInputTypeInfo(size_t index) const;
-  TypeInfo GetOutputTypeInfo(size_t index) const;
+  [[nodiscard]] TypeInfo GetInputTypeInfo(size_t index) const;
+  [[nodiscard]] TypeInfo GetOutputTypeInfo(size_t index) const;
 
   ConstValue GetTensorConstantInput(size_t index, int* is_constant) const;
 
-  std::string GetNodeName() const;
-  Logger GetLogger() const;
+  [[nodiscard]] std::string GetNodeName() const;
+  [[nodiscard]] Logger GetLogger() const;
 };
 
 }  // namespace detail
@@ -2721,7 +2817,9 @@ struct KernelInfo : detail::KernelInfoImpl<OrtKernelInfo> {
   using Base::Base;
   explicit KernelInfo(std::nullptr_t) {}     ///< Create an empty instance to initialize later
   explicit KernelInfo(OrtKernelInfo* info);  ///< Take ownership of the instance
-  ConstKernelInfo GetConst() const { return ConstKernelInfo{this->p_}; }
+  [[nodiscard]] ConstKernelInfo GetConst() const {
+      return ConstKernelInfo{this->p_};
+  }
 };
 
 /// <summary>
@@ -2733,7 +2831,7 @@ struct Op : detail::Base<OrtOp> {
 
   explicit Op(std::nullptr_t) {}  ///< Create an empty Operator object, must be assigned a valid one to be used
 
-  explicit Op(OrtOp*);  ///< Take ownership of the OrtOp
+  explicit Op(OrtOp* /*p*/);  ///< Take ownership of the OrtOp
 
   static Op Create(const OrtKernelInfo* info, const char* op_name, const char* domain,
                    int version, const char** type_constraint_names,
@@ -2774,16 +2872,21 @@ struct ShapeInferContext {
       if (is_int_ == dim.is_int_) {
         if (is_int_) {
           return i_ == dim.i_;
-        } else {
-          return std::string{s_} == std::string{dim.s_};
         }
+        return std::string{s_} == std::string{dim.s_};
       }
       return false;
     }
 
-    bool IsInt() const { return is_int_; }
-    int64_t AsInt() const { return i_; }
-    const char* AsSym() const { return s_; }
+    [[nodiscard]] bool IsInt() const {
+        return is_int_;
+    }
+    [[nodiscard]] int64_t AsInt() const {
+        return i_;
+    }
+    [[nodiscard]] const char* AsSym() const {
+        return s_;
+    }
 
     static constexpr int INVALID_INT_DIM = -2;
 
@@ -2799,9 +2902,13 @@ struct ShapeInferContext {
 
   ShapeInferContext(const OrtApi* ort_api, OrtShapeInferContext* ctx);
 
-  const Shape& GetInputShape(size_t indice) const { return input_shapes_.at(indice); }
+  [[nodiscard]] const Shape& GetInputShape(size_t indice) const {
+      return input_shapes_.at(indice);
+  }
 
-  size_t GetInputCount() const { return input_shapes_.size(); }
+  [[nodiscard]] size_t GetInputCount() const {
+      return input_shapes_.size();
+  }
 
   Status SetOutputShape(size_t indice, const Shape& shape, ONNXTensorElementDataType type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
 
@@ -2899,64 +3006,66 @@ struct CustomOpBase : OrtCustomOp {
   }
 
   // Default implementation of GetExecutionProviderType that returns nullptr to default to the CPU provider
-  const char* GetExecutionProviderType() const { return nullptr; }
+  [[nodiscard]] const char* GetExecutionProviderType() const {
+      return nullptr;
+  }
 
   // Default implementations of GetInputCharacteristic() and GetOutputCharacteristic() below
   // (inputs and outputs are required by default)
-  OrtCustomOpInputOutputCharacteristic GetInputCharacteristic(size_t /*index*/) const {
-    return OrtCustomOpInputOutputCharacteristic::INPUT_OUTPUT_REQUIRED;
+  [[nodiscard]] OrtCustomOpInputOutputCharacteristic GetInputCharacteristic(size_t /*index*/) const {
+      return OrtCustomOpInputOutputCharacteristic::INPUT_OUTPUT_REQUIRED;
   }
 
-  OrtCustomOpInputOutputCharacteristic GetOutputCharacteristic(size_t /*index*/) const {
-    return OrtCustomOpInputOutputCharacteristic::INPUT_OUTPUT_REQUIRED;
+  [[nodiscard]] OrtCustomOpInputOutputCharacteristic GetOutputCharacteristic(size_t /*index*/) const {
+      return OrtCustomOpInputOutputCharacteristic::INPUT_OUTPUT_REQUIRED;
   }
 
   // Default implementation of GetInputMemoryType() that returns OrtMemTypeDefault
-  OrtMemType GetInputMemoryType(size_t /*index*/) const {
-    return OrtMemTypeDefault;
+  [[nodiscard]] OrtMemType GetInputMemoryType(size_t /*index*/) const {
+      return OrtMemTypeDefault;
   }
 
   // Default implementation of GetVariadicInputMinArity() returns 1 to specify that a variadic input
   // should expect at least 1 argument.
-  int GetVariadicInputMinArity() const {
-    return 1;
+  [[nodiscard]] int GetVariadicInputMinArity() const {
+      return 1;
   }
 
   // Default implementation of GetVariadicInputHomegeneity() returns true to specify that all arguments
   // to a variadic input should be of the same type.
-  bool GetVariadicInputHomogeneity() const {
-    return true;
+  [[nodiscard]] bool GetVariadicInputHomogeneity() const {
+      return true;
   }
 
   // Default implementation of GetVariadicOutputMinArity() returns 1 to specify that a variadic output
   // should produce at least 1 output value.
-  int GetVariadicOutputMinArity() const {
-    return 1;
+  [[nodiscard]] int GetVariadicOutputMinArity() const {
+      return 1;
   }
 
   // Default implementation of GetVariadicOutputHomegeneity() returns true to specify that all output values
   // produced by a variadic output should be of the same type.
-  bool GetVariadicOutputHomogeneity() const {
-    return true;
+  [[nodiscard]] bool GetVariadicOutputHomogeneity() const {
+      return true;
   }
 
   // Declare list of session config entries used by this Custom Op.
   // Implement this function in order to get configs from CustomOpBase::GetSessionConfigs().
   // This default implementation returns an empty vector of config entries.
-  std::vector<std::string> GetSessionConfigKeys() const {
-    return std::vector<std::string>{};
+  [[nodiscard]] std::vector<std::string> GetSessionConfigKeys() const {
+      return std::vector<std::string>{};
   }
 
   // Ort::CustomOpBase derived class should provide the following static method with the type/shape inferencing
   // implementation if needed:
   //   static OrtStatusPtr InferOutputShape(Ort::ShapeInferContext& context)
   template <typename C>
-  decltype(&C::InferOutputShape) SetShapeInferFn(decltype(&C::InferOutputShape)) {
-    OrtCustomOp::InferOutputShapeFn = [](const OrtCustomOp*, OrtShapeInferContext* ort_ctx) -> OrtStatusPtr {
-      ShapeInferContext ctx(&GetApi(), ort_ctx);
-      return C::InferOutputShape(ctx);
-    };
-    return {};
+  decltype(&C::InferOutputShape) SetShapeInferFn(decltype(&C::InferOutputShape) /*unused*/) {
+      OrtCustomOp::InferOutputShapeFn = [](const OrtCustomOp*, OrtShapeInferContext* ort_ctx) -> OrtStatusPtr {
+          ShapeInferContext ctx(&GetApi(), ort_ctx);
+          return C::InferOutputShape(ctx);
+      };
+      return {};
   }
 
   template <typename C>
@@ -2983,27 +3092,27 @@ struct ConstValueInfoImpl : Base<T> {
   using B::B;
 
   /// < A wrapper around OrtApi::GetValueInfoName
-  std::string GetName() const;
+  [[nodiscard]] std::string GetName() const;
   /// < A wrapper around OrtApi::GetValueInfoTypeInfo
-  ConstTypeInfo TypeInfo() const;
+  [[nodiscard]] ConstTypeInfo TypeInfo() const;
   ///< Wraps OrtApi::ValueInfo_GetProducerNode
-  ValueInfoConsumerProducerInfo GetProducerNode() const;
+  [[nodiscard]] ValueInfoConsumerProducerInfo GetProducerNode() const;
   /// < A wrapper around OrtApi::ValueInfo_GetValueConsumers
-  std::vector<ValueInfoConsumerProducerInfo> GetConsumers() const;
+  [[nodiscard]] std::vector<ValueInfoConsumerProducerInfo> GetConsumers() const;
   /// < A wrapper around OrtApi::ValueInfo_GetInitializerValue
   Status GetInitializer(ConstValue& value) const;
   /// < A wrapper around OrtApi::ValueInfo_GetExternalInitializerInfo
   Status GetExternalInitializerInfo(ExternalInitializerInfo& info) const;
   /// < A wrapper around OrtApi::ValueInfo_IsRequiredGraphInput
-  bool IsRequiredGraphInput() const;
+  [[nodiscard]] bool IsRequiredGraphInput() const;
   /// < A wrapper around OrtApi::ValueInfo_IsOptionalGraphInput
-  bool IsOptionalGraphInput() const;
+  [[nodiscard]] bool IsOptionalGraphInput() const;
   /// < A wrapper around OrtApi::ValueInfo_IsGraphOutput
-  bool IsGraphOutput() const;
+  [[nodiscard]] bool IsGraphOutput() const;
   /// < A wrapper around OrtApi::ValueInfo_IsConstantInitializer
-  bool IsConstantInitializer() const;
+  [[nodiscard]] bool IsConstantInitializer() const;
   /// < A wrapper around OrtApi::ValueInfo_IsFromOuterScope
-  bool IsFromOuterScope() const;
+  [[nodiscard]] bool IsFromOuterScope() const;
 };
 }  // namespace detail
 
@@ -3019,11 +3128,13 @@ struct ValueInfo : detail::ConstValueInfoImpl<OrtValueInfo> {
   /// Take ownership of a pointer created by C API
   explicit ValueInfo(OrtValueInfo* p) : ConstValueInfoImpl<OrtValueInfo>{p} {}
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   // Create ValueInfo for a tensor
   explicit ValueInfo(const std::string& name, const ConstTypeInfo& type_info);
 #endif
-  ConstValueInfo GetConst() const { return ConstValueInfo{this->p_}; }
+  [[nodiscard]] ConstValueInfo GetConst() const {
+      return ConstValueInfo{this->p_};
+  }
 };
 
 // Forward declaration
@@ -3040,34 +3151,34 @@ struct ConstNodeImpl : Base<T> {
   using B::B;
 
   // <Wraps OrtApi::Node_GetId
-  size_t GetId() const;
+  [[nodiscard]] size_t GetId() const;
   // <Wraps OrtApi::Node_GetName
-  std::string GetName() const;
+  [[nodiscard]] std::string GetName() const;
   // <Wraps OrtApi::Node_GetOperatorType
-  std::string GetOperatorType() const;
+  [[nodiscard]] std::string GetOperatorType() const;
   // <Wraps OrtApi::Node_GetDomain
-  std::string GetDomain() const;
+  [[nodiscard]] std::string GetDomain() const;
   // <Wraps OrtApi::Node_GetSinceVersion
-  int GetSinceVersion() const;
+  [[nodiscard]] int GetSinceVersion() const;
 
   // <Wraps OrtApi::Node_Inputs
-  std::vector<ConstValueInfo> GetInputs() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetInputs() const;
   // <Wraps OrtApi::Node_Outputs
-  std::vector<ConstValueInfo> GetOutputs() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetOutputs() const;
   // <Wraps OrtApi::Node_ImplicitInputs
-  std::vector<ConstValueInfo> GetImplicitInputs() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetImplicitInputs() const;
   // <Wraps OrtApi::Node_GetAttributes
-  std::vector<ConstOpAttr> GetAttributes() const;
+  [[nodiscard]] std::vector<ConstOpAttr> GetAttributes() const;
   // <Wraps OrtApi::Node_GetAttributeByName
   // Please, read C API doc for details
-  Status GetAttributeByName(const std::string& name, ConstOpAttr& attr) const;
+  Status GetAttributeByName(const std::string& name, ConstOpAttr& out) const;
   // <Wraps OrtApi::Node_GetSubgraphs
-  std::vector<AttrNameSubgraph> GetSubgraphs() const;
+  [[nodiscard]] std::vector<AttrNameSubgraph> GetSubgraphs() const;
   // <Wraps OrtApi::Node_GetGraph
   // ConstGraph is not available yet
-  ConstGraphImpl<detail::Unowned<const OrtGraph>> GetGraph() const;
+  [[nodiscard]] ConstGraphImpl<detail::Unowned<const OrtGraph>> GetGraph() const;
   // <Wraps OrtApi::Node_GetEpName
-  std::string GetEpName() const;
+  [[nodiscard]] std::string GetEpName() const;
 };
 }  // namespace detail
 
@@ -3081,7 +3192,7 @@ struct Node : detail::ConstNodeImpl<OrtNode> {
   explicit Node(std::nullptr_t) {}                          ///< No instance is created
   explicit Node(OrtNode* p) : ConstNodeImpl<OrtNode>{p} {}  ///< Take ownership of a pointer created by C API
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   Node(const std::string& operator_name, const std::string& operator_domain,
        const std::string& node_name,
        const std::vector<std::string>& input_names,
@@ -3128,27 +3239,27 @@ struct ConstGraphImpl : Base<T> {
   using B::B;
 
   // <Wraps OrtApi::Graph_GetName
-  std::string GetName() const;
+  [[nodiscard]] std::string GetName() const;
   // <Wraps OrtApi::Graph_GetModelPath
-  std::basic_string<ORTCHAR_T> GetModelPath() const;
+  [[nodiscard]] std::basic_string<ORTCHAR_T> GetModelPath() const;
   // <Wraps OrtApi::Graph_GetOnnxIRVersion
-  int64_t GetOnnxIRVersion() const;
+  [[nodiscard]] int64_t GetOnnxIRVersion() const;
   // <Wraps OrtApi::Graph_GetOperatorSets
-  std::vector<OperatorSet> GetOperatorSets() const;
+  [[nodiscard]] std::vector<OperatorSet> GetOperatorSets() const;
   // <Wraps OrtApi::Graph_Inputs
-  std::vector<ConstValueInfo> GetInputs() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetInputs() const;
   // <Wraps OrtApi::Graph_Outputs
-  std::vector<ConstValueInfo> GetOutputs() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetOutputs() const;
   // <Wraps OrtApi::Graph_Initializers
-  std::vector<ConstValueInfo> GetInitializers() const;
+  [[nodiscard]] std::vector<ConstValueInfo> GetInitializers() const;
   // <Wraps OrtApi::Graph_GetNodes
-  std::vector<ConstNode> GetNodes() const;
+  [[nodiscard]] std::vector<ConstNode> GetNodes() const;
   // <Wraps OrtApi::Graph_GetParentGraph
-  ConstNode GetParentNode() const;
+  [[nodiscard]] ConstNode GetParentNode() const;
   // <Wraps OrtApi::Graph_GetGraphView
-  Graph GetGraphView(const std::vector<ConstNode>& nodes) const;
+  [[nodiscard]] Graph GetGraphView(const std::vector<ConstNode>& nodes) const;
   // <Wraps OrtApi::Graph_GetModelMetadata
-  ModelMetadata GetModelMetadata() const;  ///< Wraps OrtApi::Graph_GetModelMetadata
+  [[nodiscard]] ModelMetadata GetModelMetadata() const;  ///< Wraps OrtApi::Graph_GetModelMetadata
 };
 
 template <typename T>
@@ -3156,7 +3267,7 @@ struct GraphImpl : ConstGraphImpl<T> {
   using B = ConstGraphImpl<T>;
   using B::B;
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   // <Wraps GetModelEditorApi().SetGraphInputs()
   void SetInputs(std::vector<ValueInfo>& inputs);
   // <Wraps GetModelEditorApi().SetGraphOutputs()
@@ -3184,7 +3295,7 @@ struct AttrNameSubgraph {
 struct Graph : detail::GraphImpl<OrtGraph> {
   explicit Graph(std::nullptr_t) {}                        ///< No instance is created
   explicit Graph(OrtGraph* p) : GraphImpl<OrtGraph>{p} {}  ///< Take ownership of a pointer created by C API
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   // <Wraps GetModelEditorApi().CreateGraph()
   Graph();
 #endif
@@ -3196,7 +3307,7 @@ struct ModelImpl : detail::Base<T> {
   using B = Ort::detail::Base<T>;
   using B::B;
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   // <Wraps GetModelEditorApi().AddGraphToModel()
   void AddGraph(Graph& graph);
 #endif
@@ -3215,7 +3326,7 @@ struct Model : detail::ModelImpl<OrtModel> {
   explicit Model(std::nullptr_t) {}                        ///< No instance is created
   explicit Model(OrtModel* p) : ModelImpl<OrtModel>{p} {}  ///< Take ownership of a pointer created by C API
 
-#if !defined(ORT_MINIMAL_BUILD)
+#ifndef ORT_MINIMAL_BUILD
   //< Wraps GetModelEditorApi().CreateModel()
   explicit Model(const std::vector<DomainOpsetPair>& opsets);
 #endif

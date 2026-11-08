@@ -6,9 +6,7 @@
 
 #include "vec3.hpp"
 
-namespace pure_uav {
-namespace guidance {
-namespace adapter {
+namespace pure_uav::guidance::adapter {
 
 // ============================================================================
 //  §0  GuidanceReport
@@ -41,7 +39,9 @@ std::string GuidanceReport::detail() const {
 
 bool GuidanceReport::has(GuidanceCheckCode code) const noexcept {
     for (int i = 0; i < n_issues; ++i) {
-        if (issues[i].code == code && issues[i].severity == GuidanceSeverity::kError) return true;
+        if (issues[i].code == code && issues[i].severity == GuidanceSeverity::kError) {
+            return true;
+        }
     }
     return false;
 }
@@ -97,7 +97,7 @@ inline bool mode_valid(PureGuidanceMode m) noexcept {
 
 // 姿态四元数模长（非有限时返回 NaN，调用方自行判）
 inline double quat_norm(const double q[4]) noexcept {
-    return std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    return std::sqrt((q[0] * q[0]) + (q[1] * q[1]) + (q[2] * q[2]) + (q[3] * q[3]));
 }
 
 }  // namespace
@@ -159,7 +159,9 @@ GuidanceReport check_guidance_state(const GuidanceState& st, bool expected_los_u
 
 bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad) noexcept {
     const auto fail = [first_bad](GuidanceCheckCode code) noexcept {
-        if (first_bad) *first_bad = code;
+        if (first_bad) {
+            *first_bad = code;
+        }
         return false;
     };
 
@@ -173,15 +175,23 @@ bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad) noexcept
 
     // ② 视线：非零 + 单位化
     const double ln = norm(st.los_hat);
-    if (!(ln > kRangeZeroTol)) return fail(GuidanceCheckCode::kLosZero);  // 同时挡住 NaN
-    if (!(std::fabs(ln - 1.0) <= kLosNormTol)) return fail(GuidanceCheckCode::kLosNotUnit);
+    if (!(ln > kRangeZeroTol)) {
+        return fail(GuidanceCheckCode::kLosZero);  // 同时挡住 NaN
+    }
+    if (!(std::fabs(ln - 1.0) <= kLosNormTol)) {
+        return fail(GuidanceCheckCode::kLosNotUnit);
+    }
 
     // ③ 姿态：单位四元数
     const double qn = quat_norm(st.q);
-    if (!(std::fabs(qn - 1.0) <= kQuatNormTol)) return fail(GuidanceCheckCode::kQuatNotUnit);
+    if (!(std::fabs(qn - 1.0) <= kQuatNormTol)) {
+        return fail(GuidanceCheckCode::kQuatNotUnit);
+    }
 
     // ④ 距离非负（range≈0 只是 warning，交给完整版/末端冻结）
-    if (!(st.range >= 0.0)) return fail(GuidanceCheckCode::kRangeNegative);
+    if (!(st.range >= 0.0)) {
+        return fail(GuidanceCheckCode::kRangeNegative);
+    }
 
     return true;
 }
@@ -262,6 +272,4 @@ bool invariants_hold(const GuidanceState& st, const PureGuidanceCmd& cmd, double
     return check_frame(st, cmd, a_max_mps2, has_a_max).ok();
 }
 
-}  // namespace adapter
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::adapter

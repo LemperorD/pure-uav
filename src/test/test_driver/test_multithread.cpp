@@ -20,12 +20,18 @@ int main() {
     }
 
     printf("等待飞控心跳...\n");
-    while (!comm.isConnected()) usleep(100000);
+    while (!comm.isConnected()) {
+        usleep(100000);
+    }
     printf("已连接，固件：%s，开始多线程读频率测试（50 秒）...\n", comm.getAutopilotNameCn());
 
     const int run_sec = 50;
     std::atomic<bool> stop{false};
-    std::atomic<uint64_t> cnt_att{0}, cnt_bat{0}, cnt_pos{0}, cnt_imu{0}, cnt_tm{0};
+    std::atomic<uint64_t> cnt_att{0};
+    std::atomic<uint64_t> cnt_bat{0};
+    std::atomic<uint64_t> cnt_pos{0};
+    std::atomic<uint64_t> cnt_imu{0};
+    std::atomic<uint64_t> cnt_tm{0};
 
     // 5 个线程，每个读一种数据，紧密循环统计读次数
     std::thread t_att([&] {

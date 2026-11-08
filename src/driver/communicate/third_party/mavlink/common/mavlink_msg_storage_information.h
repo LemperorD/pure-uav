@@ -3,36 +3,31 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_STORAGE_INFORMATION 261
+enum { MAVLINK_MSG_ID_STORAGE_INFORMATION = 261 };
 
+using mavlink_storage_information_t = struct __mavlink_storage_information_t {
+    uint32_t time_boot_ms;    /*< [ms] Timestamp (time since system boot).*/
+    float total_capacity;     /*< [MiB] Total capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
+    float used_capacity;      /*< [MiB] Used capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
+    float available_capacity; /*< [MiB] Available storage capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
+    float read_speed;         /*< [MiB/s] Read speed.*/
+    float write_speed;        /*< [MiB/s] Write speed.*/
+    uint8_t storage_id;       /*<  Storage ID (1 for first, 2 for second, etc.)*/
+    uint8_t storage_count;    /*<  Number of storage devices*/
+    uint8_t status;           /*<  Status of storage*/
+    uint8_t type;             /*<  Type of storage*/
+    char name[32];            /*<  Textual storage name to be used in UI (microSD 1, Internal Memory, etc.) This is a NULL terminated string. If it is exactly 32 characters long, add a terminating NULL. If this string is empty, the generic type is shown to the user.*/
+    uint8_t storage_usage;    /*<  Flags indicating whether this instance is preferred storage for photos, videos, etc.
+              Note: Implementations should initially set the flags on the system-default storage id used for saving media (if possible/supported).
+              This setting can then be overridden using MAV_CMD_SET_STORAGE_USAGE.
+              If the media usage flags are not set, a GCS may assume storage ID 1 is the default storage for all media types.*/
+};
 
-typedef struct __mavlink_storage_information_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- float total_capacity; /*< [MiB] Total capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
- float used_capacity; /*< [MiB] Used capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
- float available_capacity; /*< [MiB] Available storage capacity. If storage is not ready (STORAGE_STATUS_READY) value will be ignored.*/
- float read_speed; /*< [MiB/s] Read speed.*/
- float write_speed; /*< [MiB/s] Write speed.*/
- uint8_t storage_id; /*<  Storage ID (1 for first, 2 for second, etc.)*/
- uint8_t storage_count; /*<  Number of storage devices*/
- uint8_t status; /*<  Status of storage*/
- uint8_t type; /*<  Type of storage*/
- char name[32]; /*<  Textual storage name to be used in UI (microSD 1, Internal Memory, etc.) This is a NULL terminated string. If it is exactly 32 characters long, add a terminating NULL. If this string is empty, the generic type is shown to the user.*/
- uint8_t storage_usage; /*<  Flags indicating whether this instance is preferred storage for photos, videos, etc.
-        Note: Implementations should initially set the flags on the system-default storage id used for saving media (if possible/supported).
-        This setting can then be overridden using MAV_CMD_SET_STORAGE_USAGE.
-        If the media usage flags are not set, a GCS may assume storage ID 1 is the default storage for all media types.*/
-} mavlink_storage_information_t;
+enum { MAVLINK_MSG_ID_STORAGE_INFORMATION_LEN = 61, MAVLINK_MSG_ID_STORAGE_INFORMATION_MIN_LEN = 27, MAVLINK_MSG_ID_261_LEN = 61, MAVLINK_MSG_ID_261_MIN_LEN = 27 };
 
-#define MAVLINK_MSG_ID_STORAGE_INFORMATION_LEN 61
-#define MAVLINK_MSG_ID_STORAGE_INFORMATION_MIN_LEN 27
-#define MAVLINK_MSG_ID_261_LEN 61
-#define MAVLINK_MSG_ID_261_MIN_LEN 27
+enum { MAVLINK_MSG_ID_STORAGE_INFORMATION_CRC = 179, MAVLINK_MSG_ID_261_CRC = 179 };
 
-#define MAVLINK_MSG_ID_STORAGE_INFORMATION_CRC 179
-#define MAVLINK_MSG_ID_261_CRC 179
-
-#define MAVLINK_MSG_STORAGE_INFORMATION_FIELD_NAME_LEN 32
+enum { MAVLINK_MSG_STORAGE_INFORMATION_FIELD_NAME_LEN = 32 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_STORAGE_INFORMATION { \

@@ -14,7 +14,7 @@ SerialPort::~SerialPort() {
 }
 
 bool SerialPort::open(const std::string& device, int baud) { //打开串口
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     closeUnlocked();
     fd_ = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);  //可读可写，非阻塞
     if (fd_ < 0) {
@@ -83,12 +83,12 @@ bool SerialPort::open(const std::string& device, int baud) { //打开串口
 }
 
 bool SerialPort::isOpen() const {
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     return fd_ >= 0;
 }
 
 void SerialPort::close() {
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     closeUnlocked();
 }
 
@@ -100,29 +100,35 @@ void SerialPort::closeUnlocked() {
 }
 
 ssize_t SerialPort::read(uint8_t* buf, size_t len) {    //读取返回读取字节数
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     return ::read(fd_, buf, len);
 }
 
 int SerialPort::pollIn(int timeout_ms, short* revents) {
-    std::lock_guard<std::mutex> lk(fd_mutex_);
-    if (revents) *revents = 0;
-    if (fd_ < 0) return -1;
+    std::scoped_lock lk(fd_mutex_);
+    if (revents != nullptr) {
+        *revents = 0;
+    }
+    if (fd_ < 0) {
+        return -1;
+    }
     struct pollfd pfd{};
     pfd.fd = fd_;
     pfd.events = POLLIN;
     const int r = ::poll(&pfd, 1, timeout_ms);
-    if (revents) *revents = pfd.revents;
+    if (revents != nullptr) {
+        *revents = pfd.revents;
+    }
     return r;
 }
 
 ssize_t SerialPort::write(const uint8_t* buf, size_t len) {  //发送返回发送字节数
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     return ::write(fd_, buf, len);
 }
 
 void SerialPort::flush() {
-    std::lock_guard<std::mutex> lk(fd_mutex_);
+    std::scoped_lock lk(fd_mutex_);
     if (fd_ >= 0) {
         tcflush(fd_, TCIFLUSH);
     }

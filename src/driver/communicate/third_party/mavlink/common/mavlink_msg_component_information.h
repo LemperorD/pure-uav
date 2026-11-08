@@ -3,27 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION 395
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION = 395 };
 
+using mavlink_component_information_t = struct __mavlink_component_information_t {
+    uint32_t time_boot_ms;                  /*< [ms] Timestamp (time since system boot).*/
+    uint32_t general_metadata_file_crc;     /*<  CRC32 of the general metadata file (general_metadata_uri).*/
+    uint32_t peripherals_metadata_file_crc; /*<  CRC32 of peripherals metadata file (peripherals_metadata_uri).*/
+    char general_metadata_uri[100]; /*<  MAVLink FTP URI for the general metadata file (COMP_METADATA_TYPE_GENERAL), which may be compressed with xz. The file contains general component metadata, and may contain URI links for additional metadata (see COMP_METADATA_TYPE). The information is static
+                                       from boot, and may be generated at compile time. The string needs to be zero terminated.*/
+    char peripherals_metadata_uri[100]; /*<  (Optional) MAVLink FTP URI for the peripherals metadata file (COMP_METADATA_TYPE_PERIPHERALS), which may be compressed with xz. This contains data about "attached components" such as UAVCAN nodes. The peripherals are in a separate file because the
+                                           information must be generated dynamically at runtime. The string needs to be zero terminated.*/
+};
 
-typedef struct __mavlink_component_information_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- uint32_t general_metadata_file_crc; /*<  CRC32 of the general metadata file (general_metadata_uri).*/
- uint32_t peripherals_metadata_file_crc; /*<  CRC32 of peripherals metadata file (peripherals_metadata_uri).*/
- char general_metadata_uri[100]; /*<  MAVLink FTP URI for the general metadata file (COMP_METADATA_TYPE_GENERAL), which may be compressed with xz. The file contains general component metadata, and may contain URI links for additional metadata (see COMP_METADATA_TYPE). The information is static from boot, and may be generated at compile time. The string needs to be zero terminated.*/
- char peripherals_metadata_uri[100]; /*<  (Optional) MAVLink FTP URI for the peripherals metadata file (COMP_METADATA_TYPE_PERIPHERALS), which may be compressed with xz. This contains data about "attached components" such as UAVCAN nodes. The peripherals are in a separate file because the information must be generated dynamically at runtime. The string needs to be zero terminated.*/
-} mavlink_component_information_t;
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION_LEN = 212, MAVLINK_MSG_ID_COMPONENT_INFORMATION_MIN_LEN = 212, MAVLINK_MSG_ID_395_LEN = 212, MAVLINK_MSG_ID_395_MIN_LEN = 212 };
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_LEN 212
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_MIN_LEN 212
-#define MAVLINK_MSG_ID_395_LEN 212
-#define MAVLINK_MSG_ID_395_MIN_LEN 212
+enum { MAVLINK_MSG_ID_COMPONENT_INFORMATION_CRC = 0, MAVLINK_MSG_ID_395_CRC = 0 };
 
-#define MAVLINK_MSG_ID_COMPONENT_INFORMATION_CRC 0
-#define MAVLINK_MSG_ID_395_CRC 0
-
-#define MAVLINK_MSG_COMPONENT_INFORMATION_FIELD_GENERAL_METADATA_URI_LEN 100
-#define MAVLINK_MSG_COMPONENT_INFORMATION_FIELD_PERIPHERALS_METADATA_URI_LEN 100
+enum { MAVLINK_MSG_COMPONENT_INFORMATION_FIELD_GENERAL_METADATA_URI_LEN = 100, MAVLINK_MSG_COMPONENT_INFORMATION_FIELD_PERIPHERALS_METADATA_URI_LEN = 100 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COMPONENT_INFORMATION { \

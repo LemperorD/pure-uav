@@ -3,40 +3,35 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION 12901
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION = 12901 };
 
+using mavlink_open_drone_id_location_t = struct __mavlink_open_drone_id_location_t {
+    int32_t latitude;            /*< [degE7] Current latitude of the unmanned aircraft. If unknown: 0 (both Lat/Lon).*/
+    int32_t longitude;           /*< [degE7] Current longitude of the unmanned aircraft. If unknown: 0 (both Lat/Lon).*/
+    float altitude_barometric;   /*< [m] The altitude calculated from the barometric pressure. Reference is against 29.92inHg or 1013.2mb. If unknown: -1000 m.*/
+    float altitude_geodetic;     /*< [m] The geodetic altitude as defined by WGS84. If unknown: -1000 m.*/
+    float height;                /*< [m] The current height of the unmanned aircraft above the take-off location or the ground as indicated by height_reference. If unknown: -1000 m.*/
+    float timestamp;             /*< [s] Seconds after the full hour with reference to UTC time. Typically the GPS outputs a time-of-week value in milliseconds. First convert that to UTC and then convert for this field using ((float) (time_week_ms % (60*60*1000))) / 1000. If unknown: 0xFFFF.*/
+    uint16_t direction;          /*< [cdeg] Direction over ground (not heading, but direction of movement) measured clockwise from true North: 0 - 35999 centi-degrees. If unknown: 36100 centi-degrees.*/
+    uint16_t speed_horizontal;   /*< [cm/s] Ground speed. Positive only. If unknown: 25500 cm/s. If speed is larger than 25425 cm/s, use 25425 cm/s.*/
+    int16_t speed_vertical;      /*< [cm/s] The vertical speed. Up is positive. If unknown: 6300 cm/s. If speed is larger than 6200 cm/s, use 6200 cm/s. If lower than -6200 cm/s, use -6200 cm/s.*/
+    uint8_t target_system;       /*<  System ID (0 for broadcast).*/
+    uint8_t target_component;    /*<  Component ID (0 for broadcast).*/
+    uint8_t id_or_mac[20];       /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
+    uint8_t status;              /*<  Indicates whether the unmanned aircraft is on the ground or in the air.*/
+    uint8_t height_reference;    /*<  Indicates the reference point for the height field.*/
+    uint8_t horizontal_accuracy; /*<  The accuracy of the horizontal position.*/
+    uint8_t vertical_accuracy;   /*<  The accuracy of the vertical position.*/
+    uint8_t barometer_accuracy;  /*<  The accuracy of the barometric altitude.*/
+    uint8_t speed_accuracy;      /*<  The accuracy of the horizontal and vertical speed.*/
+    uint8_t timestamp_accuracy;  /*<  The accuracy of the timestamps.*/
+};
 
-typedef struct __mavlink_open_drone_id_location_t {
- int32_t latitude; /*< [degE7] Current latitude of the unmanned aircraft. If unknown: 0 (both Lat/Lon).*/
- int32_t longitude; /*< [degE7] Current longitude of the unmanned aircraft. If unknown: 0 (both Lat/Lon).*/
- float altitude_barometric; /*< [m] The altitude calculated from the barometric pressure. Reference is against 29.92inHg or 1013.2mb. If unknown: -1000 m.*/
- float altitude_geodetic; /*< [m] The geodetic altitude as defined by WGS84. If unknown: -1000 m.*/
- float height; /*< [m] The current height of the unmanned aircraft above the take-off location or the ground as indicated by height_reference. If unknown: -1000 m.*/
- float timestamp; /*< [s] Seconds after the full hour with reference to UTC time. Typically the GPS outputs a time-of-week value in milliseconds. First convert that to UTC and then convert for this field using ((float) (time_week_ms % (60*60*1000))) / 1000. If unknown: 0xFFFF.*/
- uint16_t direction; /*< [cdeg] Direction over ground (not heading, but direction of movement) measured clockwise from true North: 0 - 35999 centi-degrees. If unknown: 36100 centi-degrees.*/
- uint16_t speed_horizontal; /*< [cm/s] Ground speed. Positive only. If unknown: 25500 cm/s. If speed is larger than 25425 cm/s, use 25425 cm/s.*/
- int16_t speed_vertical; /*< [cm/s] The vertical speed. Up is positive. If unknown: 6300 cm/s. If speed is larger than 6200 cm/s, use 6200 cm/s. If lower than -6200 cm/s, use -6200 cm/s.*/
- uint8_t target_system; /*<  System ID (0 for broadcast).*/
- uint8_t target_component; /*<  Component ID (0 for broadcast).*/
- uint8_t id_or_mac[20]; /*<  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. */
- uint8_t status; /*<  Indicates whether the unmanned aircraft is on the ground or in the air.*/
- uint8_t height_reference; /*<  Indicates the reference point for the height field.*/
- uint8_t horizontal_accuracy; /*<  The accuracy of the horizontal position.*/
- uint8_t vertical_accuracy; /*<  The accuracy of the vertical position.*/
- uint8_t barometer_accuracy; /*<  The accuracy of the barometric altitude.*/
- uint8_t speed_accuracy; /*<  The accuracy of the horizontal and vertical speed.*/
- uint8_t timestamp_accuracy; /*<  The accuracy of the timestamps.*/
-} mavlink_open_drone_id_location_t;
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_LEN = 59, MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_MIN_LEN = 59, MAVLINK_MSG_ID_12901_LEN = 59, MAVLINK_MSG_ID_12901_MIN_LEN = 59 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_LEN 59
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_MIN_LEN 59
-#define MAVLINK_MSG_ID_12901_LEN 59
-#define MAVLINK_MSG_ID_12901_MIN_LEN 59
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_CRC = 254, MAVLINK_MSG_ID_12901_CRC = 254 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_CRC 254
-#define MAVLINK_MSG_ID_12901_CRC 254
-
-#define MAVLINK_MSG_OPEN_DRONE_ID_LOCATION_FIELD_ID_OR_MAC_LEN 20
+enum { MAVLINK_MSG_OPEN_DRONE_ID_LOCATION_FIELD_ID_OR_MAC_LEN = 20 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_LOCATION { \
@@ -743,11 +738,10 @@ static inline void mavlink_msg_open_drone_id_location_decode(const mavlink_messa
         memset(open_drone_id_location, 0, MAVLINK_MSG_ID_OPEN_DRONE_ID_LOCATION_LEN);
     memcpy(open_drone_id_location, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         open_drone_id_location->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

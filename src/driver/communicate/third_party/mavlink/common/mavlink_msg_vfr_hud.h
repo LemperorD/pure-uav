@@ -3,27 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_VFR_HUD 74
+enum { MAVLINK_MSG_ID_VFR_HUD = 74 };
 
+using mavlink_vfr_hud_t = struct __mavlink_vfr_hud_t {
+    float airspeed;    /*< [m/s] Vehicle speed in form appropriate for vehicle type. For standard aircraft this is typically calibrated airspeed (CAS) or indicated airspeed (IAS) - either of which can be used by a pilot to estimate stall speed.*/
+    float groundspeed; /*< [m/s] Current ground speed.*/
+    float alt;         /*< [m] Current altitude (MSL).*/
+    float climb;       /*< [m/s] Current climb rate.*/
+    int16_t heading;   /*< [deg] Current heading in compass units (0-360, 0=north).*/
+    uint16_t throttle; /*< [%] Current throttle setting (0 to 100).*/
+};
 
-typedef struct __mavlink_vfr_hud_t {
- float airspeed; /*< [m/s] Vehicle speed in form appropriate for vehicle type. For standard aircraft this is typically calibrated airspeed (CAS) or indicated airspeed (IAS) - either of which can be used by a pilot to estimate stall speed.*/
- float groundspeed; /*< [m/s] Current ground speed.*/
- float alt; /*< [m] Current altitude (MSL).*/
- float climb; /*< [m/s] Current climb rate.*/
- int16_t heading; /*< [deg] Current heading in compass units (0-360, 0=north).*/
- uint16_t throttle; /*< [%] Current throttle setting (0 to 100).*/
-} mavlink_vfr_hud_t;
+enum { MAVLINK_MSG_ID_VFR_HUD_LEN = 20, MAVLINK_MSG_ID_VFR_HUD_MIN_LEN = 20, MAVLINK_MSG_ID_74_LEN = 20, MAVLINK_MSG_ID_74_MIN_LEN = 20 };
 
-#define MAVLINK_MSG_ID_VFR_HUD_LEN 20
-#define MAVLINK_MSG_ID_VFR_HUD_MIN_LEN 20
-#define MAVLINK_MSG_ID_74_LEN 20
-#define MAVLINK_MSG_ID_74_MIN_LEN 20
-
-#define MAVLINK_MSG_ID_VFR_HUD_CRC 20
-#define MAVLINK_MSG_ID_74_CRC 20
-
-
+enum { MAVLINK_MSG_ID_VFR_HUD_CRC = 20, MAVLINK_MSG_ID_74_CRC = 20 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_VFR_HUD { \

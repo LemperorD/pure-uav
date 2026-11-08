@@ -3,37 +3,31 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SYS_STATUS 1
+enum { MAVLINK_MSG_ID_SYS_STATUS = 1 };
 
-MAVPACKED(
-typedef struct __mavlink_sys_status_t {
- uint32_t onboard_control_sensors_present; /*<  Bitmap showing which onboard controllers and sensors are present. Value of 0: not present. Value of 1: present.*/
- uint32_t onboard_control_sensors_enabled; /*<  Bitmap showing which onboard controllers and sensors are enabled:  Value of 0: not enabled. Value of 1: enabled.*/
- uint32_t onboard_control_sensors_health; /*<  Bitmap showing which onboard controllers and sensors have an error (or are operational). Value of 0: error. Value of 1: healthy.*/
- uint16_t load; /*< [d%] Maximum usage in percent of the mainloop time. Values: [0-1000] - should always be below 1000*/
- uint16_t voltage_battery; /*< [mV] Battery voltage, UINT16_MAX: Voltage not sent by autopilot. Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
- int16_t current_battery; /*< [cA] Battery current, -1: Current not sent by autopilot. Value may overflow/rollover for very high currents (> 327.67A). Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
- uint16_t drop_rate_comm; /*< [c%] Communication drop rate, (UART, I2C, SPI, CAN), dropped packets on all links (packets that were corrupted on reception on the MAV)*/
- uint16_t errors_comm; /*<  Communication errors (UART, I2C, SPI, CAN), dropped packets on all links (packets that were corrupted on reception on the MAV)*/
- uint16_t errors_count1; /*<  Autopilot-specific errors*/
- uint16_t errors_count2; /*<  Autopilot-specific errors*/
- uint16_t errors_count3; /*<  Autopilot-specific errors*/
- uint16_t errors_count4; /*<  Autopilot-specific errors*/
- int8_t battery_remaining; /*< [%] Battery energy remaining, -1: Battery remaining energy not sent by autopilot. Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
- uint32_t onboard_control_sensors_present_extended; /*<  Bitmap showing which onboard controllers and sensors are present. Value of 0: not present. Value of 1: present.*/
- uint32_t onboard_control_sensors_enabled_extended; /*<  Bitmap showing which onboard controllers and sensors are enabled:  Value of 0: not enabled. Value of 1: enabled.*/
- uint32_t onboard_control_sensors_health_extended; /*<  Bitmap showing which onboard controllers and sensors have an error (or are operational). Value of 0: error. Value of 1: healthy.*/
-}) mavlink_sys_status_t;
+MAVPACKED(typedef struct MavlinkSysStatusT {
+    uint32_t onboard_control_sensors_present;          /*<  Bitmap showing which onboard controllers and sensors are present. Value of 0: not present. Value of 1: present.*/
+    uint32_t onboard_control_sensors_enabled;          /*<  Bitmap showing which onboard controllers and sensors are enabled:  Value of 0: not enabled. Value of 1: enabled.*/
+    uint32_t onboard_control_sensors_health;           /*<  Bitmap showing which onboard controllers and sensors have an error (or are operational). Value of 0: error. Value of 1: healthy.*/
+    uint16_t load;                                     /*< [d%] Maximum usage in percent of the mainloop time. Values: [0-1000] - should always be below 1000*/
+    uint16_t voltage_battery;                          /*< [mV] Battery voltage, UINT16_MAX: Voltage not sent by autopilot. Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
+    int16_t current_battery;                           /*< [cA] Battery current, -1: Current not sent by autopilot. Value may overflow/rollover for very high currents (> 327.67A). Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
+    uint16_t drop_rate_comm;                           /*< [c%] Communication drop rate, (UART, I2C, SPI, CAN), dropped packets on all links (packets that were corrupted on reception on the MAV)*/
+    uint16_t errors_comm;                              /*<  Communication errors (UART, I2C, SPI, CAN), dropped packets on all links (packets that were corrupted on reception on the MAV)*/
+    uint16_t errors_count1;                            /*<  Autopilot-specific errors*/
+    uint16_t errors_count2;                            /*<  Autopilot-specific errors*/
+    uint16_t errors_count3;                            /*<  Autopilot-specific errors*/
+    uint16_t errors_count4;                            /*<  Autopilot-specific errors*/
+    int8_t battery_remaining;                          /*< [%] Battery energy remaining, -1: Battery remaining energy not sent by autopilot. Value is ambiguous on multi-battery systems. BATTERY_STATUS is a recommended alternative.*/
+    uint32_t onboard_control_sensors_present_extended; /*<  Bitmap showing which onboard controllers and sensors are present. Value of 0: not present. Value of 1: present.*/
+    uint32_t onboard_control_sensors_enabled_extended; /*<  Bitmap showing which onboard controllers and sensors are enabled:  Value of 0: not enabled. Value of 1: enabled.*/
+    uint32_t onboard_control_sensors_health_extended;  /*<  Bitmap showing which onboard controllers and sensors have an error (or are operational). Value of 0: error. Value of 1: healthy.*/
+})
+mavlink_sys_status_t;
 
-#define MAVLINK_MSG_ID_SYS_STATUS_LEN 43
-#define MAVLINK_MSG_ID_SYS_STATUS_MIN_LEN 31
-#define MAVLINK_MSG_ID_1_LEN 43
-#define MAVLINK_MSG_ID_1_MIN_LEN 31
+enum { MAVLINK_MSG_ID_SYS_STATUS_LEN = 43, MAVLINK_MSG_ID_SYS_STATUS_MIN_LEN = 31, MAVLINK_MSG_ID_1_LEN = 43, MAVLINK_MSG_ID_1_MIN_LEN = 31 };
 
-#define MAVLINK_MSG_ID_SYS_STATUS_CRC 124
-#define MAVLINK_MSG_ID_1_CRC 124
-
-
+enum { MAVLINK_MSG_ID_SYS_STATUS_CRC = 124, MAVLINK_MSG_ID_1_CRC = 124 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SYS_STATUS { \

@@ -3,23 +3,18 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS 12918
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS = 12918 };
 
+using mavlink_open_drone_id_arm_status_t = struct __mavlink_open_drone_id_arm_status_t {
+    uint8_t status; /*<  Status level indicating if arming is allowed.*/
+    char error[50]; /*<  Text error message, should be empty if status is good to arm. Fill with nulls in unused portion.*/
+};
 
-typedef struct __mavlink_open_drone_id_arm_status_t {
- uint8_t status; /*<  Status level indicating if arming is allowed.*/
- char error[50]; /*<  Text error message, should be empty if status is good to arm. Fill with nulls in unused portion.*/
-} mavlink_open_drone_id_arm_status_t;
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_LEN = 51, MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_MIN_LEN = 51, MAVLINK_MSG_ID_12918_LEN = 51, MAVLINK_MSG_ID_12918_MIN_LEN = 51 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_LEN 51
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_MIN_LEN 51
-#define MAVLINK_MSG_ID_12918_LEN 51
-#define MAVLINK_MSG_ID_12918_MIN_LEN 51
+enum { MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_CRC = 139, MAVLINK_MSG_ID_12918_CRC = 139 };
 
-#define MAVLINK_MSG_ID_OPEN_DRONE_ID_ARM_STATUS_CRC 139
-#define MAVLINK_MSG_ID_12918_CRC 139
-
-#define MAVLINK_MSG_OPEN_DRONE_ID_ARM_STATUS_FIELD_ERROR_LEN 50
+enum { MAVLINK_MSG_OPEN_DRONE_ID_ARM_STATUS_FIELD_ERROR_LEN = 50 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_OPEN_DRONE_ID_ARM_STATUS { \

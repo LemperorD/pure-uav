@@ -40,18 +40,18 @@ struct VisionPose {
     uint64_t timestamp_us = 0;                           // us，飞控 boot 时间（在线）
     VisionFrame frame_id = VisionFrame::LOCAL_FRD;       // 位置的坐标系（惯性系）
     VisionFrame child_frame_id = VisionFrame::BODY_FRD;  // 速度的坐标系（机体系）
-    float x = 0.0f;                                      // m
-    float y = 0.0f;
-    float z = 0.0f;
-    float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z  机体系相对惯性系
-    float vx = 0.0f;                        // m/s
-    float vy = 0.0f;
-    float vz = 0.0f;
+    float x = 0.0F;                                      // m
+    float y = 0.0F;
+    float z = 0.0F;
+    float q[4] = {1.0F, 0.0F, 0.0F, 0.0F};  // w x y z  机体系相对惯性系
+    float vx = 0.0F;                        // m/s
+    float vy = 0.0F;
+    float vz = 0.0F;
 
     // 【2026-10-21】诊断字段（不参与和飞控的通信，只写进 CSV）：
     // 当前滤波器内部的 cam-IMU 时延估计值（秒）。只值在 estimate_camera_timeoffset 打开时变化。
     // 复核要求把随时间变化的 td 记录下来 —— 否则无法判断在线时延估计是否跑飞。
-    float cam_imu_dt = 0.0f;
+    float cam_imu_dt = 0.0F;
 };
 
 }  // namespace pure_uav

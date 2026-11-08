@@ -3,30 +3,23 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT 33
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT = 33 };
 
+using mavlink_global_position_int_t = struct __mavlink_global_position_int_t {
+    uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
+    int32_t lat;           /*< [degE7] Latitude, expressed*/
+    int32_t lon;           /*< [degE7] Longitude, expressed*/
+    int32_t alt;           /*< [mm] Altitude (MSL). Note that virtually all GPS modules provide both WGS84 and MSL.*/
+    int32_t relative_alt;  /*< [mm] Altitude above home*/
+    int16_t vx;            /*< [cm/s] Ground X Speed (Latitude, positive north)*/
+    int16_t vy;            /*< [cm/s] Ground Y Speed (Longitude, positive east)*/
+    int16_t vz;            /*< [cm/s] Ground Z Speed (Altitude, positive down)*/
+    uint16_t hdg;          /*< [cdeg] Vehicle heading (yaw angle), 0.0..359.99 degrees. If unknown, set to: UINT16_MAX*/
+};
 
-typedef struct __mavlink_global_position_int_t {
- uint32_t time_boot_ms; /*< [ms] Timestamp (time since system boot).*/
- int32_t lat; /*< [degE7] Latitude, expressed*/
- int32_t lon; /*< [degE7] Longitude, expressed*/
- int32_t alt; /*< [mm] Altitude (MSL). Note that virtually all GPS modules provide both WGS84 and MSL.*/
- int32_t relative_alt; /*< [mm] Altitude above home*/
- int16_t vx; /*< [cm/s] Ground X Speed (Latitude, positive north)*/
- int16_t vy; /*< [cm/s] Ground Y Speed (Longitude, positive east)*/
- int16_t vz; /*< [cm/s] Ground Z Speed (Altitude, positive down)*/
- uint16_t hdg; /*< [cdeg] Vehicle heading (yaw angle), 0.0..359.99 degrees. If unknown, set to: UINT16_MAX*/
-} mavlink_global_position_int_t;
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT_LEN = 28, MAVLINK_MSG_ID_GLOBAL_POSITION_INT_MIN_LEN = 28, MAVLINK_MSG_ID_33_LEN = 28, MAVLINK_MSG_ID_33_MIN_LEN = 28 };
 
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_LEN 28
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_MIN_LEN 28
-#define MAVLINK_MSG_ID_33_LEN 28
-#define MAVLINK_MSG_ID_33_MIN_LEN 28
-
-#define MAVLINK_MSG_ID_GLOBAL_POSITION_INT_CRC 104
-#define MAVLINK_MSG_ID_33_CRC 104
-
-
+enum { MAVLINK_MSG_ID_GLOBAL_POSITION_INT_CRC = 104, MAVLINK_MSG_ID_33_CRC = 104 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_GLOBAL_POSITION_INT { \

@@ -3,29 +3,24 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_SERIAL_CONTROL 126
+enum { MAVLINK_MSG_ID_SERIAL_CONTROL = 126 };
 
+using mavlink_serial_control_t = struct __mavlink_serial_control_t {
+    uint32_t baudrate;        /*< [bits/s] Baudrate of transfer. Zero means no change.*/
+    uint16_t timeout;         /*< [ms] Timeout for reply data*/
+    uint8_t device;           /*<  Serial control device type.*/
+    uint8_t flags;            /*<  Bitmap of serial control flags.*/
+    uint8_t count;            /*< [bytes] how many bytes in this transfer*/
+    uint8_t data[70];         /*<  serial data*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+};
 
-typedef struct __mavlink_serial_control_t {
- uint32_t baudrate; /*< [bits/s] Baudrate of transfer. Zero means no change.*/
- uint16_t timeout; /*< [ms] Timeout for reply data*/
- uint8_t device; /*<  Serial control device type.*/
- uint8_t flags; /*<  Bitmap of serial control flags.*/
- uint8_t count; /*< [bytes] how many bytes in this transfer*/
- uint8_t data[70]; /*<  serial data*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
-} mavlink_serial_control_t;
+enum { MAVLINK_MSG_ID_SERIAL_CONTROL_LEN = 81, MAVLINK_MSG_ID_SERIAL_CONTROL_MIN_LEN = 79, MAVLINK_MSG_ID_126_LEN = 81, MAVLINK_MSG_ID_126_MIN_LEN = 79 };
 
-#define MAVLINK_MSG_ID_SERIAL_CONTROL_LEN 81
-#define MAVLINK_MSG_ID_SERIAL_CONTROL_MIN_LEN 79
-#define MAVLINK_MSG_ID_126_LEN 81
-#define MAVLINK_MSG_ID_126_MIN_LEN 79
+enum { MAVLINK_MSG_ID_SERIAL_CONTROL_CRC = 220, MAVLINK_MSG_ID_126_CRC = 220 };
 
-#define MAVLINK_MSG_ID_SERIAL_CONTROL_CRC 220
-#define MAVLINK_MSG_ID_126_CRC 220
-
-#define MAVLINK_MSG_SERIAL_CONTROL_FIELD_DATA_LEN 70
+enum { MAVLINK_MSG_SERIAL_CONTROL_FIELD_DATA_LEN = 70 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_SERIAL_CONTROL { \
@@ -435,11 +430,10 @@ static inline void mavlink_msg_serial_control_decode(const mavlink_message_t* ms
         memset(serial_control, 0, MAVLINK_MSG_ID_SERIAL_CONTROL_LEN);
     memcpy(serial_control, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         serial_control->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

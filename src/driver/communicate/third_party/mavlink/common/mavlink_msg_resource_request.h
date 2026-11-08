@@ -3,27 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_RESOURCE_REQUEST 142
+enum { MAVLINK_MSG_ID_RESOURCE_REQUEST = 142 };
 
+using mavlink_resource_request_t = struct __mavlink_resource_request_t {
+    uint8_t request_id;    /*<  Request ID. This ID should be reused when sending back URI contents*/
+    uint8_t uri_type;      /*<  The type of requested URI. 0 = a file via URL. 1 = a UAVCAN binary*/
+    uint8_t uri[120];      /*<  The requested unique resource identifier (URI). It is not necessarily a straight domain name (depends on the URI type enum)*/
+    uint8_t transfer_type; /*<  The way the autopilot wants to receive the URI. 0 = MAVLink FTP. 1 = binary stream.*/
+    uint8_t storage[120];  /*<  The storage path the autopilot wants the URI to be stored in. Will only be valid if the transfer_type has a storage associated (e.g. MAVLink FTP).*/
+};
 
-typedef struct __mavlink_resource_request_t {
- uint8_t request_id; /*<  Request ID. This ID should be reused when sending back URI contents*/
- uint8_t uri_type; /*<  The type of requested URI. 0 = a file via URL. 1 = a UAVCAN binary*/
- uint8_t uri[120]; /*<  The requested unique resource identifier (URI). It is not necessarily a straight domain name (depends on the URI type enum)*/
- uint8_t transfer_type; /*<  The way the autopilot wants to receive the URI. 0 = MAVLink FTP. 1 = binary stream.*/
- uint8_t storage[120]; /*<  The storage path the autopilot wants the URI to be stored in. Will only be valid if the transfer_type has a storage associated (e.g. MAVLink FTP).*/
-} mavlink_resource_request_t;
+enum { MAVLINK_MSG_ID_RESOURCE_REQUEST_LEN = 243, MAVLINK_MSG_ID_RESOURCE_REQUEST_MIN_LEN = 243, MAVLINK_MSG_ID_142_LEN = 243, MAVLINK_MSG_ID_142_MIN_LEN = 243 };
 
-#define MAVLINK_MSG_ID_RESOURCE_REQUEST_LEN 243
-#define MAVLINK_MSG_ID_RESOURCE_REQUEST_MIN_LEN 243
-#define MAVLINK_MSG_ID_142_LEN 243
-#define MAVLINK_MSG_ID_142_MIN_LEN 243
+enum { MAVLINK_MSG_ID_RESOURCE_REQUEST_CRC = 72, MAVLINK_MSG_ID_142_CRC = 72 };
 
-#define MAVLINK_MSG_ID_RESOURCE_REQUEST_CRC 72
-#define MAVLINK_MSG_ID_142_CRC 72
-
-#define MAVLINK_MSG_RESOURCE_REQUEST_FIELD_URI_LEN 120
-#define MAVLINK_MSG_RESOURCE_REQUEST_FIELD_STORAGE_LEN 120
+enum { MAVLINK_MSG_RESOURCE_REQUEST_FIELD_URI_LEN = 120, MAVLINK_MSG_RESOURCE_REQUEST_FIELD_STORAGE_LEN = 120 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_RESOURCE_REQUEST { \

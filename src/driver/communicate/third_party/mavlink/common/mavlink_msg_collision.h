@@ -3,28 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_COLLISION 247
+enum { MAVLINK_MSG_ID_COLLISION = 247 };
 
+using mavlink_collision_t = struct __mavlink_collision_t {
+    uint32_t id;                    /*<  Unique identifier, domain based on src field*/
+    float time_to_minimum_delta;    /*< [s] Estimated time until collision occurs*/
+    float altitude_minimum_delta;   /*< [m] Closest vertical distance between vehicle and object*/
+    float horizontal_minimum_delta; /*< [m] Closest horizontal distance between vehicle and object*/
+    uint8_t src;                    /*<  Collision data source*/
+    uint8_t action;                 /*<  Action that is being taken to avoid this collision*/
+    uint8_t threat_level;           /*<  How concerned the aircraft is about this collision*/
+};
 
-typedef struct __mavlink_collision_t {
- uint32_t id; /*<  Unique identifier, domain based on src field*/
- float time_to_minimum_delta; /*< [s] Estimated time until collision occurs*/
- float altitude_minimum_delta; /*< [m] Closest vertical distance between vehicle and object*/
- float horizontal_minimum_delta; /*< [m] Closest horizontal distance between vehicle and object*/
- uint8_t src; /*<  Collision data source*/
- uint8_t action; /*<  Action that is being taken to avoid this collision*/
- uint8_t threat_level; /*<  How concerned the aircraft is about this collision*/
-} mavlink_collision_t;
+enum { MAVLINK_MSG_ID_COLLISION_LEN = 19, MAVLINK_MSG_ID_COLLISION_MIN_LEN = 19, MAVLINK_MSG_ID_247_LEN = 19, MAVLINK_MSG_ID_247_MIN_LEN = 19 };
 
-#define MAVLINK_MSG_ID_COLLISION_LEN 19
-#define MAVLINK_MSG_ID_COLLISION_MIN_LEN 19
-#define MAVLINK_MSG_ID_247_LEN 19
-#define MAVLINK_MSG_ID_247_MIN_LEN 19
-
-#define MAVLINK_MSG_ID_COLLISION_CRC 81
-#define MAVLINK_MSG_ID_247_CRC 81
-
-
+enum { MAVLINK_MSG_ID_COLLISION_CRC = 81, MAVLINK_MSG_ID_247_CRC = 81 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_COLLISION { \

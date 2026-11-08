@@ -3,26 +3,21 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_PARAM_ERROR 345
+enum { MAVLINK_MSG_ID_PARAM_ERROR = 345 };
 
+using mavlink_param_error_t = struct __mavlink_param_error_t {
+    int16_t param_index;      /*<  Parameter index. Will be -1 if the param ID field should be used as an identifier (else the param id will be ignored)*/
+    uint8_t target_system;    /*<  System ID*/
+    uint8_t target_component; /*<  Component ID*/
+    char param_id[16];        /*<  Parameter id. Terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
+    uint8_t error;            /*<  Error being returned to client.*/
+};
 
-typedef struct __mavlink_param_error_t {
- int16_t param_index; /*<  Parameter index. Will be -1 if the param ID field should be used as an identifier (else the param id will be ignored)*/
- uint8_t target_system; /*<  System ID*/
- uint8_t target_component; /*<  Component ID*/
- char param_id[16]; /*<  Parameter id. Terminated by NULL if the length is less than 16 human-readable chars and WITHOUT null termination (NULL) byte if the length is exactly 16 chars - applications have to provide 16+1 bytes storage if the ID is stored as string. Encoded as 7-bit ASCII.*/
- uint8_t error; /*<  Error being returned to client.*/
-} mavlink_param_error_t;
+enum { MAVLINK_MSG_ID_PARAM_ERROR_LEN = 21, MAVLINK_MSG_ID_PARAM_ERROR_MIN_LEN = 21, MAVLINK_MSG_ID_345_LEN = 21, MAVLINK_MSG_ID_345_MIN_LEN = 21 };
 
-#define MAVLINK_MSG_ID_PARAM_ERROR_LEN 21
-#define MAVLINK_MSG_ID_PARAM_ERROR_MIN_LEN 21
-#define MAVLINK_MSG_ID_345_LEN 21
-#define MAVLINK_MSG_ID_345_MIN_LEN 21
+enum { MAVLINK_MSG_ID_PARAM_ERROR_CRC = 209, MAVLINK_MSG_ID_345_CRC = 209 };
 
-#define MAVLINK_MSG_ID_PARAM_ERROR_CRC 209
-#define MAVLINK_MSG_ID_345_CRC 209
-
-#define MAVLINK_MSG_PARAM_ERROR_FIELD_PARAM_ID_LEN 16
+enum { MAVLINK_MSG_PARAM_ERROR_FIELD_PARAM_ID_LEN = 16 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_PARAM_ERROR { \
@@ -351,11 +346,10 @@ static inline void mavlink_msg_param_error_decode(const mavlink_message_t* msg, 
         memset(param_error, 0, MAVLINK_MSG_ID_PARAM_ERROR_LEN);
     memcpy(param_error, _MAV_PAYLOAD(msg), len);
 #endif
-    if (msg->incompat_flags & MAVLINK_IFLAG_TARGET32) {
+    if ((msg->incompat_flags & MAVLINK_IFLAG_TARGET32) != 0) {
         // This uint8_t field cannot retain a wide target. The sentinel is NOT reserved.
         // For routing use mavlink_msg_get_target_sysid(msg, mavlink_get_msg_entry(msg->msgid)).
         // To relay after edits, pass that full target to _pack*(); _encode*() loses it.
         param_error->target_system = mavlink_msg_target_field(msg->target_sysid);
     }
-
 }

@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS 93
+enum { MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS = 93 };
 
+using mavlink_hil_actuator_controls_t = struct __mavlink_hil_actuator_controls_t {
+    uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
+    uint64_t flags;     /*<  Flags bitmask.*/
+    float controls[16]; /*<  Control outputs -1 .. 1. Channel assignment depends on the simulated hardware.*/
+    uint8_t mode;       /*<  System mode. Includes arming state.*/
+};
 
-typedef struct __mavlink_hil_actuator_controls_t {
- uint64_t time_usec; /*< [us] Timestamp (UNIX Epoch time or time since system boot). The receiving end can infer timestamp format (since 1.1.1970 or since system boot) by checking for the magnitude of the number.*/
- uint64_t flags; /*<  Flags bitmask.*/
- float controls[16]; /*<  Control outputs -1 .. 1. Channel assignment depends on the simulated hardware.*/
- uint8_t mode; /*<  System mode. Includes arming state.*/
-} mavlink_hil_actuator_controls_t;
+enum { MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_LEN = 81, MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_MIN_LEN = 81, MAVLINK_MSG_ID_93_LEN = 81, MAVLINK_MSG_ID_93_MIN_LEN = 81 };
 
-#define MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_LEN 81
-#define MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_MIN_LEN 81
-#define MAVLINK_MSG_ID_93_LEN 81
-#define MAVLINK_MSG_ID_93_MIN_LEN 81
+enum { MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_CRC = 47, MAVLINK_MSG_ID_93_CRC = 47 };
 
-#define MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_CRC 47
-#define MAVLINK_MSG_ID_93_CRC 47
-
-#define MAVLINK_MSG_HIL_ACTUATOR_CONTROLS_FIELD_CONTROLS_LEN 16
+enum { MAVLINK_MSG_HIL_ACTUATOR_CONTROLS_FIELD_CONTROLS_LEN = 16 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_HIL_ACTUATOR_CONTROLS { \

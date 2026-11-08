@@ -3,25 +3,20 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_LOG_DATA 120
+enum { MAVLINK_MSG_ID_LOG_DATA = 120 };
 
+using mavlink_log_data_t = struct __mavlink_log_data_t {
+    uint32_t ofs;     /*<  Offset into the log*/
+    uint16_t id;      /*<  Log id (from LOG_ENTRY reply)*/
+    uint8_t count;    /*< [bytes] Number of bytes (zero for end of log)*/
+    uint8_t data[90]; /*<  log data*/
+};
 
-typedef struct __mavlink_log_data_t {
- uint32_t ofs; /*<  Offset into the log*/
- uint16_t id; /*<  Log id (from LOG_ENTRY reply)*/
- uint8_t count; /*< [bytes] Number of bytes (zero for end of log)*/
- uint8_t data[90]; /*<  log data*/
-} mavlink_log_data_t;
+enum { MAVLINK_MSG_ID_LOG_DATA_LEN = 97, MAVLINK_MSG_ID_LOG_DATA_MIN_LEN = 97, MAVLINK_MSG_ID_120_LEN = 97, MAVLINK_MSG_ID_120_MIN_LEN = 97 };
 
-#define MAVLINK_MSG_ID_LOG_DATA_LEN 97
-#define MAVLINK_MSG_ID_LOG_DATA_MIN_LEN 97
-#define MAVLINK_MSG_ID_120_LEN 97
-#define MAVLINK_MSG_ID_120_MIN_LEN 97
+enum { MAVLINK_MSG_ID_LOG_DATA_CRC = 134, MAVLINK_MSG_ID_120_CRC = 134 };
 
-#define MAVLINK_MSG_ID_LOG_DATA_CRC 134
-#define MAVLINK_MSG_ID_120_CRC 134
-
-#define MAVLINK_MSG_LOG_DATA_FIELD_DATA_LEN 90
+enum { MAVLINK_MSG_LOG_DATA_FIELD_DATA_LEN = 90 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_LOG_DATA { \

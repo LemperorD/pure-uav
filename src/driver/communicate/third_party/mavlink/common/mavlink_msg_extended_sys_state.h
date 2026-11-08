@@ -3,23 +3,16 @@
 
 #include <stdint.h>
 
-#define MAVLINK_MSG_ID_EXTENDED_SYS_STATE 245
+enum { MAVLINK_MSG_ID_EXTENDED_SYS_STATE = 245 };
 
+using mavlink_extended_sys_state_t = struct __mavlink_extended_sys_state_t {
+    uint8_t vtol_state;   /*<  The VTOL state if applicable. Is set to MAV_VTOL_STATE_UNDEFINED if UAV is not in VTOL configuration.*/
+    uint8_t landed_state; /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
+};
 
-typedef struct __mavlink_extended_sys_state_t {
- uint8_t vtol_state; /*<  The VTOL state if applicable. Is set to MAV_VTOL_STATE_UNDEFINED if UAV is not in VTOL configuration.*/
- uint8_t landed_state; /*<  The landed state. Is set to MAV_LANDED_STATE_UNDEFINED if landed state is unknown.*/
-} mavlink_extended_sys_state_t;
+enum { MAVLINK_MSG_ID_EXTENDED_SYS_STATE_LEN = 2, MAVLINK_MSG_ID_EXTENDED_SYS_STATE_MIN_LEN = 2, MAVLINK_MSG_ID_245_LEN = 2, MAVLINK_MSG_ID_245_MIN_LEN = 2 };
 
-#define MAVLINK_MSG_ID_EXTENDED_SYS_STATE_LEN 2
-#define MAVLINK_MSG_ID_EXTENDED_SYS_STATE_MIN_LEN 2
-#define MAVLINK_MSG_ID_245_LEN 2
-#define MAVLINK_MSG_ID_245_MIN_LEN 2
-
-#define MAVLINK_MSG_ID_EXTENDED_SYS_STATE_CRC 130
-#define MAVLINK_MSG_ID_245_CRC 130
-
-
+enum { MAVLINK_MSG_ID_EXTENDED_SYS_STATE_CRC = 130, MAVLINK_MSG_ID_245_CRC = 130 };
 
 #if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_EXTENDED_SYS_STATE { \

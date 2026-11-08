@@ -62,19 +62,19 @@ class TargetModel {
     explicit TargetModel(const TargetConfig& cfg);
 
     // 唯一对外接口：t → {p, v, a}（t 会被夹到 [0, flight_time]）
-    TargetState state(double t) const;
+    [[nodiscard]] TargetState state(double t) const;
 
     // 元信息
-    double flight_time() const {
+    [[nodiscard]] double flight_time() const {
         return t_flight_;
     }  // 落地/超时时刻 (s)
-    bool hits_ground() const {
+    [[nodiscard]] bool hits_ground() const {
         return hits_ground_;
     }  // 是否在 t_max 内落地
-    Vec3 launch_velocity() const {
+    [[nodiscard]] Vec3 launch_velocity() const {
         return v0_;
     }  // 解析后的初速度
-    const TargetConfig& config() const {
+    [[nodiscard]] const TargetConfig& config() const {
         return cfg_;
     }
 
@@ -82,7 +82,7 @@ class TargetModel {
     void build();
     void build_analytic();  // STRAIGHT / BALLISTIC
     void build_table();     // DART / CIRCLE / SNAKE
-    Vec3 accel_at(const Vec3& p, const Vec3& v, double t) const;
+    [[nodiscard]] Vec3 accel_at(const Vec3& p, const Vec3& v, double t) const;
 
     TargetConfig cfg_;
     Vec3 v0_{0, 0, 0};
