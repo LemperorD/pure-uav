@@ -5,4 +5,4 @@ Checks: >
   -modernize-use-trailing-return-type
 CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
-HeaderFilterRegex: '.*' # 也扫描头文件，默认只看cpp
+HeaderFilterRegex: 'src/(app|common|guidance|test)/.*|src/detection-rt/(src|include)/.*|src/vio/(estimator/(src|include)|extrinsic|imu_accel|imu_noise|intrinsic)/.*'

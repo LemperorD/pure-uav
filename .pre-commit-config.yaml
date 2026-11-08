@@ -1,0 +1,10 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+    -   id: trailing-whitespace # 删掉行尾空格
+    -   id: end-of-file-fixer # 保证文件末尾换行
+    -   id: check-yaml # yaml语法检查
+    -   id: check-added-large-files # 禁止提交大文件
