@@ -1,0 +1,8 @@
+Checks: >
+  -*,
+  modernize-*,
+  readability-*,
+  -modernize-use-trailing-return-type
+CheckOptions:
+  readability-identifier-naming.ClassCase: CamelCase
+HeaderFilterRegex: '.*' # 也扫描头文件，默认只看cpp
