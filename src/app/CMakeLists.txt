@@ -24,8 +24,16 @@ add_executable(main
 )
 target_link_libraries(main PRIVATE
     communicate
-    detection_rt
+    guidance_application
 )
+if(TARGET vio_camera)
+    target_link_libraries(main PRIVATE vio_camera)
+    target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
+endif()
+if(TARGET detection_rt)
+    target_link_libraries(main PRIVATE detection_rt)
+    target_compile_definitions(main PRIVATE PURE_APP_HAS_DETECTION=1)
+endif()
 
 add_executable(guidance_example
     startup/guidance_example.cpp

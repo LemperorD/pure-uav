@@ -197,11 +197,13 @@ if(_build_live)
             INTERFACE_INCLUDE_DIRECTORIES "${PURE_UAV_DRIVER_DIR}/orbbec/include")
     endif()
 
+    add_library(vio_camera STATIC src/orbbec_camera.cpp src/fcu_clock.cpp)
+    target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(vio_camera PUBLIC pure_vio_core OrbbecSDK)
+
     add_executable(vio_live
         apps/vio_live_main.cpp
-        src/orbbec_camera.cpp
         src/mavlink_link.cpp
-        src/fcu_clock.cpp
     )
     target_include_directories(vio_live PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -210,7 +212,7 @@ if(_build_live)
     target_include_directories(vio_live SYSTEM PRIVATE
         ${PURE_UAV_MAVLINK_DIR}
     )
-    target_link_libraries(vio_live PRIVATE pure_vio_core OrbbecSDK)
+    target_link_libraries(vio_live PRIVATE vio_camera)
     set_target_properties(vio_live PROPERTIES
         INSTALL_RPATH "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR};${PURE_UAV_DRIVER_DIR}/orbbec/lib"
         BUILD_RPATH "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR};${PURE_UAV_DRIVER_DIR}/orbbec/lib"

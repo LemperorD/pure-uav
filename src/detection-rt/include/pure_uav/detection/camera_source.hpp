@@ -20,10 +20,11 @@ struct CameraConfig {
 
 /// 采集线程回调的一帧。
 struct CameraFrame {
-    cv::Mat bgr;             // CV_8UC3
-    uint64_t host_us = 0;    // 帧到达主机的 Unix µs
-    uint64_t device_us = 0;  // 相机设备时间戳（仅诊断）
-    uint64_t seq = 0;        // 相机帧序号，从 1 开始单调递增
+    cv::Mat bgr;            // CV_8UC3
+    uint64_t host_us = 0;   // 帧到达主机的 Unix µs
+    uint64_t device_us = 0; // 相机设备时间戳（仅诊断）
+    int64_t host_monotonic_ns = 0; // 共享采集路径的 steady_clock 时刻；旧采集器为 0
+    uint64_t seq = 0;       // 相机帧序号，从 1 开始单调递增
 };
 
 /// Orbbec 彩色流采集器；回调在采集线程执行。

@@ -164,3 +164,21 @@ foreach(_test IN ITEMS math guidance mavlink_units state_adapter vision_pose_wir
     add_test(NAME ${_test} COMMAND test_${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 120)
 endforeach()
+
+# 用替代驱动验证真实推理线程的外部帧模式，不依赖硬件或 ONNX Runtime。
+find_package(OpenCV 4 REQUIRED)
+add_executable(test_onboard_runtime
+    test_driver/test_onboard_runtime.cpp
+    ../detection-rt/src/detector.cpp
+    ../detection-rt/src/yolo_postprocess.cpp
+)
+target_compile_definitions(test_onboard_runtime PRIVATE PURE_DETECTION_BACKEND_CPU=1)
+target_include_directories(test_onboard_runtime PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/detection-rt/include
+    ${CMAKE_SOURCE_DIR}/src/detection-rt/src
+    ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(test_onboard_runtime PRIVATE guidance_application communicate ${OpenCV_LIBS})
+set_target_properties(test_onboard_runtime PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR})
+add_test(NAME onboard_runtime COMMAND test_onboard_runtime)
+set_tests_properties(onboard_runtime PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 15)

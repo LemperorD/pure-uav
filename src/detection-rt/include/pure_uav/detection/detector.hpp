@@ -23,6 +23,7 @@ struct DetectorConfig {
     int max_det = 300;
 
     bool verbose = false;
+    bool external_camera = false;  // 由宿主共享相机，不再独占打开设备
 };
 
 /// 启动以来的采集/处理统计。
