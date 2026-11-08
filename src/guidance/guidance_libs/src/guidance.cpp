@@ -1,5 +1,7 @@
 #include "guidance.hpp"
 
+#include <limits>
+
 #include "pn_law.hpp"
 
 namespace pure_uav {
@@ -14,7 +16,8 @@ PureGuidanceCmd guidance_step(const GuidanceState& state, const GuidanceParams& 
 
     // ---- 1) 有效性检查 ----
     // 目标丢失 → SEARCH，输出零指令，并清掉历史（重新捕获时从零开始）
-    if (!state.valid) {
+    if (!state.valid || (!state.has_range && (params.law != GuidanceLaw::PPN || params.los_rate_source != LosRateSource::FROM_LOS_DIFFERENCE))) {
+        cmd.valid = false;
         cmd.mode = PureGuidanceMode::SEARCH;
         memory.has_prev = false;
         return cmd;

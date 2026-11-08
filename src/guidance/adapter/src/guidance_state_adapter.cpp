@@ -414,9 +414,12 @@ uint32_t fill_target(GuidanceState& st, const Vec3& los_raw, GuidanceFrame from,
         st.los_hat = Vec3{};  // 零矢量：没有方向可言
     }
 
+    st.has_range = has_range;
     if (has_range) {
         st.range = opt_range_m;
         filled |= kHaveRange;
+    } else {
+        st.range = 0.0;
     }
 
     if (has_vT) {

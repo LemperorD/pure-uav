@@ -43,6 +43,9 @@ class VioEstimator {
 
         // 打印初始化/配置信息
         bool verbose = true;
+        // Embedded runtime: route status through snapshots, silence worker console output.
+        // Defaults preserve the standalone vio_live behavior.
+        bool quiet_runtime = false;
 
         // 是否让 OpenVINS 在线估计相机-IMU 时移（初值仍取配置里的 timeshift_cam_imu）。
         // 实时链路相机时间戳是“主机到达时间”，标定时移不一定完全适用，可打开它让滤波器自己修。

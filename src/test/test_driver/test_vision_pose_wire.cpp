@@ -13,6 +13,7 @@
 // 编译/运行：见 src/test/CMakeLists.txt 的 test_vision_pose_wire
 //   ./bin/test/test_vision_pose_wire
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <poll.h>
@@ -91,7 +92,7 @@ struct MsgReader {
             const int64_t now = nowMs();
             if (now >= deadline) return false;
 
-            struct pollfd pfd{};
+            struct pollfd pfd {};
             pfd.fd = fd;
             pfd.events = POLLIN;
             const int pr = ::poll(&pfd, 1, static_cast<int>(deadline - now));
@@ -337,7 +338,11 @@ int main() {
         p.pos_sigma_m = 0.15f;
         p.vel_sigma_mps = 0.25f;
 
-        CHECK(comm.pushVisionPose(p));
+        auto stale_pose = p;
+        stale_pose.timestamp_us = 1;
+        stale_pose.x = -999;
+        CHECK(!comm.pushVisionPoseForSession(stale_pose, comm.reconnectCount() + 1));
+        CHECK(comm.pushVisionPoseForSession(p, comm.reconnectCount()));
 
         mavlink_odometry_t odo{};
         CHECK(readOdometry(reader, odo, 3000));

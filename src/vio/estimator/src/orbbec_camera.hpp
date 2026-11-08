@@ -76,6 +76,9 @@ class OrbbecCamera {
         //   1 = COLOR_FRAME_REQUIRE  彩色到就出帧，深度有就带上 ← 想要的
         //   2 = ANY_SITUATION        谁先到都单独出帧
         int aggregate_mode = 0;
+        // Runtime needs color/depth timestamps from the same device clock.
+        // false preserves legacy vio_live callback timestamp semantics.
+        bool callback_device_timestamps = false;
     };
 
     // 回调在相机线程执行：gray 是单通道 8 位图，host_ns 是帧到达主机的时刻，

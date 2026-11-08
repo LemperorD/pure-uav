@@ -10,7 +10,9 @@
 //
 // 运行：./bin/test_mavlink_link_wire
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>

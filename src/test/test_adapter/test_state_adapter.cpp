@@ -630,19 +630,48 @@ static void test_quat_cross_check() {
         near_vec(rotate_vec_by_quat_inv(q90, Vec3(1, 0, 0)), Vec3(0, -1, 0), 1e-15, "本层逆旋转：(1,0,0) → (0,−1,0)");
         near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)), rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15, "仓库实现 = 本层实现（同一数学定义）");
 
-        // 逐例三方比对
-        double worst_ab = 0.0, worst_bc = 0.0;
-        int n = 0;
-        for (int trial = 0; trial < 200; ++trial) {
+            // 逐例三方比对
+            double worst_ab = 0.0, worst_bc = 0.0;
+            int n = 0;
+            for (int trial = 0; trial < 200; ++trial) {
+                double q[4];
+                random_quat(q);
+                const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
+                const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
+                const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
+                if (dab > worst_ab) worst_ab = dab;
+                if (dbc > worst_bc) worst_bc = dbc;
+                ++n;
+                if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+            }
+            std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
+        }
+
+        // ---- 4.3 单位四元数 / 恒等 ----
+        {
+            const double qid[4] = {1, 0, 0, 0};
+            near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：v 不变");
+            near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：逆旋转也不变");
+
+            // 旋转保模长、正交（RᵀR = I）
             double q[4];
             random_quat(q);
-            const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
-            const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
-            const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
-            if (dab > worst_ab) worst_ab = dab;
-            if (dbc > worst_bc) worst_bc = dbc;
-            ++n;
-            if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+            const Vec3 v(1.5, -2.5, 3.5);
+            near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
+            near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14, "R(q)ᵀ·R(q)·v = v（可逆）");
+
+            // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
+            double q90[4];
+            quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
+            near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
+            near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
+
+            // 共轭
+            double qc[4];
+            quat_conjugate(q, qc);
+            // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+            const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+            near_q(qc, q_conj, 0.0, "共轭定义");
         }
         std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
     }

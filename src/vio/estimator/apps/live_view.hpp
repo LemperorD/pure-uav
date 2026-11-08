@@ -230,7 +230,11 @@ class LiveView {
         const int dx = x0 + 14;
         char buf[256];
         auto line = [&](const cv::Scalar& c, const char* fmt, auto... args) {
-            std::snprintf(buf, sizeof(buf), fmt, args...);
+            if constexpr (sizeof...(args) == 0) {
+                std::snprintf(buf, sizeof(buf), "%s", fmt);
+            } else {
+                std::snprintf(buf, sizeof(buf), fmt, args...);
+            }
             putText(canvas_, buf, cv::Point(dx, yy), 0.48, c);
             yy += 22;
         };

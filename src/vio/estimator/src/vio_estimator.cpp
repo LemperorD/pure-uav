@@ -133,6 +133,7 @@ VisionPose VioEstimator::Impl::applyAnchor(const VisionPose& in) const {
 // 原来这些走 log()，被 --quiet 吞掉 —— 排查时看不到"重建了几次、为什么重建"，
 // 只能事后从诊断 CSV 的 t_rel 回退去猜（我就是这么误判 clean1 是连续 88 秒的）。
 void VioEstimator::Impl::logAlways(const char* fmt, ...) const {
+    if (opt.quiet_runtime) return;
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -168,10 +169,11 @@ VioEstimator::VioEstimator(const Options& options) : impl_(new Impl()) {
 
         std::string verbosity = "INFO";
         parser->parse_config("verbosity", verbosity, false);
-        ov_core::Printer::setPrintLevel(verbosity);
+        ov_core::Printer::setPrintLevel(options.quiet_runtime ? "SILENT" : verbosity);
 
         ov_msckf::VioManagerOptions params;
         params.print_and_load(parser);
+        if (options.quiet_runtime) params.record_timing_information = false;
         if (options.init_threads > 0) {
             params.init_options.init_dyn_mle_max_threads = options.init_threads;
             impl_->log("[VIO] 动态初始化线程数覆盖为 %d（可复现性）\n", options.init_threads);

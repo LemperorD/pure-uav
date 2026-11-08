@@ -13,7 +13,9 @@
 // 真飞机接上后，同样的 ODOMETRY 字段应该和这里的汇总一致；这一步能把
 // "上位机发送成功" 和 "飞控真的融合" 分开验证。
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -194,7 +196,7 @@ int main(int argc, char** argv) {
         }
 
         // 解析上位机发来的数据
-        struct pollfd pfd{};
+        struct pollfd pfd {};
         pfd.fd = master;
         pfd.events = POLLIN;
         if (::poll(&pfd, 1, 1) > 0 && (pfd.revents & POLLIN)) {

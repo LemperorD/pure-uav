@@ -961,7 +961,122 @@ GuidanceParams loop_params() {
 
 }  // namespace
 
+static void test_missing_guidance_inputs() {
+    section("制导缺失测距、姿态和时间基检查");
+    for (auto criterion : {FreezeCriterion::BY_TGO, FreezeCriterion::BY_RANGE, FreezeCriterion::BY_TGO_OR_RANGE}) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        auto params = loop_params();
+        params.freeze_criterion = criterion;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(params, cfg, ins, tgt, sink);
+        ok(loop.init(), "range-free PPN loop initializes");
+        flight::GuidanceOutput out;
+        for (int frame = 0; frame < 2; ++frame) {
+            const auto stamp = 1000000ULL + static_cast<unsigned long long>(frame) * 20000ULL;
+            ins.next = loop_ins(stamp);
+            ins.pending = true;
+            tgt.next = loop_tgt(stamp, 0.1 + 0.1 * frame);
+            tgt.next.has_range = false;
+            tgt.next.range_m = 0;
+            tgt.next.has_v_T = false;
+            tgt.pending = true;
+            loop.run_once(&out);
+        }
+        ok(out.valid && out.health == flight::GuidanceInputHealth::kOk && out.mode == PureGuidanceMode::PN, "PPN without range uses LOS difference and does not enter zero-range HOLD");
+        ok(out.a_cmd_norm > 0, "changing LOS without range yields nonzero PPN acceleration");
+        for (auto law : {GuidanceLaw::TPN, GuidanceLaw::APN}) {
+            params.law = law;
+            flight::GuidanceLoop needs_range(params, cfg, ins, tgt, sink);
+            needs_range.init();
+            ins.next = loop_ins(2000000ULL);
+            ins.pending = true;
+            tgt.next = loop_tgt(2000000ULL, 0.2);
+            tgt.next.has_range = false;
+            tgt.pending = true;
+            needs_range.run_once(&out);
+            ok(!out.valid && out.health == flight::GuidanceInputHealth::kNoRange, "TPN/APN without range is invalid under every freeze criterion");
+        }
+    }
+    for (int invalid_input = 0; invalid_input < 5; ++invalid_input) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
+        loop.run_once(&out);
+        ok(out.valid, "valid reference precedes hard input failure");
+        ins.next = loop_ins(1020000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1020000ULL, 0.3);
+        tgt.pending = true;
+        if (invalid_input == 0) ins.next.has_attitude = false;
+        if (invalid_input == 1) tgt.next.boot_us += 5000000ULL;
+        if (invalid_input == 2) ins.next.boot_us = 0;
+        if (invalid_input == 3) tgt.next.boot_us = 0;
+        if (invalid_input == 4) {
+            ins.next.has_attitude = false;
+            tgt.next.boot_us -= 500000ULL;
+        }
+        const int sends_before_invalid = sink.sends;
+        const auto invalid_status = loop.run_once(&out);
+        ok(!out.valid && out.a_cmd_norm == 0 && out.mode == PureGuidanceMode::SEARCH, "missing attitude, future target or unknown timestamps cannot retain valid previous control");
+        if (invalid_input == 0 || invalid_input == 4) {
+            ok(out.health == flight::GuidanceInputHealth::kNoAttitude, "missing attitude cannot be masked by stale target");
+            ok(sink.sends == sends_before_invalid && invalid_status == flight::GuidanceLoopStatus::kUnhealthyInput, "missing attitude produces no command even under the default hold policy");
+        }
+        if (invalid_input == 1) ok(out.health == flight::GuidanceInputHealth::kTimeBackwards, "future-time health");
+    }
+    GuidanceState state;
+    state.valid = true;
+    state.has_range = false;
+    state.los_hat = Vec3(1, 0, 0);
+    state.v_M = Vec3(1, 0, 0);
+    auto params = loop_params();
+    params.law = GuidanceLaw::TPN;
+    GuidanceMemory memory;
+    ok(!guidance_step(state, params, memory).valid, "direct core also rejects missing range for TPN");
+    params.law = GuidanceLaw::APN;
+    ok(!guidance_step(state, params, memory).valid, "direct core also rejects missing range for APN");
+    for (int scenario = 0; scenario < 3; ++scenario) {
+        LoopStubIns ins;
+        LoopStubTgt tgt;
+        LoopStubSink sink;
+        flight::GuidanceLoopConfig cfg;
+        cfg.cam = loop_cam();
+        if (scenario == 1) cfg.on_unhealthy = flight::GuidanceLoopConfig::OnUnhealthy::kStop;
+        flight::GuidanceLoop loop(loop_params(), cfg, ins, tgt, sink);
+        loop.init();
+        ins.next = loop_ins(1000000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(1000000ULL, 0.2);
+        tgt.pending = true;
+        flight::GuidanceOutput out;
+        loop.run_once(&out);
+        ins.next = loop_ins(1020000ULL);
+        ins.pending = true;
+        tgt.next = loop_tgt(scenario == 2 ? 990000ULL : 1070000ULL, 0.3);
+        tgt.pending = true;
+        if (scenario == 1) ins.next.has_attitude = false;
+        const int previous_sends = sink.sends;
+        const auto status = loop.run_once(&out);
+        if (scenario == 0) ok(out.valid && out.health == flight::GuidanceInputHealth::kOk, "future-time tolerance includes exactly 50 ms");
+        if (scenario == 1) ok(!out.valid && status == flight::GuidanceLoopStatus::kUnhealthyInput && sink.sends == previous_sends, "stop policy with missing attitude emits no command and clears previous valid result");
+        if (scenario == 2) ok(!out.valid && out.health == flight::GuidanceInputHealth::kTimeBackwards, "target sampling time rollback is rejected even when age is within stale limit");
+    }
+}
+
 static void test_guidance_loop() {
+    test_missing_guidance_inputs();
     section("16. 机载主循环（GuidanceLoop）");
 
     // --- 16.1 init 校验：相机模型必须有（目标数据是像素）---
