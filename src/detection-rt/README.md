@@ -266,3 +266,11 @@ det.stop();                                     // 停线程、释放相机和�
 ## 7. 范围与限制
 
 - 单进程单实例；不要在多个线程里并发调用同一个 `Detector::poll()` 之外的推理接口。
+
+## 机载共享相机
+
+`bin/main` 同时运行 VIO 和检测，由 `OrbbecCamera` 统一采集彩色/灰度帧。
+`DetectorConfig.external_camera=true` 时 `Detector::start()` 只启动推理线程，
+宿主用 `submitFrame(bgr, host_us, device_us, seq, host_monotonic_ns)` 投递最新帧。
+像素数据通过 `cv::Mat` 引用计数持有，投递后不得修改；停止前必须先停相机投递。
+独立 `detect_rt` 仍使用检测模块自己的相机采集器。

@@ -24,6 +24,7 @@ struct DetectorConfig {
     int max_det = 300;
 
     bool verbose = false;
+    bool external_camera = false;  // 由宿主共享相机，不再独占打开设备
 };
 
 /// 启动以来的采集/处理统计。
@@ -51,6 +52,11 @@ class Detector {
 
     /// 停止采集/推理线程并释放相机与推理后端；可重复调用。
     void stop();
+
+    /// 外部相机模式投递最新 BGR 帧；浅拷贝持有数据，调用者之后不得修改像素。
+    /// host_us 是 Unix 微秒；允许从单个采集线程调用，stop() 前须先停止投递。
+    void submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us, uint64_t seq,
+                     int64_t host_monotonic_ns = 0);
 
     bool running() const;
     bool alive() const;

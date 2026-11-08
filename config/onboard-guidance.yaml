@@ -1,0 +1,14 @@
+# 机载像素检测无测距，使用 PPN 视线差分；相机参数由 VIO 标定读取。
+guidance:
+  law: PPN
+  N: 4
+  a_max: 10
+  los_rate_source: FROM_LOS_DIFFERENCE
+  freeze_criterion: BY_TGO
+  t_go_freeze: 0
+loop:
+  loop_hz: 50
+  max_sample_age_s: 0.2
+  sensor_timeout_s: 0.5
+  on_unhealthy: HOLD_LAST_COMMAND
+  hold_last_max_s: 0.2
