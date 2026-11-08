@@ -61,6 +61,15 @@ class Detector {
     /// @note 非阻塞，可在定周期循环中每拍调用。
     bool poll(FrameResult& out);
 
+    /// 宿主共享相机时，由外部投递最新 BGR 帧。
+    /// @param bgr        彩色帧（像素数据按引用计数持有，投递后不得修改）
+    /// @param host_us    主机采集时间戳(us)
+    /// @param device_us  设备时间戳(us)
+    /// @param seq        帧序号
+    /// @param host_monotonic_ns 主机单调时钟(ns)，用于性能/同步诊断
+    void submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us,
+                     uint64_t seq, int64_t host_monotonic_ns);
+
     /// 启动以来采集/处理的平均统计。
     [[nodiscard]] DetectorStats stats() const;
 

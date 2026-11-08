@@ -105,13 +105,13 @@ class OrbbecCamera {
         int width = 0, height = 0;
         double t_mm[3] = {0.0, 0.0, 0.0};               // 彩色→深度 的平移（mm），已含 −Rᵀt
         double R_c2d[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // 彩色→深度 旋转（行主序）
-        bool valid() const {
+        [[nodiscard]] bool valid() const {
             return fx > 0 && width > 0;
         }
     };
-    DepthInfo depthInfo() const;
+    [[nodiscard]] DepthInfo depthInfo() const;
 
-    bool running() const;
+    [[nodiscard]] bool running() const;
 
   private:
     struct Impl;

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 #include "communicator.hpp"
@@ -39,7 +40,7 @@ using namespace pure_uav;
 namespace flight = guidance::flight;
 using Clock = std::chrono::steady_clock;
 volatile std::sig_atomic_t interrupted = 0;
-void onSignal(int) {
+void onSignal(int /*unused*/) {
     interrupted = 1;
 }
 int64_t nowNs() {
@@ -78,23 +79,26 @@ Options parseOptions(int argc, char** argv) {
             continue;
         }
         std::string* value = nullptr;
-        if (arg == "--driver-config")
+        if (arg == "--driver-config") {
             value = &options.driver;
-        else if (arg == "--config-dir")
+        } else if (arg == "--config-dir") {
             value = &options.vio;
-        else if (arg == "--guidance-config")
+        } else if (arg == "--guidance-config") {
             value = &options.guidance;
-        else if (arg == "--model")
+        } else if (arg == "--model") {
             value = &options.model;
-        else if (arg == "--blackbox")
+        } else if (arg == "--blackbox") {
             value = &options.blackbox;
-        else
+        } else {
             throw std::invalid_argument("未知参数：" + arg);
-        if (++i == argc) throw std::invalid_argument(arg + " 缺少参数值");
+}
+        if (++i == argc) { throw std::invalid_argument(arg + " 缺少参数值");
+}
         *value = argv[i];
     }
     return options;
 }
+}  // namespace
 
 #ifdef PURE_APP_HAS_VIO
 struct Frame {
@@ -126,9 +130,20 @@ class Workers {
     }
     void join() {
         stop = true;
-        for (auto& thread : threads_)
-            if (thread.joinable()) thread.join();
+        for (auto& thread : threads_) {
+            if (thread.joinable()) { thread.join();
+}
+}
     }
+    std::vector<std::thread> threads_;
+};  // class Workers
+
+#endif  // PURE_APP_HAS_VIO
+
+int main(int argc, char** argv) {
+    Options options = parseOptions(argc, argv);
+    (void)options;  // 预留：后续可按配置加载
+    Communicator comm;
 
     std::printf("等待飞控心跳...\n");
     while (!comm.isConnected()) {
@@ -146,7 +161,7 @@ class Workers {
 #ifdef PURE_DETECTION_BACKEND_CPU
     det_cfg.model_path = "assets/models/yolo26n.onnx";
 #else
-    detector_config.model_path = findConfigFile("assets/models/yolo26n.nb");
+    det_cfg.model_path = findConfigFile("assets/models/yolo26n.nb");
 #endif
 
     detection::Detector det;

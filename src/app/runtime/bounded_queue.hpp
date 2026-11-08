@@ -14,7 +14,7 @@ class BoundedQueue {
     explicit BoundedQueue(std::size_t capacity) : capacity_(capacity) {
     }
     void push(T value) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock lock(mutex_);
         if (capacity_ == 0) {
             ++dropped_;
             return;
@@ -26,18 +26,19 @@ class BoundedQueue {
         queue_.push_back(std::move(value));
     }
     bool pop(T& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (queue_.empty()) return false;
+        std::scoped_lock lock(mutex_);
+        if (queue_.empty()) { return false;
+}
         value = std::move(queue_.front());
         queue_.pop_front();
         return true;
     }
     void clear() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock lock(mutex_);
         queue_.clear();
     }
     std::size_t dropped() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock lock(mutex_);
         return dropped_;
     }
 

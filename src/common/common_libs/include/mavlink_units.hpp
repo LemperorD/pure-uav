@@ -180,7 +180,7 @@ int32_t deg_to_deg_e7_round(double deg) noexcept;
 //  §8  哨兵值（MAVLink 的 invalid 约定）
 // ============================================================================
 
-inline constexpr uint16_t kInvalidU16 = 0xFFFFu;  // hdg / cog / vel / eph / epv ...
+inline constexpr uint16_t kInvalidU16 = 0xFFFFU;  // hdg / cog / vel / eph / epv ...
 inline constexpr int32_t kInt32Max = 0x7FFFFFFF;  // 2147483647
 
 // hdg / cog 是否有效（规范：invalid = UINT16_MAX）。

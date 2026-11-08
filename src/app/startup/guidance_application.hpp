@@ -12,8 +12,8 @@
 
 #include "startup/guidance_app_params.hpp"  // GuidanceAppParams（宿主侧配置）
 
-namespace pure_uav {
-namespace app {
+
+namespace pure_uav::app {
 
 struct GuidanceParamResult {
     bool ok = false;
@@ -53,5 +53,5 @@ class GuidanceApplication {
     int run(int argc, char** argv);
 };
 
-}  // namespace app
-}  // namespace pure_uav
+} // namespace pure_uav::app
+

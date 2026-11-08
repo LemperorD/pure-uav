@@ -18,7 +18,7 @@
 
 // 集成到 pure-uav 仓库后，如果编译单元能看到 driver/communicate 的
 // communicator.hpp，就直接复用通信模块的定义（避免同一个 struct 定义两份）。
-#if defined(__has_include)
+#ifdef __has_include
 #if __has_include("communicator.hpp")
 #define PURE_UAV_HAVE_COMMUNICATOR_HEADER 1
 #include "communicator.hpp"

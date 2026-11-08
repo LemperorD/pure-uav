@@ -127,7 +127,7 @@ class HealthMonitor {
     explicit HealthMonitor(const HealthConfig& cfg);
 
     void configure(const HealthConfig& cfg);
-    const HealthConfig& config() const {
+    [[nodiscard]] const HealthConfig& config() const {
         return cfg_;
     }
 
@@ -140,13 +140,13 @@ class HealthMonitor {
     /// 物理合理性违规时强制判失效（NaN/Inf 或速度超出物理上限）
     void mark_implausible(double time_s);
 
-    VioHealthState state() const {
+    [[nodiscard]] VioHealthState state() const {
         return state_;
     }
-    bool publishable() const {
+    [[nodiscard]] bool publishable() const {
         return state_ != VioHealthState::LOST && state_ != VioHealthState::UNKNOWN;
     }
-    HealthReport report(double now_s) const;
+    [[nodiscard]] HealthReport report(double now_s) const;
 
     // 恢复动作由上层执行（重建估计器 + 重锚定），执行完调用这个把状态切回 OK。
     void notify_recovered();
@@ -160,7 +160,7 @@ class HealthMonitor {
     // 滑窗更新率：窗口内每帧是否有更新
     std::vector<double> win_time_;
     std::vector<unsigned char> win_updated_;
-    double updateRate() const;
+    [[nodiscard]] double updateRate() const;
     void pushWindow(double t, bool updated);
 
     double start_time_ = -1.0;

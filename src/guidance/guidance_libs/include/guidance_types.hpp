@@ -43,6 +43,7 @@ struct GuidanceState {
     //   本字段仅供**上游/日志对照**（例如视觉自己估了一路 λ̇ 想比对）——可选，留零即可。
     double lam_dot = 0.0;  // [可选·调试] 视线角速率 λ̇ (rad/s)；制导不消费
     double range = 0.0;    // 相对距离 R (m)
+    bool has_range = false;  // range 是否可信（真机/仿真是否测得距离）
     bool valid = false;    // 本帧数据是否有效
 
     // --- 惯导 ---

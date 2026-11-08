@@ -25,7 +25,7 @@ using namespace pure_uav::guidance::adapter;
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void ok(bool cond, const char* what) {
+static void ok(bool cond, const char *what) {
     if (cond) {
         ++g_pass;
     } else {
@@ -34,7 +34,7 @@ static void ok(bool cond, const char* what) {
     }
 }
 
-static void near(double got, double want, double tol, const char* what) {
+static void near(double got, double want, double tol, const char *what) {
     if (std::fabs(got - want) <= tol) {
         ++g_pass;
     } else {
@@ -43,7 +43,7 @@ static void near(double got, double want, double tol, const char* what) {
     }
 }
 
-static void near_vec(const Vec3& got, const Vec3& want, double tol, const char* what) {
+static void near_vec(const Vec3 &got, const Vec3 &want, double tol, const char *what) {
     const double d = norm(got - want);
     if (d <= tol) {
         ++g_pass;
@@ -56,7 +56,7 @@ static void near_vec(const Vec3& got, const Vec3& want, double tol, const char* 
     }
 }
 
-static void near_q(const double got[4], const double want[4], double tol, const char* what) {
+static void near_q(const double got[4], const double want[4], double tol, const char *what) {
     // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
     double d1 = 0.0, d2 = 0.0;
     for (int i = 0; i < 4; ++i) {
@@ -75,7 +75,7 @@ static void near_q(const double got[4], const double want[4], double tol, const 
     }
 }
 
-static void section(const char* name) {
+static void section(const char *name) {
     std::printf("\n== %s ==\n", name);
 }
 
@@ -86,7 +86,7 @@ static constexpr double PI_REF = 3.14159265358979323846;
 // ============================================================
 
 // 参考四元数旋转：v' = R(q)·v，q = [w,x,y,z]（机体→世界）
-static Vec3 ref_rotate(const double q[4], const Vec3& v) {
+static Vec3 ref_rotate(const double q[4], const Vec3 &v) {
     const double w = q[0], x = q[1], y = q[2], z = q[3];
     const double R[3][3] = {
         {1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
@@ -117,12 +117,12 @@ static Vec3 ref_axis_in_world(const double q[4], int axis) {
     return Vec3(R[0][axis], R[1][axis], R[2][axis]);
 }
 
-static double ref_det3(const Vec3& a, const Vec3& b, const Vec3& c) {
+static double ref_det3(const Vec3 &a, const Vec3 &b, const Vec3 &c) {
     return dot(a, cross(b, c));
 }
 
 // NED ↔ ENU 的参考实现（独立写一遍，不复用被测函数）
-static Vec3 ref_ned_to_enu(const Vec3& v) {
+static Vec3 ref_ned_to_enu(const Vec3 &v) {
     return Vec3(v.y, v.x, -v.z);
 }
 
@@ -173,7 +173,7 @@ static void random_quat(double q[4]) {
 }
 
 // 绕单位轴 axis 转 angle 的四元数 [w,x,y,z]
-static void quat_axis_angle(const Vec3& axis_in, double angle, double q[4]) {
+static void quat_axis_angle(const Vec3 &axis_in, double angle, double q[4]) {
     const Vec3 a = normalized(axis_in);
     const double s = std::sin(angle * 0.5);
     q[0] = std::cos(angle * 0.5);
@@ -187,7 +187,7 @@ static const double kIdentityQuat[4] = {1.0, 0.0, 0.0, 0.0};
 
 // 各外部机体口径下"光轴系三轴"在**外部机体坐标**里的取值。
 // 用于手性（det）检查：必须是 +1（正规旋转），不能是 −1（镜像）。
-static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame* frames, Vec3 out[3]) {
+static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame *frames, Vec3 out[3]) {
     switch (frames[idx]) {
         case GuidanceAttitudeFrame::kFrd:
             out[0] = Vec3(0, 1, 0);
@@ -519,7 +519,6 @@ static void test_attitude() {
         const double q_expect[4] = {-0.5, 0.5, -0.5, 0.5};
         near_q(q_wrap, q_expect, 1e-15, "  与 3.2 手工算例一致（等价输入 ⇒ 同一姿态）");
     }
-
     // ---- 3.7 非法输入必须被拒；"未归一化但方向合理"必须被接受 ----
     {
         double qout[4];
@@ -606,45 +605,73 @@ static void test_quat_cross_check() {
             ++n;
             if (d > 1e-13) ok(false, "rotate_vec_by_quat 与参考实现不一致");
         }
-    }
 
-    // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
-    //
-    // 这一节原本是为了排查一个"看似是转置"的怀疑，最终用完整矩阵对比证明：
-    //   **仓库的 quat_rotate_vec 是标准 R(q)·v，不是转置。**
-    // 把三条独立路径钉在一起，防止以后有人改坏其中任一实现：
-    //   ① sensor.cpp 的 quat_rotate_vec   ② 本层 rotate_vec_by_quat   ③ 本测试的矩阵写法
-    {
-        double q90[4];
-        quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);  // 绕 +z 转 +90°
+        // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
+        //
+        // 这一节原本是为了排查一个"看似是转置"的怀疑，最终用完整矩阵对比证明：
+        //   **仓库的 quat_rotate_vec 是标准 R(q)·v，不是转置。**
+        // 把三条独立路径钉在一起，防止以后有人改坏其中任一实现：
+        //   ① sensor.cpp 的 quat_rotate_vec   ② 本层 rotate_vec_by_quat   ③ 本测试的矩阵写法
+        {
+            double q90[4];
+            quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);  // 绕 +z 转 +90°
 
-        // 三条路径对同一输入必须给出同一结果
-        const Vec3 a = quat_rotate_vec(q90, Vec3(1, 0, 0));     // ①
-        const Vec3 b = rotate_vec_by_quat(q90, Vec3(1, 0, 0));  // ②
-        const Vec3 c = ref_rotate(q90, Vec3(1, 0, 0));          // ③
-        near_vec(a, c, 1e-15, "① 仓库 quat_rotate_vec = ③ 矩阵参考");
-        near_vec(b, c, 1e-15, "② 本层 rotate_vec_by_quat = ③ 矩阵参考");
-        // 解析值：绕 +z 转 90° 把 +x 送到 +y
-        near_vec(c, Vec3(0, 1, 0), 1e-15, "绕 +z 转 90°：(1,0,0) → (0,1,0)");
-        // 逆旋转把 +x 送到 −y
-        near_vec(rotate_vec_by_quat_inv(q90, Vec3(1, 0, 0)), Vec3(0, -1, 0), 1e-15, "本层逆旋转：(1,0,0) → (0,−1,0)");
-        near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)), rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15, "仓库实现 = 本层实现（同一数学定义）");
+            // 三条路径对同一输入必须给出同一结果
+            const Vec3 a = quat_rotate_vec(q90, Vec3(1, 0, 0));     // ①
+            const Vec3 b = rotate_vec_by_quat(q90, Vec3(1, 0, 0));  // ②
+            const Vec3 c = ref_rotate(q90, Vec3(1, 0, 0));          // ③
+            near_vec(a, c, 1e-15, "① 仓库 quat_rotate_vec = ③ 矩阵参考");
+            near_vec(b, c, 1e-15, "② 本层 rotate_vec_by_quat = ③ 矩阵参考");
+            // 解析值：绕 +z 转 90° 把 +x 送到 +y
+            near_vec(c, Vec3(0, 1, 0), 1e-15, "绕 +z 转 90°：(1,0,0) → (0,1,0)");
+            // 逆旋转把 +x 送到 −y
+            near_vec(rotate_vec_by_quat_inv(q90, Vec3(1, 0, 0)), Vec3(0, -1, 0), 1e-15, "本层逆旋转：(1,0,0) → (0,−1,0)");
+            near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)), rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15, "仓库实现 = 本层实现（同一数学定义）");
 
-        // 逐例三方比对
-        double worst_ab = 0.0, worst_bc = 0.0;
-        int n = 0;
-        for (int trial = 0; trial < 200; ++trial) {
+            // 逐例三方比对
+            double worst_ab = 0.0, worst_bc = 0.0;
+            int n = 0;
+            for (int trial = 0; trial < 200; ++trial) {
+                double q[4];
+                random_quat(q);
+                const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
+                const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
+                const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
+                if (dab > worst_ab) worst_ab = dab;
+                if (dbc > worst_bc) worst_bc = dbc;
+                ++n;
+                if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+            }
+            std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
+        }
+
+        // ---- 4.3 单位四元数 / 恒等 ----
+        {
+            const double qid[4] = {1, 0, 0, 0};
+            near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：v 不变");
+            near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：逆旋转也不变");
+
+            // 旋转保模长、正交（RᵀR = I）
             double q[4];
             random_quat(q);
-            const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
-            const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
-            const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
-            if (dab > worst_ab) worst_ab = dab;
-            if (dbc > worst_bc) worst_bc = dbc;
-            ++n;
-            if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+            const Vec3 v(1.5, -2.5, 3.5);
+            near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
+            near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14, "R(q)ᵀ·R(q)·v = v（可逆）");
+
+            // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
+            double q90[4];
+            quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
+            near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
+            near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
+
+            // 共轭
+            double qc[4];
+            quat_conjugate(q, qc);
+            // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+            const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
+            near_q(qc, q_conj, 0.0, "共轭定义");
         }
-        std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
+        std::printf("  （本层 vs 独立矩阵参考 %d 例，最大偏差 %.3g）\n", n, worst);
     }
 
     // ---- 4.3 单位四元数 / 恒等 ----
@@ -669,39 +696,10 @@ static void test_quat_cross_check() {
         // 共轭
         double qc[4];
         quat_conjugate(q, qc);
-        // 注意：同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
+        // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
         const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
         near_q(qc, q_conj, 0.0, "共轭定义");
     }
-    std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
-}
-
-// ---- 4.3 单位四元数 / 恒等 ----
-{
-    const double qid[4] = {1, 0, 0, 0};
-    near_vec(rotate_vec_by_quat(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：v 不变");
-    near_vec(rotate_vec_by_quat_inv(qid, Vec3(1, 2, 3)), Vec3(1, 2, 3), 0.0, "恒等四元数：逆旋转也不变");
-
-    // 旋转保模长、正交（RᵀR = I）
-    double q[4];
-    random_quat(q);
-    const Vec3 v(1.5, -2.5, 3.5);
-    near(norm(rotate_vec_by_quat(q, v)), norm(v), 1e-15, "旋转保模长");
-    near_vec(rotate_vec_by_quat_inv(q, rotate_vec_by_quat(q, v)), v, 1e-14, "R(q)ᵀ·R(q)·v = v（可逆）");
-
-    // 顺序锁定：绕 +z 转 90° 的四元数必须是 [cos45, 0, 0, sin45]
-    double q90[4];
-    quat_axis_angle(Vec3(0, 0, 1), PI_REF / 2, q90);
-    near(q90[0], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[0] = w = cos45");
-    near(q90[3], std::sqrt(0.5), 1e-15, "四元数顺序锁定 q[3] = z = sin45");
-
-    // 共轭
-    double qc[4];
-    quat_conjugate(q, qc);
-    // ⚠ 同上：用普通数组，不用 GNU 复合字面量（Linux GCC 严格模式会报错）
-    const double q_conj[4] = {q[0], -q[1], -q[2], -q[3]};
-    near_q(qc, q_conj, 0.0, "共轭定义");
-}
 }
 
 // ============================================================
@@ -1207,6 +1205,8 @@ static void test_quick_check() {
                 std::printf("  第 %d 帧不一致：quick=%d full=%d\n", i, (int)quick, (int)full);
             }
         }
+        ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
+        ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(), "  负时间（warning 级）两边都放行");
         ok(same, "quick_check 与 check_guidance_state 的 error 判定完全等价");
         ok(quick_check(f[6]) && check_guidance_state(f[6]).ok(), "  负时间（warning 级）两边都放行");
     }

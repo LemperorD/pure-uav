@@ -19,15 +19,8 @@ target_link_libraries(guidance_application PUBLIC
     guidance_flight
 )
 
-add_library(guidance_application STATIC
-    startup/guidance_application.cpp
-)
-target_include_directories(guidance_application PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-target_link_libraries(guidance_application PUBLIC
-    guidance_sim_tools
-    guidance_flight
+add_executable(main
+    main.cpp
 )
 target_link_libraries(main PRIVATE
     communicate

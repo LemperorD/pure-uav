@@ -16,9 +16,9 @@
 #include "guidance_state_adapter.hpp"  // adapter::GuidanceStateTimeTracker
 #include "guidance_types.hpp"          // GuidanceParams / GuidanceMemory
 
-namespace pure_uav {
-namespace guidance {
-namespace flight {
+
+
+namespace pure_uav::guidance::flight {
 
 // ============================================================================
 //  §1  端到端打点（固定环形，循环内零分配）
@@ -37,10 +37,10 @@ struct GuidanceLatencyStats {
             head = (head + 1) % kCap;
             ++n;
         }
-        std::uint64_t count() const noexcept {
+        [[nodiscard]] std::uint64_t count() const noexcept {
             return n;
         }
-        int size() const noexcept {
+        [[nodiscard]] int size() const noexcept {
             return static_cast<int>(n < kCap ? n : kCap);
         }
     };
@@ -55,15 +55,15 @@ struct GuidanceLatencyStats {
         r[static_cast<int>(Stage::kTotal)].add(total_ns);
     }
 
-    std::uint64_t count() const noexcept {
+    [[nodiscard]] std::uint64_t count() const noexcept {
         return r[0].count();
     }
-    int size() const noexcept {
+    [[nodiscard]] int size() const noexcept {
         return r[0].size();
     }
 
-    std::uint64_t percentile_ns(Stage s, double p) const;
-    std::uint64_t max_ns(Stage s) const;
+    [[nodiscard]] std::uint64_t percentile_ns(Stage s, double p) const;
+    [[nodiscard]] std::uint64_t max_ns(Stage s) const;
 };
 
 // ============================================================================
@@ -115,18 +115,18 @@ class GuidanceRingLog {
         n_ = 0;
     }
 
-    bool empty() const noexcept {
+    [[nodiscard]] bool empty() const noexcept {
         return n_ == 0;
     }
-    int size() const noexcept {
+    [[nodiscard]] int size() const noexcept {
         return static_cast<int>(n_ < kCap ? n_ : kCap);
     }
-    std::uint64_t count() const noexcept {
+    [[nodiscard]] std::uint64_t count() const noexcept {
         return n_;
     }
 
-    const GuidanceRingRecord& at(int i) const noexcept;
-    const GuidanceRingRecord& newest() const noexcept;
+    [[nodiscard]] const GuidanceRingRecord& at(int i) const noexcept;
+    [[nodiscard]] const GuidanceRingRecord& newest() const noexcept;
 
     // 最近 seconds 秒（按 boot_us）写成 CSV；<=0 表示全部；返回行数，失败 -1。
     // 说明见 assets/docs/app/blackbox.md；唯一 I/O 入口，绝不能在循环里调用。
@@ -168,19 +168,19 @@ class GuidanceLoop {
     /// @brief 请求停止；下一次 run/run_once 返回 kStopped。
     void request_stop();
 
-    const GuidanceLoopStats& stats() const {
+    [[nodiscard]] const GuidanceLoopStats& stats() const {
         return stats_;
     }
-    const GuidanceRingLog& blackbox() const {
+    [[nodiscard]] const GuidanceRingLog& blackbox() const {
         return blackbox_;
     }
-    bool initialized() const {
+    [[nodiscard]] bool initialized() const {
         return inited_;
     }
 
   private:
     GuidanceLoopStatus emit(const GuidanceOutput& o, GuidanceOutput* out);
-    double local_now_s() const;
+    [[nodiscard]] double local_now_s() const;
 
     // 外部依赖（引用，不拥有）
     const GuidanceParams params_;
@@ -203,7 +203,7 @@ class GuidanceLoop {
     double last_health_s_ = 0.0;
 
     // 计时（本地单调时钟，秒）
-    std::chrono::steady_clock::time_point t_start_{};
+    std::chrono::steady_clock::time_point t_start_;
     double last_ins_s_ = -1.0;
     double last_tgt_s_ = -1.0;
     double last_good_s_ = -1.0;
@@ -216,6 +216,6 @@ class GuidanceLoop {
     GuidanceRingLog blackbox_{};
 };
 
-}  // namespace flight
-}  // namespace guidance
-}  // namespace pure_uav
+} // namespace pure_uav::guidance::flight
+
+
