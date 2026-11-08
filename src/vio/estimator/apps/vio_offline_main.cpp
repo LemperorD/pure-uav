@@ -9,17 +9,16 @@
 // 说明：离线时时间戳沿用数据集（session05 是 Unix 微秒），只验证估计器和
 // 坐标系转换；在线运行时同样是这套转换，只是时间戳换成飞控 boot 微秒。
 
+#include <Eigen/Geometry>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <opencv2/imgcodecs.hpp>
 #include <string>
 #include <vector>
-
-#include <Eigen/Geometry>
-#include <opencv2/imgcodecs.hpp>
 
 #include "offline_dataset.hpp"
 #include "pure_uav/pose_logger.hpp"
@@ -67,16 +66,12 @@ std::string defaultOut(const std::string& dir, const char* name) {
     return dir + "/" + name;
 }
 
-
 Eigen::Matrix3d rpyDegToMatrix(double roll_deg, double pitch_deg, double yaw_deg) {
     // ZYX 欧拉角：R = Rz(yaw) * Ry(pitch) * Rx(roll)
     const double r = roll_deg * M_PI / 180.0;
     const double p = pitch_deg * M_PI / 180.0;
     const double y = yaw_deg * M_PI / 180.0;
-    return (Eigen::AngleAxisd(y, Eigen::Vector3d::UnitZ()) *
-            Eigen::AngleAxisd(p, Eigen::Vector3d::UnitY()) *
-            Eigen::AngleAxisd(r, Eigen::Vector3d::UnitX()))
-        .toRotationMatrix();
+    return (Eigen::AngleAxisd(y, Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(p, Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(r, Eigen::Vector3d::UnitX())).toRotationMatrix();
 }
 
 }  // namespace
@@ -95,12 +90,12 @@ int main(int argc, char** argv) {
     // 失效保护参数
     int health_min_features = 60;
     double health_lost_after = 1.5;
-    bool reinit_on_recover = true;   // 见 vio_health.hpp 的说明
-    bool online_timeoffset = true;   // 与实时保持一致（实时默认开）
-    bool use_depth_init = false;      // 用深度初始化特征（数据集里有 depth/ 才有效）
-    bool static_init = false;         // 静态初始化（开头站着不动，重力方向更准）
-    bool init_vel_zero = false;       // 静止起步：把初始速度强制置 0
-    int init_threads = 0;            // 0 = 用配置文件；A/B 对照用 1
+    bool reinit_on_recover = true;  // 见 vio_health.hpp 的说明
+    bool online_timeoffset = true;  // 与实时保持一致（实时默认开）
+    bool use_depth_init = false;    // 用深度初始化特征（数据集里有 depth/ 才有效）
+    bool static_init = false;       // 静态初始化（开头站着不动，重力方向更准）
+    bool init_vel_zero = false;     // 静止起步：把初始速度强制置 0
+    int init_threads = 0;           // 0 = 用配置文件；A/B 对照用 1
     double itb_rpy[3] = {0.0, 0.0, 0.0};
     double itb_t[3] = {0.0, 0.0, 0.0};
 
@@ -190,14 +185,8 @@ int main(int argc, char** argv) {
     const auto& images = dataset.images();
     const auto& imu = dataset.imu();
     std::printf("数据集: %s\n", dataset.dir().c_str());
-    std::printf("  图像: %zu 帧 [%.6f, %.6f] s\n", images.size(),
-                static_cast<double>(images.front().timestamp_us) * 1e-6,
-                static_cast<double>(images.back().timestamp_us) * 1e-6);
-    std::printf("  IMU : %zu 帧（%.1f Hz）\n", imu.size(),
-                (imu.size() > 1)
-                    ? 1e6 * (imu.size() - 1) /
-                          static_cast<double>(imu.back().timestamp_us - imu.front().timestamp_us)
-                    : 0.0);
+    std::printf("  图像: %zu 帧 [%.6f, %.6f] s\n", images.size(), static_cast<double>(images.front().timestamp_us) * 1e-6, static_cast<double>(images.back().timestamp_us) * 1e-6);
+    std::printf("  IMU : %zu 帧（%.1f Hz）\n", imu.size(), (imu.size() > 1) ? 1e6 * (imu.size() - 1) / static_cast<double>(imu.back().timestamp_us - imu.front().timestamp_us) : 0.0);
 
     pure_uav::VioEstimator::Options opt;
     // 失效保护：判定为 LOST 就停发位姿，恢复时（可选）重建并重锚定
@@ -218,14 +207,14 @@ int main(int argc, char** argv) {
     // 深度元数据（录制时写进数据集的）
     bool depth_meta_valid = false;
     double d_fx = 0, d_fy = 0, d_cx = 0, d_cy = 0, d_tx = 0, d_ty = 0, d_tz = 0;
-    double d_R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};   // 彩色→深度 旋转（行主序）
+    double d_R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // 彩色→深度 旋转（行主序）
     bool d_R_valid = false;
     {
         std::ifstream dm(dataset_dir + "/depth_meta.txt");
         std::string line;
         int valid = 0;
         while (std::getline(dm, line)) {
-            auto kv = [&](const char *k) -> double {
+            auto kv = [&](const char* k) -> double {
                 const std::string key = std::string(k) + "=";
                 if (line.rfind(key, 0) == 0) return std::atof(line.c_str() + key.size());
                 return 0.0;
@@ -254,8 +243,7 @@ int main(int argc, char** argv) {
         depth_meta_valid = (valid == 1 && d_fx > 0.0);
         if (use_depth_init) {
             std::printf("深度元数据: %s", depth_meta_valid ? "有" : "无");
-            if (depth_meta_valid)
-                std::printf("（fx=%.2f fy=%.2f cx=%.2f cy=%.2f t=[%.2f %.2f %.2f]mm 旋转=%s）", d_fx, d_fy, d_cx, d_cy, d_tx, d_ty, d_tz, d_R_valid ? "有" : "单位阵");
+            if (depth_meta_valid) std::printf("（fx=%.2f fy=%.2f cx=%.2f cy=%.2f t=[%.2f %.2f %.2f]mm 旋转=%s）", d_fx, d_fy, d_cx, d_cy, d_tx, d_ty, d_tz, d_R_valid ? "有" : "单位阵");
             std::printf("\n");
         }
     }
@@ -278,9 +266,7 @@ int main(int argc, char** argv) {
         raw_tum << "# timestamp tx ty tz qx qy qz qw bax bay baz bgx bgy bgz\n";
     }
 
-    const uint64_t t_start =
-        images.front().timestamp_us +
-        static_cast<uint64_t>(std::llround(start_sec * 1e6));
+    const uint64_t t_start = images.front().timestamp_us + static_cast<uint64_t>(std::llround(start_sec * 1e6));
 
     size_t imu_idx = 0;
     int processed = 0;
@@ -296,8 +282,7 @@ int main(int argc, char** argv) {
         const char* state;
     };
     std::vector<HealthRow> health_log;
-    const double t_first_sec = images.empty() ? 0.0
-                                              : static_cast<double>(images.front().timestamp_us) * 1e-6;
+    const double t_first_sec = images.empty() ? 0.0 : static_cast<double>(images.front().timestamp_us) * 1e-6;
     int health_sec = -1;
     int health_frames = 0;
     int health_upd = 0;
@@ -351,8 +336,7 @@ int main(int argc, char** argv) {
                     // 老录制只记了平移（旋转按单位阵处理：这台设备两相机基本同向）
                     const double t_m[3] = {d_tx * 1e-3, d_ty * 1e-3, d_tz * 1e-3};
                     // 有记录旋转就用，没有（老录制）按单位阵
-                    est.setDepthImage(depth_mm, img.timestamp_us, d_fx, d_fy, d_cx, d_cy,
-                                      d_R_valid ? d_R : nullptr, t_m);
+                    est.setDepthImage(depth_mm, img.timestamp_us, d_fx, d_fy, d_cx, d_cy, d_R_valid ? d_R : nullptr, t_m);
                 }
             }
         }
@@ -370,9 +354,7 @@ int main(int argc, char** argv) {
             if (est.getLatestPose(sp) && sp.timestamp_us != last_safe_ts) {
                 last_safe_ts = sp.timestamp_us;
                 const double tsec = static_cast<double>(sp.timestamp_us) * 1e-6;
-                safe_tum << std::fixed << std::setprecision(6) << tsec << ' '
-                         << sp.x << ' ' << sp.y << ' ' << sp.z << ' '
-                         << sp.q[0] << ' ' << sp.q[1] << ' ' << sp.q[2] << ' ' << sp.q[3] << '\n';
+                safe_tum << std::fixed << std::setprecision(6) << tsec << ' ' << sp.x << ' ' << sp.y << ' ' << sp.z << ' ' << sp.q[0] << ' ' << sp.q[1] << ' ' << sp.q[2] << ' ' << sp.q[3] << '\n';
                 ++safe_count;
             }
         }
@@ -386,15 +368,8 @@ int main(int argc, char** argv) {
 
                 pure_uav::VioEstimator::RawState raw;
                 if (raw_tum.is_open() && est.getLatestRawState(raw)) {
-                    raw_tum << std::fixed << std::setprecision(6)
-                            << raw.timestamp_sec << ' '
-                            << raw.p_IinG.x() << ' ' << raw.p_IinG.y() << ' ' << raw.p_IinG.z() << ' '
-                            << raw.q_GtoI(0) << ' ' << raw.q_GtoI(1) << ' ' << raw.q_GtoI(2) << ' '
-                            << raw.q_GtoI(3) << ' '
-                            << std::setprecision(9)
-                            << raw.bias_a.x() << ' ' << raw.bias_a.y() << ' ' << raw.bias_a.z() << ' '
-                            << raw.bias_g.x() << ' ' << raw.bias_g.y() << ' ' << raw.bias_g.z()
-                            << '\n';
+                    raw_tum << std::fixed << std::setprecision(6) << raw.timestamp_sec << ' ' << raw.p_IinG.x() << ' ' << raw.p_IinG.y() << ' ' << raw.p_IinG.z() << ' ' << raw.q_GtoI(0) << ' ' << raw.q_GtoI(1) << ' ' << raw.q_GtoI(2) << ' ' << raw.q_GtoI(3) << ' ' << std::setprecision(9)
+                            << raw.bias_a.x() << ' ' << raw.bias_a.y() << ' ' << raw.bias_a.z() << ' ' << raw.bias_g.x() << ' ' << raw.bias_g.y() << ' ' << raw.bias_g.z() << '\n';
                 }
             }
         }
@@ -406,9 +381,7 @@ int main(int argc, char** argv) {
             const int sec = static_cast<int>(std::floor(t_rel));
             if (sec != health_sec) {
                 if (health_sec >= 0 && health_frames > 0) {
-                    health_log.push_back({health_sec, health_feat_sum / health_frames,
-                                          health_upd, health_frames,
-                                          pure_uav::toString(health_worst)});
+                    health_log.push_back({health_sec, health_feat_sum / health_frames, health_upd, health_frames, pure_uav::toString(health_worst)});
                 }
                 health_sec = sec;
                 health_frames = 0;
@@ -424,24 +397,20 @@ int main(int argc, char** argv) {
         }
 
         if (!quiet && (processed % 30 == 0 || k + 1 == images.size())) {
-            std::printf("[%zu/%zu] img_ts=%.6f init=%d pose=%d vio=%.1f ms\n", k + 1,
-                        images.size(), static_cast<double>(img.timestamp_us) * 1e-6,
-                        est.initialized() ? 1 : 0, logged, ms);
+            std::printf("[%zu/%zu] img_ts=%.6f init=%d pose=%d vio=%.1f ms\n", k + 1, images.size(), static_cast<double>(img.timestamp_us) * 1e-6, est.initialized() ? 1 : 0, logged, ms);
             std::fflush(stdout);
         }
     }
 
     if (health_sec >= 0 && health_frames > 0) {
-        health_log.push_back({health_sec, health_feat_sum / health_frames, health_upd,
-                              health_frames, pure_uav::toString(health_worst)});
+        health_log.push_back({health_sec, health_feat_sum / health_frames, health_upd, health_frames, pure_uav::toString(health_worst)});
     }
     logger.close();
 
     std::printf("\n完成:\n");
     std::printf("  处理图像      : %d\n", processed);
     std::printf("  VisionPose    : %d\n", logged);
-    std::printf("  VIO 平均耗时  : %.2f ms/帧\n",
-                processed > 0 ? sum_vio_ms / processed : 0.0);
+    std::printf("  VIO 平均耗时  : %.2f ms/帧\n", processed > 0 ? sum_vio_ms / processed : 0.0);
     if (est.initialized()) {
         std::printf("  初始化时刻    : %.6f s\n", est.initializedTimeSec());
     } else {
@@ -453,14 +422,15 @@ int main(int argc, char** argv) {
     est.msckfStats(m_calls, m_in, m_rej, m_upd, m_rows, m_clean, m_tri);
     if (m_calls > 0) {
         const double rej_pct = 100.0 * static_cast<double>(m_rej) / static_cast<double>(m_in);
-        std::printf("  MSCKF 更新    : 调用 %lld 次｜特征进 %lld｜观测<2 丢 %lld（%.1f%%）"
-                    "｜三角化失败丢 %lld（%.1f%%）｜卡方拒 %lld（%.1f%%）"
-                    "｜实际更新 %lld 次，残差 %lld 行\n",
-                    m_calls, m_in, m_clean, 100.0 * m_clean / m_in,
-                    m_tri, 100.0 * m_tri / m_in, m_rej, rej_pct, m_upd, m_rows);
+        std::printf(
+            "  MSCKF 更新    : 调用 %lld 次｜特征进 %lld｜观测<2 丢 %lld（%.1f%%）"
+            "｜三角化失败丢 %lld（%.1f%%）｜卡方拒 %lld（%.1f%%）"
+            "｜实际更新 %lld 次，残差 %lld 行\n",
+            m_calls, m_in, m_clean, 100.0 * m_clean / m_in, m_tri, 100.0 * m_tri / m_in, m_rej, rej_pct, m_upd, m_rows);
         if (rej_pct > 60.0) {
-            std::printf("  ⚠️ 超过 60%% 的特征被门限拒掉 —— 视觉约束基本没进滤波器，"
-                        "这时轨迹等于纯 IMU 积分\n");
+            std::printf(
+                "  ⚠️ 超过 60%% 的特征被门限拒掉 —— 视觉约束基本没进滤波器，"
+                "这时轨迹等于纯 IMU 积分\n");
         } else if (m_upd == 0) {
             std::printf("  ⚠️ 一次更新都没执行 —— 检查特征三角化/max_clone\n");
         }
@@ -471,23 +441,17 @@ int main(int argc, char** argv) {
         for (const auto& r : health_log) {
             if (std::string(r.state) != "OK" && std::string(r.state) != "DEGRADED") ++blocked_sec;
         }
-        std::printf("  失效保护      : %d/%zu 秒判定为 LOST（占比 %.0f%%）｜被拦下的位姿 %lld 个\n",
-                    blocked_sec, health_log.size(),
-                    health_log.empty() ? 0.0 : 100.0 * blocked_sec / health_log.size(),
-                    health_blocked);
+        std::printf("  失效保护      : %d/%zu 秒判定为 LOST（占比 %.0f%%）｜被拦下的位姿 %lld 个\n", blocked_sec, health_log.size(), health_log.empty() ? 0.0 : 100.0 * blocked_sec / health_log.size(), health_blocked);
         std::printf("  逐秒状态      :\n");
         for (const auto& r : health_log) {
             const int bar = static_cast<int>(std::min(40.0, r.feat / 12.5));
-            std::printf("    %3ds  %-8s 特征 %4.0f  更新 %2d/%2d  %s\n", r.sec, r.state, r.feat,
-                        r.upd, r.frames, std::string(std::max(0, bar), '#').c_str());
+            std::printf("    %3ds  %-8s 特征 %4.0f  更新 %2d/%2d  %s\n", r.sec, r.state, r.feat, r.upd, r.frames, std::string(std::max(0, bar), '#').c_str());
         }
     }
     if (!safe_tum_out.empty()) {
-        std::printf("  安全轨迹      : %s（%d 帧，只含判定为可发布的位姿）\n",
-                    safe_tum_out.c_str(), safe_count);
+        std::printf("  安全轨迹      : %s（%d 帧，只含判定为可发布的位姿）\n", safe_tum_out.c_str(), safe_count);
     }
-    std::printf("  用深度初始化特征: %lld 个%s\n", (long long)est.depthUsed(),
-                use_depth_init ? "" : "（开关未开）");
+    std::printf("  用深度初始化特征: %lld 个%s\n", (long long)est.depthUsed(), use_depth_init ? "" : "（开关未开）");
     {
         long long dn = 0;
         double dmean = 0.0;
@@ -495,8 +459,7 @@ int main(int argc, char** argv) {
         est.depthErrStats(dn, dmean, dh);
         if (dn > 0) {
             std::printf("  深度一致性  : %lld 个特征，中位重投影误差 平均 %.2f px\n", dn, dmean);
-            std::printf("                分布 <1px:%lld  <2px:%lld  <5px:%lld  <10px:%lld  <25px:%lld  >=25px:%lld\n",
-                        dh[0], dh[1], dh[2], dh[3], dh[4], dh[5]);
+            std::printf("                分布 <1px:%lld  <2px:%lld  <5px:%lld  <10px:%lld  <25px:%lld  >=25px:%lld\n", dh[0], dh[1], dh[2], dh[3], dh[4], dh[5]);
         }
     }
     std::printf("  CSV           : %s\n", csv_out.c_str());

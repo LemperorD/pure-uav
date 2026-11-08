@@ -34,7 +34,7 @@ struct PoseConvertOptions {
 };
 
 class VisionPoseConvert {
-public:
+  public:
     explicit VisionPoseConvert(const PoseConvertOptions& options = PoseConvertOptions());
 
     // 锁存 LOCAL_FRD 的原点/朝向。应在第一次拿到已初始化状态时调用一次。
@@ -42,7 +42,9 @@ public:
     //   p_IinG0 : 初始化时刻 IMU 在 global 系的位置
     void reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vector3d& p_IinG0);
 
-    bool initialized() const { return initialized_; }
+    bool initialized() const {
+        return initialized_;
+    }
 
     // 转换一帧状态。
     //   timestamp_sec : 该状态的时间（秒，与输入 IMU/相机同一时钟域）
@@ -50,16 +52,20 @@ public:
     //   p_IinG        : IMU 位置（global）
     //   v_IinG        : IMU 速度（global）
     //   omega_I       : IMU 角速度（IMU 系，已扣零偏），仅用于杆臂速度项
-    VisionPose convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI,
-                       const Eigen::Vector3d& p_IinG, const Eigen::Vector3d& v_IinG,
-                       const Eigen::Vector3d& omega_I = Eigen::Vector3d::Zero()) const;
+    VisionPose convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI, const Eigen::Vector3d& p_IinG, const Eigen::Vector3d& v_IinG, const Eigen::Vector3d& omega_I = Eigen::Vector3d::Zero()) const;
 
     // 调试/测试用
-    const Eigen::Matrix3d& R_LtoG() const { return R_LtoG_; }
-    const Eigen::Vector3d& p_B0inG() const { return p_B0inG_; }
-    const PoseConvertOptions& options() const { return options_; }
+    const Eigen::Matrix3d& R_LtoG() const {
+        return R_LtoG_;
+    }
+    const Eigen::Vector3d& p_B0inG() const {
+        return p_B0inG_;
+    }
+    const PoseConvertOptions& options() const {
+        return options_;
+    }
 
-private:
+  private:
     PoseConvertOptions options_;
     bool initialized_ = false;
     Eigen::Matrix3d R_LtoG_ = Eigen::Matrix3d::Identity();  // LOCAL_FRD 各轴在 G 下的方向

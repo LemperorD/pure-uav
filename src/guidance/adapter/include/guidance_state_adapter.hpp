@@ -6,8 +6,8 @@
 //  本文件只做换算；输入体检见 guidance_state_check.hpp。
 // =============================================================================
 
-#include "guidance_types.hpp"      // GuidanceState / PureGuidanceCmd / Vec3
-#include "mavlink_units.hpp"       // 单位换算与哨兵（本文件全部转调它）
+#include "guidance_types.hpp"  // GuidanceState / PureGuidanceCmd / Vec3
+#include "mavlink_units.hpp"   // 单位换算与哨兵（本文件全部转调它）
 
 namespace pure_uav {
 namespace guidance {
@@ -20,34 +20,34 @@ namespace adapter {
 // 惯性系：NED（外部）/ ENU（内部）。无 GPS 时 NED 实为“初始机头对齐 + z 下”，
 // 与真 NED 只差固定偏航角；详见 assets/docs/interfaces.md §2。
 enum class GuidanceFrame {
-    kNed = 0,   // 北-东-下（无 GPS 时实为“初始机头对齐 + z 下”的局部系）
-    kEnu = 1,   // 东-北-上（内部口径）
+    kNed = 0,  // 北-东-下（无 GPS 时实为“初始机头对齐 + z 下”的局部系）
+    kEnu = 1,  // 东-北-上（内部口径）
 };
 
 // 外部机体系 → 光轴系。默认 kFrd；真实值必须由通信/视觉确认（Q8）。
 // 各系定义与换算见 assets/docs/interfaces.md §3。
 enum class GuidanceAttitudeFrame {
-    kFrd = 0,               // x 前 / y 右 / z 下
-    kFlu = 1,               // x 前 / y 左 / z 上
-    kCamFrd = 2,            // 光轴系（相机约定，按 FRD 语义描述）
-    kCamFlu = 3,            // 光轴系（相机约定，按 FLU 语义描述）
-    kOpticalPassthrough = 4,// 已是光轴系 → 直通
+    kFrd = 0,                 // x 前 / y 右 / z 下
+    kFlu = 1,                 // x 前 / y 左 / z 上
+    kCamFrd = 2,              // 光轴系（相机约定，按 FRD 语义描述）
+    kCamFlu = 3,              // 光轴系（相机约定，按 FLU 语义描述）
+    kOpticalPassthrough = 4,  // 已是光轴系 → 直通
 };
 
 // 时间戳单位
 enum class GuidanceTimeUnit {
-    kSeconds = 0,   // s
-    kMillis  = 1,   // ms（MAVLink `time_boot_ms`：uint32，约 49.7 天回绕）
-    kMicros  = 2,   // µs（PX4 uORB `timestamp`：uint64，实际不回绕）
+    kSeconds = 0,  // s
+    kMillis = 1,   // ms（MAVLink `time_boot_ms`：uint32，约 49.7 天回绕）
+    kMicros = 2,   // µs（PX4 uORB `timestamp`：uint64，实际不回绕）
 };
 
 // 时间基准：只用于记录/断言“两端是否同源”；跨源相减会静默给出垃圾。
 // 详见 assets/docs/interfaces.md §4 与 assets/docs/decisions/0005-time-base.md。
 enum class GuidanceTimeBase {
-    kSameSource = 0,    // 与参考时标同源（唯一安全的情况）
-    kSinceBoot  = 1,    // 开机以来（MAVLink time_boot_ms）
-    kUnixEpoch  = 2,    // Unix epoch（本机 SITL 实测 uORB timestamp 表现为这个）
-    kUnknown    = 3,    // 未知 → 使用前后应警觉
+    kSameSource = 0,  // 与参考时标同源（唯一安全的情况）
+    kSinceBoot = 1,   // 开机以来（MAVLink time_boot_ms）
+    kUnixEpoch = 2,   // Unix epoch（本机 SITL 实测 uORB timestamp 表现为这个）
+    kUnknown = 3,     // 未知 → 使用前后应警觉
 };
 
 // 关键不变量：**同一帧数据的所有时间戳必须同源**。
@@ -66,18 +66,28 @@ inline bool is_safe_to_difference(GuidanceTimeBase a, GuidanceTimeBase b) noexce
 // 位置 / 速度 / 加速度 / 目标速度 **都适用**（都是"同一个矢量在不同系的坐标"）。
 
 // 把矢量从 `from` 系换算到 `to` 系；from == to 时原样返回。
-Vec3 convert_vec(const Vec3 &v, GuidanceFrame from, GuidanceFrame to) noexcept;
+Vec3 convert_vec(const Vec3& v, GuidanceFrame from, GuidanceFrame to) noexcept;
 
 // 便捷写法：NED → ENU（内部最常用）
-inline Vec3 ned_to_enu(const Vec3 &v) noexcept { return convert_vec(v, GuidanceFrame::kNed, GuidanceFrame::kEnu); }
+inline Vec3 ned_to_enu(const Vec3& v) noexcept {
+    return convert_vec(v, GuidanceFrame::kNed, GuidanceFrame::kEnu);
+}
 
 // 便捷写法：ENU → NED（发指令用）
-inline Vec3 enu_to_ned(const Vec3 &v) noexcept { return convert_vec(v, GuidanceFrame::kEnu, GuidanceFrame::kNed); }
+inline Vec3 enu_to_ned(const Vec3& v) noexcept {
+    return convert_vec(v, GuidanceFrame::kEnu, GuidanceFrame::kNed);
+}
 
 // 位置 / 速度 / 加速度语义上都是矢量，同一套换算；分开写只为可读性与自解释。
-inline Vec3 position_from(const Vec3 &p, GuidanceFrame from, GuidanceFrame to) noexcept { return convert_vec(p, from, to); }
-inline Vec3 velocity_from(const Vec3 &v, GuidanceFrame from, GuidanceFrame to) noexcept { return convert_vec(v, from, to); }
-inline Vec3 accel_from(const Vec3 &a, GuidanceFrame from, GuidanceFrame to) noexcept { return convert_vec(a, from, to); }
+inline Vec3 position_from(const Vec3& p, GuidanceFrame from, GuidanceFrame to) noexcept {
+    return convert_vec(p, from, to);
+}
+inline Vec3 velocity_from(const Vec3& v, GuidanceFrame from, GuidanceFrame to) noexcept {
+    return convert_vec(v, from, to);
+}
+inline Vec3 accel_from(const Vec3& a, GuidanceFrame from, GuidanceFrame to) noexcept {
+    return convert_vec(a, from, to);
+}
 
 // ============================================================================
 //  §2  姿态换算（外部机体系 → 光轴系，且世界系 NED → ENU）
@@ -94,10 +104,10 @@ inline Vec3 accel_from(const Vec3 &a, GuidanceFrame from, GuidanceFrame to) noex
 // ⇒ 三者语义一致，可放心混用；一致性由 test_state_adapter.cpp §4 钉住。
 
 // 四元数旋转：v' = R(q)·v（q = [w,x,y,z]，机体→世界）
-Vec3 rotate_vec_by_quat(const double q[4], const Vec3 &v) noexcept;
+Vec3 rotate_vec_by_quat(const double q[4], const Vec3& v) noexcept;
 
 // 逆旋转：世界→机体（v' = R(q)ᵀ·v）
-Vec3 rotate_vec_by_quat_inv(const double q[4], const Vec3 &v) noexcept;
+Vec3 rotate_vec_by_quat_inv(const double q[4], const Vec3& v) noexcept;
 
 // 共轭（单位四元数时即逆）
 void quat_conjugate(const double q[4], double q_out[4]) noexcept;
@@ -116,8 +126,7 @@ void quat_conjugate(const double q[4], double q_out[4]) noexcept;
 //       （|q_in| 偏离 1 过多 / 出现 NaN）。此时 `q_out` 被置为单位四元数。
 //
 // 注意：kOpticalPassthrough 只做**世界系**换算（NED→ENU），机体轴不动。
-bool convert_attitude(const double q_in[4], GuidanceFrame world_in, GuidanceAttitudeFrame frame_in,
-                      double q_out[4], GuidanceFrame &world_out) noexcept;
+bool convert_attitude(const double q_in[4], GuidanceFrame world_in, GuidanceAttitudeFrame frame_in, double q_out[4], GuidanceFrame& world_out) noexcept;
 
 // 便捷版：外部按 NED + FRD 给（PX4 / MAVLink 最常见）→ 内部 ENU + 光轴系
 inline bool attitude_from_ned_frd(const double q_in[4], double q_out[4]) noexcept {
@@ -148,24 +157,34 @@ double timestamp_u64_us_to_s(uint64_t raw_us, uint64_t t_ref_us = 0u) noexcept;
 // 时间轴跟踪器：累加每帧差值，天然容纳 uint32 回绕、避免 2^53 精度问题。
 // 接口/用法见 assets/docs/interfaces.md §4.4。
 class GuidanceStateTimeTracker {
-public:
+  public:
     // ---- 输入：每帧推一个原始时间戳 ----
-    void push_u64_us(uint64_t raw_us) noexcept;   // PX4 uORB（µs, uint64）
-    void push_u32_ms(uint32_t raw_ms) noexcept;   // MAVLink（ms, uint32，回绕安全）
-    void push_s(double raw_s) noexcept;           // 已经是秒
+    void push_u64_us(uint64_t raw_us) noexcept;  // PX4 uORB（µs, uint64）
+    void push_u32_ms(uint32_t raw_ms) noexcept;  // MAVLink（ms, uint32，回绕安全）
+    void push_s(double raw_s) noexcept;          // 已经是秒
 
     // ---- 输出 ----
     // 相对**参考点**的内部秒。未设参考点时参考点 = 首帧（即 t_s() 从 0 起算）。
     double t_s() const noexcept {
         return static_cast<double>(t_us_ - ref_u64_us_) * 1e-6;
     }
-    uint64_t elapsed_us() const noexcept { return t_us_; }
-    bool empty() const noexcept { return frames_ == 0; }
-    uint32_t frames() const noexcept { return frames_; }
-    uint32_t out_of_order() const noexcept { return out_of_order_; }
+    uint64_t elapsed_us() const noexcept {
+        return t_us_;
+    }
+    bool empty() const noexcept {
+        return frames_ == 0;
+    }
+    uint32_t frames() const noexcept {
+        return frames_;
+    }
+    uint32_t out_of_order() const noexcept {
+        return out_of_order_;
+    }
 
     // 最近一次 push 的"原始值差"是否可疑（大跳变）——只提示，不影响累加。
-    bool last_jump_suspect() const noexcept { return last_jump_suspect_; }
+    bool last_jump_suspect() const noexcept {
+        return last_jump_suspect_;
+    }
 
     // ---- 参考点 setter：把"当前原始时间戳"定为 t = 0 ----
     // 典型用法：目标发射那一刻记下发射时标，之后 tr.t_s() 即"发射以来几秒"。
@@ -173,17 +192,21 @@ public:
     void set_reference_u32_ms(uint32_t raw_ms) noexcept;
     void reset() noexcept;
 
-    GuidanceTimeBase base() const noexcept { return base_; }
-    void set_base(GuidanceTimeBase b) noexcept { base_ = b; }
+    GuidanceTimeBase base() const noexcept {
+        return base_;
+    }
+    void set_base(GuidanceTimeBase b) noexcept {
+        base_ = b;
+    }
 
-private:
-    uint64_t t_us_ = 0;                  // 累加得到的内部时间（µs）
-    bool     has_prev_ = false;
-    uint64_t prev_u64_ = 0;              // 上一帧原始值（µs 域）
-    uint64_t ref_u64_us_ = 0;            // 已从累加值中扣除的参考偏移（µs）
+  private:
+    uint64_t t_us_ = 0;  // 累加得到的内部时间（µs）
+    bool has_prev_ = false;
+    uint64_t prev_u64_ = 0;    // 上一帧原始值（µs 域）
+    uint64_t ref_u64_us_ = 0;  // 已从累加值中扣除的参考偏移（µs）
     uint32_t frames_ = 0;
     uint32_t out_of_order_ = 0;
-    bool     last_jump_suspect_ = false;
+    bool last_jump_suspect_ = false;
     GuidanceTimeBase base_ = GuidanceTimeBase::kUnknown;
 };
 
@@ -197,18 +220,20 @@ private:
 
 // 已填充字段位掩码（缺失的字段会保持 GuidanceState 的默认值 = 0）
 enum : uint32_t {
-    kHaveTime    = 1u << 0,   // t
-    kHaveRange   = 1u << 1,   // range
-    kHaveLos     = 1u << 2,   // los_hat
-    kHavePM      = 1u << 3,   // p_M
-    kHaveVM      = 1u << 4,   // v_M
-    kHaveQ       = 1u << 5,   // q
-    kHaveVT      = 1u << 6,   // v_T（仿真真值 / 真机不可得）
-    kHaveATPerp  = 1u << 7,   // a_T_perp（APN 用）
+    kHaveTime = 1u << 0,    // t
+    kHaveRange = 1u << 1,   // range
+    kHaveLos = 1u << 2,     // los_hat
+    kHavePM = 1u << 3,      // p_M
+    kHaveVM = 1u << 4,      // v_M
+    kHaveQ = 1u << 5,       // q
+    kHaveVT = 1u << 6,      // v_T（仿真真值 / 真机不可得）
+    kHaveATPerp = 1u << 7,  // a_T_perp（APN 用）
 };
 
 // ---- 从原始时间戳填 t ----
-inline void fill_time(GuidanceState &st, const GuidanceStateTimeTracker &tr) noexcept { st.t = tr.t_s(); }
+inline void fill_time(GuidanceState& st, const GuidanceStateTimeTracker& tr) noexcept {
+    st.t = tr.t_s();
+}
 
 // ---- 4.1 飞控惯导：位置 / 速度 / 姿态（PX4 uORB 或 MAVLink 裸字段）----
 //
@@ -217,11 +242,7 @@ inline void fill_time(GuidanceState &st, const GuidanceStateTimeTracker &tr) noe
 //
 // 注意：只填 p_M / v_M / q，**不碰** los_hat / range（那是视觉的事）。
 //   `st.valid` 不由本函数设置（有效性是"目标是否可观测"的语义，见 4.3）。
-void fill_ins(GuidanceState &st,
-              const Vec3 &p_raw, const Vec3 &v_raw,
-              const double q_raw[4],
-              GuidanceFrame world_in, GuidanceAttitudeFrame att_in,
-              bool has_position = true, bool has_attitude = true) noexcept;
+void fill_ins(GuidanceState& st, const Vec3& p_raw, const Vec3& v_raw, const double q_raw[4], GuidanceFrame world_in, GuidanceAttitudeFrame att_in, bool has_position = true, bool has_attitude = true) noexcept;
 
 // ---- 4.2 目标 / 视觉：视线方向 + 距离 → los_hat + range + (可选) v_T ----
 //
@@ -234,25 +255,22 @@ void fill_ins(GuidanceState &st,
 // `opt_vT_raw`：仅"真值法"（FROM_RELATIVE_VELOCITY，仿真）可得；真机置 false。
 //
 // 返回本次填充的位掩码。
-uint32_t fill_target(GuidanceState &st,
-                     const Vec3 &los_raw, GuidanceFrame from,
-                     bool has_range, double opt_range_m,
-                     bool has_vT, const Vec3 &opt_vT_raw,
-                     bool target_present = true) noexcept;
+uint32_t fill_target(GuidanceState& st, const Vec3& los_raw, GuidanceFrame from, bool has_range, double opt_range_m, bool has_vT, const Vec3& opt_vT_raw, bool target_present = true) noexcept;
 
 // ---- 4.3 APN 的目标横向加速度 ----
 // 真机需估计（可由弹道外推得到）；估计不出来就别开 APN。
-void fill_target_accel(GuidanceState &st, const Vec3 &a_T_raw, GuidanceFrame from,
-                       bool has_ata = true) noexcept;
+void fill_target_accel(GuidanceState& st, const Vec3& a_T_raw, GuidanceFrame from, bool has_ata = true) noexcept;
 
 // ---- 4.4 制导指令 → 外部 NED（发指令前唯一的一次换算）----
 //
 // `a_cmd`（内部 ENU, m/s²）→ NED 三分量，可直接写进
 // `cmd_accel_ned` 的 linear.x/y/z 或 MAVLink `SET_POSITION_TARGET_LOCAL_NED`。
-void cmd_accel_to_ned(const PureGuidanceCmd &cmd, double out_xyz[3]) noexcept;
+void cmd_accel_to_ned(const PureGuidanceCmd& cmd, double out_xyz[3]) noexcept;
 
 // 只转矢量（不想带整个 cmd 结构时用）
-inline Vec3 accel_cmd_ned(const Vec3 &a_cmd_enu) noexcept { return enu_to_ned(a_cmd_enu); }
+inline Vec3 accel_cmd_ned(const Vec3& a_cmd_enu) noexcept {
+    return enu_to_ned(a_cmd_enu);
+}
 
 // ============================================================================
 //  §5  一步到位的"整帧"入口
@@ -261,31 +279,31 @@ inline Vec3 accel_cmd_ned(const Vec3 &a_cmd_enu) noexcept { return enu_to_ned(a_
 // 把 §4 的调用顺序固定下来，避免各处自己拼装（拼装最容易漏一个换算）。
 // 字段缺失时按缺省值处理，不返回值之外的东西；详细体检请用 guidance_state_check.hpp。
 
-struct GuidanceInsRaw {          // 飞控惯导原始帧
-    Vec3   p;            // 位置（`world` 系，m）
-    Vec3   v;            // 速度（`world` 系，m/s）
+struct GuidanceInsRaw {                  // 飞控惯导原始帧
+    Vec3 p;                              // 位置（`world` 系，m）
+    Vec3 v;                              // 速度（`world` 系，m/s）
     double q[4] = {1.0, 0.0, 0.0, 0.0};  // 姿态 [w,x,y,z]，机体→世界
-    bool   has_position = true;
-    bool   has_attitude = true;
+    bool has_position = true;
+    bool has_attitude = true;
 };
 
-struct GuidanceTargetRaw {       // 视觉/目标检测原始帧
-    Vec3   los;          // 视线方向（`world` 系，**不必单位化**）
-    bool   has_range = false;
+struct GuidanceTargetRaw {  // 视觉/目标检测原始帧
+    Vec3 los;               // 视线方向（`world` 系，**不必单位化**）
+    bool has_range = false;
     double range_m = 0.0;
-    bool   has_vT = false;
-    Vec3   vT;           // 目标速度（`world` 系，m/s）
-    bool   present = true;
+    bool has_vT = false;
+    Vec3 vT;  // 目标速度（`world` 系，m/s）
+    bool present = true;
 };
 
-struct GuidanceRawFrame {        // 一帧完整外部输入
-    GuidanceFrame         world = GuidanceFrame::kNed;                 // 外部世界系
-    GuidanceAttitudeFrame att   = GuidanceAttitudeFrame::kFrd;         // 外部机体系
-    GuidanceInsRaw        ins;
-    GuidanceTargetRaw     target;
+struct GuidanceRawFrame {                                     // 一帧完整外部输入
+    GuidanceFrame world = GuidanceFrame::kNed;                // 外部世界系
+    GuidanceAttitudeFrame att = GuidanceAttitudeFrame::kFrd;  // 外部机体系
+    GuidanceInsRaw ins;
+    GuidanceTargetRaw target;
 };
 
-GuidanceState to_guidance_state(const GuidanceRawFrame &raw) noexcept;
+GuidanceState to_guidance_state(const GuidanceRawFrame& raw) noexcept;
 
 }  // namespace adapter
 }  // namespace guidance

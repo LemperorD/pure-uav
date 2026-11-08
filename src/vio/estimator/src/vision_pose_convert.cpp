@@ -20,7 +20,8 @@ Eigen::Vector3d horizontalUnit(const Eigen::Vector3d& v) {
 
 }  // namespace
 
-VisionPoseConvert::VisionPoseConvert(const PoseConvertOptions& options) : options_(options) {}
+VisionPoseConvert::VisionPoseConvert(const PoseConvertOptions& options) : options_(options) {
+}
 
 void VisionPoseConvert::reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vector3d& p_IinG0) {
     const Eigen::Matrix3d R_ItoG0 = R_GtoI0.transpose();
@@ -45,10 +46,7 @@ void VisionPoseConvert::reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vecto
     has_last_q_ = false;
 }
 
-VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI,
-                                      const Eigen::Vector3d& p_IinG,
-                                      const Eigen::Vector3d& v_IinG,
-                                      const Eigen::Vector3d& omega_I) const {
+VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI, const Eigen::Vector3d& p_IinG, const Eigen::Vector3d& v_IinG, const Eigen::Vector3d& omega_I) const {
     VisionPose pose;
     pose.timestamp_us = static_cast<uint64_t>(std::llround(timestamp_sec * 1e6));
     pose.frame_id = VisionFrame::LOCAL_FRD;

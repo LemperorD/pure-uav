@@ -29,14 +29,19 @@ double HealthMonitor::updateRate() const {
 
 const char* toString(VioHealthState s) {
     switch (s) {
-        case VioHealthState::OK: return "OK";
-        case VioHealthState::DEGRADED: return "DEGRADED";
-        case VioHealthState::LOST: return "LOST";
-        default: return "UNKNOWN";
+        case VioHealthState::OK:
+            return "OK";
+        case VioHealthState::DEGRADED:
+            return "DEGRADED";
+        case VioHealthState::LOST:
+            return "LOST";
+        default:
+            return "UNKNOWN";
     }
 }
 
-HealthMonitor::HealthMonitor(const HealthConfig& cfg) : cfg_(cfg) {}
+HealthMonitor::HealthMonitor(const HealthConfig& cfg) : cfg_(cfg) {
+}
 
 void HealthMonitor::configure(const HealthConfig& cfg) {
     cfg_ = cfg;
@@ -94,8 +99,7 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     const double rate = updateRate();
     const bool low_rate = (rate >= 0.0) && (rate < cfg_.min_update_rate);
     const bool few_features = features < cfg_.min_features;
-    const double since_update = (last_update_time_ < 0.0) ? (time_s - start_time_)
-                                                          : (time_s - last_update_time_);
+    const double since_update = (last_update_time_ < 0.0) ? (time_s - start_time_) : (time_s - last_update_time_);
 
     // 特征不足的计时
     if (few_features) {
@@ -125,11 +129,8 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     const double bad_tilt_for = (bad_tilt_since_ < 0.0) ? 0.0 : (time_s - bad_tilt_since_);
     const bool tilt_degrade = (tilt_deg >= 0.0) && (tilt_deg > cfg_.tilt_degrade_deg);
 
-    const bool should_be_lost =
-        low_rate || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s) ||
-        (bad_dep_for > cfg_.deperr_lost_s) || (bad_tilt_for > cfg_.tilt_lost_s);
-    const bool should_be_degraded =
-        few_features || low_rate || (since_update > cfg_.degrade_after_s) || bad_dep || tilt_degrade;
+    const bool should_be_lost = low_rate || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s) || (bad_dep_for > cfg_.deperr_lost_s) || (bad_tilt_for > cfg_.tilt_lost_s);
+    const bool should_be_degraded = few_features || low_rate || (since_update > cfg_.degrade_after_s) || bad_dep || tilt_degrade;
 
     switch (state_) {
         case VioHealthState::UNKNOWN:
@@ -167,9 +168,7 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
             // 恢复候选：特征回到 min_features_recover 以上，且近期有更新
             // 【2026-10-25】还要确认"把我们判死的那个条件"已经消失，否则 1 s 后刚恢复又立刻
             // 再判 LOST，状态在 OK/LOST 之间以 1 Hz 抖动，上层重建也跟着抖。
-            const bool healthy = (features >= cfg_.min_features_recover) &&
-                                 (!(rate >= 0.0) || rate >= cfg_.min_update_rate_recover) &&
-                                 (since_update <= cfg_.lost_after_s) && !should_be_lost;
+            const bool healthy = (features >= cfg_.min_features_recover) && (!(rate >= 0.0) || rate >= cfg_.min_update_rate_recover) && (since_update <= cfg_.lost_after_s) && !should_be_lost;
             if (!healthy) {
                 good_since_ = -1.0;
                 break;
@@ -206,9 +205,7 @@ HealthReport HealthMonitor::report(double now_s) const {
     r.publishable = publishable();
     r.features = features_;
     r.updated_this_frame = updated_;
-    r.since_update_s = (last_update_time_ < 0.0)
-                           ? (now_s - start_time_)
-                           : std::max(0.0, now_s - last_update_time_);
+    r.since_update_s = (last_update_time_ < 0.0) ? (now_s - start_time_) : std::max(0.0, now_s - last_update_time_);
     r.since_state_change_s = (state_changed_at_ < 0.0) ? 0.0 : (now_s - state_changed_at_);
     r.recoveries = recoveries_;
     r.lost_count = lost_count_;

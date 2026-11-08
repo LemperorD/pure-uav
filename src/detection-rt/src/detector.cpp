@@ -6,10 +6,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <opencv2/core.hpp>
 #include <thread>
 #include <utility>
-
-#include <opencv2/core.hpp>
 
 #include "pure_uav/detection/yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
@@ -61,7 +60,7 @@ struct Detector::Impl {
     void onCameraFrame(const CameraFrame& frame) {
         {
             std::lock_guard<std::mutex> lk(frame_mu);
-            latest_bgr = frame.bgr;   // cv::Mat 浅拷贝（引用计数），数据仍归本槽所有
+            latest_bgr = frame.bgr;  // cv::Mat 浅拷贝（引用计数），数据仍归本槽所有
             latest_host_us = frame.host_us;
             latest_device_us = frame.device_us;
             latest_seq = frame.seq;
@@ -80,9 +79,7 @@ struct Detector::Impl {
             int64_t monotonic_ns = 0;
             {
                 std::unique_lock<std::mutex> lk(frame_mu);
-                frame_cv.wait(lk, [this] {
-                    return !running.load(std::memory_order_relaxed) || has_frame;
-                });
+                frame_cv.wait(lk, [this] { return !running.load(std::memory_order_relaxed) || has_frame; });
                 if (!running.load(std::memory_order_relaxed)) break;
                 if (!has_frame) continue;
                 bgr = latest_bgr;
@@ -132,9 +129,12 @@ struct Detector::Impl {
     }
 };
 
-Detector::Detector() : impl_(std::make_unique<Impl>()) {}
+Detector::Detector() : impl_(std::make_unique<Impl>()) {
+}
 
-Detector::~Detector() { stop(); }
+Detector::~Detector() {
+    stop();
+}
 
 bool Detector::start(const DetectorConfig& cfg, std::string& error) {
     if (impl_->running.load()) return true;
@@ -160,7 +160,7 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
         return false;
     }
 
-    if (!cfg.external_camera && !impl_->camera.start(cfg.camera,
+    if (!impl_->camera.start(cfg.camera,
                              [this](const CameraFrame& f) { impl_->onCameraFrame(f); },
                              &error)) {
         impl_->backend.release();
@@ -233,9 +233,13 @@ void Detector::stop() {
     g_instance_used.store(false);
 }
 
-bool Detector::running() const { return impl_ && impl_->running.load(); }
+bool Detector::running() const {
+    return impl_ && impl_->running.load();
+}
 
-bool Detector::alive() const { return impl_ && impl_->alive.load(); }
+bool Detector::alive() const {
+    return impl_ && impl_->alive.load();
+}
 
 bool Detector::poll(FrameResult& out) {
     std::lock_guard<std::mutex> lk(impl_->result_mu);

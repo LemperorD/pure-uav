@@ -13,10 +13,10 @@
 #include <cstdio>
 #include <thread>
 
-#include "guidance.hpp"        // guidance_step()
-#include "quat.hpp"            // quat_rotate_vec()
-#include "guidance_state_adapter.hpp"   // to_guidance_state() / cmd_accel_to_ned()
-#include "guidance_state_check.hpp"     // quick_check()
+#include "guidance.hpp"                // guidance_step()
+#include "guidance_state_adapter.hpp"  // to_guidance_state() / cmd_accel_to_ned()
+#include "guidance_state_check.hpp"    // quick_check()
+#include "quat.hpp"                    // quat_rotate_vec()
 
 namespace pure_uav {
 namespace guidance {
@@ -29,7 +29,7 @@ namespace flight {
 std::uint64_t GuidanceLatencyStats::percentile_ns(Stage s, double p) const {
     const int idx = static_cast<int>(s);
     if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
-    const Ring &ring = r[idx];
+    const Ring& ring = r[idx];
     const int m = ring.size();
     if (m <= 0) return 0;
 
@@ -47,7 +47,7 @@ std::uint64_t GuidanceLatencyStats::percentile_ns(Stage s, double p) const {
 std::uint64_t GuidanceLatencyStats::max_ns(Stage s) const {
     const int idx = static_cast<int>(s);
     if (idx < 0 || idx >= static_cast<int>(Stage::kCount)) return 0;
-    const Ring &ring = r[idx];
+    const Ring& ring = r[idx];
     const int m = ring.size();
     if (m <= 0) return 0;
     std::uint64_t mx = 0;
@@ -61,18 +61,18 @@ std::uint64_t GuidanceLatencyStats::max_ns(Stage s) const {
 //  GuidanceRingLog 实现（push 零 I/O；dump 才碰磁盘）
 // ============================================================================
 
-void GuidanceRingLog::push(const GuidanceOutput &o) noexcept {
-    GuidanceRingRecord &r = r_[head_];
-    r = GuidanceRingRecord{};                       // 清零（避免上一圈残留）
+void GuidanceRingLog::push(const GuidanceOutput& o) noexcept {
+    GuidanceRingRecord& r = r_[head_];
+    r = GuidanceRingRecord{};  // 清零（避免上一圈残留）
 
     r.boot_us = o.boot_us;
-    r.ctrl    = static_cast<std::uint8_t>(o.ctrl);
-    r.mode    = static_cast<std::uint8_t>(o.mode);
-    r.health  = static_cast<std::uint8_t>(o.health);
+    r.ctrl = static_cast<std::uint8_t>(o.ctrl);
+    r.mode = static_cast<std::uint8_t>(o.mode);
+    r.health = static_cast<std::uint8_t>(o.health);
 
     unsigned f = 0;
-    if (o.valid)    f |= 1u;
-    if (o.sat)      f |= 2u;
+    if (o.valid) f |= 1u;
+    if (o.sat) f |= 2u;
     if (o.hold_yaw) f |= 4u;
     if (o.ctrl == GuidanceControlMode::kVelocity) f |= 8u;
     r.flags = static_cast<std::uint8_t>(f);
@@ -83,17 +83,17 @@ void GuidanceRingLog::push(const GuidanceOutput &o) noexcept {
     r.v_ned[0] = o.v_cmd_ned.x;
     r.v_ned[1] = o.v_cmd_ned.y;
     r.v_ned[2] = o.v_cmd_ned.z;
-    r.a_norm   = o.a_cmd_norm;
-    r.t_go     = o.t_go;
-    r.Vc       = o.Vc;
-    r.R        = o.R;
-    r.lam_dot  = o.lam_dot;
+    r.a_norm = o.a_cmd_norm;
+    r.t_go = o.t_go;
+    r.Vc = o.Vc;
+    r.R = o.R;
+    r.lam_dot = o.lam_dot;
 
     head_ = (head_ + 1) % kCap;
     ++n_;
 }
 
-const GuidanceRingRecord &GuidanceRingLog::at(int i) const noexcept {
+const GuidanceRingRecord& GuidanceRingLog::at(int i) const noexcept {
     static const GuidanceRingRecord kZero{};
     const int m = size();
     if (m <= 0) return kZero;
@@ -103,11 +103,13 @@ const GuidanceRingRecord &GuidanceRingLog::at(int i) const noexcept {
     return r_[(start + i) % kCap];
 }
 
-const GuidanceRingRecord &GuidanceRingLog::newest() const noexcept { return at(size() - 1); }
+const GuidanceRingRecord& GuidanceRingLog::newest() const noexcept {
+    return at(size() - 1);
+}
 
-long GuidanceRingLog::dump_csv(const char *path, double seconds) const {
+long GuidanceRingLog::dump_csv(const char* path, double seconds) const {
     if (path == nullptr) return -1;
-    std::FILE *f = std::fopen(path, "wb");
+    std::FILE* f = std::fopen(path, "wb");
     if (f == nullptr) return -1;
 
     std::fprintf(f,
@@ -124,26 +126,18 @@ long GuidanceRingLog::dump_csv(const char *path, double seconds) const {
     std::uint64_t thresh = 0;
     if (use_thresh) {
         const double span_us = seconds * 1e6;
-        thresh = (span_us >= static_cast<double>(newest_us))
-                     ? 0
-                     : newest_us - static_cast<std::uint64_t>(span_us);
+        thresh = (span_us >= static_cast<double>(newest_us)) ? 0 : newest_us - static_cast<std::uint64_t>(span_us);
     }
 
     long rows = 0;
     for (int i = 0; i < m; ++i) {
-        const GuidanceRingRecord &r = at(i);
+        const GuidanceRingRecord& r = at(i);
         if (use_thresh && r.boot_us < thresh) continue;
         std::fprintf(f,
                      "%llu,%u,%u,%u,%d,%d,%d,"
                      "%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
-                     static_cast<unsigned long long>(r.boot_us),
-                     static_cast<unsigned>(r.ctrl), static_cast<unsigned>(r.mode),
-                     static_cast<unsigned>(r.health),
-                     (r.flags & 1u) ? 1 : 0, (r.flags & 2u) ? 1 : 0,
-                     (r.flags & 4u) ? 1 : 0,
-                     r.a_ned[0], r.a_ned[1], r.a_ned[2],
-                     r.v_ned[0], r.v_ned[1], r.v_ned[2],
-                     r.a_norm, r.t_go, r.Vc, r.R, r.lam_dot);
+                     static_cast<unsigned long long>(r.boot_us), static_cast<unsigned>(r.ctrl), static_cast<unsigned>(r.mode), static_cast<unsigned>(r.health), (r.flags & 1u) ? 1 : 0, (r.flags & 2u) ? 1 : 0, (r.flags & 4u) ? 1 : 0, r.a_ned[0], r.a_ned[1], r.a_ned[2], r.v_ned[0], r.v_ned[1],
+                     r.v_ned[2], r.a_norm, r.t_go, r.Vc, r.R, r.lam_dot);
         ++rows;
     }
 
@@ -155,10 +149,8 @@ namespace {
 // ---------------------------------------------------------------- 小工具
 
 // 3×3（行主序）× 3 向量
-inline Vec3 mat3_mul(const double R[9], const Vec3 &v) noexcept {
-    return Vec3(R[0] * v.x + R[1] * v.y + R[2] * v.z,
-                R[3] * v.x + R[4] * v.y + R[5] * v.z,
-                R[6] * v.x + R[7] * v.y + R[8] * v.z);
+inline Vec3 mat3_mul(const double R[9], const Vec3& v) noexcept {
+    return Vec3(R[0] * v.x + R[1] * v.y + R[2] * v.z, R[3] * v.x + R[4] * v.y + R[5] * v.z, R[6] * v.x + R[7] * v.y + R[8] * v.z);
 }
 
 // 像素 → 世界系单位视线
@@ -166,8 +158,7 @@ inline Vec3 mat3_mul(const double R[9], const Vec3 &v) noexcept {
 //   第 1 步：(u,v) → 相机系射线 d_cam = ((u−cx)/fx, (v−cy)/fy, 1)
 //   第 2 步：d_body = R_body_cam · d_cam
 //   第 3 步：d_world = R(q) · d_body
-bool pixel_to_world_los(const GuidanceCameraModel &cam, const GuidanceTargetSample &t,
-                        const double q_frd_world[4], Vec3 &los_world) noexcept {
+bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSample& t, const double q_frd_world[4], Vec3& los_world) noexcept {
     if (!cam.valid()) return false;
     if (!std::isfinite(t.u_px) || !std::isfinite(t.v_px)) return false;
 
@@ -176,11 +167,11 @@ bool pixel_to_world_los(const GuidanceCameraModel &cam, const GuidanceTargetSamp
     if (!std::isfinite(xn) || !std::isfinite(yn)) return false;
 
     const Vec3 d_cam(xn, yn, 1.0);
-    const Vec3 d_body  = mat3_mul(cam.R_body_cam, d_cam);
+    const Vec3 d_body = mat3_mul(cam.R_body_cam, d_cam);
     const Vec3 d_world = quat_rotate_vec(q_frd_world, d_body);
 
     const double n = norm(d_world);
-    if (!(n > 1e-9)) return false;                 // 同时挡住 NaN
+    if (!(n > 1e-9)) return false;  // 同时挡住 NaN
     los_world = d_world / n;
     return true;
 }
@@ -188,45 +179,47 @@ bool pixel_to_world_los(const GuidanceCameraModel &cam, const GuidanceTargetSamp
 // 把体检的 GuidanceCheckCode 映射成对外的 GuidanceInputHealth
 GuidanceInputHealth to_health(adapter::GuidanceCheckCode code) noexcept {
     switch (code) {
-        case adapter::GuidanceCheckCode::kOk:            return GuidanceInputHealth::kOk;
-        case adapter::GuidanceCheckCode::kLosZero:       return GuidanceInputHealth::kLosZero;
-        case adapter::GuidanceCheckCode::kLosNotUnit:    return GuidanceInputHealth::kLosNotUnit;
-        case adapter::GuidanceCheckCode::kQuatNotUnit:   return GuidanceInputHealth::kQuatNotUnit;
-        case adapter::GuidanceCheckCode::kRangeNegative: return GuidanceInputHealth::kRangeNegative;
-        default:                        return GuidanceInputHealth::kNotFinite;
+        case adapter::GuidanceCheckCode::kOk:
+            return GuidanceInputHealth::kOk;
+        case adapter::GuidanceCheckCode::kLosZero:
+            return GuidanceInputHealth::kLosZero;
+        case adapter::GuidanceCheckCode::kLosNotUnit:
+            return GuidanceInputHealth::kLosNotUnit;
+        case adapter::GuidanceCheckCode::kQuatNotUnit:
+            return GuidanceInputHealth::kQuatNotUnit;
+        case adapter::GuidanceCheckCode::kRangeNegative:
+            return GuidanceInputHealth::kRangeNegative;
+        default:
+            return GuidanceInputHealth::kNotFinite;
     }
 }
 
 // 安全悬停输出（零速度；走 PX4 速度环闭环）
 inline GuidanceOutput make_safe_hover(std::uint64_t boot_us, GuidanceInputHealth health) noexcept {
     GuidanceOutput o;
-    o.boot_us    = boot_us;
-    o.ctrl       = GuidanceControlMode::kVelocity;
-    o.a_cmd_ned  = Vec3{};
-    o.v_cmd_ned  = Vec3{};
-    o.hold_yaw   = true;
+    o.boot_us = boot_us;
+    o.ctrl = GuidanceControlMode::kVelocity;
+    o.a_cmd_ned = Vec3{};
+    o.v_cmd_ned = Vec3{};
+    o.hold_yaw = true;
     o.a_cmd_norm = 0.0;
-    o.sat        = false;
-    o.mode       = PureGuidanceMode::SEARCH;
-    o.valid      = false;
-    o.health     = health;
+    o.sat = false;
+    o.mode = PureGuidanceMode::SEARCH;
+    o.valid = false;
+    o.health = health;
     return o;
 }
 
 // 打点用 RAII：所有 return 路径都会落一条样本。
 struct LatencyTrace {
-    GuidanceLatencyStats *dst = nullptr;
+    GuidanceLatencyStats* dst = nullptr;
     std::chrono::steady_clock::time_point t0{}, t1{}, t2{}, t3{};
     bool armed = false;
 
     ~LatencyTrace() {
         if (!armed || dst == nullptr) return;
         const auto t4 = std::chrono::steady_clock::now();
-        auto ns = [](const std::chrono::steady_clock::time_point &a,
-                     const std::chrono::steady_clock::time_point &b) {
-            return static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count());
-        };
+        auto ns = [](const std::chrono::steady_clock::time_point& a, const std::chrono::steady_clock::time_point& b) { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count()); };
         dst->add(ns(t0, t1), ns(t1, t2), ns(t2, t3), ns(t3, t4), ns(t0, t4));
     }
 };
@@ -237,9 +230,8 @@ struct LatencyTrace {
 //  构造 / 初始化
 // ============================================================================
 
-GuidanceLoop::GuidanceLoop(const GuidanceParams &params, const GuidanceLoopConfig &cfg,
-                           GuidanceInsSource &ins, GuidanceTargetSource &tgt, GuidanceCommandSink &sink)
-    : params_(params), cfg_(cfg), ins_(ins), tgt_(tgt), sink_(sink) {}
+GuidanceLoop::GuidanceLoop(const GuidanceParams& params, const GuidanceLoopConfig& cfg, GuidanceInsSource& ins, GuidanceTargetSource& tgt, GuidanceCommandSink& sink) : params_(params), cfg_(cfg), ins_(ins), tgt_(tgt), sink_(sink) {
+}
 
 bool GuidanceLoop::init() {
     if (inited_) return true;
@@ -248,26 +240,28 @@ bool GuidanceLoop::init() {
     if (cfg_.loop_hz <= 0 || cfg_.loop_hz > 2000) return false;
     if (!(cfg_.max_sample_age_s > 0.0) || !(cfg_.sensor_timeout_s > 0.0)) return false;
     if (!(cfg_.hold_last_max_s >= 0.0)) return false;
-    if (!cfg_.cam.valid()) return false;        // 目标数据是像素 ⇒ 必须有相机模型
+    if (!cfg_.cam.valid()) return false;  // 目标数据是像素 ⇒ 必须有相机模型
 
     tracker_.reset();
-    memory_        = GuidanceMemory{};
-    stats_         = GuidanceLoopStats{};
+    memory_ = GuidanceMemory{};
+    stats_ = GuidanceLoopStats{};
     blackbox_.clear();
-    have_ins_      = false;
-    have_tgt_      = false;
-    computed_      = false;
-    last_out_      = GuidanceOutput{};
-    last_ins_s_    = -1.0;
-    last_tgt_s_    = -1.0;
-    last_good_s_   = -1.0;
-    t_start_       = std::chrono::steady_clock::now();
+    have_ins_ = false;
+    have_tgt_ = false;
+    computed_ = false;
+    last_out_ = GuidanceOutput{};
+    last_ins_s_ = -1.0;
+    last_tgt_s_ = -1.0;
+    last_good_s_ = -1.0;
+    t_start_ = std::chrono::steady_clock::now();
 
     inited_ = true;
     return true;
 }
 
-void GuidanceLoop::request_stop() { stop_requested_.store(true, std::memory_order_relaxed); }
+void GuidanceLoop::request_stop() {
+    stop_requested_.store(true, std::memory_order_relaxed);
+}
 
 double GuidanceLoop::local_now_s() const {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start_).count();
@@ -277,8 +271,8 @@ double GuidanceLoop::local_now_s() const {
 //  输出出口：发送 + 统计 + 延迟
 // ============================================================================
 
-GuidanceLoopStatus GuidanceLoop::emit(const GuidanceOutput &o, GuidanceOutput *out) {
-    blackbox_.push(o);                 //  先记黑匣子（即使发送失败也要留下证据）
+GuidanceLoopStatus GuidanceLoop::emit(const GuidanceOutput& o, GuidanceOutput* out) {
+    blackbox_.push(o);  //  先记黑匣子（即使发送失败也要留下证据）
     if (!sink_.send(o)) {
         ++stats_.sink_errors;
         return GuidanceLoopStatus::kSinkError;
@@ -298,14 +292,14 @@ GuidanceLoopStatus GuidanceLoop::emit(const GuidanceOutput &o, GuidanceOutput *o
 //  一拍
 // ============================================================================
 
-GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
+GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
     if (!inited_) return GuidanceLoopStatus::kNotInitialized;
     if (stop_requested_.load(std::memory_order_relaxed)) return GuidanceLoopStatus::kStopped;
 
     LatencyTrace trace;
-    trace.dst   = &stats_.latency;
-    trace.t0    = std::chrono::steady_clock::now();
-    trace.t1    = trace.t2 = trace.t3 = trace.t0;
+    trace.dst = &stats_.latency;
+    trace.t0 = std::chrono::steady_clock::now();
+    trace.t1 = trace.t2 = trace.t3 = trace.t0;
     trace.armed = true;
 
     ++stats_.ticks;
@@ -315,12 +309,12 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
     const bool new_ins = ins_.poll(ins_now_);
     if (new_ins) {
         ++stats_.ins_frames;
-        have_ins_   = true;
+        have_ins_ = true;
         last_ins_s_ = t_local;
     }
     const bool new_tgt = tgt_.poll(tgt_now_);
     if (new_tgt) {
-        have_tgt_   = true;
+        have_tgt_ = true;
         last_tgt_s_ = t_local;
         if (tgt_now_.present) ++stats_.tgt_frames;
     }
@@ -340,11 +334,8 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
     if (!have_ins_ || !have_tgt_) return GuidanceLoopStatus::kOk;
 
     // ---- ④ 新鲜度 ----
-    const std::uint64_t now_us =
-        (ins_now_.boot_us != 0) ? ins_now_.boot_us : tgt_now_.boot_us;
-    const double age_s = (now_us >= tgt_now_.boot_us)
-                             ? static_cast<double>(now_us - tgt_now_.boot_us) * 1e-6
-                             : 0.0;
+    const std::uint64_t now_us = (ins_now_.boot_us != 0) ? ins_now_.boot_us : tgt_now_.boot_us;
+    const double age_s = (now_us >= tgt_now_.boot_us) ? static_cast<double>(now_us - tgt_now_.boot_us) * 1e-6 : 0.0;
 
     GuidanceInputHealth health = GuidanceInputHealth::kOk;
     if (age_s > cfg_.max_sample_age_s) health = GuidanceInputHealth::kStale;
@@ -361,19 +352,19 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
         if (health == GuidanceInputHealth::kOk) {
             adapter::GuidanceRawFrame raw;
             raw.world = adapter::GuidanceFrame::kNed;
-            raw.att   = adapter::GuidanceAttitudeFrame::kFrd;
+            raw.att = adapter::GuidanceAttitudeFrame::kFrd;
             raw.ins.p = ins_now_.p;
             raw.ins.v = ins_now_.v;
             for (int i = 0; i < 4; ++i) raw.ins.q[i] = ins_now_.q[i];
             raw.ins.has_position = ins_now_.has_position;
             raw.ins.has_attitude = ins_now_.has_attitude;
 
-            raw.target.los        = los_world;
-            raw.target.has_range  = tgt_now_.has_range;
-            raw.target.range_m    = tgt_now_.range_m;
-            raw.target.has_vT     = tgt_now_.has_v_T;
-            raw.target.vT         = tgt_now_.v_T;
-            raw.target.present    = tgt_now_.present;
+            raw.target.los = los_world;
+            raw.target.has_range = tgt_now_.has_range;
+            raw.target.range_m = tgt_now_.range_m;
+            raw.target.has_vT = tgt_now_.has_v_T;
+            raw.target.vT = tgt_now_.v_T;
+            raw.target.present = tgt_now_.present;
 
             GuidanceState st = adapter::to_guidance_state(raw);
 
@@ -394,28 +385,28 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput *out) {
                 trace.t3 = std::chrono::steady_clock::now();
 
                 GuidanceOutput o;
-                o.boot_us    = tgt_now_.boot_us;
-                o.ctrl       = GuidanceControlMode::kAcceleration;
-                o.a_cmd_ned  = Vec3(ned[0], ned[1], ned[2]);
-                o.v_cmd_ned  = Vec3{};
-                o.hold_yaw   = true;
+                o.boot_us = tgt_now_.boot_us;
+                o.ctrl = GuidanceControlMode::kAcceleration;
+                o.a_cmd_ned = Vec3(ned[0], ned[1], ned[2]);
+                o.v_cmd_ned = Vec3{};
+                o.hold_yaw = true;
                 o.a_cmd_norm = cmd.a_cmd_norm;
-                o.sat        = cmd.sat;
-                o.mode       = cmd.mode;
-                o.valid      = cmd.valid;
-                o.t_go       = cmd.t_go;
-                o.Vc         = cmd.Vc;
-                o.R          = cmd.R;
-                o.lam_dot    = cmd.lam_dot;
-                o.health     = GuidanceInputHealth::kOk;
+                o.sat = cmd.sat;
+                o.mode = cmd.mode;
+                o.valid = cmd.valid;
+                o.t_go = cmd.t_go;
+                o.Vc = cmd.Vc;
+                o.R = cmd.R;
+                o.lam_dot = cmd.lam_dot;
+                o.health = GuidanceInputHealth::kOk;
 
                 if (cmd.sat) ++stats_.saturated;
                 if (cmd.mode == PureGuidanceMode::HOLD) ++stats_.hold;
                 if (cmd.mode == PureGuidanceMode::SEARCH) ++stats_.search;
 
-                computed_          = true;
-                last_out_          = o;
-                last_good_s_       = t_local;
+                computed_ = true;
+                last_out_ = o;
+                last_good_s_ = t_local;
                 return emit(o, out);
             }
         }
@@ -467,8 +458,7 @@ GuidanceLoopStatus GuidanceLoop::run() {
     if (!inited_) return GuidanceLoopStatus::kNotInitialized;
 
     const int hz = (cfg_.loop_hz > 0) ? cfg_.loop_hz : 1;
-    const auto period = std::chrono::nanoseconds(
-        static_cast<long long>(1e9 / static_cast<double>(hz)));
+    const auto period = std::chrono::nanoseconds(static_cast<long long>(1e9 / static_cast<double>(hz)));
 
     auto next = std::chrono::steady_clock::now();
     while (!stop_requested_.load(std::memory_order_relaxed)) {

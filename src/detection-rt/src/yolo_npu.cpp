@@ -1,6 +1,9 @@
 // VIPLite/awnn 推理后端实现；NBG 输入/输出布局见同目录 README。
 #include "pure_uav/detection/yolo_npu.hpp"
 
+#include <unistd.h>
+#include <vip_lite.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -8,16 +11,12 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
-#include <sstream>
-#include <unistd.h>
-
 #include <opencv2/imgproc.hpp>
-
-#include <vip_lite.h>
+#include <sstream>
 
 extern "C" {
-#include "awnn_lib.h"
 #include "awnn_internal.h"
+#include "awnn_lib.h"
 }
 
 namespace pure_uav {
@@ -28,21 +27,31 @@ constexpr int kMaxCreateAttempts = 4;  // 首次 + 最多 3 次重试
 
 const char* formatName(int f) {
     switch (f) {
-        case VIP_BUFFER_FORMAT_FP32: return "FP32";
-        case VIP_BUFFER_FORMAT_FP16: return "FP16";
-        case VIP_BUFFER_FORMAT_UINT8: return "UINT8";
-        case VIP_BUFFER_FORMAT_INT8: return "INT8";
-        case VIP_BUFFER_FORMAT_INT16: return "INT16";
-        default: return "OTHER";
+        case VIP_BUFFER_FORMAT_FP32:
+            return "FP32";
+        case VIP_BUFFER_FORMAT_FP16:
+            return "FP16";
+        case VIP_BUFFER_FORMAT_UINT8:
+            return "UINT8";
+        case VIP_BUFFER_FORMAT_INT8:
+            return "INT8";
+        case VIP_BUFFER_FORMAT_INT16:
+            return "INT16";
+        default:
+            return "OTHER";
     }
 }
 
 const char* quantName(int q) {
     switch (q) {
-        case VIP_BUFFER_QUANTIZE_DYNAMIC_FIXED_POINT: return "DFP";
-        case VIP_BUFFER_QUANTIZE_TF_ASYMM: return "TF_ASYMM";
-        case VIP_BUFFER_QUANTIZE_NONE: return "NONE";
-        default: return "OTHER";
+        case VIP_BUFFER_QUANTIZE_DYNAMIC_FIXED_POINT:
+            return "DFP";
+        case VIP_BUFFER_QUANTIZE_TF_ASYMM:
+            return "TF_ASYMM";
+        case VIP_BUFFER_QUANTIZE_NONE:
+            return "NONE";
+        default:
+            return "OTHER";
     }
 }
 
@@ -56,8 +65,7 @@ std::string dimsStr(const vip_buffer_create_params_t& p) {
 }
 
 double msSince(const std::chrono::steady_clock::time_point& t) {
-    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t)
-        .count();
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
 }
 
 const std::string& emptyString() {
@@ -138,8 +146,7 @@ struct YoloNpu::Impl {
             for (int d = 0; d < op.vip_param.num_of_dims; ++d) shape.push_back(op.vip_param.sizes[d]);
             os << " [" << i << "]";
             for (size_t k = 0; k < shape.size(); ++k) os << (k ? "x" : "") << shape[k];
-            os << " fmt=" << formatName(op.vip_param.data_format)
-               << " quant=" << quantName(op.vip_param.quant_format) << " n=" << op.elements;
+            os << " fmt=" << formatName(op.vip_param.data_format) << " quant=" << quantName(op.vip_param.quant_format) << " n=" << op.elements;
         }
     }
 
@@ -189,7 +196,8 @@ struct YoloNpu::Impl {
     }
 };
 
-YoloNpu::YoloNpu() : impl_(new Impl()) {}
+YoloNpu::YoloNpu() : impl_(new Impl()) {
+}
 
 YoloNpu::~YoloNpu() {
     release();
@@ -218,8 +226,7 @@ bool YoloNpu::load(const std::string& model_path, int imgsz, std::string& error)
         impl_->ctx = awnn_create(model_path.c_str());
         if (impl_->ctx) break;
         if (attempt == kMaxCreateAttempts) break;
-        std::cerr << "[npu] awnn_create attempt " << attempt << "/" << kMaxCreateAttempts
-                  << " failed, retrying in 500 ms...\n";
+        std::cerr << "[npu] awnn_create attempt " << attempt << "/" << kMaxCreateAttempts << " failed, retrying in 500 ms...\n";
         awnn_uninit();
         impl_->initialized = false;
         usleep(500000);
@@ -271,21 +278,17 @@ bool YoloNpu::load(const std::string& model_path, int imgsz, std::string& error)
     }
 
     if (impl_->width != imgsz || impl_->height != imgsz) {
-        error = "NBG 输入 " + std::to_string(impl_->width) + "x" +
-                std::to_string(impl_->height) + " != " + std::to_string(imgsz);
+        error = "NBG 输入 " + std::to_string(impl_->width) + "x" + std::to_string(impl_->height) + " != " + std::to_string(imgsz);
         impl_->clear();
         return false;
     }
     if (in.elements != static_cast<size_t>(3) * imgsz * imgsz) {
-        error = "NBG 输入元素数 " + std::to_string(in.elements) + " 与 3x" +
-                std::to_string(imgsz) + "x" + std::to_string(imgsz) + " 不符";
+        error = "NBG 输入元素数 " + std::to_string(in.elements) + " 与 3x" + std::to_string(imgsz) + "x" + std::to_string(imgsz) + " 不符";
         impl_->clear();
         return false;
     }
 
-    if (impl_->input_dtype != VIP_BUFFER_FORMAT_UINT8 &&
-        impl_->input_dtype != VIP_BUFFER_FORMAT_INT8 &&
-        impl_->input_dtype != VIP_BUFFER_FORMAT_FP32) {
+    if (impl_->input_dtype != VIP_BUFFER_FORMAT_UINT8 && impl_->input_dtype != VIP_BUFFER_FORMAT_INT8 && impl_->input_dtype != VIP_BUFFER_FORMAT_FP32) {
         error = std::string("不支持的 NBG 输入 dtype: ") + formatName(impl_->input_dtype);
         impl_->clear();
         return false;
@@ -306,10 +309,8 @@ bool YoloNpu::load(const std::string& model_path, int imgsz, std::string& error)
         impl_->buildQuantLut();
     }
 
-    const size_t bytes_per_element =
-        (impl_->input_dtype == VIP_BUFFER_FORMAT_FP32) ? sizeof(float) : sizeof(uint8_t);
-    impl_->input_bytes.assign(static_cast<size_t>(3) * impl_->height * impl_->width *
-                                 bytes_per_element, 0);
+    const size_t bytes_per_element = (impl_->input_dtype == VIP_BUFFER_FORMAT_FP32) ? sizeof(float) : sizeof(uint8_t);
+    impl_->input_bytes.assign(static_cast<size_t>(3) * impl_->height * impl_->width * bytes_per_element, 0);
 
     impl_->resolveOutputs();
     if (impl_->out_channels <= 0 || impl_->out_anchors <= 0) {
@@ -319,12 +320,8 @@ bool YoloNpu::load(const std::string& model_path, int imgsz, std::string& error)
     }
 
     std::ostringstream os;
-    os << "VIPLite driver=0x" << std::hex << vip_get_version() << std::dec
-       << "; input " << dimsStr(ip) << " fmt=" << formatName(impl_->input_dtype)
-       << " quant=" << quantName(impl_->input_quant) << " scale=" << impl_->input_scale
-       << " zero=" << impl_->input_zero << " dfp=" << impl_->input_dfp
-       << "; fused " << (impl_->channel_major ? "channel-major " : "anchor-major ")
-       << impl_->out_channels << "x" << impl_->out_anchors;
+    os << "VIPLite driver=0x" << std::hex << vip_get_version() << std::dec << "; input " << dimsStr(ip) << " fmt=" << formatName(impl_->input_dtype) << " quant=" << quantName(impl_->input_quant) << " scale=" << impl_->input_scale << " zero=" << impl_->input_zero << " dfp=" << impl_->input_dfp
+       << "; fused " << (impl_->channel_major ? "channel-major " : "anchor-major ") << impl_->out_channels << "x" << impl_->out_anchors;
     impl_->describeOutputs(os);
     impl_->info = os.str();
     return true;
@@ -345,9 +342,7 @@ bool YoloNpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
     const int W = impl_->width;
 
     // letterbox：左上角填充、零填充、BGR→RGB
-    const float scale =
-        std::min(static_cast<float>(W) / static_cast<float>(bgr.cols),
-                 static_cast<float>(H) / static_cast<float>(bgr.rows));
+    const float scale = std::min(static_cast<float>(W) / static_cast<float>(bgr.cols), static_cast<float>(H) / static_cast<float>(bgr.rows));
     int new_w = static_cast<int>(std::round(bgr.cols * scale));
     int new_h = static_cast<int>(std::round(bgr.rows * scale));
     new_w = std::min(new_w, W);
@@ -367,12 +362,9 @@ bool YoloNpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
         for (int x = 0; x < W; ++x) {
             const cv::Vec3b& px = row[x];
             for (int c = 0; c < 3; ++c) {
-                const size_t idx = impl_->nhwc
-                    ? static_cast<size_t>(y * W + x) * 3 + static_cast<size_t>(c)
-                    : static_cast<size_t>(c) * area + static_cast<size_t>(y * W + x);
+                const size_t idx = impl_->nhwc ? static_cast<size_t>(y * W + x) * 3 + static_cast<size_t>(c) : static_cast<size_t>(c) * area + static_cast<size_t>(y * W + x);
                 if (fp32) {
-                    reinterpret_cast<float*>(impl_->input_bytes.data())[idx] =
-                        static_cast<float>(px[c]) / 255.0f;
+                    reinterpret_cast<float*>(impl_->input_bytes.data())[idx] = static_cast<float>(px[c]) / 255.0f;
                 } else {
                     impl_->input_bytes[idx] = impl_->quant_lut[px[c]];
                 }
@@ -397,12 +389,10 @@ bool YoloNpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
         // 融合后的 channel-major [6, anchors]，内部缓冲已按固定尺寸分配
         const size_t anchors = static_cast<size_t>(impl_->out_anchors);
         for (int c = 0; c < 4; ++c) {
-            std::memcpy(impl_->fused.data() + static_cast<size_t>(c) * anchors,
-                        outputs[0] + static_cast<size_t>(c) * anchors, anchors * sizeof(float));
+            std::memcpy(impl_->fused.data() + static_cast<size_t>(c) * anchors, outputs[0] + static_cast<size_t>(c) * anchors, anchors * sizeof(float));
         }
         for (int c = 0; c < 2; ++c) {
-            std::memcpy(impl_->fused.data() + static_cast<size_t>(4 + c) * anchors,
-                        outputs[1] + static_cast<size_t>(c) * anchors, anchors * sizeof(float));
+            std::memcpy(impl_->fused.data() + static_cast<size_t>(4 + c) * anchors, outputs[1] + static_cast<size_t>(c) * anchors, anchors * sizeof(float));
         }
         data = impl_->fused.data();
     } else {
@@ -418,11 +408,17 @@ bool YoloNpu::infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error)
     return true;
 }
 
-bool YoloNpu::loaded() const { return impl_ && impl_->ctx != nullptr; }
+bool YoloNpu::loaded() const {
+    return impl_ && impl_->ctx != nullptr;
+}
 
-int YoloNpu::inputSize() const { return impl_ ? impl_->imgsz : 0; }
+int YoloNpu::inputSize() const {
+    return impl_ ? impl_->imgsz : 0;
+}
 
-const std::string& YoloNpu::info() const { return impl_ ? impl_->info : emptyString(); }
+const std::string& YoloNpu::info() const {
+    return impl_ ? impl_->info : emptyString();
+}
 
 void YoloNpu::release() {
     if (impl_) impl_->clear();

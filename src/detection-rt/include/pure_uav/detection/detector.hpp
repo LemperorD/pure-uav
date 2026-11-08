@@ -38,7 +38,7 @@ struct DetectorStats {
 
 /// 检测门面；同一进程只允许一个实例（推理后端是进程级资源）。
 class Detector {
-public:
+  public:
     Detector();
     ~Detector();
 
@@ -79,7 +79,7 @@ public:
     /// 当前推理后端的输入/输出与配置信息。
     std::string modelInfo() const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

@@ -4,8 +4,7 @@
 namespace pure_uav {
 namespace detection {
 
-bool to_target_sample(const FrameResult& r, uint64_t boot_us,
-                      pure_uav::guidance::flight::GuidanceTargetSample& out) {
+bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance::flight::GuidanceTargetSample& out) {
     // 先置成"无目标"的降级状态，保证 present=false 时主循环可直接进 SEARCH。
     out.boot_us = boot_us;
     out.u_px = 0.0;
@@ -16,7 +15,7 @@ bool to_target_sample(const FrameResult& r, uint64_t boot_us,
     out.conf = 0.0;
     out.class_id = -1;
     out.present = false;
-    out.has_range = false;   // 本模块只输出检测框
+    out.has_range = false;  // 本模块只输出检测框
     out.range_m = 0.0;
     out.has_v_T = false;
     out.v_T = Vec3{};

@@ -5,12 +5,11 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <sstream>
 #include <thread>
 #include <utility>
-
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
 
 #include "libobsensor/ObSensor.hpp"
 #include "libobsensor/hpp/Error.hpp"
@@ -21,11 +20,12 @@ namespace {
 
 uint64_t unixNowUs() {
     using namespace std::chrono;
-    return static_cast<uint64_t>(
-        duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
+    return static_cast<uint64_t>(duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
 }
 
-int formatCode(OBFormat f) { return static_cast<int>(f); }
+int formatCode(OBFormat f) {
+    return static_cast<int>(f);
+}
 
 std::string profileListString(const std::shared_ptr<ob::StreamProfileList>& list) {
     std::ostringstream os;
@@ -38,8 +38,7 @@ std::string profileListString(const std::shared_ptr<ob::StreamProfileList>& list
             continue;
         }
         if (!vp) continue;
-        os << " " << vp->width() << "x" << vp->height() << "@" << vp->fps() << "f"
-           << formatCode(vp->format());
+        os << " " << vp->width() << "x" << vp->height() << "@" << vp->fps() << "f" << formatCode(vp->format());
     }
     return os.str();
 }
@@ -51,8 +50,7 @@ cv::Mat colorFrameToBgr(const std::shared_ptr<ob::ColorFrame>& frame) {
     const OBFormat format = frame->format();
 
     if (format == OB_FORMAT_MJPG) {
-        cv::Mat raw(1, static_cast<int>(frame->dataSize()), CV_8UC1,
-                    static_cast<uint8_t*>(frame->data()));
+        cv::Mat raw(1, static_cast<int>(frame->dataSize()), CV_8UC1, static_cast<uint8_t*>(frame->data()));
         return cv::imdecode(raw, cv::IMREAD_COLOR);
     }
     if (format == OB_FORMAT_RGB) {
@@ -118,9 +116,12 @@ struct CameraSource::Impl {
     }
 };
 
-CameraSource::CameraSource() : impl_(std::make_unique<Impl>()) {}
+CameraSource::CameraSource() : impl_(std::make_unique<Impl>()) {
+}
 
-CameraSource::~CameraSource() { stop(); }
+CameraSource::~CameraSource() {
+    stop();
+}
 
 bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string* error) {
     if (impl_->running.load()) return true;
@@ -144,7 +145,10 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
         for (const OBFormat fmt : {OB_FORMAT_MJPG, OB_FORMAT_RGB, OB_FORMAT_YUYV}) {
             try {
                 profile = profiles->getVideoStreamProfile(cfg.width, cfg.height, fmt, cfg.fps);
-                if (profile) { chosen = fmt; break; }
+                if (profile) {
+                    chosen = fmt;
+                    break;
+                }
             } catch (const ob::Error&) {
                 profile = nullptr;
             }
@@ -152,8 +156,7 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
 
         if (!profile) {
             if (error) {
-                *error = "找不到 " + std::to_string(cfg.width) + "x" + std::to_string(cfg.height) +
-                         "@" + std::to_string(cfg.fps) + "fps 的彩色 profile（MJPG/RGB/YUYV 均不可用）";
+                *error = "找不到 " + std::to_string(cfg.width) + "x" + std::to_string(cfg.height) + "@" + std::to_string(cfg.fps) + "fps 的彩色 profile（MJPG/RGB/YUYV 均不可用）";
                 *error += "；可用彩色 profile:" + profileListString(profiles);
             }
             impl_->pipe.reset();
@@ -166,9 +169,7 @@ bool CameraSource::start(const CameraConfig& cfg, FrameCallback cb, std::string*
         impl_->pipe->start(config);
 
         impl_->format = chosen;
-        impl_->profile = std::to_string(profile->width()) + "x" +
-                         std::to_string(profile->height()) + "@" +
-                         std::to_string(profile->fps()) + "f" + std::to_string(formatCode(chosen));
+        impl_->profile = std::to_string(profile->width()) + "x" + std::to_string(profile->height()) + "@" + std::to_string(profile->fps()) + "f" + std::to_string(formatCode(chosen));
 
         impl_->running.store(true);
         impl_->thread = std::thread([this] { impl_->captureLoop(); });

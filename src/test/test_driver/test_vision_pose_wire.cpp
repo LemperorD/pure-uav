@@ -14,8 +14,8 @@
 //   ./bin/test/test_vision_pose_wire
 
 #define _GNU_SOURCE
-#include <poll.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -28,25 +28,23 @@
 #include <string>
 #include <vector>
 
-#include "communicator.hpp"
 #include "common/mavlink.h"
+#include "communicator.hpp"
 
 namespace {
 
 int g_failed = 0;
 
 int64_t nowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
-        .count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        if (!(cond)) {                                                  \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);   \
-            ++g_failed;                                                 \
-        }                                                               \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
 bool writeAll(int fd, const uint8_t* buf, size_t len) {
@@ -130,14 +128,9 @@ bool noStreamRequests(MsgReader& reader, int timeout_ms = 120) {
 }
 
 // 按线上字节检查全部五种订阅，包含目标组件和请求间隔。
-bool readStreamRequests(MsgReader& reader, uint8_t sysid, uint8_t compid,
-                        const pure_uav::CommConfig& cfg) {
-    const uint32_t ids[] = {MAVLINK_MSG_ID_ATTITUDE, MAVLINK_MSG_ID_LOCAL_POSITION_NED,
-                           MAVLINK_MSG_ID_HIGHRES_IMU, MAVLINK_MSG_ID_BATTERY_STATUS,
-                           MAVLINK_MSG_ID_SYSTEM_TIME};
-    const int intervals[] = {cfg.attitude_interval_us, cfg.local_position_interval_us,
-                             cfg.highres_imu_interval_us, cfg.battery_interval_us,
-                             cfg.system_time_interval_us};
+bool readStreamRequests(MsgReader& reader, uint8_t sysid, uint8_t compid, const pure_uav::CommConfig& cfg) {
+    const uint32_t ids[] = {MAVLINK_MSG_ID_ATTITUDE, MAVLINK_MSG_ID_LOCAL_POSITION_NED, MAVLINK_MSG_ID_HIGHRES_IMU, MAVLINK_MSG_ID_BATTERY_STATUS, MAVLINK_MSG_ID_SYSTEM_TIME};
+    const int intervals[] = {cfg.attitude_interval_us, cfg.local_position_interval_us, cfg.highres_imu_interval_us, cfg.battery_interval_us, cfg.system_time_interval_us};
     bool seen[5] = {};
     size_t count = 0;
     const int64_t deadline = nowMs() + 1200;
@@ -188,23 +181,15 @@ bool waitMs(Pred pred, int timeout_ms) {
     return pred();
 }
 
-bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot,
-                   uint8_t base_mode) {
+bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot, uint8_t base_mode) {
     mavlink_message_t msg;
-    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0,
-                               MAV_STATE_ACTIVE);
+    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0, MAV_STATE_ACTIVE);
     return sendPacked(fd, msg);
 }
 
 bool sendHighresImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
     mavlink_message_t msg;
-    mavlink_msg_highres_imu_pack(
-        sysid, 1, &msg, t_us,
-        ax, 0.0f, 9.8f,
-        0.0f, 0.0f, 0.0f,
-        NAN, NAN, NAN,
-        0.0f, 0.0f, 0.0f, 0.0f,
-        0, 0);
+    mavlink_msg_highres_imu_pack(sysid, 1, &msg, t_us, ax, 0.0f, 9.8f, 0.0f, 0.0f, 0.0f, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
     return sendPacked(fd, msg);
 }
 
@@ -249,10 +234,7 @@ int main() {
     // ---- 1) 心跳：解锁位 ----
     {
         mavlink_message_t hb;
-        mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR,
-                                   MAV_AUTOPILOT_ARDUPILOTMEGA,
-                                   MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                                   0, MAV_STATE_ACTIVE);
+        mavlink_msg_heartbeat_pack(1, 1, &hb, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 0, MAV_STATE_ACTIVE);
         CHECK(sendPacked(master, hb));
         for (int i = 0; i < 300 && !(comm.isConnected() && comm.isArmed()); ++i) {
             ::usleep(10000);
@@ -261,8 +243,7 @@ int main() {
         CHECK(comm.isArmed());
         const int64_t age = comm.lastHeartbeatAgeMs();
         CHECK(age >= 0 && age < 2000);
-        std::printf("[1] 心跳 OK: armed=%d age=%lldms\n", static_cast<int>(comm.isArmed()),
-                    static_cast<long long>(age));
+        std::printf("[1] 心跳 OK: armed=%d age=%lldms\n", static_cast<int>(comm.isArmed()), static_cast<long long>(age));
     }
 
     // ---- 1b) 心跳来源筛选：地面站/其他飞行器不得覆盖飞控状态 ----
@@ -270,7 +251,7 @@ int main() {
         CHECK(sendHeartbeat(master, 255, 190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, 0));
         CHECK(sendHeartbeat(master, 255, 190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, 0));
         ::usleep(200000);
-        CHECK(comm.isArmed());          // 关键：不能被地面站的"未解锁"覆盖
+        CHECK(comm.isArmed());  // 关键：不能被地面站的"未解锁"覆盖
         CHECK(comm.isConnected());
         CHECK(comm.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);  // 固件类型不被覆盖
         CHECK(comm.lastHeartbeatAgeMs() >= 0 && comm.lastHeartbeatAgeMs() < 2000);
@@ -293,13 +274,11 @@ int main() {
     {
         auto sendImu = [&](uint64_t t_us, float ax) {
             mavlink_message_t msg;
-            mavlink_msg_highres_imu_pack(
-                1, 1, &msg, t_us,
-                ax, 0.0f, 9.8f,                    // xacc yacc zacc（机体系 FRD，静止时 z=+g）
-                0.0f, 0.0f, 0.0f,                  // xgyro ygyro zgyro
-                NAN, NAN, NAN,                     // 磁力计（未用）
-                0.0f, 0.0f, 0.0f, 0.0f,            // 气压/温度
-                0, 0);                             // fields_updated, id
+            mavlink_msg_highres_imu_pack(1, 1, &msg, t_us, ax, 0.0f, 9.8f,  // xacc yacc zacc（机体系 FRD，静止时 z=+g）
+                                         0.0f, 0.0f, 0.0f,                  // xgyro ygyro zgyro
+                                         NAN, NAN, NAN,                     // 磁力计（未用）
+                                         0.0f, 0.0f, 0.0f, 0.0f,            // 气压/温度
+                                         0, 0);                             // fields_updated, id
             CHECK(sendPacked(master, msg));
         };
         sendImu(1000000ULL, 1.0f);
@@ -333,8 +312,7 @@ int main() {
         ::usleep(20000);
         CHECK(comm.imuQueueSize() == 2);
         CHECK(comm.droppedImu() == dropped_before + 1);
-        std::printf("[3] 队列溢出 OK: size=%zu dropped=%llu\n", comm.imuQueueSize(),
-                    static_cast<unsigned long long>(comm.droppedImu()));
+        std::printf("[3] 队列溢出 OK: size=%zu dropped=%llu\n", comm.imuQueueSize(), static_cast<unsigned long long>(comm.droppedImu()));
         while (comm.popImu(item)) {
         }
         comm.setImuQueueCapacity(2000);
@@ -348,7 +326,7 @@ int main() {
         p.child_frame_id = pure_uav::VisionFrame::BODY_FRD;
         p.x = 0.75f;
         p.y = -0.25f;
-        p.z = -1.5f;  // 向上 1.5 m（FRD: 上为负）
+        p.z = -1.5f;          // 向上 1.5 m（FRD: 上为负）
         p.q[0] = 0.9238795f;  // yaw=45°
         p.q[3] = 0.3826834f;
         p.vx = 0.1f;
@@ -375,10 +353,7 @@ int main() {
         CHECK(odo.estimator_type == MAV_ESTIMATOR_TYPE_VIO);
         CHECK(std::fabs(odo.pose_covariance[0] - 0.15f * 0.15f) < 1e-7f);
         CHECK(std::fabs(odo.velocity_covariance[11] - 0.25f * 0.25f) < 1e-7f);
-        std::printf("[4] ODOMETRY OK: quality=%d reset=%u type=%u pos_cov0=%.4f\n",
-                    static_cast<int>(odo.quality), static_cast<unsigned>(odo.reset_counter),
-                    static_cast<unsigned>(odo.estimator_type),
-                    static_cast<double>(odo.pose_covariance[0]));
+        std::printf("[4] ODOMETRY OK: quality=%d reset=%u type=%u pos_cov0=%.4f\n", static_cast<int>(odo.quality), static_cast<unsigned>(odo.reset_counter), static_cast<unsigned>(odo.estimator_type), static_cast<double>(odo.pose_covariance[0]));
 
         // 未知 sigma → NaN（未知），不能是 0（完美已知）
         pure_uav::VisionPose p2;
@@ -395,27 +370,26 @@ int main() {
 
     // ---- 6) 停止 → 重新启动：旧 IMU/旧心跳状态不得跨会话 ----
     {
-        const uint32_t imu_before = comm.getCountImu();   // 计数是累计的，不能和 1 比
+        const uint32_t imu_before = comm.getCountImu();  // 计数是累计的，不能和 1 比
         CHECK(sendHighresImu(master, 1, 777777ULL, 1.0f));
         for (int i = 0; i < 300 && comm.getCountImu() == imu_before; ++i) ::usleep(10000);
         CHECK(comm.getCountImu() > imu_before);
         CHECK(comm.imuQueueSize() >= 1);
 
         comm.stop();
-        CHECK(comm.imuQueueSize() == 0);          // stop 必须清空队列
-        CHECK(!comm.isArmed());                   // 旧解锁状态失效
-        CHECK(comm.lastHeartbeatAgeMs() == -1);   // 旧心跳失效
-        CHECK(comm.getCountImu() == 0);           // 会话计数复位
+        CHECK(comm.imuQueueSize() == 0);         // stop 必须清空队列
+        CHECK(!comm.isArmed());                  // 旧解锁状态失效
+        CHECK(comm.lastHeartbeatAgeMs() == -1);  // 旧心跳失效
+        CHECK(comm.getCountImu() == 0);          // 会话计数复位
 
         CHECK(comm.start(slave_path, 921600));
         pure_uav::Communicator::TimedImu stale;
-        CHECK(!comm.popImu(stale));               // 关键：重启后不能吐出上一次的帧
+        CHECK(!comm.popImu(stale));  // 关键：重启后不能吐出上一次的帧
         CHECK(!comm.isArmed());
         CHECK(comm.lastHeartbeatAgeMs() == -1);
 
         // 新会话仍然能正常收数据
-        CHECK(sendHeartbeat(master, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(sendHeartbeat(master, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         for (int i = 0; i < 300 && !comm.isArmed(); ++i) ::usleep(10000);
         CHECK(comm.isArmed());
         CHECK(sendHighresImu(master, 1, 888888ULL, 2.0f));
@@ -440,8 +414,7 @@ int main() {
         comm2.setComponentId(1);
         CHECK(comm2.start(link_path, 921600));
 
-        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitMs([&] { return comm2.isConnected() && comm2.isArmed(); }, 2000));
         const uint32_t cnt_before = comm2.getCountImu();
         CHECK(sendHighresImu(master_a, 1, 500000ULL, 1.0f));
@@ -459,15 +432,14 @@ int main() {
         CHECK(::symlink(slave_b.c_str(), link_path.c_str()) == 0);
 
         CHECK(waitMs([&] { return comm2.reconnectCount() >= 1; }, 6000));
-        CHECK(comm2.imuQueueSize() == 0);       // 旧时间基的帧必须清掉
+        CHECK(comm2.imuQueueSize() == 0);  // 旧时间基的帧必须清掉
 
         MsgReader reconnect_reader;
         reconnect_reader.fd = master_b;
         CHECK(noStreamRequests(reconnect_reader));
 
         // 重连后重新学习身份：故意换 sysid=9，必须重新向它订阅数据流。
-        CHECK(sendHeartbeat(master_b, 9, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(sendHeartbeat(master_b, 9, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitMs([&] { return comm2.isConnected() && comm2.isArmed(); }, 3000));
         CHECK(comm2.getAutopilot() == MAV_AUTOPILOT_ARDUPILOTMEGA);
         CHECK(readStreamRequests(reconnect_reader, 9, 1, pure_uav::CommConfig{}));
@@ -499,8 +471,7 @@ int main() {
         pure_uav::Communicator target;
         if (!target.start(cfg)) return 1;
         CHECK(noStreamRequests(target_reader));
-        CHECK(sendHeartbeat(target_master, 9, 42, MAV_TYPE_QUADROTOR,
-                            MAV_AUTOPILOT_ARDUPILOTMEGA, 0));
+        CHECK(sendHeartbeat(target_master, 9, 42, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0));
         CHECK(waitMs([&] { return target.isConnected(); }, 2000));
         CHECK(readStreamRequests(target_reader, 9, 42, cfg));
         std::printf("[8] 首次连接非默认飞控 OK（订阅目标 9/42，IMU 间隔 5000 us）\n");

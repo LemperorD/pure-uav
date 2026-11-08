@@ -13,8 +13,6 @@ namespace pure_uav {
 /// @param params 制导参数。
 /// @param memory 跨周期记忆，由调用方持有并传回。
 /// @return 本周期指令（含 t_go/Vc/R/lam_dot 等调试量）。
-PureGuidanceCmd guidance_step(const GuidanceState &state,
-                          const GuidanceParams &params,
-                          GuidanceMemory &memory);
+PureGuidanceCmd guidance_step(const GuidanceState& state, const GuidanceParams& params, GuidanceMemory& memory);
 
-} // namespace pure_uav
+}  // namespace pure_uav

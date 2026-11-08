@@ -25,7 +25,7 @@ namespace odom_tool {
 // 合成轨迹
 // ---------------------------------------------------------------------------
 struct PoseSample {
-    float x = 0.0f, y = 0.0f, z = 0.0f;  // m，LOCAL_FRD（z 向下为正）
+    float x = 0.0f, y = 0.0f, z = 0.0f;     // m，LOCAL_FRD（z 向下为正）
     float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z
     float vx = 0.0f, vy = 0.0f, vz = 0.0f;  // m/s，BODY_FRD
 };
@@ -58,7 +58,9 @@ inline const std::vector<ScriptStep>& scriptSteps() {
     return steps;
 }
 
-inline double scriptDuration() { return scriptSteps().back().end_s; }
+inline double scriptDuration() {
+    return scriptSteps().back().end_s;
+}
 
 // 线性插值 + 机身速度（与位置变化一致）。t 超出脚本长度时返回最后一帧。
 inline PoseSample sampleScript(double t_s) {
@@ -77,37 +79,37 @@ inline PoseSample sampleScript(double t_s) {
 
     if (t_s < 3.0) {
         return p;
-    } else if (t_s < 6.0) {                       // 前移 0→1
+    } else if (t_s < 6.0) {  // 前移 0→1
         const double s = ramp(t_s, 3.0, 6.0);
         p.x = static_cast<float>(s * 1.0);
         p.vx = 1.0f / 3.0f;
     } else if (t_s < 7.0) {
         p.x = 1.0f;
-    } else if (t_s < 8.0) {                       // 退回 1→0
+    } else if (t_s < 8.0) {  // 退回 1→0
         const double s = ramp(t_s, 7.0, 8.0);
         p.x = static_cast<float>(1.0 - s);
         p.vx = -1.0f;
     } else if (t_s < 9.0) {
         // 原点
-    } else if (t_s < 12.0) {                      // 右移 0→0.6
+    } else if (t_s < 12.0) {  // 右移 0→0.6
         const double s = ramp(t_s, 9.0, 12.0);
         p.y = static_cast<float>(s * 0.6);
         p.vy = 0.2f;
     } else if (t_s < 13.0) {
         p.y = 0.6f;
-    } else if (t_s < 14.0) {                      // 退回
+    } else if (t_s < 14.0) {  // 退回
         const double s = ramp(t_s, 13.0, 14.0);
         p.y = static_cast<float>(0.6 - s * 0.6);
         p.vy = -0.6f;
     } else if (t_s < 15.0) {
         // 原点
-    } else if (t_s < 18.0) {                      // 上抬 0→-0.5
+    } else if (t_s < 18.0) {  // 上抬 0→-0.5
         const double s = ramp(t_s, 15.0, 18.0);
         p.z = static_cast<float>(-s * 0.5);
         p.vz = -0.5f / 3.0f;
     } else if (t_s < 19.0) {
         p.z = -0.5f;
-    } else if (t_s < 20.0) {                      // 落回
+    } else if (t_s < 20.0) {  // 落回
         const double s = ramp(t_s, 19.0, 20.0);
         p.z = static_cast<float>(-0.5 + s * 0.5);
         p.vz = 0.5f;
@@ -137,12 +139,12 @@ struct ProbeStats {
     uint64_t heartbeat = 0;
     uint64_t imu = 0;
     uint64_t other = 0;
-    uint64_t time_backwards = 0;   // time_usec 倒退次数
-    uint64_t reset_changes = 0;    // reset_counter 变化次数
-    uint64_t bad_quality = 0;      // quality < 50（ArduPilot 常见门限）
-    uint64_t bad_quat = 0;         // |q|-1 超过 1e-2
-    uint64_t bad_frame = 0;        // frame_id/child_frame_id 不是 20/12
-    uint64_t gaps = 0;             // 与上一帧间隔 > 3× 中位间隔
+    uint64_t time_backwards = 0;  // time_usec 倒退次数
+    uint64_t reset_changes = 0;   // reset_counter 变化次数
+    uint64_t bad_quality = 0;     // quality < 50（ArduPilot 常见门限）
+    uint64_t bad_quat = 0;        // |q|-1 超过 1e-2
+    uint64_t bad_frame = 0;       // frame_id/child_frame_id 不是 20/12
+    uint64_t gaps = 0;            // 与上一帧间隔 > 3× 中位间隔
     int64_t first_time_us = -1;
     int64_t last_time_us = -1;
     int64_t prev_time_us = -1;
@@ -182,10 +184,7 @@ struct ProbeStats {
         if (o.quality > max_quality) max_quality = o.quality;
         if (o.quality < 50) ++bad_quality;
 
-        const double qn = std::sqrt(static_cast<double>(o.q[0]) * o.q[0] +
-                                    static_cast<double>(o.q[1]) * o.q[1] +
-                                    static_cast<double>(o.q[2]) * o.q[2] +
-                                    static_cast<double>(o.q[3]) * o.q[3]);
+        const double qn = std::sqrt(static_cast<double>(o.q[0]) * o.q[0] + static_cast<double>(o.q[1]) * o.q[1] + static_cast<double>(o.q[2]) * o.q[2] + static_cast<double>(o.q[3]) * o.q[3]);
         if (std::fabs(qn - 1.0) > 1e-2) ++bad_quat;
 
         if (o.frame_id != 20 || o.child_frame_id != 12) ++bad_frame;

@@ -4,8 +4,8 @@
 
 #include <cstdint>
 
-#include "pure_uav/detection/detection_types.hpp"
 #include "guidance_flight_types.hpp"
+#include "pure_uav/detection/detection_types.hpp"
 
 namespace pure_uav {
 namespace detection {
@@ -15,8 +15,7 @@ namespace detection {
 /// @param[in] boot_us 已换算到飞控 boot 时钟的采样时刻（µs）
 /// @param[out] out 无目标时也写入 present=false 的降级内容
 /// @return 有目标为 true。
-bool to_target_sample(const FrameResult& r, uint64_t boot_us,
-                      pure_uav::guidance::flight::GuidanceTargetSample& out);
+bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance::flight::GuidanceTargetSample& out);
 
 }  // namespace detection
 }  // namespace pure_uav

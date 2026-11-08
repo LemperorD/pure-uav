@@ -3,9 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <vector>
-
 #include <opencv2/dnn.hpp>
+#include <vector>
 
 namespace pure_uav {
 namespace detection {
@@ -127,9 +126,7 @@ bool postprocess(const YoloOutputView& out, const PostprocessParams& p, FrameRes
         }
     }
 
-    std::sort(dets.begin(), dets.end(), [](const DetectionBox& a, const DetectionBox& b) {
-        return a.conf > b.conf;
-    });
+    std::sort(dets.begin(), dets.end(), [](const DetectionBox& a, const DetectionBox& b) { return a.conf > b.conf; });
 
     const int limit = std::min({static_cast<int>(dets.size()), p.max_det, kMaxDetections});
     for (int i = 0; i < limit; ++i) r.boxes[i] = dets[static_cast<size_t>(i)];

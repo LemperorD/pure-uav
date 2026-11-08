@@ -9,8 +9,8 @@
 
 #include <cstdint>
 
-#include "guidance_types.hpp"   // PureGuidanceMode / GuidanceParams
-#include "vec3.hpp"             // pure_uav::Vec3
+#include "guidance_types.hpp"  // PureGuidanceMode / GuidanceParams
+#include "vec3.hpp"            // pure_uav::Vec3
 
 namespace pure_uav {
 namespace guidance {
@@ -22,29 +22,29 @@ namespace flight {
 
 // 飞控惯导一帧（对应通信模块的 LocalPosition + Attitude）
 struct GuidanceInsSample {
-    std::uint64_t boot_us = 0;                 // 采样时刻（飞控 boot 时钟，µs）
-    Vec3   p;                                  // 位置（m，外部 NED 口径）
-    Vec3   v;                                  // 速度（m/s，外部 NED 口径）
-    double q[4] = {1.0, 0.0, 0.0, 0.0};        // 姿态 [w,x,y,z]（机体→世界）
-    bool   has_position = false;
-    bool   has_attitude = false;
+    std::uint64_t boot_us = 0;           // 采样时刻（飞控 boot 时钟，µs）
+    Vec3 p;                              // 位置（m，外部 NED 口径）
+    Vec3 v;                              // 速度（m/s，外部 NED 口径）
+    double q[4] = {1.0, 0.0, 0.0, 0.0};  // 姿态 [w,x,y,z]（机体→世界）
+    bool has_position = false;
+    bool has_attitude = false;
 };
 
 // 检测/视觉一帧（目标方向以像素给出；像素→视线由主循环完成）
 struct GuidanceTargetSample {
-    std::uint64_t boot_us = 0;                 // 曝光时刻（飞控 boot 时钟，µs）
-    double u_px = 0.0;                         // 检测框中心 x（像素）
-    double v_px = 0.0;                         // 检测框中心 y（像素）
-    bool   has_box = false;                    // 是否带框
-    double w_px = 0.0;                         // 框宽（像素）
-    double h_px = 0.0;                         // 框高（像素）
-    double conf = 0.0;                         // 置信度 0~1
-    int    class_id = -1;                      // 类别（-1 = 未给）
-    bool   present = false;                    // 本帧是否真的看到目标
-    bool   has_range = false;                  // 是否测得距离
-    double range_m = 0.0;                      // 距离（m）
-    bool   has_v_T = false;                    // 目标速度（仅仿真真值有）
-    Vec3   v_T;                                // 目标速度（外部 NED）
+    std::uint64_t boot_us = 0;  // 曝光时刻（飞控 boot 时钟，µs）
+    double u_px = 0.0;          // 检测框中心 x（像素）
+    double v_px = 0.0;          // 检测框中心 y（像素）
+    bool has_box = false;       // 是否带框
+    double w_px = 0.0;          // 框宽（像素）
+    double h_px = 0.0;          // 框高（像素）
+    double conf = 0.0;          // 置信度 0~1
+    int class_id = -1;          // 类别（-1 = 未给）
+    bool present = false;       // 本帧是否真的看到目标
+    bool has_range = false;     // 是否测得距离
+    double range_m = 0.0;       // 距离（m）
+    bool has_v_T = false;       // 目标速度（仅仿真真值有）
+    Vec3 v_T;                   // 目标速度（外部 NED）
 };
 
 // ============================================================================
@@ -63,20 +63,20 @@ enum class GuidanceInputHealth : std::uint8_t {
 };
 
 enum class GuidanceControlMode : std::uint8_t {
-    kAcceleration = 0,   // 发加速度（a_cmd_ned 有效）
-    kVelocity     = 1,   // 发速度（v_cmd_ned 有效；零速度 = 悬停）
+    kAcceleration = 0,  // 发加速度（a_cmd_ned 有效）
+    kVelocity = 1,      // 发速度（v_cmd_ned 有效；零速度 = 悬停）
 };
 
 struct GuidanceOutput {
-    std::uint64_t boot_us = 0;                 // 对应采样时刻（飞控 boot µs）
-    GuidanceControlMode   ctrl = GuidanceControlMode::kAcceleration;
-    Vec3   a_cmd_ned;                          // 期望加速度（NED，m/s²）
-    Vec3   v_cmd_ned;                          // 期望速度（NED，m/s）
-    bool   hold_yaw = true;                    // 意图标记（通信侧已忽略 yaw）
-    double a_cmd_norm = 0.0;                   // 限幅后模长
-    bool   sat = false;                        // 是否撞 a_max
+    std::uint64_t boot_us = 0;  // 对应采样时刻（飞控 boot µs）
+    GuidanceControlMode ctrl = GuidanceControlMode::kAcceleration;
+    Vec3 a_cmd_ned;                                    // 期望加速度（NED，m/s²）
+    Vec3 v_cmd_ned;                                    // 期望速度（NED，m/s）
+    bool hold_yaw = true;                              // 意图标记（通信侧已忽略 yaw）
+    double a_cmd_norm = 0.0;                           // 限幅后模长
+    bool sat = false;                                  // 是否撞 a_max
     PureGuidanceMode mode = PureGuidanceMode::SEARCH;  // 导引律层面
-    bool   valid = false;                      // 本拍输入是否可用于制导
+    bool valid = false;                                // 本拍输入是否可用于制导
     double t_go = 0.0;
     double Vc = 0.0;
     double R = 0.0;
@@ -91,7 +91,7 @@ enum class GuidanceLoopStatus : std::uint8_t {
     kSensorTimeout,
     kUnhealthyInput,
     kSinkError,
-    kEstimatorReset,      // 预留：估计器重置监控
+    kEstimatorReset,  // 预留：估计器重置监控
 };
 
 // ============================================================================
@@ -100,46 +100,50 @@ enum class GuidanceLoopStatus : std::uint8_t {
 
 /// 飞控/仿真惯导数据源（拉模型）。
 class GuidanceInsSource {
-public:
+  public:
     virtual ~GuidanceInsSource() = default;
     /// @brief 取最近一帧惯导。
     /// @param[out] out 仅在返回 true 时写入。
     /// @return 有新帧为 true；false 表示沿用上一帧。
     /// @note 非阻塞、零分配、可每拍调用。
-    virtual bool poll(GuidanceInsSample &out) = 0;
+    virtual bool poll(GuidanceInsSample& out) = 0;
     /// @return 数据源是否仍可用。
     virtual bool alive() const = 0;
 };
 
 /// 视觉/检测/仿真目标数据源（拉模型）。
 class GuidanceTargetSource {
-public:
+  public:
     virtual ~GuidanceTargetSource() = default;
     /// @brief 取最近一帧目标（像素 + 距离 + 时间戳）。
     /// @param[out] out 仅在返回 true 时写入。
     /// @return 有新帧为 true；false 表示沿用上一帧。
-    virtual bool poll(GuidanceTargetSample &out) = 0;
+    virtual bool poll(GuidanceTargetSample& out) = 0;
     /// @return 数据源是否仍可用。
     virtual bool alive() const = 0;
 };
 
 /// 指令出口（MAVLink / ROS2 / 仿真）。
 class GuidanceCommandSink {
-public:
+  public:
     virtual ~GuidanceCommandSink() = default;
     /// @brief 发送一条指令。
     /// @param out 本拍输出（NED 加速度或速度）。
     /// @return 发送成功为 true。
-    virtual bool send(const GuidanceOutput &out) = 0;
+    virtual bool send(const GuidanceOutput& out) = 0;
     /// @return 出口是否仍可用。
     virtual bool alive() const = 0;
 };
 
 /// 空出口：调试“只看算得对不对、不发指令”时用。
 class GuidanceNullSink final : public GuidanceCommandSink {
-public:
-    bool send(const GuidanceOutput &) override { return true; }
-    bool alive() const override { return true; }
+  public:
+    bool send(const GuidanceOutput&) override {
+        return true;
+    }
+    bool alive() const override {
+        return true;
+    }
 };
 
 // ============================================================================
@@ -150,10 +154,10 @@ struct GuidanceCameraModel {
     double fx = 0.0, fy = 0.0;
     double cx = 0.0, cy = 0.0;
     // 外参：相机系 → 机体系（行主序 9 个 double）
-    double R_body_cam[9] = {1, 0, 0,
-                            0, 1, 0,
-                            0, 0, 1};
-    bool valid() const { return fx > 0.0 && fy > 0.0; }
+    double R_body_cam[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    bool valid() const {
+        return fx > 0.0 && fy > 0.0;
+    }
 };
 
 struct GuidanceLoopConfig {
@@ -162,15 +166,15 @@ struct GuidanceLoopConfig {
     double sensor_timeout_s = 0.50;
 
     enum class OnUnhealthy : std::uint8_t {
-        kHoldLastCommand = 0,   // 保持上一拍（限时）
-        kSafeHover = 1,         // 零速度悬停
-        kStop = 2,              // 不发，交给飞控 failsafe
+        kHoldLastCommand = 0,  // 保持上一拍（限时）
+        kSafeHover = 1,        // 零速度悬停
+        kStop = 2,             // 不发，交给飞控 failsafe
     };
     OnUnhealthy on_unhealthy = OnUnhealthy::kHoldLastCommand;
 
     double hold_last_max_s = 0.20;
     double full_check_hz = 2.0;
-    bool   send_on_every_tick = true;
+    bool send_on_every_tick = true;
     GuidanceCameraModel cam;
 };
 

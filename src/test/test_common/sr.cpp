@@ -1,9 +1,9 @@
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <string.h>
-#include <stdio.h>
-#include <fcntl.h>
 
 int main() {
     int fd = shm_open("pure_uav_shm", O_RDONLY, 0666);

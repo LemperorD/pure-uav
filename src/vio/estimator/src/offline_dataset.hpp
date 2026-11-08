@@ -24,15 +24,21 @@ struct DatasetImage {
 };
 
 class OfflineDataset {
-public:
+  public:
     bool load(const std::string& dataset_dir, std::string* error);
 
-    const std::vector<DatasetImage>& images() const { return images_; }
-    const std::vector<ImuSample>& imu() const { return imu_; }
+    const std::vector<DatasetImage>& images() const {
+        return images_;
+    }
+    const std::vector<ImuSample>& imu() const {
+        return imu_;
+    }
 
-    const std::string& dir() const { return dir_; }
+    const std::string& dir() const {
+        return dir_;
+    }
 
-private:
+  private:
     std::string dir_;
     std::vector<DatasetImage> images_;
     std::vector<ImuSample> imu_;
