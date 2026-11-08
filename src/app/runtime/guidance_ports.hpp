@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+
 #include "communicator.hpp"
 #include "guidance_flight_types.hpp"
 
@@ -9,8 +10,7 @@ namespace pure_uav::app {
 namespace flight = guidance::flight;
 
 // 飞控姿态和位置分别到达；只有两者都更新且时间差满足窗口才交付。
-inline bool makeGuidanceIns(const Attitude& attitude, const LocalPosition& position,
-                            double max_skew_s, flight::GuidanceInsSample& out) {
+inline bool makeGuidanceIns(const Attitude& attitude, const LocalPosition& position, double max_skew_s, flight::GuidanceInsSample& out) {
     if (attitude.time_boot_ms == 0 || position.time_boot_ms == 0) return false;
     const auto delta = static_cast<int64_t>(attitude.time_boot_ms) - position.time_boot_ms;
     if (std::abs(static_cast<double>(delta)) > max_skew_s * 1000.0) return false;

@@ -10,12 +10,19 @@ namespace pure_uav::app {
 // 采集线程只投递；慢消费者丢最旧帧，队列长度有界且可监测丢帧。
 template <typename T>
 class BoundedQueue {
-public:
-    explicit BoundedQueue(std::size_t capacity) : capacity_(capacity) {}
+  public:
+    explicit BoundedQueue(std::size_t capacity) : capacity_(capacity) {
+    }
     void push(T value) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (capacity_ == 0) { ++dropped_; return; }
-        if (queue_.size() == capacity_) { queue_.pop_front(); ++dropped_; }
+        if (capacity_ == 0) {
+            ++dropped_;
+            return;
+        }
+        if (queue_.size() == capacity_) {
+            queue_.pop_front();
+            ++dropped_;
+        }
         queue_.push_back(std::move(value));
     }
     bool pop(T& value) {
@@ -33,7 +40,8 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         return dropped_;
     }
-private:
+
+  private:
     const std::size_t capacity_;
     mutable std::mutex mutex_;
     std::deque<T> queue_;

@@ -2,6 +2,7 @@
 // production configuration must not silently throw away adjacent frames.
 #include <cstdio>
 #include <opencv2/core.hpp>
+
 #include "pure_uav/vio_estimator.hpp"
 
 int main(int argc, char** argv) {

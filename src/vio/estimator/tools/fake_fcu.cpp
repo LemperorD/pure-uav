@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
         }
 
         // 解析上位机发来的数据
-        struct pollfd pfd {};
+        struct pollfd pfd{};
         pfd.fd = master;
         pfd.events = POLLIN;
         if (::poll(&pfd, 1, 1) > 0 && (pfd.revents & POLLIN)) {

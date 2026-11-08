@@ -87,7 +87,7 @@ struct Detector::Impl {
                 device_us = latest_device_us;
                 seq = latest_seq;
                 monotonic_ns = latest_monotonic_ns;
-                has_frame = false;   // 消费掉，始终只处理最新一帧
+                has_frame = false;  // 消费掉，始终只处理最新一帧
             }
             if (bgr.empty()) continue;
 
@@ -160,9 +160,7 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
         return false;
     }
 
-    if (!impl_->camera.start(cfg.camera,
-                             [this](const CameraFrame& f) { impl_->onCameraFrame(f); },
-                             &error)) {
+    if (!impl_->camera.start(cfg.camera, [this](const CameraFrame& f) { impl_->onCameraFrame(f); }, &error)) {
         impl_->backend.release();
         g_instance_used.store(false);
         return false;
@@ -191,8 +189,7 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
     return true;
 }
 
-void Detector::submitFrame(const cv::Mat& bgr, uint64_t host_us,
-                           uint64_t device_us, uint64_t seq, int64_t host_monotonic_ns) {
+void Detector::submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us, uint64_t seq, int64_t host_monotonic_ns) {
     if (!impl_->cfg.external_camera || !impl_->running.load() || bgr.empty()) return;
     CameraFrame frame;
     frame.bgr = bgr;

@@ -17,4 +17,4 @@ inline bool fillTargetDepthRange(app::TargetSample& target, const DepthRangeProj
     return target.has_range;
 }
 
-} // namespace pure_uav
+}  // namespace pure_uav

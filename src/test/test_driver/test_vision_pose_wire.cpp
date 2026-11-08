@@ -92,7 +92,7 @@ struct MsgReader {
             const int64_t now = nowMs();
             if (now >= deadline) return false;
 
-            struct pollfd pfd {};
+            struct pollfd pfd{};
             pfd.fd = fd;
             pfd.events = POLLIN;
             const int pr = ::poll(&pfd, 1, static_cast<int>(deadline - now));

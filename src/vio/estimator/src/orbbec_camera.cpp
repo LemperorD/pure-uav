@@ -105,8 +105,7 @@ OrbbecCamera::~OrbbecCamera() {
     stop();
 }
 
-bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error,
-                         ColorCallback color_callback) {
+bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback) {
     if (impl_ && impl_->running.load()) return true;
 
     auto impl = std::make_unique<Impl>();
