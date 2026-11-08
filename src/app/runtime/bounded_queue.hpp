@@ -27,8 +27,9 @@ class BoundedQueue {
     }
     bool pop(T& value) {
         std::scoped_lock lock(mutex_);
-        if (queue_.empty()) { return false;
-}
+        if (queue_.empty()) {
+            return false;
+        }
         value = std::move(queue_.front());
         queue_.pop_front();
         return true;

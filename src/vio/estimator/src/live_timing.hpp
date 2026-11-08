@@ -14,16 +14,19 @@ class ImuTimestampFilter {
         prev_raw_us_ = last_output_us_ = 0;
     }
     bool filter(uint64_t raw_us, double nominal_dt_us, uint64_t& output_us) {
-        if (raw_us == 0 || !std::isfinite(nominal_dt_us) || nominal_dt_us <= 0) { return false;
-}
-        if (prev_raw_us_ != 0 && raw_us <= prev_raw_us_) { return false;
-}
+        if (raw_us == 0 || !std::isfinite(nominal_dt_us) || nominal_dt_us <= 0) {
+            return false;
+        }
+        if (prev_raw_us_ != 0 && raw_us <= prev_raw_us_) {
+            return false;
+        }
         auto next = static_cast<double>(raw_us);
         if (prev_raw_us_ != 0) {
             const auto delta = static_cast<double>(raw_us - prev_raw_us_);
             prev_raw_us_ = raw_us;
-            if (delta < 0.3 * nominal_dt_us) { return false;
-}
+            if (delta < 0.3 * nominal_dt_us) {
+                return false;
+            }
             if (delta <= 3.0 * nominal_dt_us) {
                 next = grid_us_ + nominal_dt_us;
                 next += 0.03 * (static_cast<double>(raw_us) - next);
@@ -31,8 +34,9 @@ class ImuTimestampFilter {
         }
         prev_raw_us_ = raw_us;
         const auto candidate = static_cast<uint64_t>(std::llround(next));
-        if (candidate <= last_output_us_) { return false;
-}
+        if (candidate <= last_output_us_) {
+            return false;
+        }
         grid_us_ = next;
         last_output_us_ = output_us = candidate;
         return true;

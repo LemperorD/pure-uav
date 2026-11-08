@@ -25,7 +25,7 @@ using namespace pure_uav::guidance::adapter;
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void ok(bool cond, const char *what) {
+static void ok(bool cond, const char* what) {
     if (cond) {
         ++g_pass;
     } else {
@@ -34,7 +34,7 @@ static void ok(bool cond, const char *what) {
     }
 }
 
-static void near(double got, double want, double tol, const char *what) {
+static void near(double got, double want, double tol, const char* what) {
     if (std::fabs(got - want) <= tol) {
         ++g_pass;
     } else {
@@ -43,7 +43,7 @@ static void near(double got, double want, double tol, const char *what) {
     }
 }
 
-static void near_vec(const Vec3 &got, const Vec3 &want, double tol, const char *what) {
+static void near_vec(const Vec3& got, const Vec3& want, double tol, const char* what) {
     const double d = norm(got - want);
     if (d <= tol) {
         ++g_pass;
@@ -56,7 +56,7 @@ static void near_vec(const Vec3 &got, const Vec3 &want, double tol, const char *
     }
 }
 
-static void near_q(const double got[4], const double want[4], double tol, const char *what) {
+static void near_q(const double got[4], const double want[4], double tol, const char* what) {
     // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
     double d1 = 0.0, d2 = 0.0;
     for (int i = 0; i < 4; ++i) {
@@ -75,7 +75,7 @@ static void near_q(const double got[4], const double want[4], double tol, const 
     }
 }
 
-static void section(const char *name) {
+static void section(const char* name) {
     std::printf("\n== %s ==\n", name);
 }
 
@@ -86,7 +86,7 @@ static constexpr double PI_REF = 3.14159265358979323846;
 // ============================================================
 
 // 参考四元数旋转：v' = R(q)·v，q = [w,x,y,z]（机体→世界）
-static Vec3 ref_rotate(const double q[4], const Vec3 &v) {
+static Vec3 ref_rotate(const double q[4], const Vec3& v) {
     const double w = q[0], x = q[1], y = q[2], z = q[3];
     const double R[3][3] = {
         {1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
@@ -117,12 +117,12 @@ static Vec3 ref_axis_in_world(const double q[4], int axis) {
     return Vec3(R[0][axis], R[1][axis], R[2][axis]);
 }
 
-static double ref_det3(const Vec3 &a, const Vec3 &b, const Vec3 &c) {
+static double ref_det3(const Vec3& a, const Vec3& b, const Vec3& c) {
     return dot(a, cross(b, c));
 }
 
 // NED ↔ ENU 的参考实现（独立写一遍，不复用被测函数）
-static Vec3 ref_ned_to_enu(const Vec3 &v) {
+static Vec3 ref_ned_to_enu(const Vec3& v) {
     return Vec3(v.y, v.x, -v.z);
 }
 
@@ -173,7 +173,7 @@ static void random_quat(double q[4]) {
 }
 
 // 绕单位轴 axis 转 angle 的四元数 [w,x,y,z]
-static void quat_axis_angle(const Vec3 &axis_in, double angle, double q[4]) {
+static void quat_axis_angle(const Vec3& axis_in, double angle, double q[4]) {
     const Vec3 a = normalized(axis_in);
     const double s = std::sin(angle * 0.5);
     q[0] = std::cos(angle * 0.5);
@@ -187,7 +187,7 @@ static const double kIdentityQuat[4] = {1.0, 0.0, 0.0, 0.0};
 
 // 各外部机体口径下"光轴系三轴"在**外部机体坐标**里的取值。
 // 用于手性（det）检查：必须是 +1（正规旋转），不能是 −1（镜像）。
-static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame *frames, Vec3 out[3]) {
+static void ref_optical_axes_in_body(int idx, const GuidanceAttitudeFrame* frames, Vec3 out[3]) {
     switch (frames[idx]) {
         case GuidanceAttitudeFrame::kFrd:
             out[0] = Vec3(0, 1, 0);

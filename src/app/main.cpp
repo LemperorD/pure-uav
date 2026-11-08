@@ -1,5 +1,7 @@
 // 机载组合根：单串口、单相机，通信 / 检测 / VIO / 制导并发运行。
 // 生命周期和配置见 assets/docs/app/usage.md。
+#include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -12,7 +14,6 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 #include "communicator.hpp"
@@ -91,9 +92,10 @@ Options parseOptions(int argc, char** argv) {
             value = &options.blackbox;
         } else {
             throw std::invalid_argument("未知参数：" + arg);
-}
-        if (++i == argc) { throw std::invalid_argument(arg + " 缺少参数值");
-}
+        }
+        if (++i == argc) {
+            throw std::invalid_argument(arg + " 缺少参数值");
+        }
         *value = argv[i];
     }
     return options;
@@ -131,9 +133,10 @@ class Workers {
     void join() {
         stop = true;
         for (auto& thread : threads_) {
-            if (thread.joinable()) { thread.join();
-}
-}
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
     }
     std::vector<std::thread> threads_;
 };  // class Workers

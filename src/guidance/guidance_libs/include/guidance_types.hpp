@@ -41,10 +41,10 @@ struct GuidanceState {
     //     · FROM_LOS_DIFFERENCE   ：ω = û × (dû/dt)     （真机，只需 û 历史）
     //   算出的 ω 回填到输出 `PureGuidanceCmd::lam_dot`（调试量）。
     //   本字段仅供**上游/日志对照**（例如视觉自己估了一路 λ̇ 想比对）——可选，留零即可。
-    double lam_dot = 0.0;  // [可选·调试] 视线角速率 λ̇ (rad/s)；制导不消费
-    double range = 0.0;    // 相对距离 R (m)
+    double lam_dot = 0.0;    // [可选·调试] 视线角速率 λ̇ (rad/s)；制导不消费
+    double range = 0.0;      // 相对距离 R (m)
     bool has_range = false;  // range 是否可信（真机/仿真是否测得距离）
-    bool valid = false;    // 本帧数据是否有效
+    bool valid = false;      // 本帧数据是否有效
 
     // --- 惯导 ---
     // 姿态四元数，**分量顺序 [w, x, y, z]**（单位四元数 = [1,0,0,0]）。

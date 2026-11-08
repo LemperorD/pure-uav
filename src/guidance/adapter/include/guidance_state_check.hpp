@@ -27,38 +27,38 @@ enum class GuidanceCheckCode : int {
     kOk = 0,
 
     // --- 通用 ---
-    kNotFinite,          // 出现 NaN / ±Inf
-    kNotFilled,          // 关键字段仍为"未填充"状态（*_set 标志为 false）
+    kNotFinite,  // 出现 NaN / ±Inf
+    kNotFilled,  // 关键字段仍为"未填充"状态（*_set 标志为 false）
 
     // --- 姿态 q ---
-    kQuatNotUnit,        // |q| 偏离 1 超过容差
+    kQuatNotUnit,  // |q| 偏离 1 超过容差
 
     // --- 视线 / 距离 ---
-    kLosNotUnit,         // |los_hat| 偏离 1 超过容差（**上游没单位化**，最常见的脏数据）
-    kLosZero,            // |los_hat| ≈ 0（无方向可言）
-    kRangeNegative,      // range < 0
-    kRangeZero,          // range ≈ 0（会导致 ω 分母 R² → 0）
+    kLosNotUnit,     // |los_hat| 偏离 1 超过容差（**上游没单位化**，最常见的脏数据）
+    kLosZero,        // |los_hat| ≈ 0（无方向可言）
+    kRangeNegative,  // range < 0
+    kRangeZero,      // range ≈ 0（会导致 ω 分母 R² → 0）
 
     // --- 时间 ---
-    kTimeNegative,       // 时间为负（可能"跨源相减"或时间戳回绕没处理）
-    kTimeBackwards,      // 时间倒退
-    kTimeJumpLarge,      // 单帧时间跳变过大（丢帧？时钟跳变？）
+    kTimeNegative,   // 时间为负（可能"跨源相减"或时间戳回绕没处理）
+    kTimeBackwards,  // 时间倒退
+    kTimeJumpLarge,  // 单帧时间跳变过大（丢帧？时钟跳变？）
 
     // --- 指令 ---
-    kCmdNormMismatch,    // |a_cmd| 与 a_cmd_norm 不一致
-    kCmdSatInconsistent, // sat 标志与"是否真的超限"不一致
-    kCmdOverLimit,       // 限幅后 |a_cmd| 仍超过 a_max
-    kCmdUnsatBelowMax,   // sat=true 但限幅前就不超限（不该标记饱和）
-    kCmdModeInvalid,     // mode 不是四个合法值之一
-    kCmdTimeMismatch,    // cmd.t 与 state.t 不一致
+    kCmdNormMismatch,     // |a_cmd| 与 a_cmd_norm 不一致
+    kCmdSatInconsistent,  // sat 标志与"是否真的超限"不一致
+    kCmdOverLimit,        // 限幅后 |a_cmd| 仍超过 a_max
+    kCmdUnsatBelowMax,    // sat=true 但限幅前就不超限（不该标记饱和）
+    kCmdModeInvalid,      // mode 不是四个合法值之一
+    kCmdTimeMismatch,     // cmd.t 与 state.t 不一致
 };
 
 // 单条检查结果
 struct GuidanceIssue {
-    GuidanceSeverity   severity = GuidanceSeverity::kOk;
-    GuidanceCheckCode  code = GuidanceCheckCode::kOk;
-    std::string field;    // 字段名 / 量名
-    std::string detail;   // 人类可读说明（含实测数）
+    GuidanceSeverity severity = GuidanceSeverity::kOk;
+    GuidanceCheckCode code = GuidanceCheckCode::kOk;
+    std::string field;   // 字段名 / 量名
+    std::string detail;  // 人类可读说明（含实测数）
 };
 
 // 一次体检的报告
@@ -70,7 +70,9 @@ struct GuidanceReport {
     int n_issues = 0;
 
     // 有没有 error（warning 不算不通过：联调时它是提示，不是阻塞）
-    bool ok() const noexcept { return n_error == 0; }
+    bool ok() const noexcept {
+        return n_error == 0;
+    }
 
     // 一行摘要，例如："13 项通过 / 1 项告警 / 1 项错误"
     std::string summary() const;
@@ -83,8 +85,7 @@ struct GuidanceReport {
 };
 
 // 把一次检查追加进 report（满足不变量则只记 n_ok）
-void add_check(GuidanceReport &rep, bool ok_cond, GuidanceSeverity sev_if_fail,
-               GuidanceCheckCode code, const char *field, const char *detail) noexcept;
+void add_check(GuidanceReport& rep, bool ok_cond, GuidanceSeverity sev_if_fail, GuidanceCheckCode code, const char* field, const char* detail) noexcept;
 
 // 惰性版本：`make_detail()` **只在检查失败时**才被调用。
 //
@@ -96,9 +97,7 @@ void add_check(GuidanceReport &rep, bool ok_cond, GuidanceSeverity sev_if_fail,
 // 用法：add_check_lazy(rep, cond, sev, code, "field", [&] { return fmt("…", v); });
 //      add_check_lazy(rep, cond, sev, code, "field", [] { return std::string("…"); });
 template <class MakeDetail>
-inline void add_check_lazy(GuidanceReport &rep, bool ok_cond, GuidanceSeverity sev_if_fail,
-                           GuidanceCheckCode code, const char *field,
-                           MakeDetail &&make_detail) {
+inline void add_check_lazy(GuidanceReport& rep, bool ok_cond, GuidanceSeverity sev_if_fail, GuidanceCheckCode code, const char* field, MakeDetail&& make_detail) {
     if (ok_cond) {
         ++rep.n_ok;
         return;
@@ -109,7 +108,7 @@ inline void add_check_lazy(GuidanceReport &rep, bool ok_cond, GuidanceSeverity s
         ++rep.n_error;
     }
     if (rep.n_issues < static_cast<int>(sizeof(rep.issues) / sizeof(rep.issues[0]))) {
-        GuidanceIssue &is = rep.issues[rep.n_issues++];
+        GuidanceIssue& is = rep.issues[rep.n_issues++];
         is.severity = sev_if_fail;
         is.code = code;
         is.field = field;
@@ -121,12 +120,12 @@ inline void add_check_lazy(GuidanceReport &rep, bool ok_cond, GuidanceSeverity s
 //  §1  检查阈值（显式列出，便于按实测放宽/收紧）
 // ============================================================================
 
-inline constexpr double kQuatNormTol   = 1e-6;   // |q| 与 1 的最大允许偏差
-                                                 // 外推/插值未归一化时会明显超过
-inline constexpr double kLosNormTol    = 1e-6;   // |los_hat| 与 1 的最大允许偏差
-inline constexpr double kRangeZeroTol  = 1e-9;   // range 视作 0 的阈值
-inline constexpr double kTimeJumpMaxS  = 5.0;    // 单帧时间跳变上限(s)；超过多半是丢帧/时钟跳变
-inline constexpr double kCmdTol        = 1e-9;   // 指令量的比较容差(m/s²)
+inline constexpr double kQuatNormTol = 1e-6;   // |q| 与 1 的最大允许偏差
+                                               // 外推/插值未归一化时会明显超过
+inline constexpr double kLosNormTol = 1e-6;    // |los_hat| 与 1 的最大允许偏差
+inline constexpr double kRangeZeroTol = 1e-9;  // range 视作 0 的阈值
+inline constexpr double kTimeJumpMaxS = 5.0;   // 单帧时间跳变上限(s)；超过多半是丢帧/时钟跳变
+inline constexpr double kCmdTol = 1e-9;        // 指令量的比较容差(m/s²)
 
 // ============================================================================
 //  §2  检查入口
@@ -136,19 +135,13 @@ inline constexpr double kCmdTol        = 1e-9;   // 指令量的比较容差(m/s
 // `expected_los_units`：los_hat 是否为**单位矢量**。制导契约要求是单位矢量；
 //   若你的上游给的是"未归一化方向"且打算让制导自己归一化，传 false 只查"非零"。
 // `has_a_max` / `a_max_mps2`：给了才查"限幅后不得超限"。
-GuidanceReport check_guidance_state(const GuidanceState &st,
-                            bool expected_los_units = true);
+GuidanceReport check_guidance_state(const GuidanceState& st, bool expected_los_units = true);
 
 // 体检一个 PureGuidanceCmd（t 期望 == `expect_t`，一般传 state.t）。
-GuidanceReport check_guidance_cmd(const PureGuidanceCmd &cmd,
-                          double a_max_mps2 = 0.0,
-                          bool has_a_max = false,
-                          double expect_t = 0.0,
-                          bool has_expect_t = false);
+GuidanceReport check_guidance_cmd(const PureGuidanceCmd& cmd, double a_max_mps2 = 0.0, bool has_a_max = false, double expect_t = 0.0, bool has_expect_t = false);
 
 // 一次性体检 state + cmd（联调现场最常用）。
-GuidanceReport check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
-                   double a_max_mps2 = 0.0, bool has_a_max = false);
+GuidanceReport check_frame(const GuidanceState& st, const PureGuidanceCmd& cmd, double a_max_mps2 = 0.0, bool has_a_max = false);
 
 // ============================================================================
 //  §2.5  廉价体检（**飞行回路专用**）
@@ -168,7 +161,7 @@ GuidanceReport check_frame(const GuidanceState &st, const PureGuidanceCmd &cmd,
 //
 // 注意：它**不检查** cmd，也不判断数据口径（NED/ENU、时间戳是否同源）——
 //    那些靠单元测试与联调时的完整体检。
-bool quick_check(const GuidanceState &st, GuidanceCheckCode *first_bad = nullptr) noexcept;
+bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad = nullptr) noexcept;
 
 // ============================================================================
 //  §3  不变量总闸（单测用）
@@ -178,8 +171,7 @@ bool quick_check(const GuidanceState &st, GuidanceCheckCode *first_bad = nullptr
 //   · |q| = 1                · |los_hat| = 1            · range ≥ 0
 //   · 所有量有限             · cmd 限幅自洽（给了 a_max 时）
 // 与 check_frame 的区别：本函数**忽略 warning**，只看硬不变量。
-bool invariants_hold(const GuidanceState &st, const PureGuidanceCmd &cmd,
-                     double a_max_mps2 = 0.0, bool has_a_max = false);
+bool invariants_hold(const GuidanceState& st, const PureGuidanceCmd& cmd, double a_max_mps2 = 0.0, bool has_a_max = false);
 
 }  // namespace adapter
 }  // namespace guidance

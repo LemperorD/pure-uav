@@ -67,8 +67,7 @@ class Detector {
     /// @param device_us  设备时间戳(us)
     /// @param seq        帧序号
     /// @param host_monotonic_ns 主机单调时钟(ns)，用于性能/同步诊断
-    void submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us,
-                     uint64_t seq, int64_t host_monotonic_ns);
+    void submitFrame(const cv::Mat& bgr, uint64_t host_us, uint64_t device_us, uint64_t seq, int64_t host_monotonic_ns);
 
     /// 启动以来采集/处理的平均统计。
     [[nodiscard]] DetectorStats stats() const;

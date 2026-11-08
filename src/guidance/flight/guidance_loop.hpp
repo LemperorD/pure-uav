@@ -16,8 +16,6 @@
 #include "guidance_state_adapter.hpp"  // adapter::GuidanceStateTimeTracker
 #include "guidance_types.hpp"          // GuidanceParams / GuidanceMemory
 
-
-
 namespace pure_uav::guidance::flight {
 
 // ============================================================================
@@ -216,6 +214,4 @@ class GuidanceLoop {
     GuidanceRingLog blackbox_{};
 };
 
-} // namespace pure_uav::guidance::flight
-
-
+}  // namespace pure_uav::guidance::flight

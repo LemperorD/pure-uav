@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "sim/guidance_sim_tools.hpp"   // guidance_run_synthetic / guidance_run_replay / guidance_demo_camera / GuidanceSimOptions
+#include "sim/guidance_sim_tools.hpp"  // guidance_run_synthetic / guidance_run_replay / guidance_demo_camera / GuidanceSimOptions
 
 namespace pure_uav {
 namespace app {
@@ -29,7 +29,7 @@ namespace app {
 namespace {
 
 // ---------------------------------------------------------------- 小工具
-std::string trim(const std::string &s) {
+std::string trim(const std::string& s) {
     std::size_t b = 0;
     std::size_t e = s.size();
     while (b < e && std::isspace(static_cast<unsigned char>(s[b])) != 0) ++b;
@@ -38,26 +38,26 @@ std::string trim(const std::string &s) {
 }
 
 std::string lower(std::string s) {
-    for (char &c : s) {
+    for (char& c : s) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     return s;
 }
 
-bool parse_double(const std::string &s, double *out) {
+bool parse_double(const std::string& s, double* out) {
     if (s.empty() || out == nullptr) return false;
     errno = 0;
-    char *end = nullptr;
+    char* end = nullptr;
     const double v = std::strtod(s.c_str(), &end);
     if (end == s.c_str() || *end != '\0' || errno == ERANGE || !std::isfinite(v)) return false;
     *out = v;
     return true;
 }
 
-bool parse_int(const std::string &s, int *out) {
+bool parse_int(const std::string& s, int* out) {
     if (s.empty() || out == nullptr) return false;
     errno = 0;
-    char *end = nullptr;
+    char* end = nullptr;
     const long v = std::strtol(s.c_str(), &end, 10);
     if (end == s.c_str() || *end != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX) {
         return false;
@@ -66,7 +66,7 @@ bool parse_int(const std::string &s, int *out) {
     return true;
 }
 
-bool parse_bool(const std::string &s, bool *out) {
+bool parse_bool(const std::string& s, bool* out) {
     const std::string v = lower(s);
     if (v == "true" || v == "yes" || v == "on" || v == "1") {
         *out = true;
@@ -79,7 +79,7 @@ bool parse_bool(const std::string &s, bool *out) {
     return false;
 }
 
-std::string err_at(const char *source, int line, const std::string &msg) {
+std::string err_at(const char* source, int line, const std::string& msg) {
     std::ostringstream os;
     os << (source == nullptr ? "<yaml>" : source);
     if (line > 0) os << ":" << line;
@@ -88,51 +88,71 @@ std::string err_at(const char *source, int line, const std::string &msg) {
 }
 
 // ---------------------------------------------------------------- 枚举名
-const char *law_name(GuidanceLaw v) {
+const char* law_name(GuidanceLaw v) {
     switch (v) {
-        case GuidanceLaw::PPN: return "PPN";
-        case GuidanceLaw::TPN: return "TPN";
-        case GuidanceLaw::APN: return "APN";
+        case GuidanceLaw::PPN:
+            return "PPN";
+        case GuidanceLaw::TPN:
+            return "TPN";
+        case GuidanceLaw::APN:
+            return "APN";
     }
     return "?";
 }
 
-const char *freeze_name(FreezeCriterion v) {
+const char* freeze_name(FreezeCriterion v) {
     switch (v) {
-        case FreezeCriterion::BY_TGO: return "BY_TGO";
-        case FreezeCriterion::BY_RANGE: return "BY_RANGE";
-        case FreezeCriterion::BY_TGO_OR_RANGE: return "BY_TGO_OR_RANGE";
+        case FreezeCriterion::BY_TGO:
+            return "BY_TGO";
+        case FreezeCriterion::BY_RANGE:
+            return "BY_RANGE";
+        case FreezeCriterion::BY_TGO_OR_RANGE:
+            return "BY_TGO_OR_RANGE";
     }
     return "?";
 }
 
-const char *los_name(LosRateSource v) {
+const char* los_name(LosRateSource v) {
     switch (v) {
-        case LosRateSource::FROM_RELATIVE_VELOCITY: return "FROM_RELATIVE_VELOCITY";
-        case LosRateSource::FROM_LOS_DIFFERENCE: return "FROM_LOS_DIFFERENCE";
+        case LosRateSource::FROM_RELATIVE_VELOCITY:
+            return "FROM_RELATIVE_VELOCITY";
+        case LosRateSource::FROM_LOS_DIFFERENCE:
+            return "FROM_LOS_DIFFERENCE";
     }
     return "?";
 }
 
-const char *unhealthy_name(flight::GuidanceLoopConfig::OnUnhealthy v) {
+const char* unhealthy_name(flight::GuidanceLoopConfig::OnUnhealthy v) {
     switch (v) {
-        case flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand: return "HOLD_LAST_COMMAND";
-        case flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover: return "SAFE_HOVER";
-        case flight::GuidanceLoopConfig::OnUnhealthy::kStop: return "STOP";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand:
+            return "HOLD_LAST_COMMAND";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kSafeHover:
+            return "SAFE_HOVER";
+        case flight::GuidanceLoopConfig::OnUnhealthy::kStop:
+            return "STOP";
     }
     return "?";
 }
 
 // ---------------------------------------------------------------- 键解析
-bool set_enum_law(const std::string &raw, GuidanceLaw *out) {
+bool set_enum_law(const std::string& raw, GuidanceLaw* out) {
     const std::string v = lower(trim(raw));
-    if (v == "0" || v == "ppn") { *out = GuidanceLaw::PPN; return true; }
-    if (v == "1" || v == "tpn") { *out = GuidanceLaw::TPN; return true; }
-    if (v == "2" || v == "apn") { *out = GuidanceLaw::APN; return true; }
+    if (v == "0" || v == "ppn") {
+        *out = GuidanceLaw::PPN;
+        return true;
+    }
+    if (v == "1" || v == "tpn") {
+        *out = GuidanceLaw::TPN;
+        return true;
+    }
+    if (v == "2" || v == "apn") {
+        *out = GuidanceLaw::APN;
+        return true;
+    }
     return false;
 }
 
-bool set_enum_freeze(const std::string &raw, FreezeCriterion *out) {
+bool set_enum_freeze(const std::string& raw, FreezeCriterion* out) {
     const std::string v = lower(trim(raw));
     if (v == "0" || v == "by_tgo" || v == "tgo") {
         *out = FreezeCriterion::BY_TGO;
@@ -149,7 +169,7 @@ bool set_enum_freeze(const std::string &raw, FreezeCriterion *out) {
     return false;
 }
 
-bool set_enum_los(const std::string &raw, LosRateSource *out) {
+bool set_enum_los(const std::string& raw, LosRateSource* out) {
     const std::string v = lower(trim(raw));
     if (v == "0" || v == "from_relative_velocity" || v == "relative_velocity" || v == "truth") {
         *out = LosRateSource::FROM_RELATIVE_VELOCITY;
@@ -162,7 +182,7 @@ bool set_enum_los(const std::string &raw, LosRateSource *out) {
     return false;
 }
 
-bool set_enum_unhealthy(const std::string &raw, flight::GuidanceLoopConfig::OnUnhealthy *out) {
+bool set_enum_unhealthy(const std::string& raw, flight::GuidanceLoopConfig::OnUnhealthy* out) {
     const std::string v = lower(trim(raw));
     if (v == "0" || v == "hold" || v == "hold_last" || v == "hold_last_command") {
         *out = flight::GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand;
@@ -179,7 +199,7 @@ bool set_enum_unhealthy(const std::string &raw, flight::GuidanceLoopConfig::OnUn
     return false;
 }
 
-bool set_camera_matrix(const std::string &raw, double out[9]) {
+bool set_camera_matrix(const std::string& raw, double out[9]) {
     std::vector<std::string> parts;
     std::string cur;
     for (char c : raw) {
@@ -200,21 +220,21 @@ bool set_camera_matrix(const std::string &raw, double out[9]) {
     return true;
 }
 
-bool apply_key(const std::string &key, const std::string &raw, GuidanceAppParams *p, std::string *why) {
+bool apply_key(const std::string& key, const std::string& raw, GuidanceAppParams* p, std::string* why) {
     const std::string val = trim(raw);
-    auto bad = [&](const char *expect) {
+    auto bad = [&](const char* expect) {
         *why = "键 '" + key + "' 的值非法（期望 " + expect + "）：'" + val + "'";
         return false;
     };
-    auto dbl = [&](double *dst, const char *expect) {
+    auto dbl = [&](double* dst, const char* expect) {
         if (!parse_double(val, dst)) return bad(expect);
         return true;
     };
-    auto integer = [&](int *dst, const char *expect) {
+    auto integer = [&](int* dst, const char* expect) {
         if (!parse_int(val, dst)) return bad(expect);
         return true;
     };
-    auto flag = [&](bool *dst) {
+    auto flag = [&](bool* dst) {
         if (!parse_bool(val, dst)) return bad("true/false 或 0/1");
         return true;
     };
@@ -266,50 +286,48 @@ bool apply_key(const std::string &key, const std::string &raw, GuidanceAppParams
     return false;
 }
 
-std::string check_range(const char *key, double v, double lo, double hi, bool lo_open,
-                        bool hi_open) {
+std::string check_range(const char* key, double v, double lo, double hi, bool lo_open, bool hi_open) {
     const bool bad_lo = lo_open ? (v <= lo) : (v < lo);
     const bool bad_hi = hi_open ? (v >= hi) : (v > hi);
     if (!bad_lo && !bad_hi && std::isfinite(v)) return std::string();
     char buf[160];
-    std::snprintf(buf, sizeof(buf), "%s 超出范围：%.6g（要求 %s%.6g, %.6g%s）", key, v,
-                  lo_open ? "(" : "[", lo, hi, hi_open ? ")" : "]");
+    std::snprintf(buf, sizeof(buf), "%s 超出范围：%.6g（要求 %s%.6g, %.6g%s）", key, v, lo_open ? "(" : "[", lo, hi, hi_open ? ")" : "]");
     return std::string(buf);
 }
 
 // ---------------------------------------------------------------- CLI
 struct Args {
-    int    hz    = 50;
-    int    law   = 0;        // 0=PPN 1=TPN 2=APN
-    double N     = 4.0;
+    int hz = 50;
+    int law = 0;  // 0=PPN 1=TPN 2=APN
+    double N = 4.0;
     double a_max = 10.0;
-    int    ticks = 300;
-    bool   verbose = true;
-    bool   realtime = false;
-    const char *record = nullptr;
-    const char *out    = nullptr;
-    const char *replay = nullptr;
-    const char *config = nullptr;
-    bool   print_params = false;
-    const char *blackbox = nullptr;
+    int ticks = 300;
+    bool verbose = true;
+    bool realtime = false;
+    const char* record = nullptr;
+    const char* out = nullptr;
+    const char* replay = nullptr;
+    const char* config = nullptr;
+    bool print_params = false;
+    const char* blackbox = nullptr;
     double blackbox_sec = 5.0;
-    bool   help = false;
-    bool   law_given = false;
-    bool   n_given = false;
-    bool   a_max_given = false;
-    bool   hz_given = false;
+    bool help = false;
+    bool law_given = false;
+    bool n_given = false;
+    bool a_max_given = false;
+    bool hz_given = false;
 };
 
-bool cli_parse_int(const char *s, int &out) {
-    char *end = nullptr;
+bool cli_parse_int(const char* s, int& out) {
+    char* end = nullptr;
     const long v = std::strtol(s, &end, 10);
     if (!end || *end != '\0' || v < 0) return false;
     out = static_cast<int>(v);
     return true;
 }
 
-bool cli_parse_double(const char *s, double &out) {
-    char *end = nullptr;
+bool cli_parse_double(const char* s, double& out) {
+    char* end = nullptr;
     const double v = std::strtod(s, &end);
     if (!end || *end != '\0') return false;
     out = v;
@@ -320,7 +338,7 @@ GuidanceLaw law_from_int(int v) {
     return (v == 1) ? GuidanceLaw::TPN : (v == 2) ? GuidanceLaw::APN : GuidanceLaw::PPN;
 }
 
-void usage(const char *prog) {
+void usage(const char* prog) {
     std::printf(
         "用法: %s [选项]\n"
         "  --hz=N        主循环频率（默认 50）\n"
@@ -341,18 +359,27 @@ void usage(const char *prog) {
         prog);
 }
 
-bool parse_args(int argc, char **argv, Args *a) {
+bool parse_args(int argc, char** argv, Args* a) {
     for (int i = 1; i < argc; ++i) {
-        const char *s = argv[i];
-        auto eq = [s](const char *key) { return std::strncmp(s, key, std::strlen(key)) == 0; };
+        const char* s = argv[i];
+        auto eq = [s](const char* key) { return std::strncmp(s, key, std::strlen(key)) == 0; };
         if (eq("--hz=")) {
-            if (!cli_parse_int(s + 5, a->hz)) { std::printf("!! --hz 解析失败：%s\n", s); return false; }
+            if (!cli_parse_int(s + 5, a->hz)) {
+                std::printf("!! --hz 解析失败：%s\n", s);
+                return false;
+            }
             a->hz_given = true;
         } else if (eq("--law=")) {
-            if (!cli_parse_int(s + 6, a->law)) { std::printf("!! --law 解析失败：%s\n", s); return false; }
+            if (!cli_parse_int(s + 6, a->law)) {
+                std::printf("!! --law 解析失败：%s\n", s);
+                return false;
+            }
             a->law_given = true;
         } else if (eq("--n=")) {
-            if (!cli_parse_double(s + 4, a->N)) { std::printf("!! --n 解析失败：%s\n", s); return false; }
+            if (!cli_parse_double(s + 4, a->N)) {
+                std::printf("!! --n 解析失败：%s\n", s);
+                return false;
+            }
             a->n_given = true;
         } else if (eq("--a-max=")) {
             if (!cli_parse_double(s + 8, a->a_max)) {
@@ -361,7 +388,10 @@ bool parse_args(int argc, char **argv, Args *a) {
             }
             a->a_max_given = true;
         } else if (eq("--ticks=")) {
-            if (!cli_parse_int(s + 8, a->ticks)) { std::printf("!! --ticks 解析失败：%s\n", s); return false; }
+            if (!cli_parse_int(s + 8, a->ticks)) {
+                std::printf("!! --ticks 解析失败：%s\n", s);
+                return false;
+            }
         } else if (eq("--record=")) {
             a->record = s + 9;
         } else if (eq("--out=")) {
@@ -416,7 +446,7 @@ GuidanceAppParams guidance_default_params() {
     return p;
 }
 
-GuidanceParamResult guidance_load_yaml_text(const std::string &text, GuidanceAppParams *out, const char *source) {
+GuidanceParamResult guidance_load_yaml_text(const std::string& text, GuidanceAppParams* out, const char* source) {
     if (out == nullptr) return GuidanceParamResult::fail("内部错误：out 为空");
 
     GuidanceAppParams p = *out;
@@ -471,8 +501,7 @@ GuidanceParamResult guidance_load_yaml_text(const std::string &text, GuidanceApp
             }
         }
         if (colon == std::string::npos) {
-            return GuidanceParamResult::fail(
-                err_at(source, line_no, "缺少 ':'（本加载器只支持 `key: value`）"));
+            return GuidanceParamResult::fail(err_at(source, line_no, "缺少 ':'（本加载器只支持 `key: value`）"));
         }
 
         const std::string key = trim(line.substr(0, colon));
@@ -486,8 +515,7 @@ GuidanceParamResult guidance_load_yaml_text(const std::string &text, GuidanceApp
             }
         }
 
-        if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'') &&
-            val.back() == val.front()) {
+        if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'') && val.back() == val.front()) {
             val = val.substr(1, val.size() - 2);
         }
 
@@ -514,7 +542,7 @@ GuidanceParamResult guidance_load_yaml_text(const std::string &text, GuidanceApp
     return GuidanceParamResult::success();
 }
 
-GuidanceParamResult guidance_load_yaml_file(const std::string &path, GuidanceAppParams *out) {
+GuidanceParamResult guidance_load_yaml_file(const std::string& path, GuidanceAppParams* out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return GuidanceParamResult::fail("打不开配置文件：" + path);
     std::ostringstream os;
@@ -523,7 +551,7 @@ GuidanceParamResult guidance_load_yaml_file(const std::string &path, GuidanceApp
     return guidance_load_yaml_text(os.str(), out, path.c_str());
 }
 
-GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
+GuidanceParamResult guidance_validate_params(const GuidanceAppParams& p) {
     const int law = static_cast<int>(p.guidance.law);
     if (law < 0 || law > 2) return GuidanceParamResult::fail("guidance.law 非法");
     const int freeze = static_cast<int>(p.guidance.freeze_criterion);
@@ -544,8 +572,7 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
 
     if (p.loop.loop_hz < 1 || p.loop.loop_hz > 1000) {
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "loop.loop_hz 超出范围：%d（要求 [1, 1000]）",
-                      p.loop.loop_hz);
+        std::snprintf(buf, sizeof(buf), "loop.loop_hz 超出范围：%d（要求 [1, 1000]）", p.loop.loop_hz);
         return GuidanceParamResult::fail(buf);
     }
     e = check_range("loop.max_sample_age_s", p.loop.max_sample_age_s, 0.0, 5.0, true, false);
@@ -553,16 +580,16 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
     e = check_range("loop.sensor_timeout_s", p.loop.sensor_timeout_s, 0.0, 10.0, true, false);
     if (!e.empty()) return GuidanceParamResult::fail(e);
     if (p.loop.sensor_timeout_s < p.loop.max_sample_age_s) {
-        return GuidanceParamResult::fail("loop.sensor_timeout_s 必须 ≥ loop.max_sample_age_s"
-                                 "（否则数据还没判过期就先判掉线）");
+        return GuidanceParamResult::fail(
+            "loop.sensor_timeout_s 必须 ≥ loop.max_sample_age_s"
+            "（否则数据还没判过期就先判掉线）");
     }
-    e = check_range("loop.hold_last_max_s", p.loop.hold_last_max_s, 0.0,
-                    p.loop.sensor_timeout_s, false, false);
+    e = check_range("loop.hold_last_max_s", p.loop.hold_last_max_s, 0.0, p.loop.sensor_timeout_s, false, false);
     if (!e.empty()) return GuidanceParamResult::fail(e);
     e = check_range("loop.full_check_hz", p.loop.full_check_hz, 0.0, 1000.0, false, false);
     if (!e.empty()) return GuidanceParamResult::fail(e);
 
-    const flight::GuidanceCameraModel &c = p.loop.cam;
+    const flight::GuidanceCameraModel& c = p.loop.cam;
     if ((c.fx > 0.0) != (c.fy > 0.0)) {
         return GuidanceParamResult::fail("cam.fx / cam.fy 必须同时配置（现在一个 >0、一个 ≤0）");
     }
@@ -581,7 +608,7 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams &p) {
     return GuidanceParamResult::success();
 }
 
-std::string guidance_params_to_string(const GuidanceAppParams &p) {
+std::string guidance_params_to_string(const GuidanceAppParams& p) {
     std::ostringstream os;
     os << "guidance.law: " << law_name(p.guidance.law) << "\n";
     os << "guidance.N: " << p.guidance.N << "\n";
@@ -614,7 +641,7 @@ std::string guidance_params_to_string(const GuidanceAppParams &p) {
 //  GuidanceApplication
 // ============================================================================
 
-int GuidanceApplication::run(int argc, char **argv) {
+int GuidanceApplication::run(int argc, char** argv) {
     Args a;
     if (!parse_args(argc, argv, &a)) return 2;
     if (a.help) return 0;
@@ -658,12 +685,12 @@ int GuidanceApplication::run(int argc, char **argv) {
     }
 
     GuidanceSimOptions opt;
-    opt.ticks        = a.ticks;
-    opt.verbose      = a.verbose;
-    opt.realtime     = a.realtime;
-    opt.record       = a.record;
-    opt.out          = a.out;
-    opt.blackbox     = a.blackbox;
+    opt.ticks = a.ticks;
+    opt.verbose = a.verbose;
+    opt.realtime = a.realtime;
+    opt.record = a.record;
+    opt.out = a.out;
+    opt.blackbox = a.blackbox;
     opt.blackbox_sec = a.blackbox_sec;
 
     if (a.replay != nullptr) return guidance_run_replay(a.replay, opt, ap);
