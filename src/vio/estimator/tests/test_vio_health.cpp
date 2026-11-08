@@ -2,8 +2,56 @@
 #include <stdexcept>
 #include "pure_uav/vio_health.hpp"
 void check(bool c, const char* why) { if (!c) throw std::runtime_error(why); }
+
+void checkReasons() {
+    using pure_uav::HealthReason;
+    pure_uav::HealthConfig cfg;
+    cfg.lost_after_s = 0.3;
+    cfg.degrade_after_s = 0.1;
+    cfg.update_rate_window_s = 0.2;
+    cfg.min_update_rate = 0.0; // Isolate the timeout/feature/depth/tilt paths.
+    cfg.deperr_lost_s = 0.1;
+    cfg.tilt_lost_s = 0.1;
+    pure_uav::HealthMonitor health(cfg);
+    health.update(0, 120, true);
+    check(health.report(0).reason == HealthReason::NONE, "healthy reason");
+    check(health.report(0).update_rate < 0, "warming-up rate must be unavailable");
+    for (int i = 1; i <= 20; ++i) health.update(i * .02, 120, false);
+    check(!health.publishable() && health.report(.4).reason == HealthReason::VISUAL_TIMEOUT,
+          "visual timeout diagnostic");
+    health.reset(); health.update(0, 120, true);
+    for (int i = 1; i <= 20; ++i) health.update(i * .02, 0, true);
+    check(!health.publishable() && health.report(.4).reason == HealthReason::FEATURES,
+          "feature starvation diagnostic");
+    health.reset(); health.update(0, 120, true);
+    for (int i = 1; i <= 12; ++i) health.update(i * .02, 120, true, 20.0, 0.0);
+    check(!health.publishable() && health.report(.24).reason == HealthReason::DEPTH,
+          "depth diagnostic");
+    health.reset(); health.update(0, 120, true);
+    for (int i = 1; i <= 12; ++i) health.update(i * .02, 120, true, 1.0, 10.0);
+    check(!health.publishable() && health.report(.24).reason == HealthReason::TILT,
+          "tilt diagnostic");
+    cfg.min_update_rate = .15; cfg.lost_after_s = 100;
+    health.configure(cfg); health.update(0, 120, true);
+    for (int i = 1; i <= 20; ++i) health.update(i * .02, 120, false);
+    check(!health.publishable() && health.report(.4).reason == HealthReason::UPDATE_RATE,
+          "low update rate diagnostic");
+    check(health.report(.4).update_rate == 0, "rate should reflect failed visual updates");
+    health.mark_implausible(.42);
+    health.update(.44, 200, true);
+    check(!health.publishable() && health.report(.44).reason == HealthReason::PHYSICAL,
+          "physical fault remains latched and identified");
+    health.notify_recovered();
+    check(health.report(.44).reason == HealthReason::NONE && health.report(.44).update_rate < 0,
+          "rebuild must clear diagnostics and rate history");
+    cfg.enabled = false; health.configure(cfg); health.update(1, 0, false, 100, 90);
+    check(health.publishable() && health.report(1).reason == HealthReason::NONE,
+          "disabled health behavior changed");
+}
+
 int main() {
     try {
+        checkReasons();
         pure_uav::HealthConfig cfg;
         cfg.recover_after_s = 0.2; cfg.lost_after_s = 0.3; cfg.update_rate_window_s = 0.2;
         pure_uav::HealthMonitor health(cfg);

@@ -104,6 +104,19 @@ endif()
 # 同时支持仓库根目录构建和从 estimator 目录独立构建。
 get_filename_component(_pure_uav_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 
+add_library(pure_vio_depth_range STATIC src/depth_range.cpp)
+target_include_directories(pure_vio_depth_range PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pure_vio_depth_range PUBLIC ${OpenCV_LIBS})
+
+# 对接 app::TargetSample 的薄适配器，不让深度算法本身依赖制导或飞控。
+if(EXISTS "${_pure_uav_repo_root}/src/app/sample.hpp")
+    add_library(pure_vio_target_depth INTERFACE)
+    target_link_libraries(pure_vio_target_depth INTERFACE pure_vio_depth_range)
+    target_include_directories(pure_vio_target_depth INTERFACE
+        "${_pure_uav_repo_root}/src/app"
+        "${_pure_uav_repo_root}/src/common/common_libs/include")
+endif()
+
 add_library(pure_vio_core STATIC
     src/vio_estimator.cpp
     src/vio_health.cpp
@@ -207,7 +220,12 @@ if(_build_live)
     target_include_directories(vio_live SYSTEM PRIVATE
         ${PURE_UAV_MAVLINK_DIR}
     )
-    target_link_libraries(vio_live PRIVATE pure_vio_core OrbbecSDK)
+    target_link_libraries(vio_live PRIVATE pure_vio_core pure_vio_depth_range OrbbecSDK)
+
+    add_executable(depth_range_probe tools/depth_range_probe.cpp src/orbbec_camera.cpp)
+    target_include_directories(depth_range_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(depth_range_probe PRIVATE pure_vio_depth_range OrbbecSDK Threads::Threads)
+
     set_target_properties(vio_live PROPERTIES
         INSTALL_RPATH "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR};${PURE_UAV_DRIVER_DIR}/orbbec/lib"
         BUILD_RPATH "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR};${PURE_UAV_DRIVER_DIR}/orbbec/lib"
@@ -342,6 +360,11 @@ endif()
 add_executable(test_vio_health tests/test_vio_health.cpp src/vio_health.cpp)
 target_include_directories(test_vio_health PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_test(NAME vio_health COMMAND test_vio_health)
+add_executable(test_camera_cadence tests/test_camera_cadence.cpp)
+target_link_libraries(test_camera_cadence PRIVATE pure_vio_core)
+add_test(NAME camera_cadence COMMAND test_camera_cadence
+         "${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_640x480_fullrate")
+set_tests_properties(camera_cadence PROPERTIES TIMEOUT 30)
 add_executable(test_live_timing tests/test_live_timing.cpp src/fcu_clock.cpp)
 target_include_directories(test_live_timing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_live_timing PRIVATE Threads::Threads)
@@ -376,3 +399,13 @@ if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
         set_tests_properties(command_targets PROPERTIES TIMEOUT 15)
     endif()
 endif()
+
+# 深度目标测距：纯合成深度/标定回归，不需要相机或 IMU。
+add_executable(test_depth_range tests/test_depth_range.cpp)
+target_link_libraries(test_depth_range PRIVATE pure_vio_depth_range)
+if(TARGET pure_vio_target_depth)
+    target_link_libraries(test_depth_range PRIVATE pure_vio_target_depth)
+    target_compile_definitions(test_depth_range PRIVATE PURE_VIO_TEST_APP_RANGE)
+endif()
+add_test(NAME depth_range COMMAND test_depth_range)
+set_tests_properties(depth_range PROPERTIES TIMEOUT 20)

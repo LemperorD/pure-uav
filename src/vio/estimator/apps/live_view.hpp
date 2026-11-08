@@ -48,6 +48,7 @@ public:
         bool initialized = false;
         VioHealthState health = VioHealthState::UNKNOWN;
         bool publishable = false;
+        bool send_enabled = false;
         int features = 0;
         double since_update_s = 0.0;
         int recoveries = 0;
@@ -206,7 +207,9 @@ private:
                       st.initialized ? toString(st.health) : "NOT INITIALIZED", st.features,
                       std::sqrt(st.vx * st.vx + st.vy * st.vy + st.vz * st.vz));
         putText(roi, line, cv::Point(10, 24), 0.62, hc);
-        if (!st.publishable) {
+        if (!st.send_enabled) {
+            putText(roi, "DEMO - no FCU output", cv::Point(10, 70), 0.6, cv::Scalar(180, 200, 220));
+        } else if (!st.publishable) {
             putText(roi, "NOT PUBLISHING", cv::Point(10, 70), 0.75, cv::Scalar(70, 70, 255));
         } else {
             putText(roi, "publishing -> FCU", cv::Point(10, 70), 0.6, cv::Scalar(90, 220, 90));
@@ -245,8 +248,8 @@ private:
         putText(canvas_, "VIO REAL-TIME", cv::Point(dx, yy), 0.62, cv::Scalar(120, 200, 255));
         yy += 26;
         line(hc, "health   %s", toString(st.health));
-        line(st.publishable ? cv::Scalar(90, 220, 90) : cv::Scalar(70, 70, 255), "publish  %s",
-             st.publishable ? "YES" : "NO");
+        line(!st.send_enabled ? dim : (st.publishable ? cv::Scalar(90, 220, 90) : cv::Scalar(70, 70, 255)),
+             "publish  %s", !st.send_enabled ? "DEMO" : (st.publishable ? "YES" : "NO"));
         line(white, "feat     %d", st.features);
         line(white, "msckf upd %.1f /s", st.update_rate);
         line(dim, "since upd %.2f s", st.since_update_s);

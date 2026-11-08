@@ -105,10 +105,8 @@ grid_x: 5
 grid_y: 5
 min_px_dist: 10
 knn_ratio: 0.7
-# 【2026-10-25】60 -> 120。OpenVINS 的取帧门限是"距上一帧 >= 1/track_frequency 才接受"。
-# 640x480@60 的帧间隔实测 p50 16.05 ms < 16.67 ms(=1/60)，于是隔帧丢一半 ——
-# 诊断 CSV 实测处理速率只有 31.2 Hz，而相机给的是 62 fps。
-# 提到 120 后门限 8.33 ms，每帧都收。
+# 兼容预设：保留原来的 60 Hz 取帧门限（相机 60 fps 时实际可能只处理约 33 Hz）。
+# 全帧输入实验预设见 ../gemini_640x480_fullrate/；尚未证明精度更高，不静默替换默认。
 track_frequency: 60.0
 downsample_cameras: false
 num_opencv_threads: 4

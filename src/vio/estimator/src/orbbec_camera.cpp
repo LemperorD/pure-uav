@@ -74,9 +74,9 @@ struct OrbbecCamera::Impl {
         int white_balance = 0;
     } snapshot;
 
-    // 【2026-10-21】深度：对齐到彩色的深度图（毫米）
+    // 原生深度图（毫米）；目标测距在独立投影器中对齐到彩色。
     bool depth_enabled = false;
-    std::unique_ptr<ob::Align> align;
+    DepthRangeCalibration range_calibration;
     long long laser_tick = 0;   // 激光重开节流计数器
     // 深度相机内参 + 到彩色的外参（给"彩色像素 → 深度"投影用）
     double depth_fx = 0, depth_fy = 0, depth_cx = 0, depth_cy = 0;
@@ -109,6 +109,10 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
     auto impl = std::make_unique<Impl>();
     impl->cfg = cfg;
     impl->callback = std::move(callback);
+    RangeCameraModel supplied_color;
+    if (!cfg.range_color_calibration_path.empty() &&
+        !loadRangeColorCalibration(cfg.range_color_calibration_path, cfg.width, cfg.height, supplied_color, error))
+        return false;
 
     try {
         impl->pipe = std::make_unique<ob::Pipeline>();
@@ -159,7 +163,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         config->enableStream(profile);
 
         //=======================================================================
-        // 【2026-10-21】打开深度流并对齐到彩色
+        // 【2026-10-21】打开原生深度流；测距侧按标定投影到彩色
         //
         // 为什么：整套系统做的是**单目** VIO，而单目的致命处是"没有平移就没有视差
         // → 没有三角化 → 没有测量"（实测原地转时三角化率 0.04、直接发散）。
@@ -170,6 +174,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         // 只输出一帧，所以只要一路带宽。
         //=======================================================================
         bool depth_ok = false;
+        std::shared_ptr<ob::VideoStreamProfile> range_depth_profile;
         if (cfg.use_depth) {
             try {
                 auto dprofiles = impl->pipe->getStreamProfileList(OB_SENSOR_DEPTH);
@@ -212,6 +217,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                 }
                 if (dprofile) {
                     config->enableStream(dprofile);
+                    range_depth_profile = dprofile;
                     // 结构光必须开红外激光，否则深度全是 0（实测默认状态下有效像素 0%）
                     try {
                         if (impl->pipe->getDevice()->isPropertySupported(OB_PROP_LASER_BOOL,
@@ -270,9 +276,40 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
         }
         impl->depth_enabled = depth_ok;
         if (depth_ok) {
-            // 把深度对齐到彩色：这样 (u,v) 在两个图上指同一个物理点，
-            // 特征可以"看彩色、取深度"，不需要再算外参插值。
-            impl->align = std::make_unique<ob::Align>(OB_STREAM_COLOR);
+            // 测距必须使用实际标定；VIO 的兼容回退不适合充当已知的目标距离。
+            try {
+                auto model = [](const std::shared_ptr<ob::VideoStreamProfile>& stream) {
+                    const auto k = stream->getIntrinsic();
+                    const auto d = stream->getDistortion();
+                    RangeCameraModel m;
+                    m.width = k.width; m.height = k.height;
+                    m.fx = k.fx; m.fy = k.fy; m.cx = k.cx; m.cy = k.cy;
+                    m.distortion = {d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6};
+                    return m;
+                };
+                const auto& depth_profile = range_depth_profile;
+                auto calibration = DepthRangeCalibration{};
+                calibration.depth = model(depth_profile);
+                calibration.color = supplied_color.valid() ? supplied_color : model(profile);
+                const auto extrinsic = depth_profile->getExtrinsicTo(profile); // 深度 → 彩色，mm
+                for (int row = 0; row < 3; ++row) {
+                    calibration.t_depth_to_color_m[row] = extrinsic.trans[row] * 1e-3;
+                    for (int col = 0; col < 3; ++col)
+                        calibration.R_depth_to_color(row, col) = extrinsic.rot[row * 3 + col];
+                }
+                const bool matching = calibration.depth.width == static_cast<int>(depth_profile->width()) &&
+                    calibration.depth.height == static_cast<int>(depth_profile->height()) &&
+                    calibration.color.width == static_cast<int>(profile->width()) &&
+                    calibration.color.height == static_cast<int>(profile->height());
+                if (matching && calibration.valid()) {
+                    impl->range_calibration = calibration;
+                    std::printf("[Orbbec] 测距标定就绪：彩色=%s，深度内参/深度→彩色外参=SDK\n",
+                                supplied_color.valid() ? cfg.range_color_calibration_path.c_str() : "SDK");
+                }
+                else std::printf("[Orbbec] 测距标定尺寸/参数无效，尝试 pipeline 工厂参数\n");
+            } catch (const ob::Error& e) {
+                std::printf("[Orbbec] 测距标定不可用：%s；将输出 has_range=false\n", e.getMessage());
+            }
         }
 
         // 让每个 FrameSet 同时包含彩色和深度：默认的 ANY_SITUATION 会让两路分开到达，
@@ -296,6 +333,44 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
             std::printf("[Orbbec] ⚠️ 设置帧集聚合模式失败，沿用默认\n");
         }
         impl->pipe->start(config);
+
+        // 旧款设备的 profile::getExtrinsicTo 可能不支持，用 pipeline 的完整工厂参数回退。
+        // 只接受当前两路实际分辨率，绝不按单位外参或随意缩放冒充有效测距标定。
+        if (depth_ok && !impl->range_calibration.valid()) {
+            try {
+                const auto param = impl->pipe->getCameraParamWithProfile(
+                    profile->width(), profile->height(), range_depth_profile->width(), range_depth_profile->height());
+                auto model = [](const OBCameraIntrinsic& k, const OBCameraDistortion& d) {
+                    RangeCameraModel m;
+                    m.width = k.width; m.height = k.height;
+                    m.fx = k.fx; m.fy = k.fy; m.cx = k.cx; m.cy = k.cy;
+                    m.distortion = {d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6};
+                    return m;
+                };
+                DepthRangeCalibration calibration;
+                calibration.depth = model(param.depthIntrinsic, param.depthDistortion);
+                calibration.color = supplied_color.valid() ? supplied_color : model(param.rgbIntrinsic, param.rgbDistortion);
+                for (int row = 0; row < 3; ++row) {
+                    calibration.t_depth_to_color_m[row] = param.transform.trans[row] * 1e-3;
+                    for (int col = 0; col < 3; ++col)
+                        calibration.R_depth_to_color(row, col) = param.transform.rot[row * 3 + col];
+                }
+                const bool matching = calibration.depth.width == static_cast<int>(range_depth_profile->width()) &&
+                    calibration.depth.height == static_cast<int>(range_depth_profile->height()) &&
+                    calibration.color.width == static_cast<int>(profile->width()) &&
+                    calibration.color.height == static_cast<int>(profile->height());
+                if (!param.isMirrored && matching && calibration.valid()) {
+                    impl->range_calibration = calibration;
+                    std::printf("[Orbbec] 已从 pipeline 获取完整测距标定\n");
+                } else std::printf("[Orbbec] pipeline 测距标定拒绝：返回 color=%dx%d depth=%dx%d mirror=%d，实际 color=%ux%u depth=%ux%u\n",
+                                   param.rgbIntrinsic.width, param.rgbIntrinsic.height,
+                                   param.depthIntrinsic.width, param.depthIntrinsic.height, param.isMirrored,
+                                   profile->width(), profile->height(), range_depth_profile->width(), range_depth_profile->height());
+            } catch (const ob::Error& e) {
+                std::printf("[Orbbec] pipeline 测距标定也不可用：%s\n", e.getMessage());
+            }
+        }
+
 
         std::printf("[Orbbec] 彩色流 %dx%d @ %d fps, format=%d\n", profile->width(),
                     profile->height(), profile->fps(), static_cast<int>(profile->format()));
@@ -643,8 +718,10 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                             const int h = static_cast<int>(df->height());
                             const uint32_t bytes = df->dataSize();
                             const float scale = df->getValueScale();
+                            const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 2u;
+                            const bool raw16 = df->format() == OB_FORMAT_Y16 || df->format() == OB_FORMAT_Z16;
                             static bool dumped = false;
-                            if (!dumped) {
+                            if (!dumped && bytes >= need && raw16) {
                                 dumped = true;
                                 // 统计一下非零深度：全 0 说明激光没开、或者目标超出结构光量程
                                 int nz = 0, mn = 1 << 30, mx = 0;
@@ -669,20 +746,14 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                     med = vals[vals.size() / 2];
                                 }
                                 std::printf("[Orbbec] 原始深度帧: %dx%d scale=%.4f fmt=%d "
-                                            "非零样本=%d 范围=[%d,%d]mm 中位=%dmm\n",
+                                            "非零样本=%d 原始值范围=[%d,%d] 中位=%d\n",
                                             w, h, scale, static_cast<int>(df->format()), nz,
                                             nz ? mn : 0, mx, med);
                                 std::fflush(stdout);
                             }
-                            const size_t need =
-                                static_cast<size_t>(w) * static_cast<size_t>(h) * 2u;
-                            if (bytes >= need) {
+                            if (bytes >= need && raw16) {
                                 cv::Mat raw(h, w, CV_16UC1, df->data());
-                                if (scale > 0.0f && scale != 1.0f) {
-                                    raw.convertTo(depth_mm, CV_16UC1, static_cast<double>(scale));
-                                } else {
-                                    depth_mm = raw.clone();
-                                }
+                                depth_mm = depthMillimeters(raw, scale);
                             }
                         }
                     } catch (...) {
@@ -769,7 +840,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                     std::printf("[Orbbec] ⚠️ 现场光不足（灰度 %.0f，目标 %.0f）：曝光已到模糊预算"
                                                 " %.1f ms、增益已到上限 %d。建议补光或降速——"
                                                 "本场地上限约 %.2f×Z m/s（1m→%.2f 2m→%.2f）\n",
-                                                mean_now, impl->cfg.tune_target_mean,
+                                                mean_now, static_cast<double>(impl->cfg.tune_target_mean),
                                                 impl->blur_cap * 0.1, impl->gain_cap,
                                                 v_cap, v_cap, v_cap * 2.0);
                                     std::fflush(stdout);
@@ -862,6 +933,10 @@ OrbbecCamera::DepthInfo OrbbecCamera::depthInfo() const {
     for (int r = 0; r < 3; ++r)
         d.t_mm[r] = -(Rc[r][0] * td[0] + Rc[r][1] * td[1] + Rc[r][2] * td[2]);
     return d;
+}
+
+DepthRangeCalibration OrbbecCamera::rangeCalibration() const {
+    return impl_ ? impl_->range_calibration : DepthRangeCalibration{};
 }
 
 bool OrbbecCamera::running() const { return impl_ && impl_->running.load(); }

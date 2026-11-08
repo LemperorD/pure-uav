@@ -38,6 +38,18 @@ const char* toString(VioHealthState s) {
 
 HealthMonitor::HealthMonitor(const HealthConfig& cfg) : cfg_(cfg) {}
 
+const char* toString(HealthReason reason) {
+    switch (reason) {
+        case HealthReason::UPDATE_RATE: return "update_rate";
+        case HealthReason::VISUAL_TIMEOUT: return "visual_timeout";
+        case HealthReason::FEATURES: return "features";
+        case HealthReason::DEPTH: return "depth";
+        case HealthReason::TILT: return "tilt";
+        case HealthReason::PHYSICAL: return "physical";
+        default: return "none";
+    }
+}
+
 void HealthMonitor::configure(const HealthConfig& cfg) {
     cfg_ = cfg;
     reset();
@@ -47,6 +59,7 @@ void HealthMonitor::reset() {
     win_time_.clear();
     win_updated_.clear();
     state_ = VioHealthState::UNKNOWN;
+    reason_ = HealthReason::NONE;
     start_time_ = last_time_ = last_update_time_ = -1.0;
     bad_since_ = good_since_ = state_changed_at_ = -1.0;
     bad_dep_since_ = -1.0;
@@ -60,6 +73,7 @@ void HealthMonitor::reset() {
 void HealthMonitor::update(double time_s, int features, bool visual_updated, double deperr_px, double tilt_deg) {
     if (!cfg_.enabled) {
         state_ = VioHealthState::OK;
+        reason_ = HealthReason::NONE;
         features_ = features;
         updated_ = visual_updated;
         return;
@@ -131,6 +145,19 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     const bool should_be_degraded =
         few_features || low_rate || (since_update > cfg_.degrade_after_s) || bad_dep || tilt_degrade;
 
+    // Identify a currently active cause; retain the last cause while LOST is
+    // waiting for recovery hysteresis. All state decisions below are unchanged.
+    HealthReason current_reason = HealthReason::NONE;
+    if (bad_tilt_for > cfg_.tilt_lost_s) current_reason = HealthReason::TILT;
+    else if (bad_dep_for > cfg_.deperr_lost_s) current_reason = HealthReason::DEPTH;
+    else if (low_rate) current_reason = HealthReason::UPDATE_RATE;
+    else if (since_update > cfg_.lost_after_s) current_reason = HealthReason::VISUAL_TIMEOUT;
+    else if (bad_for > cfg_.lost_after_s) current_reason = HealthReason::FEATURES;
+    else if (tilt_degrade) current_reason = HealthReason::TILT;
+    else if (bad_dep) current_reason = HealthReason::DEPTH;
+    else if (few_features) current_reason = HealthReason::FEATURES;
+    else if (since_update > cfg_.degrade_after_s) current_reason = HealthReason::VISUAL_TIMEOUT;
+
     switch (state_) {
         case VioHealthState::UNKNOWN:
             state_ = VioHealthState::OK;
@@ -185,10 +212,13 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
             break;
         }
     }
+    if (state_ == VioHealthState::OK) reason_ = HealthReason::NONE;
+    else if (current_reason != HealthReason::NONE) reason_ = current_reason;
 }
 
 void HealthMonitor::notify_recovered() {
     physical_fault_ = false;
+    reason_ = HealthReason::NONE;
     // 新估计器需要重新积累视觉更新，不能沿用旧实例的失效计时窗口。
     win_time_.clear();
     win_updated_.clear();
@@ -203,6 +233,8 @@ void HealthMonitor::notify_recovered() {
 HealthReport HealthMonitor::report(double now_s) const {
     HealthReport r;
     r.state = state_;
+    r.reason = reason_;
+    r.update_rate = updateRate();
     r.publishable = publishable();
     r.features = features_;
     r.updated_this_frame = updated_;
@@ -219,6 +251,7 @@ HealthReport HealthMonitor::report(double now_s) const {
 // 这是"安全阀"，不参与精度优化——它只保证不发明显错误的位姿。
 void HealthMonitor::mark_implausible(double time_s) {
     if (!cfg_.enabled) return;
+    reason_ = HealthReason::PHYSICAL;
     if (state_ != VioHealthState::LOST) {
         state_changed_at_ = time_s;
         ++lost_count_;
