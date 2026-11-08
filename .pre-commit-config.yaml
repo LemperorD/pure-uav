@@ -42,5 +42,3 @@ repos:
   hooks:
   - id: markdownlint
     args: [--fix]
-
-# precommit测试
