@@ -17,8 +17,7 @@
 #include "guidance_loop.hpp"
 #include "quat.hpp"
 
-namespace pure_uav {
-namespace app {
+namespace pure_uav::app {
 
 namespace {
 
@@ -50,7 +49,9 @@ int split_line(char* line, char** fields, int max_fields) {
     while (n < max_fields) {
         fields[n++] = p;
         char* comma = std::strchr(p, ',');
-        if (!comma) break;
+        if (comma == nullptr) {
+            break;
+        }
         *comma = '\0';
         p = comma + 1;
     }
@@ -58,37 +59,43 @@ int split_line(char* line, char** fields, int max_fields) {
 }
 
 bool to_double(const char* s, double& out) {
-    if (!s || *s == '\0') {
+    if ((s == nullptr) || *s == '\0') {
         out = 0.0;
         return true;
     }
     char* end = nullptr;
     const double v = std::strtod(s, &end);
-    if (!end || *end != '\0') return false;
+    if ((end == nullptr) || *end != '\0') {
+        return false;
+    }
     out = v;
     return true;
 }
 
 bool to_u64(const char* s, std::uint64_t& out) {
-    if (!s || *s == '\0') {
+    if ((s == nullptr) || *s == '\0') {
         out = 0;
         return true;
     }
     char* end = nullptr;
     const unsigned long long v = std::strtoull(s, &end, 10);
-    if (!end || *end != '\0') return false;
+    if ((end == nullptr) || *end != '\0') {
+        return false;
+    }
     out = static_cast<std::uint64_t>(v);
     return true;
 }
 
 bool to_int(const char* s, int& out) {
-    if (!s || *s == '\0') {
+    if ((s == nullptr) || *s == '\0') {
         out = 0;
         return true;
     }
     char* end = nullptr;
     const long v = std::strtol(s, &end, 10);
-    if (!end || *end != '\0') return false;
+    if ((end == nullptr) || *end != '\0') {
+        return false;
+    }
     out = static_cast<int>(v);
     return true;
 }
@@ -113,9 +120,13 @@ bool GuidanceInputRecorder::open(const char* path) {
     ins_ = flight::GuidanceInsSample{};
     ins_new_ = false;
 
-    if (!path || *path == '\0') return false;
+    if ((path == nullptr) || *path == '\0') {
+        return false;
+    }
     f_ = std::fopen(path, "wb");
-    if (!f_) return false;
+    if (f_ == nullptr) {
+        return false;
+    }
     if (std::fputs(kInputHeader, f_) < 0) {
         close();
         return false;
@@ -130,7 +141,7 @@ void GuidanceInputRecorder::on_ins(const flight::GuidanceInsSample& s, bool new_
 }
 
 void GuidanceInputRecorder::on_target(const flight::GuidanceTargetSample& s, bool new_frame) noexcept {
-    if (!f_) {
+    if (f_ == nullptr) {
         ok_ = false;
         return;
     }
@@ -141,14 +152,18 @@ void GuidanceInputRecorder::on_target(const flight::GuidanceTargetSample& s, boo
                                "%d,%d,%.17g,%d,%.17g,%.17g,%.17g\n",
                                static_cast<unsigned long long>(tick_), b2i(ins_new_), static_cast<unsigned long long>(ins_.boot_us), b2i(ins_.has_position), b2i(ins_.has_attitude), ins_.p.x, ins_.p.y, ins_.p.z, ins_.v.x, ins_.v.y, ins_.v.z, ins_.q[0], ins_.q[1], ins_.q[2], ins_.q[3], b2i(new_frame),
                                static_cast<unsigned long long>(s.boot_us), s.u_px, s.v_px, b2i(s.has_box), s.w_px, s.h_px, s.conf, s.class_id, b2i(s.present), b2i(s.has_range), s.range_m, b2i(s.has_v_T), s.v_T.x, s.v_T.y, s.v_T.z);
-    if (n < 0) ok_ = false;
+    if (n < 0) {
+        ok_ = false;
+    }
     ++tick_;
     ++rows_;
 }
 
 void GuidanceInputRecorder::close() {
-    if (f_) {
-        if (std::fclose(f_) != 0) ok_ = false;
+    if (f_ != nullptr) {
+        if (std::fclose(f_) != 0) {
+            ok_ = false;
+        }
         f_ = nullptr;
     }
 }
@@ -156,14 +171,18 @@ void GuidanceInputRecorder::close() {
 bool GuidanceRecordingInsSource::poll(flight::GuidanceInsSample& out) {
     const bool got = inner_.poll(out);
     rec_.on_ins(got ? out : last_, got);
-    if (got) last_ = out;
+    if (got) {
+        last_ = out;
+    }
     return got;
 }
 
 bool GuidanceRecordingTargetSource::poll(flight::GuidanceTargetSample& out) {
     const bool got = inner_.poll(out);
     rec_.on_target(got ? out : last_, got);
-    if (got) last_ = out;
+    if (got) {
+        last_ = out;
+    }
     return got;
 }
 
@@ -176,7 +195,7 @@ GuidanceCsvReader::~GuidanceCsvReader() {
 }
 
 void GuidanceCsvReader::close() {
-    if (f_) {
+    if (f_ != nullptr) {
         std::fclose(f_);
         f_ = nullptr;
     }
@@ -188,13 +207,13 @@ bool GuidanceCsvReader::open(const char* path) {
     rows_ = 0;
     err_[0] = '\0';
 
-    if (!path || *path == '\0') {
+    if ((path == nullptr) || *path == '\0') {
         std::snprintf(err_, sizeof(err_), "路径为空");
         ok_ = false;
         return false;
     }
     f_ = std::fopen(path, "rb");
-    if (!f_) {
+    if (f_ == nullptr) {
         std::snprintf(err_, sizeof(err_), "打不开文件：%s", path);
         ok_ = false;
         return false;
@@ -203,16 +222,20 @@ bool GuidanceCsvReader::open(const char* path) {
 }
 
 bool GuidanceCsvReader::next(GuidanceCsvRow& row) {
-    if (!f_) return false;
+    if (f_ == nullptr) {
+        return false;
+    }
 
     char line[1024];
     char* fields[40];
     int lineno = 0;
 
-    while (std::fgets(line, sizeof(line), f_)) {
+    while (std::fgets(line, sizeof(line), f_) != nullptr) {
         ++lineno;
         strip_eol(line);
-        if (line[0] == '\0' || line[0] == '#') continue;
+        if (line[0] == '\0' || line[0] == '#') {
+            continue;
+        }
 
         const int n = split_line(line, fields, 40);
         if (n < kInputFields) {
@@ -221,10 +244,26 @@ bool GuidanceCsvReader::next(GuidanceCsvRow& row) {
             return false;
         }
 
-        std::uint64_t tick = 0, ins_us = 0, tgt_us = 0;
-        int ins_new = 0, has_pos = 0, has_att = 0, tgt_new = 0, has_box = 0;
-        int class_id = -1, present = 0, has_range = 0, has_vt = 0;
-        double p[3], v[3], q[4], uv[2], wh[2], conf = 0.0, range_m = 0.0, vt[3];
+        std::uint64_t tick = 0;
+        std::uint64_t ins_us = 0;
+        std::uint64_t tgt_us = 0;
+        int ins_new = 0;
+        int has_pos = 0;
+        int has_att = 0;
+        int tgt_new = 0;
+        int has_box = 0;
+        int class_id = -1;
+        int present = 0;
+        int has_range = 0;
+        int has_vt = 0;
+        double p[3];
+        double v[3];
+        double q[4];
+        double uv[2];
+        double wh[2];
+        double conf = 0.0;
+        double range_m = 0.0;
+        double vt[3];
 
         bool bad = !to_u64(fields[0], tick) || !to_int(fields[1], ins_new) || !to_u64(fields[2], ins_us) || !to_int(fields[3], has_pos) || !to_int(fields[4], has_att) || !to_double(fields[5], p[0]) || !to_double(fields[6], p[1]) || !to_double(fields[7], p[2]) || !to_double(fields[8], v[0]) ||
                    !to_double(fields[9], v[1]) || !to_double(fields[10], v[2]) || !to_double(fields[11], q[0]) || !to_double(fields[12], q[1]) || !to_double(fields[13], q[2]) || !to_double(fields[14], q[3]) || !to_int(fields[15], tgt_new) || !to_u64(fields[16], tgt_us) ||
@@ -243,7 +282,9 @@ bool GuidanceCsvReader::next(GuidanceCsvRow& row) {
         row.ins.boot_us = ins_us;
         row.ins.p = Vec3(p[0], p[1], p[2]);
         row.ins.v = Vec3(v[0], v[1], v[2]);
-        for (int i = 0; i < 4; ++i) row.ins.q[i] = q[i];
+        for (int i = 0; i < 4; ++i) {
+            row.ins.q[i] = q[i];
+        }
         row.ins.has_position = (has_pos != 0);
         row.ins.has_attitude = (has_att != 0);
 
@@ -286,20 +327,28 @@ bool GuidanceCsvReplaySource::advance() {
 
 bool GuidanceCsvReplaySource::poll(flight::GuidanceInsSample& out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
-        if (!advance()) return false;
+        if (!advance()) {
+            return false;
+        }
     }
     served_ins_ = true;
-    if (!row_.ins_new) return false;
+    if (!row_.ins_new) {
+        return false;
+    }
     out = row_.ins;
     return true;
 }
 
 bool GuidanceCsvReplaySource::poll(flight::GuidanceTargetSample& out) {
     if (!have_row_ || (served_ins_ && served_tgt_)) {
-        if (!advance()) return false;
+        if (!advance()) {
+            return false;
+        }
     }
     served_tgt_ = true;
-    if (!row_.tgt_new) return false;
+    if (!row_.tgt_new) {
+        return false;
+    }
     out = row_.tgt;
     return true;
 }
@@ -310,9 +359,13 @@ bool GuidanceCsvReplaySource::poll(flight::GuidanceTargetSample& out) {
 
 GuidanceCsvAccelSink::GuidanceCsvAccelSink(const char* path) {
     ok_ = false;
-    if (!path || *path == '\0') return;
+    if ((path == nullptr) || *path == '\0') {
+        return;
+    }
     f_ = std::fopen(path, "wb");
-    if (!f_) return;
+    if (f_ == nullptr) {
+        return;
+    }
     if (std::fputs(kOutputHeader, f_) < 0) {
         std::fclose(f_);
         f_ = nullptr;
@@ -326,14 +379,16 @@ GuidanceCsvAccelSink::~GuidanceCsvAccelSink() {
 }
 
 void GuidanceCsvAccelSink::close() {
-    if (f_) {
-        if (std::fclose(f_) != 0) ok_ = false;
+    if (f_ != nullptr) {
+        if (std::fclose(f_) != 0) {
+            ok_ = false;
+        }
         f_ = nullptr;
     }
 }
 
 bool GuidanceCsvAccelSink::send(const flight::GuidanceOutput& o) {
-    if (!f_) {
+    if (f_ == nullptr) {
         ok_ = false;
         return false;
     }
@@ -358,7 +413,9 @@ flight::GuidanceCameraModel guidance_demo_camera() {
     c.cx = 320.0;  // 640×480 的主点
     c.cy = 240.0;
     const double R[9] = {0, 0, 1, 1, 0, 0, 0, 1, 0};
-    for (int i = 0; i < 9; ++i) c.R_body_cam[i] = R[i];
+    for (int i = 0; i < 9; ++i) {
+        c.R_body_cam[i] = R[i];
+    }
     return c;
 }
 
@@ -377,7 +434,9 @@ bool GuidanceSyntheticWorld::poll(flight::GuidanceInsSample& out) {
     out.boot_us = t_us_;
     out.p = p_;
     out.v = v_;
-    for (int i = 0; i < 4; ++i) out.q[i] = q_[i];
+    for (int i = 0; i < 4; ++i) {
+        out.q[i] = q_[i];
+    }
     out.has_position = true;
     out.has_attitude = true;
     return true;
@@ -386,16 +445,20 @@ bool GuidanceSyntheticWorld::poll(flight::GuidanceInsSample& out) {
 bool GuidanceSyntheticWorld::poll(flight::GuidanceTargetSample& out) {
     const Vec3 d_world = plate_ - p_;
     const double R = norm(d_world);
-    if (!(R > 1e-6)) return false;
+    if (!(R > 1e-6)) {
+        return false;
+    }
     const Vec3 los_world = d_world / R;
 
     const Vec3 d_body = quat_rotate_vec_inv(q_, los_world);
     const Vec3 d_cam = mat3_mul_transpose(cam_.R_body_cam, d_body);
-    if (!(d_cam.z > 1e-6)) return false;
+    if (!(d_cam.z > 1e-6)) {
+        return false;
+    }
 
     out.boot_us = t_us_;
-    out.u_px = cam_.cx + cam_.fx * (d_cam.x / d_cam.z);
-    out.v_px = cam_.cy + cam_.fy * (d_cam.y / d_cam.z);
+    out.u_px = cam_.cx + (cam_.fx * (d_cam.x / d_cam.z));
+    out.v_px = cam_.cy + (cam_.fy * (d_cam.y / d_cam.z));
     out.has_box = false;
     out.w_px = 0.0;
     out.h_px = 0.0;
@@ -417,14 +480,20 @@ bool GuidanceSyntheticWorld::send(const flight::GuidanceOutput& out) {
     } else {
         a_cmd_ = Vec3{};
     }
-    if (out.sat) ++sat_;
-    if (out.mode == PureGuidanceMode::HOLD) ++hold_;
-    if (out.mode == PureGuidanceMode::SEARCH) ++search_;
+    if (out.sat) {
+        ++sat_;
+    }
+    if (out.mode == PureGuidanceMode::HOLD) {
+        ++hold_;
+    }
+    if (out.mode == PureGuidanceMode::SEARCH) {
+        ++search_;
+    }
     return true;
 }
 
 Vec3 GuidanceSyntheticWorld::mat3_mul_transpose(const double R[9], const Vec3& v) {
-    return Vec3(R[0] * v.x + R[3] * v.y + R[6] * v.z, R[1] * v.x + R[4] * v.y + R[7] * v.z, R[2] * v.x + R[5] * v.y + R[8] * v.z);
+    return {(R[0] * v.x) + (R[3] * v.y) + (R[6] * v.z), (R[1] * v.x) + (R[4] * v.y) + (R[7] * v.z), (R[2] * v.x) + (R[5] * v.y) + (R[8] * v.z)};
 }
 
 GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld& world, flight::GuidanceLoop& loop, int ticks, GuidanceTickHook hook, void* user) {
@@ -444,7 +513,9 @@ GuidanceClosedLoopReport guidance_run_closed_loop(GuidanceSyntheticWorld& world,
             rep.min_r = R;
             rep.min_r_tick = k;
         }
-        if (hook) hook(user, k, world, out);
+        if (hook != nullptr) {
+            hook(user, k, world, out);
+        }
         ++rep.ticks;
     }
     return rep;
@@ -522,8 +593,10 @@ struct PrintCtx {
 };
 
 void on_tick_print(void* user, int k, const GuidanceSyntheticWorld& world, const flight::GuidanceOutput& out) {
-    const PrintCtx* ctx = static_cast<const PrintCtx*>(user);
-    if (!ctx || ctx->every <= 0 || (k % ctx->every) != 0) return;
+    const auto* ctx = static_cast<const PrintCtx*>(user);
+    if ((ctx == nullptr) || ctx->every <= 0 || (k % ctx->every) != 0) {
+        return;
+    }
     std::printf("  %4d  %5.2f  %5.2f  %6.2f   %s  %6.3f   (%6.2f,%6.2f,%6.2f)  %s\n", k, k * ctx->dt, world.true_range(), out.Vc, mode_name(out.mode), out.t_go, out.a_cmd_ned.x, out.a_cmd_ned.y, out.a_cmd_ned.z, out.sat ? "Y" : ".");
 }
 
@@ -566,12 +639,12 @@ int guidance_run_synthetic(const GuidanceSimOptions& opt, const GuidanceAppParam
 
     // ---- 指令落盘（可选）：一发两处 ----
     GuidanceCsvAccelSink csv_sink(opt.out);
-    if (opt.out && !csv_sink.ok()) {
+    if ((opt.out != nullptr) && !csv_sink.ok()) {
         std::printf("!! 打不开输出文件：%s\n", opt.out);
         return 1;
     }
     GuidanceTeeSink tee(world, csv_sink);
-    flight::GuidanceCommandSink& sink = opt.out ? static_cast<flight::GuidanceCommandSink&>(tee) : static_cast<flight::GuidanceCommandSink&>(world);
+    flight::GuidanceCommandSink& sink = (opt.out != nullptr) ? static_cast<flight::GuidanceCommandSink&>(tee) : static_cast<flight::GuidanceCommandSink&>(world);
 
     flight::GuidanceLoop loop(ap.guidance, ap.loop, ins, tgt, sink);
     if (!loop.init()) {
@@ -580,9 +653,15 @@ int guidance_run_synthetic(const GuidanceSimOptions& opt, const GuidanceAppParam
     }
 
     print_banner(opt, ap);
-    if (want_rec) std::printf("  录制 → %s\n", opt.record);
-    if (opt.out) std::printf("  落盘 → %s\n", opt.out);
-    if (want_rec || opt.out) std::printf("\n");
+    if (want_rec) {
+        std::printf("  录制 → %s\n", opt.record);
+    }
+    if (opt.out != nullptr) {
+        std::printf("  落盘 → %s\n", opt.out);
+    }
+    if (want_rec || (opt.out != nullptr)) {
+        std::printf("\n");
+    }
 
     PrintCtx ctx;
     ctx.every = opt.verbose ? 5 : 0;
@@ -611,20 +690,26 @@ int guidance_run_synthetic(const GuidanceSimOptions& opt, const GuidanceAppParam
             "  总 %llu/%llu/%llu\n",
             guid.p50, guid.p95, guid.max, send.p50, send.p95, send.max, tot.p50, tot.p95, tot.max);
     }
-    if (want_rec) std::printf("  录制行数 %llu（%s）\n", (unsigned long long)rec.rows(), rec.ok() ? "ok" : "写失败");
-    if (opt.out) std::printf("  落盘行数 %llu（%s）\n", (unsigned long long)csv_sink.rows(), csv_sink.ok() ? "ok" : "写失败");
+    if (want_rec) {
+        std::printf("  录制行数 %llu（%s）\n", (unsigned long long)rec.rows(), rec.ok() ? "ok" : "写失败");
+    }
+    if (opt.out != nullptr) {
+        std::printf("  落盘行数 %llu（%s）\n", (unsigned long long)csv_sink.rows(), csv_sink.ok() ? "ok" : "写失败");
+    }
     if (opt.blackbox != nullptr) {
         const long rows = loop.blackbox().dump_csv(opt.blackbox, opt.blackbox_sec);
-        if (rows < 0)
+        if (rows < 0) {
             std::printf("  黑匣子：写失败 → %s\n", opt.blackbox);
-        else
+        } else {
             std::printf("  黑匣子：%ld 行（最近 %.1f s）→ %s\n", rows, opt.blackbox_sec, opt.blackbox);
+        }
     }
 
-    if (rep.min_r < 1.0)
+    if (rep.min_r < 1.0) {
         std::printf("  ⇒ 链路闭环成立：PN 把最近距离压到了 1 m 以内 \n");
-    else
+    } else {
         std::printf("  ⇒ 最近距离仍 > 1 m：检查初速方向 / a_max / N\n");
+    }
 
     return rep.target_lost ? 0 : (rep.stop == flight::GuidanceLoopStatus::kOk ? 0 : 1);
 }
@@ -638,12 +723,12 @@ int guidance_run_replay(const char* replay, const GuidanceSimOptions& opt, const
 
     GuidanceCsvReplaySource src(reader);
     GuidanceCsvAccelSink csv_sink(opt.out);
-    if (opt.out && !csv_sink.ok()) {
+    if ((opt.out != nullptr) && !csv_sink.ok()) {
         std::printf("!! 打不开输出文件：%s\n", opt.out);
         return 1;
     }
     flight::GuidanceNullSink null_sink;
-    flight::GuidanceCommandSink& sink = opt.out ? static_cast<flight::GuidanceCommandSink&>(csv_sink) : static_cast<flight::GuidanceCommandSink&>(null_sink);
+    flight::GuidanceCommandSink& sink = (opt.out != nullptr) ? static_cast<flight::GuidanceCommandSink&>(csv_sink) : static_cast<flight::GuidanceCommandSink&>(null_sink);
 
     flight::GuidanceLoop loop(ap.guidance, ap.loop, src, src, sink);
     if (!loop.init()) {
@@ -665,7 +750,9 @@ int guidance_run_replay(const char* replay, const GuidanceSimOptions& opt, const
             stop = st;
             break;
         }
-        if (src.done()) break;
+        if (src.done()) {
+            break;
+        }
         if (opt.realtime) {
             std::this_thread::sleep_for(std::chrono::nanoseconds(static_cast<long long>(1e9 / static_cast<double>((ap.loop.loop_hz > 0) ? ap.loop.loop_hz : 1))));
         }
@@ -673,20 +760,24 @@ int guidance_run_replay(const char* replay, const GuidanceSimOptions& opt, const
 
     const flight::GuidanceLoopStats& s = loop.stats();
     std::printf("\n=== 汇总 ===\n");
-    if (src.error()) std::printf("  !! CSV 解析问题：%s\n", src.error());
+    if (src.error() != nullptr) {
+        std::printf("  !! CSV 解析问题：%s\n", src.error());
+    }
     std::printf("  回放行数 %llu  循环拍数 %llu  ins=%llu  tgt=%llu  sent=%llu\n", (unsigned long long)src.rows(), (unsigned long long)s.ticks, (unsigned long long)s.ins_frames, (unsigned long long)s.tgt_frames, (unsigned long long)s.sent);
     std::printf("  饱和 %llu  冻结 %llu  丢失 %llu  降级 %llu  末状态 %s\n", (unsigned long long)s.saturated, (unsigned long long)s.hold, (unsigned long long)s.search, (unsigned long long)s.unhealthy, status_name(stop));
-    if (opt.out) std::printf("  落盘行数 %llu（%s）\n", (unsigned long long)csv_sink.rows(), csv_sink.ok() ? "ok" : "写失败");
+    if (opt.out != nullptr) {
+        std::printf("  落盘行数 %llu（%s）\n", (unsigned long long)csv_sink.rows(), csv_sink.ok() ? "ok" : "写失败");
+    }
     if (opt.blackbox != nullptr) {
         const long rows = loop.blackbox().dump_csv(opt.blackbox, opt.blackbox_sec);
-        if (rows < 0)
+        if (rows < 0) {
             std::printf("  黑匣子：写失败 → %s\n", opt.blackbox);
-        else
+        } else {
             std::printf("  黑匣子：%ld 行（最近 %.1f s）→ %s\n", rows, opt.blackbox_sec, opt.blackbox);
+        }
     }
 
     return (stop == flight::GuidanceLoopStatus::kOk || src.error() == nullptr) ? 0 : 1;
 }
 
-}  // namespace app
-}  // namespace pure_uav
+}  // namespace pure_uav::app

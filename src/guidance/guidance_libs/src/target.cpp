@@ -60,17 +60,23 @@ void TargetModel::build_analytic() {
     t_flight_ = cfg_.t_max;
     hits_ground_ = false;
 
-    if (cfg_.type != TargetType::BALLISTIC) return;  // STRAIGHT：永不落地
+    if (cfg_.type != TargetType::BALLISTIC) {
+        return;  // STRAIGHT：永不落地
+    }
 
     // 落地时刻：z0 + vz0·t − ½·g·t² = ground_z  →  ½g·t² − vz0·t + (gz − z0) = 0
     const double g = -cfg_.gravity.z;  // >0
-    if (g <= 1e-9) return;
+    if (g <= 1e-9) {
+        return;
+    }
 
     const double a = 0.5 * g;
     const double b = -v0_.z;
     const double c = cfg_.ground_z - cfg_.p0.z;
-    const double disc = b * b - 4.0 * a * c;
-    if (disc < 0.0) return;  // 永远落不到地（往上飞）
+    const double disc = (b * b) - (4.0 * a * c);
+    if (disc < 0.0) {
+        return;  // 永远落不到地（往上飞）
+    }
 
     const double sq = std::sqrt(disc);
     const double t1 = (-b + sq) / (2.0 * a);
@@ -103,7 +109,9 @@ Vec3 TargetModel::accel_at(const Vec3& p, const Vec3& v, double t) const {
             // 沿初速度方向的直线飞行 + 侧向正弦机动加速度
             const Vec3 dir = normalized(v0_);
             Vec3 lat = cross(Vec3{0.0, 0.0, 1.0}, dir);       // 水平侧向（⊥ 航向）
-            if (norm(lat) < 1e-6) lat = Vec3{1.0, 0.0, 0.0};  // 垂直上飞时的退化
+            if (norm(lat) < 1e-6) {
+                lat = Vec3{1.0, 0.0, 0.0};  // 垂直上飞时的退化
+            }
             lat = normalized(lat);
             return lat * (cfg_.snake_acc * std::sin(cfg_.snake_freq * t));
         }
@@ -128,10 +136,14 @@ void TargetModel::build_table() {
 
     while (t < cfg_.t_max) {
         // ---- RK4 推进一步 ----
-        const Vec3 k1p = v, k1v = accel_at(p, v, t);
-        const Vec3 k2p = v + k1v * (dt * 0.5), k2v = accel_at(p + k1p * (dt * 0.5), v + k1v * (dt * 0.5), t + dt * 0.5);
-        const Vec3 k3p = v + k2v * (dt * 0.5), k3v = accel_at(p + k2p * (dt * 0.5), v + k2v * (dt * 0.5), t + dt * 0.5);
-        const Vec3 k4p = v + k3v * dt, k4v = accel_at(p + k3p * dt, v + k3v * dt, t + dt);
+        const Vec3 k1p = v;
+        const Vec3 k1v = accel_at(p, v, t);
+        const Vec3 k2p = v + k1v * (dt * 0.5);
+        const Vec3 k2v = accel_at(p + k1p * (dt * 0.5), v + k1v * (dt * 0.5), t + (dt * 0.5));
+        const Vec3 k3p = v + k2v * (dt * 0.5);
+        const Vec3 k3v = accel_at(p + k2p * (dt * 0.5), v + k2v * (dt * 0.5), t + (dt * 0.5));
+        const Vec3 k4p = v + k3v * dt;
+        const Vec3 k4v = accel_at(p + k3p * dt, v + k3v * dt, t + dt);
 
         const Vec3 p_new = p + (k1p + k2p * 2.0 + k3p * 2.0 + k4p) * (dt / 6.0);
         const Vec3 v_new = v + (k1v + k2v * 2.0 + k3v * 2.0 + k4v) * (dt / 6.0);
@@ -157,8 +169,8 @@ void TargetModel::build_table() {
 // ============================================================
 TargetState TargetModel::state(double t) const {
     // 夹到有效飞行区间（超出则停在末态）
-    if (t < 0.0) t = 0.0;
-    if (t > t_flight_) t = t_flight_;
+    t = std::max(t, 0.0);
+    t = std::min(t, t_flight_);
 
     if (cfg_.type == TargetType::STRAIGHT) {
         return {cfg_.p0 + v0_ * t, v0_, Vec3{0, 0, 0}};
@@ -168,12 +180,18 @@ TargetState TargetModel::state(double t) const {
     }
 
     // ---- 数值型：查表 + 线性插值 ----
-    if (tab_.empty()) return {cfg_.p0, v0_, accel_at(cfg_.p0, v0_, 0.0)};
+    if (tab_.empty()) {
+        return {cfg_.p0, v0_, accel_at(cfg_.p0, v0_, 0.0)};
+    }
 
     const auto it = std::upper_bound(tab_.begin(), tab_.end(), t, [](double val, const Sample& s) { return val < s.t; });
 
-    if (it == tab_.begin()) return {tab_.front().p, tab_.front().v, tab_.front().a};
-    if (it == tab_.end()) return {tab_.back().p, tab_.back().v, tab_.back().a};
+    if (it == tab_.begin()) {
+        return {tab_.front().p, tab_.front().v, tab_.front().a};
+    }
+    if (it == tab_.end()) {
+        return {tab_.back().p, tab_.back().v, tab_.back().a};
+    }
 
     const Sample& b = *it;
     const Sample& a = *(it - 1);

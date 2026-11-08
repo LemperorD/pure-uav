@@ -6,6 +6,7 @@
 //
 // 运行：./bin/test/test_state_adapter（退出码 0=全过，1=有失败）
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -58,7 +59,8 @@ static void near_vec(const Vec3& got, const Vec3& want, double tol, const char* 
 
 static void near_q(const double got[4], const double want[4], double tol, const char* what) {
     // q 与 −q 表示同一旋转 ⇒ 允许整体符号差
-    double d1 = 0.0, d2 = 0.0;
+    double d1 = 0.0;
+    double d2 = 0.0;
     for (int i = 0; i < 4; ++i) {
         d1 += (got[i] - want[i]) * (got[i] - want[i]);
         d2 += (got[i] + want[i]) * (got[i] + want[i]);
@@ -87,34 +89,40 @@ static constexpr double PI_REF = 3.14159265358979323846;
 
 // 参考四元数旋转：v' = R(q)·v，q = [w,x,y,z]（机体→世界）
 static Vec3 ref_rotate(const double q[4], const Vec3& v) {
-    const double w = q[0], x = q[1], y = q[2], z = q[3];
+    const double w = q[0];
+    const double x = q[1];
+    const double y = q[2];
+    const double z = q[3];
     const double R[3][3] = {
-        {1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)},
-        {2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)},
-        {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)},
+        {1 - (2 * (y * y + z * z)), 2 * (x * y - z * w), 2 * (x * z + y * w)},
+        {2 * (x * y + z * w), 1 - (2 * (x * x + z * z)), 2 * (y * z - x * w)},
+        {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - (2 * (x * x + y * y))},
     };
-    return Vec3(R[0][0] * v.x + R[0][1] * v.y + R[0][2] * v.z, R[1][0] * v.x + R[1][1] * v.y + R[1][2] * v.z, R[2][0] * v.x + R[2][1] * v.y + R[2][2] * v.z);
+    return {(R[0][0] * v.x) + (R[0][1] * v.y) + (R[0][2] * v.z), (R[1][0] * v.x) + (R[1][1] * v.y) + (R[1][2] * v.z), (R[2][0] * v.x) + (R[2][1] * v.y) + (R[2][2] * v.z)};
 }
 
 // 参考旋转矩阵（q 对应的 R，行优先）—— 从矩阵直接读"三列的叉积/行列式"
 static void ref_matrix(const double q[4], double R[3][3]) {
-    const double w = q[0], x = q[1], y = q[2], z = q[3];
-    R[0][0] = 1 - 2 * (y * y + z * z);
+    const double w = q[0];
+    const double x = q[1];
+    const double y = q[2];
+    const double z = q[3];
+    R[0][0] = 1 - (2 * (y * y + z * z));
     R[0][1] = 2 * (x * y - z * w);
     R[0][2] = 2 * (x * z + y * w);
     R[1][0] = 2 * (x * y + z * w);
-    R[1][1] = 1 - 2 * (x * x + z * z);
+    R[1][1] = 1 - (2 * (x * x + z * z));
     R[1][2] = 2 * (y * z - x * w);
     R[2][0] = 2 * (x * z - y * w);
     R[2][1] = 2 * (y * z + x * w);
-    R[2][2] = 1 - 2 * (x * x + y * y);
+    R[2][2] = 1 - (2 * (x * x + y * y));
 }
 
 // 从四元数取"某机体轴在世界系下的指向"（列向量）
 static Vec3 ref_axis_in_world(const double q[4], int axis) {
     double R[3][3];
     ref_matrix(q, R);
-    return Vec3(R[0][axis], R[1][axis], R[2][axis]);
+    return {R[0][axis], R[1][axis], R[2][axis]};
 }
 
 static double ref_det3(const Vec3& a, const Vec3& b, const Vec3& c) {
@@ -123,7 +131,7 @@ static double ref_det3(const Vec3& a, const Vec3& b, const Vec3& c) {
 
 // NED ↔ ENU 的参考实现（独立写一遍，不复用被测函数）
 static Vec3 ref_ned_to_enu(const Vec3& v) {
-    return Vec3(v.y, v.x, -v.z);
+    return {v.y, v.x, -v.z};
 }
 
 // 参考：外部姿态（world_in + frame_in）→ 光轴系姿态（ENU）下"光轴系三轴的世界指向"
@@ -157,15 +165,18 @@ static void ref_optical_axes(const double q_in[4], GuidanceFrame world_in, Guida
 }
 
 // 随机单位四元数（可复现）
-static uint32_t g_seed = 20261016u;
+static uint32_t g_seed = 20261016U;
 static double rnd01() {
-    g_seed = g_seed * 1664525u + 1013904223u;
+    g_seed = (g_seed * 1664525U) + 1013904223U;
     return static_cast<double>(g_seed >> 8) / 16777216.0;  // 2^24
 }
 static void random_quat(double q[4]) {
     // 均匀四元数（Shoemake 法）
-    const double u1 = rnd01(), u2 = rnd01(), u3 = rnd01();
-    const double s1 = std::sqrt(1.0 - u1), s2 = std::sqrt(u1);
+    const double u1 = rnd01();
+    const double u2 = rnd01();
+    const double u3 = rnd01();
+    const double s1 = std::sqrt(1.0 - u1);
+    const double s2 = std::sqrt(u1);
     q[0] = s1 * std::sin(2 * PI_REF * u2);  // w
     q[1] = s1 * std::cos(2 * PI_REF * u2);  // x
     q[2] = s2 * std::sin(2 * PI_REF * u3);  // y
@@ -248,23 +259,23 @@ static void test_time() {
     near(timestamp_to_s(3.0, GuidanceTimeUnit::kSeconds, 0.5), 2.5, 0.0, "s → s（带参考）");
 
     // ---- uint32 ms 回绕（约 49.7 天）----
-    near(timestamp_u32_ms_to_s(1000u, 0u), 1.0, 0.0, "u32 ms 常规差");
+    near(timestamp_u32_ms_to_s(1000U, 0U), 1.0, 0.0, "u32 ms 常规差");
     // 4294967290 → 5：真实间隔 = (0xFFFFFFFF − 4294967290) + 5 + 1 = 11 ms
-    near(timestamp_u32_ms_to_s(5u, 4294967290u), 0.011, 1e-12, "u32 ms 回绕差 = 11 ms");
-    near(timestamp_u32_ms_to_s(4294967295u, 0u), 4294967.295, 1e-6, "u32 ms 最大差");
+    near(timestamp_u32_ms_to_s(5U, 4294967290U), 0.011, 1e-12, "u32 ms 回绕差 = 11 ms");
+    near(timestamp_u32_ms_to_s(4294967295U, 0U), 4294967.295, 1e-6, "u32 ms 最大差");
 
     // ---- uint64 µs ----
-    near(timestamp_u64_us_to_s(2500000ull, 0ull), 2.5, 0.0, "u64 µs → s");
+    near(timestamp_u64_us_to_s(2500000ULL, 0ULL), 2.5, 0.0, "u64 µs → s");
     //  关键：本机 SITL 实测 timestamp ≈ Unix epoch µs（1.79e15）。先相减再转 double 才安全。
     {
-        const uint64_t t0 = 1792136351209102ull;
-        const uint64_t t1 = t0 + 456789ull;  // +0.456789 s
+        const uint64_t t0 = 1792136351209102ULL;
+        const uint64_t t1 = t0 + 456789ULL;  // +0.456789 s
         near(timestamp_u64_us_to_s(t1, t0), 0.456789, 1e-9, "u64 µs 大数差（epoch 量级）");
 
         // 反例：绝对量级大到 double 无法表示 1 µs 时，"先转 double 再相减"会得到 0
         //   （2^53 µs ≈ 285 年，此时 double 的 ULP 已 > 1 µs）
-        const uint64_t big0 = 9007199254740992ull;  // 2^53
-        const uint64_t big1 = big0 + 1ull;          // +1 µs
+        const uint64_t big0 = 9007199254740992ULL;  // 2^53
+        const uint64_t big1 = big0 + 1ULL;          // +1 µs
         near(timestamp_u64_us_to_s(big1, big0), 1e-6, 1e-18, "u64 µs 大数差：整数相减保住 1 µs");
         ok(static_cast<double>(big1) == static_cast<double>(big0), "参考：先转 double 再相减会丢 1 µs（故本模块先在整数域相减）");
     }
@@ -273,36 +284,36 @@ static void test_time() {
     {
         GuidanceStateTimeTracker tr;
         ok(tr.empty(), "跟踪器初始为空");
-        tr.push_u64_us(1000ull);  // 首帧 → t = 0
+        tr.push_u64_us(1000ULL);  // 首帧 → t = 0
         near(tr.t_s(), 0.0, 0.0, "首帧 t = 0");
-        tr.push_u64_us(1000ull + 20000ull);  // +20 ms
+        tr.push_u64_us(1000ULL + 20000ULL);  // +20 ms
         near(tr.t_s(), 0.020, 1e-15, "累加 20 ms");
-        tr.push_u64_us(1000ull + 50000ull);  // +30 ms
+        tr.push_u64_us(1000ULL + 50000ULL);  // +30 ms
         near(tr.t_s(), 0.050, 1e-15, "累加 50 ms");
-        ok(tr.frames() == 3u, "帧计数");
-        ok(tr.out_of_order() == 0u, "无乱序");
+        ok(tr.frames() == 3U, "帧计数");
+        ok(tr.out_of_order() == 0U, "无乱序");
     }
 
     // ---- GuidanceStateTimeTracker：uint32 回绕 ----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u32_ms(4294967290u);  // 距回绕 5 ms
+        tr.push_u32_ms(4294967290U);  // 距回绕 5 ms
         near(tr.t_s(), 0.0, 0.0, "u32 首帧 t = 0");
-        tr.push_u32_ms(10u);  // 回绕后真实间隔 16 ms
+        tr.push_u32_ms(10U);  // 回绕后真实间隔 16 ms
         near(tr.t_s(), 0.016, 1e-12, "u32 回绕累加 16 ms（关键用例）");
-        tr.push_u32_ms(20u);
+        tr.push_u32_ms(20U);
         near(tr.t_s(), 0.026, 1e-12, "u32 回绕后继续累加");
-        ok(tr.out_of_order() == 0u, "回绕不算乱序");
+        ok(tr.out_of_order() == 0U, "回绕不算乱序");
     }
 
     // ---- GuidanceStateTimeTracker：乱序必须被拒（且不倒退）----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u64_us(1000000ull);
-        tr.push_u64_us(1002000ull);  // +2 ms
+        tr.push_u64_us(1000000ULL);
+        tr.push_u64_us(1002000ULL);  // +2 ms
         const double t_before = tr.t_s();
-        tr.push_u64_us(1000ull);  // 明显乱序（早于首帧）
-        ok(tr.out_of_order() == 1u, "乱序被计数");
+        tr.push_u64_us(1000ULL);  // 明显乱序（早于首帧）
+        ok(tr.out_of_order() == 1U, "乱序被计数");
         near(tr.t_s(), t_before, 0.0, "乱序不改变已累加时间（不会倒退）");
         ok(tr.last_jump_suspect(), "乱序被标记为可疑跳变");
     }
@@ -310,13 +321,13 @@ static void test_time() {
     // ---- GuidanceStateTimeTracker：参考点（发射时刻 → t = 0）----
     {
         GuidanceStateTimeTracker tr;
-        const uint64_t fmu_t = 1792136351209102ull;  // epoch µs 量级
+        const uint64_t fmu_t = 1792136351209102ULL;  // epoch µs 量级
         tr.push_u64_us(fmu_t);
-        tr.push_u64_us(fmu_t + 1000000ull);  // 1 s 后
+        tr.push_u64_us(fmu_t + 1000000ULL);  // 1 s 后
         near(tr.t_s(), 1.0, 1e-9, "参考点前的绝对时间（相对首帧）");
-        tr.set_reference_u64_us(fmu_t + 1000000ull);  // 此刻定为 0
+        tr.set_reference_u64_us(fmu_t + 1000000ULL);  // 此刻定为 0
         near(tr.t_s(), 0.0, 1e-12, "参考点归零（发射时刻 = t_ref）");
-        tr.push_u64_us(fmu_t + 1456789ull);  // 再 +0.456789 s
+        tr.push_u64_us(fmu_t + 1456789ULL);  // 再 +0.456789 s
         near(tr.t_s(), 0.456789, 1e-9, "参考点后的相对时间（保持 µs 精度）");
         ok(!tr.last_jump_suspect(), "正常帧不报可疑");
     }
@@ -324,8 +335,8 @@ static void test_time() {
     // ---- GuidanceStateTimeTracker：大跳变提示 ----
     {
         GuidanceStateTimeTracker tr;
-        tr.push_u64_us(0ull);
-        tr.push_u64_us(6000000ull);  // +6 s > 5 s 阈值
+        tr.push_u64_us(0ULL);
+        tr.push_u64_us(6000000ULL);  // +6 s > 5 s 阈值
         ok(tr.last_jump_suspect(), "6 s 跳变被提示（丢帧/时钟跳变的信号）");
         near(tr.t_s(), 6.0, 1e-12, "跳变仍被累加（只提示不丢弃）");
     }
@@ -390,7 +401,9 @@ static void test_attitude() {
                     GuidanceFrame wout = GuidanceFrame::kNed;
                     const bool okc = convert_attitude(q_in, worlds[wi], frames[fi], q_out, wout);
                     ok(okc, "  随机姿态换算必须成功");
-                    if (!okc) continue;
+                    if (!okc) {
+                        continue;
+                    }
                     ok(wout == GuidanceFrame::kEnu, "  输出世界系恒为 ENU");
 
                     Vec3 want[3];
@@ -398,7 +411,7 @@ static void test_attitude() {
                     for (int k = 0; k < 3; ++k) {
                         const Vec3 got = ref_axis_in_world(q_out, k);
                         const double d = norm(got - want[k]);
-                        if (d > worst) worst = d;
+                        worst = std::max(d, worst);
                         ++cases;
                         if (d > 1e-12) {
                             ok(false, "  随机姿态：光轴系三轴与参考不一致");
@@ -418,8 +431,12 @@ static void test_attitude() {
     {
         double q_in[4];
         random_quat(q_in);
-        double q_a[4], q_b[4], q_c[4];
-        GuidanceFrame wa = GuidanceFrame::kNed, wb = GuidanceFrame::kNed, wc = GuidanceFrame::kNed;
+        double q_a[4];
+        double q_b[4];
+        double q_c[4];
+        GuidanceFrame wa = GuidanceFrame::kNed;
+        GuidanceFrame wb = GuidanceFrame::kNed;
+        GuidanceFrame wc = GuidanceFrame::kNed;
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kCamFrd, q_a, wa);
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kCamFlu, q_b, wb);
         convert_attitude(q_in, GuidanceFrame::kEnu, GuidanceAttitudeFrame::kOpticalPassthrough, q_c, wc);
@@ -484,7 +501,7 @@ static void test_attitude() {
 
         const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
         ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "轻微未归一化被接受");
-        near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] + qout[2] * qout[2] + qout[3] * qout[3]), 1.0, 1e-15, "  归一化后 |q| = 1");
+        near(std::sqrt((qout[0] * qout[0]) + (qout[1] * qout[1]) + (qout[2] * qout[2]) + (qout[3] * qout[3])), 1.0, 1e-15, "  归一化后 |q| = 1");
     }
 
     // ---- 3.8 normalize_quat ----
@@ -507,7 +524,8 @@ static void test_attitude() {
     {
         // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
         const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440};
-        double q_direct[4], q_wrap[4];
+        double q_direct[4];
+        double q_wrap[4];
         GuidanceFrame w = GuidanceFrame::kNed;
         convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
@@ -546,7 +564,7 @@ static void test_attitude() {
 
         const double q_slight[4] = {1.0 + 1e-9, 0, 0, 0};
         ok(convert_attitude(q_slight, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, qout, wout), "轻微未归一化被接受");
-        near(std::sqrt(qout[0] * qout[0] + qout[1] * qout[1] + qout[2] * qout[2] + qout[3] * qout[3]), 1.0, 1e-15, "  归一化后 |q| = 1");
+        near(std::sqrt((qout[0] * qout[0]) + (qout[1] * qout[1]) + (qout[2] * qout[2]) + (qout[3] * qout[3])), 1.0, 1e-15, "  归一化后 |q| = 1");
     }
 
     // ---- 3.8 normalize_quat ----
@@ -569,7 +587,8 @@ static void test_attitude() {
     {
         // 水平朝东（NED + FRD）：机体→NED = 绕 z_NED(下/正东转) 转 +90°
         const double q_frd[4] = {0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440};
-        double q_direct[4], q_wrap[4];
+        double q_direct[4];
+        double q_wrap[4];
         GuidanceFrame w = GuidanceFrame::kNed;
         convert_attitude(q_frd, GuidanceFrame::kNed, GuidanceAttitudeFrame::kFrd, q_direct, w);
         ok(attitude_from_ned_frd(q_frd, q_wrap), "attitude_from_ned_frd 成功");
@@ -596,14 +615,16 @@ static void test_quat_cross_check() {
         for (int trial = 0; trial < 200; ++trial) {
             double q[4];
             random_quat(q);
-            const Vec3 v(rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0, rnd01() * 10.0 - 5.0);
+            const Vec3 v((rnd01() * 10.0) - 5.0, (rnd01() * 10.0) - 5.0, (rnd01() * 10.0) - 5.0);
 
             const Vec3 a = rotate_vec_by_quat(q, v);  // 被测：本层实现
             const Vec3 b = ref_rotate(q, v);          // 参考：矩阵写法
             const double d = norm(a - b);
-            if (d > worst) worst = d;
+            worst = std::max(d, worst);
             ++n;
-            if (d > 1e-13) ok(false, "rotate_vec_by_quat 与参考实现不一致");
+            if (d > 1e-13) {
+                ok(false, "rotate_vec_by_quat 与参考实现不一致");
+            }
         }
 
         // ---- 4.2  锁定仓库 quat_rotate_vec 的语义（必须与"矩阵参考"一致）----
@@ -629,18 +650,21 @@ static void test_quat_cross_check() {
             near_vec(quat_rotate_vec(q90, Vec3(0, 1, 0)), rotate_vec_by_quat(q90, Vec3(0, 1, 0)), 1e-15, "仓库实现 = 本层实现（同一数学定义）");
 
             // 逐例三方比对
-            double worst_ab = 0.0, worst_bc = 0.0;
+            double worst_ab = 0.0;
+            double worst_bc = 0.0;
             int n = 0;
             for (int trial = 0; trial < 200; ++trial) {
                 double q[4];
                 random_quat(q);
-                const Vec3 v(rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0, rnd01() * 4.0 - 2.0);
+                const Vec3 v((rnd01() * 4.0) - 2.0, (rnd01() * 4.0) - 2.0, (rnd01() * 4.0) - 2.0);
                 const double dab = norm(quat_rotate_vec(q, v) - rotate_vec_by_quat(q, v));
                 const double dbc = norm(rotate_vec_by_quat(q, v) - ref_rotate(q, v));
-                if (dab > worst_ab) worst_ab = dab;
-                if (dbc > worst_bc) worst_bc = dbc;
+                worst_ab = std::max(dab, worst_ab);
+                worst_bc = std::max(dbc, worst_bc);
                 ++n;
-                if (dab > 1e-13 || dbc > 1e-13) ok(false, "三方四元数旋转实现不一致");
+                if (dab > 1e-13 || dbc > 1e-13) {
+                    ok(false, "三方四元数旋转实现不一致");
+                }
             }
             std::printf("  （%d 例：仓库 vs 本层 最大偏差 %.3g；本层 vs 矩阵参考 最大偏差 %.3g）\n", n, worst_ab, worst_bc);
         }
@@ -742,8 +766,8 @@ static void test_fill_state() {
         GuidanceState st;
         // NED 下的视线（机→目标）：北 0、东 300、上 0 ⇒ ENU 应为 (300, 0, 0)
         const uint32_t f1 = fill_target(st, Vec3(0.0, 300.0, 0.0), GuidanceFrame::kNed, true, 300.0, false, Vec3{});
-        ok((f1 & kHaveLos) != 0u, "fill_target 填了 los_hat");
-        ok((f1 & kHaveRange) != 0u, "fill_target 填了 range");
+        ok((f1 & kHaveLos) != 0U, "fill_target 填了 los_hat");
+        ok((f1 & kHaveRange) != 0U, "fill_target 填了 range");
         near_vec(st.los_hat, Vec3(1, 0, 0), 1e-15, "los_hat：NED→ENU（已单位化）");
         near(st.range, 300.0, 0.0, "range 原样");
         ok(st.valid, "目标存在 ⇒ valid");
@@ -770,13 +794,13 @@ static void test_fill_state() {
         // 目标速度（真值法才有）
         GuidanceState st5;
         const uint32_t f5 = fill_target(st5, Vec3(1, 0, 0), GuidanceFrame::kEnu, true, 5.0, true, Vec3(0, 0, -9.8));
-        ok((f5 & kHaveVT) != 0u, "fill_target 填了 v_T");
+        ok((f5 & kHaveVT) != 0U, "fill_target 填了 v_T");
         near_vec(st5.v_T, Vec3(0, 0, -9.8), 0.0, "  v_T 原样（已在 ENU）");
 
         // 缺 range：仍应可用（PPN 不需距离）
         GuidanceState st6;
         const uint32_t f6 = fill_target(st6, Vec3(1, 0, 0), GuidanceFrame::kEnu, false, 0.0, false, Vec3{});
-        ok((f6 & kHaveRange) == 0u, "无测距 ⇒ 未填 range");
+        ok((f6 & kHaveRange) == 0U, "无测距 ⇒ 未填 range");
         ok(st6.valid, "  无测距仍算有效帧（PPN 不含距离项）");
     }
 
@@ -888,7 +912,9 @@ static void test_upstream_simulator() {
         raw.att = GuidanceAttitudeFrame::kOpticalPassthrough;
         raw.ins.p = ref.p_M;
         raw.ins.v = ref.v_M;
-        for (int i = 0; i < 4; ++i) raw.ins.q[i] = ref.q[i];
+        for (int i = 0; i < 4; ++i) {
+            raw.ins.q[i] = ref.q[i];
+        }
         raw.target.los = Vec3(300.0, 0.0, 0.0);  // 未单位化
         raw.target.has_range = true;
         raw.target.range_m = 300.0;
@@ -965,7 +991,9 @@ static void test_checks() {
         st.q[0] = 1.0;
 
         const GuidanceReport rep = check_guidance_state(st);
-        if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
+        if (!rep.ok()) {
+            std::printf("%s\n", rep.detail().c_str());
+        }
         ok(rep.ok(), "正常 state 无 error");
         ok(rep.n_error == 0, "  错误计数为 0");
     }
@@ -1093,7 +1121,9 @@ static void test_checks() {
         ok(cmd.mode == PureGuidanceMode::PN, "PPN 闭环：mode = PN");
         ok(norm(cmd.a_cmd) > 0.0, "PPN 闭环：有非零指令");
         const GuidanceReport rep = check_frame(st, cmd, pp.a_max, true);
-        if (!rep.ok()) std::printf("%s\n", rep.detail().c_str());
+        if (!rep.ok()) {
+            std::printf("%s\n", rep.detail().c_str());
+        }
         ok(rep.ok(), "PPN 闭环：state+cmd 不变量全部成立");
         ok(invariants_hold(st, cmd, pp.a_max, true), "invariants_hold() 一致");
 
@@ -1188,7 +1218,9 @@ static void test_quick_check() {
     // ---- 9.3  与完整体检的一致性：error 级判定必须**完全等价** ----
     {
         GuidanceState f[7];
-        for (int i = 0; i < 7; ++i) f[i] = good;
+        for (int i = 0; i < 7; ++i) {
+            f[i] = good;
+        }
         f[1].los_hat = Vec3(3, 0, 0);  // 未单位化
         f[2].q[0] = 2.0;               // |q| 错
         f[3].range = -1.0;             // 负距离

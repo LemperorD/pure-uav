@@ -18,7 +18,9 @@ int main() {
     }
 
     printf("等待飞控心跳...\n");
-    while (!comm.isConnected()) usleep(100000);
+    while (!comm.isConnected()) {
+        usleep(100000);
+    }
     printf("已连接，固件：%s，开始统计 100 秒...\n", comm.getAutopilotNameCn());
 
     const double window_sec = 100.0;

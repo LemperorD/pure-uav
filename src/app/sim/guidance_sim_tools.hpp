@@ -13,16 +13,11 @@
 #include "guidance_flight_types.hpp"        // flight::GuidanceInsSample / flight::GuidanceTargetSample / flight::GuidanceOutput / flight::GuidanceCameraModel
 #include "startup/guidance_app_params.hpp"  // GuidanceAppParams（宿主侧配置）
 
-namespace pure_uav {
-namespace guidance {
-namespace flight {
+namespace pure_uav::guidance::flight {
 class GuidanceLoop;  // 前置声明：只在函数参数里用，头文件不拖整个 loop
-}  // namespace flight
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::flight
 
-namespace pure_uav {
-namespace app {
+namespace pure_uav::app {
 
 // ============================================================================
 //  §1  CSV 一行 / 录制 / 回放
@@ -119,7 +114,7 @@ class GuidanceCsvReader {
         return f_ != nullptr;
     }
     const char* error() const {
-        return err_[0] ? err_ : nullptr;
+        return (err_[0] != 0) ? err_ : nullptr;
     }
 
   private:
@@ -224,7 +219,7 @@ struct GuidanceSceneConfig {
     Vec3 v0{8.0, 0.0, 0.0};       // 初速
     Vec3 plate{40.0, 3.0, -5.0};  // 装甲板位置
     double dt = 0.02;             // 积分步长
-    std::uint64_t t0_us = 1000000ull;
+    std::uint64_t t0_us = 1000000ULL;
 };
 
 class GuidanceSyntheticWorld final : public flight::GuidanceInsSource, public flight::GuidanceTargetSource, public flight::GuidanceCommandSink {
@@ -274,7 +269,7 @@ class GuidanceSyntheticWorld final : public flight::GuidanceInsSource, public fl
     double q_[4] = {1.0, 0.0, 0.0, 0.0};
     double dt_;
     std::uint64_t t_us_;
-    Vec3 a_cmd_{};
+    Vec3 a_cmd_;
     flight::GuidanceOutput last_{};
     int sends_ = 0, sat_ = 0, hold_ = 0, search_ = 0;
 };
@@ -308,5 +303,4 @@ struct GuidanceSimOptions {
 int guidance_run_synthetic(const GuidanceSimOptions& opt, const GuidanceAppParams& p);
 int guidance_run_replay(const char* replay, const GuidanceSimOptions& opt, const GuidanceAppParams& p);
 
-}  // namespace app
-}  // namespace pure_uav
+}  // namespace pure_uav::app

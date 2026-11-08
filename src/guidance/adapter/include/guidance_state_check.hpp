@@ -9,9 +9,7 @@
 
 #include "guidance_types.hpp"
 
-namespace pure_uav {
-namespace guidance {
-namespace adapter {
+namespace pure_uav::guidance::adapter {
 
 // ============================================================================
 //  §0  结果类型
@@ -173,6 +171,4 @@ bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad = nullptr
 // 与 check_frame 的区别：本函数**忽略 warning**，只看硬不变量。
 bool invariants_hold(const GuidanceState& st, const PureGuidanceCmd& cmd, double a_max_mps2 = 0.0, bool has_a_max = false);
 
-}  // namespace adapter
-}  // namespace guidance
-}  // namespace pure_uav
+}  // namespace pure_uav::guidance::adapter

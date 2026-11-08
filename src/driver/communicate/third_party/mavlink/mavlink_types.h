@@ -272,7 +272,7 @@ typedef enum {
     MAVLINK_SIGNING_STATUS_OLD_TIMESTAMP=5,
     MAVLINK_SIGNING_STATUS_REPLAY=6,
 } mavlink_signing_status_t;
-
+    
 /*
   state of MAVLink signing for this channel
  */

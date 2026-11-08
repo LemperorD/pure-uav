@@ -71,7 +71,7 @@ typedef struct __mavlink_mission_ack_t {
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-
+      
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack(uint32_t system_id, uint8_t component_id, mavlink_message_t* msg,
@@ -118,7 +118,7 @@ static inline uint16_t mavlink_msg_mission_ack_pack(uint32_t system_id, uint8_t 
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-
+      
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack_status(uint32_t system_id, uint8_t component_id, mavlink_status_t *_status, mavlink_message_t* msg,
@@ -168,7 +168,7 @@ static inline uint16_t mavlink_msg_mission_ack_pack_status(uint32_t system_id, u
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-
+      
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_mission_ack_pack_chan(uint32_t system_id, uint8_t component_id, uint8_t chan,
@@ -254,7 +254,7 @@ static inline uint16_t mavlink_msg_mission_ack_encode_status(uint32_t system_id,
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-
+      
  */
 #ifdef MAVLINK_USE_CONVENIENCE_FUNCTIONS
 
@@ -371,7 +371,7 @@ static inline uint8_t mavlink_msg_mission_ack_get_mission_type(const mavlink_mes
         0 on download from the vehicle to the GCS (on download the ID is set in MISSION_COUNT).
         0 if plan ids are not supported.
         The current on-vehicle plan ids are streamed in `MISSION_CURRENT`, allowing a GCS to determine if any part of the plan has changed and needs to be re-uploaded.
-
+      
  */
 static inline uint32_t mavlink_msg_mission_ack_get_opaque_id(const mavlink_message_t* msg)
 {

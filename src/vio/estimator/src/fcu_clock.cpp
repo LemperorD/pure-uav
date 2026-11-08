@@ -24,7 +24,7 @@ void FcuClock::clearLocked() {
 }
 
 FcuClock::AddResult FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_us) {
-    std::lock_guard<std::mutex> lk(mtx_);
+    std::scoped_lock lk(mtx_);
 
     if (imu_timestamp_us == 0 || imu_timestamp_us > static_cast<uint64_t>(std::numeric_limits<int64_t>::max() / 1000)) {
         out_of_order_.fetch_add(1);
@@ -40,7 +40,7 @@ FcuClock::AddResult FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_
             clearLocked();
             timebase_resets_.fetch_add(1);
             last_imu_us_ = imu_timestamp_us;
-            offsets_.push_back(host_ns - static_cast<int64_t>(imu_timestamp_us) * 1000);
+            offsets_.push_back(host_ns - (static_cast<int64_t>(imu_timestamp_us) * 1000));
             last_host_ns_ = host_ns;
             return AddResult::kTimebaseReset;
         }
@@ -51,7 +51,7 @@ FcuClock::AddResult FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_
         }
     }
 
-    offsets_.push_back(host_ns - static_cast<int64_t>(imu_timestamp_us) * 1000);
+    offsets_.push_back(host_ns - (static_cast<int64_t>(imu_timestamp_us) * 1000));
     if (offsets_.size() > kMaxSamples) {
         offsets_.pop_front();
     }
@@ -76,38 +76,46 @@ void FcuClock::recomputeLocked() const {
 }
 
 bool FcuClock::valid() const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!has_estimate_ || offsets_.size() < kMinSamples) return false;
+    std::scoped_lock lk(mtx_);
+    if (!has_estimate_ || offsets_.size() < kMinSamples) {
+        return false;
+    }
     return (steadyNowNs() - last_host_ns_) < kMaxAgeNs;
 }
 
 bool FcuClock::hostToFcuUs(int64_t host_ns, uint64_t& imu_us) const {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!has_estimate_ || offsets_.size() < kMinSamples) return false;
-    if ((steadyNowNs() - last_host_ns_) >= kMaxAgeNs) return false;
+    std::scoped_lock lk(mtx_);
+    if (!has_estimate_ || offsets_.size() < kMinSamples) {
+        return false;
+    }
+    if ((steadyNowNs() - last_host_ns_) >= kMaxAgeNs) {
+        return false;
+    }
     const int64_t us = (host_ns - estimate_ns_) / 1000;
-    if (us < 0) return false;
+    if (us < 0) {
+        return false;
+    }
     imu_us = static_cast<uint64_t>(us);
     return true;
 }
 
 int64_t FcuClock::offsetNs() const {
-    std::lock_guard<std::mutex> lk(mtx_);
+    std::scoped_lock lk(mtx_);
     return estimate_ns_;
 }
 
 size_t FcuClock::sampleCount() const {
-    std::lock_guard<std::mutex> lk(mtx_);
+    std::scoped_lock lk(mtx_);
     return offsets_.size();
 }
 
 uint64_t FcuClock::lastImuTimestampUs() const {
-    std::lock_guard<std::mutex> lk(mtx_);
+    std::scoped_lock lk(mtx_);
     return last_imu_us_;
 }
 
 void FcuClock::reset() {
-    std::lock_guard<std::mutex> lk(mtx_);
+    std::scoped_lock lk(mtx_);
     clearLocked();
 }
 

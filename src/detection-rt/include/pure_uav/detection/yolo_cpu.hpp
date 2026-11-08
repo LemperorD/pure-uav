@@ -8,8 +8,7 @@
 
 #include "pure_uav/detection/yolo_output.hpp"
 
-namespace pure_uav {
-namespace detection {
+namespace pure_uav::detection {
 
 /// CPU 推理封装；单实例，infer() 不可并发调用。
 class YoloCpu {
@@ -32,7 +31,7 @@ class YoloCpu {
     /// @param[out] out 指向内部复用缓冲，仅在下一次 infer 前有效
     /// @param[out] error 失败原因
     /// @return 成功为 true。
-    bool infer(const cv::Mat& bgr, YoloOutputView& out, std::string& error);
+    bool infer(const cv::Mat& image, YoloOutputView& out, std::string& error);
 
     bool loaded() const;
     int inputSize() const;
@@ -48,5 +47,4 @@ class YoloCpu {
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace detection
-}  // namespace pure_uav
+}  // namespace pure_uav::detection

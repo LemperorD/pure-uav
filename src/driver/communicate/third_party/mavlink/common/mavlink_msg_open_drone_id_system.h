@@ -87,7 +87,7 @@ typedef struct __mavlink_open_drone_id_system_t {
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -156,7 +156,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_pack(uint32_t system_id,
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -228,7 +228,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_pack_status(uint32_t sys
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -336,7 +336,7 @@ static inline uint16_t mavlink_msg_open_drone_id_system_encode_status(uint32_t s
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param operator_location_type  Specifies the operator location type.
  * @param classification_type  Specifies the classification type of the UA.
  * @param operator_latitude [degE7] Latitude of the operator. If unknown: 0 (both Lat/Lon).
@@ -475,7 +475,7 @@ static inline uint8_t mavlink_msg_open_drone_id_system_get_target_component(cons
 /**
  * @brief Get field id_or_mac from open_drone_id_system message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  */
 static inline uint16_t mavlink_msg_open_drone_id_system_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {

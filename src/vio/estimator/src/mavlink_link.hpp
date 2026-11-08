@@ -127,7 +127,7 @@ class MavlinkLink {
     };
     Ekf3Velocity ekf3Velocity() const;
 
-    bool sendVisionPose(const VisionPose& pose, int quality = 0, uint8_t reset_counter = 0, float pos_sigma_m = 0.0f, float vel_sigma_mps = 0.0f);
+    bool sendVisionPose(const VisionPose& pose, int quality = 0, uint8_t reset_counter = 0, float pos_sigma_m = 0.0F, float vel_sigma_mps = 0.0F);
 
     // 把一帧 VisionPose 编码成一条 ODOMETRY 的**完整发送缓冲**（含 MAVLink 帧头与 CRC）。
     // 返回写入 buf 的字节数；buf 容量不足返回 0。sendVisionPose() 内部就走这条路径。

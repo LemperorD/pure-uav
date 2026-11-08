@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace pure_uav {
 
@@ -20,7 +21,7 @@ Eigen::Vector3d horizontalUnit(const Eigen::Vector3d& v) {
 
 }  // namespace
 
-VisionPoseConvert::VisionPoseConvert(const PoseConvertOptions& options) : options_(options) {
+VisionPoseConvert::VisionPoseConvert(PoseConvertOptions options) : options_(std::move(options)) {
 }
 
 void VisionPoseConvert::reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vector3d& p_IinG0) {

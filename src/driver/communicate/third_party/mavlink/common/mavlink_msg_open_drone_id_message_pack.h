@@ -61,7 +61,7 @@ typedef struct __mavlink_open_drone_id_message_pack_t {
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -103,7 +103,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_pack(uint32_t syst
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -148,7 +148,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_pack_status(uint32
  * @param msg The MAVLink message to compress the data into
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -229,7 +229,7 @@ static inline uint16_t mavlink_msg_open_drone_id_message_pack_encode_status(uint
  *
  * @param target_system  System ID (0 for broadcast).
  * @param target_component  Component ID (0 for broadcast).
- * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @param id_or_mac  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  * @param single_message_size [bytes] This field must currently always be equal to 25 (bytes), since all encoded OpenDroneID messages are specified to have this length.
  * @param msg_pack_size  Number of encoded messages in the pack (not the number of bytes). Allowed range is 1 - 9.
  * @param messages  Concatenation of encoded OpenDroneID messages. Shall be filled with nulls in the unused portion of the field.
@@ -323,7 +323,7 @@ static inline uint8_t mavlink_msg_open_drone_id_message_pack_get_target_componen
 /**
  * @brief Get field id_or_mac from open_drone_id_message_pack message
  *
- * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html.
+ * @return  Only used for drone ID data received from other UAs. See detailed description at https://mavlink.io/en/services/opendroneid.html. 
  */
 static inline uint16_t mavlink_msg_open_drone_id_message_pack_get_id_or_mac(const mavlink_message_t* msg, uint8_t *id_or_mac)
 {

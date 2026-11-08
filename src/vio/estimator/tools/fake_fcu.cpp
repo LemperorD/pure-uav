@@ -18,7 +18,6 @@
 #endif
 #include <fcntl.h>
 #include <poll.h>
-#include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -28,6 +27,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -38,7 +38,7 @@
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int) {
+void onSigint(int /*unused*/) {
     g_stop.store(true);
 }
 
@@ -62,10 +62,16 @@ void usage(const char* argv0) {
 
 bool makePty(int& master, std::string& slave_path) {
     master = ::posix_openpt(O_RDWR | O_NOCTTY);
-    if (master < 0) return false;
-    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
+    if (master < 0) {
+        return false;
+    }
+    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) {
+        return false;
+    }
     const char* name = ::ptsname(master);
-    if (name == nullptr) return false;
+    if (name == nullptr) {
+        return false;
+    }
     slave_path = name;
     const int flags = ::fcntl(master, F_GETFL, 0);
     ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
@@ -80,7 +86,9 @@ bool writeAll(int fd, const uint8_t* buf, size_t len) {
             off += static_cast<size_t>(n);
             continue;
         }
-        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         return false;
     }
     return true;
@@ -113,7 +121,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        } else if (a == "--link") {
+        }
+        if (a == "--link") {
             link_path = need("--link");
         } else if (a == "--duration") {
             duration = std::stod(need("--duration"));
@@ -179,12 +188,14 @@ int main(int argc, char** argv) {
         if (now >= next_imu_ns) {
             mavlink_message_t m;
             mavlink_msg_highres_imu_pack(
-                /*sysid=*/1, /*compid=*/1, &m, fcu_us, 0.0f, 0.0f, 9.80665f,  // 静止：机体 z 轴 +g（FRD）
-                0.0f, 0.0f, 0.0f, NAN, NAN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+                /*sysid=*/1, /*compid=*/1, &m, fcu_us, 0.0F, 0.0F, 9.80665F,  // 静止：机体 z 轴 +g（FRD）
+                0.0F, 0.0F, 0.0F, NAN, NAN, NAN, 0.0F, 0.0F, 0.0F, 0.0F, 0, 0);
             sendMsg(master, m);
             fcu_us += 5000;
             next_imu_ns += imu_period_ns;
-            if (next_imu_ns < now - 1000000000LL) next_imu_ns = now;  // 落后太多就重对齐
+            if (next_imu_ns < now - 1000000000LL) {
+                next_imu_ns = now;  // 落后太多就重对齐
+            }
         }
 
         // 1 Hz HEARTBEAT
@@ -199,13 +210,19 @@ int main(int argc, char** argv) {
         struct pollfd pfd{};
         pfd.fd = master;
         pfd.events = POLLIN;
-        if (::poll(&pfd, 1, 1) > 0 && (pfd.revents & POLLIN)) {
+        if (::poll(&pfd, 1, 1) > 0 && ((pfd.revents & POLLIN) != 0)) {
             const ssize_t n = ::read(master, buf, sizeof(buf));
-            if (raw_fp != nullptr && n > 0) std::fwrite(buf, 1, static_cast<size_t>(n), raw_fp);
+            if (raw_fp != nullptr && n > 0) {
+                std::fwrite(buf, 1, static_cast<size_t>(n), raw_fp);
+            }
             for (ssize_t i = 0; i < n; ++i) {
                 mavlink_message_t m{};
-                if (!mavlink_parse_char(MAVLINK_COMM_2, buf[i], &m, &status)) continue;
-                if (m.msgid != MAVLINK_MSG_ID_ODOMETRY) continue;
+                if (mavlink_parse_char(MAVLINK_COMM_2, buf[i], &m, &status) == 0U) {
+                    continue;
+                }
+                if (m.msgid != MAVLINK_MSG_ID_ODOMETRY) {
+                    continue;
+                }
                 mavlink_odometry_t o{};
                 mavlink_msg_odometry_decode(&m, &o);
                 stats.add(o, 0);
@@ -228,8 +245,12 @@ int main(int argc, char** argv) {
         std::printf("[fake_fcu] 没有收到 ODOMETRY：检查上位机是否在发、波特率/路径是否一致。\n");
     }
 
-    if (raw_fp != nullptr) std::fclose(raw_fp);
-    if (!link_path.empty()) ::unlink(link_path.c_str());
+    if (raw_fp != nullptr) {
+        std::fclose(raw_fp);
+    }
+    if (!link_path.empty()) {
+        ::unlink(link_path.c_str());
+    }
     ::close(master);
     return 0;
 }

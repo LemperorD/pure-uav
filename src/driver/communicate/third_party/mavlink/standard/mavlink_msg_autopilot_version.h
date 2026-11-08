@@ -84,7 +84,7 @@ typedef struct __mavlink_autopilot_version_t {
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-
+      
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -146,7 +146,7 @@ static inline uint16_t mavlink_msg_autopilot_version_pack(uint32_t system_id, ui
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-
+      
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -211,7 +211,7 @@ static inline uint16_t mavlink_msg_autopilot_version_pack_status(uint32_t system
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-
+      
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -312,7 +312,7 @@ static inline uint16_t mavlink_msg_autopilot_version_encode_status(uint32_t syst
  * @param capabilities  Bitmap of capabilities
  * @param flight_sw_version  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-
+      
  * @param middleware_sw_version  Middleware version number
  * @param os_sw_version  Operating system version number
  * @param board_version  HW / board version (last 8 bits should be silicon ID, if any). The first 16 bits of this field specify a board type from an enumeration stored at https://github.com/PX4/PX4-Bootloader/blob/master/board_types.txt and with extensive additions at https://github.com/ArduPilot/ardupilot/blob/master/Tools/AP_Bootloader/board_types.txt
@@ -439,7 +439,7 @@ static inline uint64_t mavlink_msg_autopilot_version_get_capabilities(const mavl
  *
  * @return  Firmware version number.
         The field must be encoded as 4 bytes, where each byte (shown from MSB to LSB) is part of a semantic version: (major) (minor) (patch) (FIRMWARE_VERSION_TYPE).
-
+      
  */
 static inline uint32_t mavlink_msg_autopilot_version_get_flight_sw_version(const mavlink_message_t* msg)
 {

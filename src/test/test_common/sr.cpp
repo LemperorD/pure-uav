@@ -1,9 +1,10 @@
 #include <fcntl.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <cstdio>
+#include <cstring>
 
 int main() {
     int fd = shm_open("pure_uav_shm", O_RDONLY, 0666);
@@ -18,7 +19,7 @@ int main() {
         return 1;
     }
 
-    char* p = static_cast<char*>(mmap(NULL, 0x400000, PROT_READ, MAP_SHARED, fd, 0));
+    char* p = static_cast<char*>(mmap(nullptr, 0x400000, PROT_READ, MAP_SHARED, fd, 0));
     if (p == MAP_FAILED) {
         perror("mmap");
         close(fd);

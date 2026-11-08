@@ -42,7 +42,7 @@ MAVLINK_HELPER mavlink_status_t* mavlink_get_channel_status(uint8_t chan)
 #ifndef MAVLINK_GET_CHANNEL_BUFFER
 MAVLINK_HELPER mavlink_message_t* mavlink_get_channel_buffer(uint8_t chan)
 {
-
+	
 #ifdef MAVLINK_EXTERNAL_RX_BUFFER
 	// No m_mavlink_buffer array defined in function,
 	// has to be defined externally
@@ -92,7 +92,7 @@ MAVLINK_HELPER uint8_t mavlink_sign_packet(mavlink_signing_t *signing,
 	tstamp.t64 = signing->timestamp;
 	memcpy(&signature[1], tstamp.t8, 6);
 	signing->timestamp++;
-
+	
 	mavlink_sha256_init(&ctx);
 	mavlink_sha256_update(&ctx, signing->secret_key, sizeof(signing->secret_key));
 	mavlink_sha256_update(&ctx, header, header_len);
@@ -100,7 +100,7 @@ MAVLINK_HELPER uint8_t mavlink_sign_packet(mavlink_signing_t *signing,
 	mavlink_sha256_update(&ctx, crc, 2);
 	mavlink_sha256_update(&ctx, signature, 7);
 	mavlink_sha256_final_48(&ctx, &signature[7]);
-
+	
 	return MAVLINK_SIGNATURE_BLOCK_LEN;
 }
 #endif
@@ -228,7 +228,7 @@ MAVLINK_HELPER bool mavlink_signature_check(mavlink_signing_t *signing,
                 signing->last_status = MAVLINK_SIGNING_STATUS_NO_STREAMS;
                 return false;
 	}
-
+	
 	// find stream
 	for (i=0; i<signing_streams->num_signing_streams; i++) {
 		if (msg->sysid == signing_streams->stream[i].sysid &&
@@ -707,10 +707,10 @@ MAVLINK_HELPER uint8_t mavlink_msg_get_target_compid(const mavlink_message_t *ms
  * @return 0 if no message could be decoded, 1 on good message and CRC, 2 on bad CRC
  *
  */
-MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
+MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg, 
                                                  mavlink_status_t* status,
-                                                 uint8_t c,
-                                                 mavlink_message_t* r_message,
+                                                 uint8_t c, 
+                                                 mavlink_message_t* r_message, 
                                                  mavlink_status_t* r_mavlink_status)
 {
 
@@ -738,7 +738,7 @@ MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
 		break;
 
 	case MAVLINK_PARSE_STATE_GOT_STX:
-			if (status->msg_received
+			if (status->msg_received 
 /* Support shorter buffers than the
    default maximum packet size */
 #if (MAVLINK_MAX_PAYLOAD_LEN < 255)
@@ -799,7 +799,7 @@ MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
 		mavlink_update_checksum(rxmsg, c);
 		status->parse_state = MAVLINK_PARSE_STATE_GOT_SEQ;
 		break;
-
+                
 	case MAVLINK_PARSE_STATE_GOT_SEQ:
 		rxmsg->sysid = c;
 		mavlink_update_checksum(rxmsg, c);
@@ -882,7 +882,7 @@ MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
         }
 #endif
 		break;
-
+                
 	case MAVLINK_PARSE_STATE_GOT_MSGID3_TARGET32:
 		rxmsg->target_sysid = c;
 		mavlink_update_checksum(rxmsg, c);
@@ -1036,7 +1036,7 @@ MAVLINK_HELPER uint8_t mavlink_frame_char_buffer(mavlink_message_t* rxmsg,
        if (r_message != NULL) {
            r_message->len = rxmsg->len; // Provide visibility on how far we are into current msg
        }
-       if (r_mavlink_status != NULL) {
+       if (r_mavlink_status != NULL) {	
            r_mavlink_status->parse_state = status->parse_state;
            r_mavlink_status->packet_idx = status->packet_idx;
            r_mavlink_status->current_rx_seq = status->current_rx_seq+1;

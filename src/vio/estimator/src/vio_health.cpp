@@ -10,7 +10,9 @@ void HealthMonitor::pushWindow(double t, bool updated) {
     win_updated_.push_back(updated ? 1 : 0);
     const double lo = t - cfg_.update_rate_window_s;
     size_t drop = 0;
-    while (drop < win_time_.size() && win_time_[drop] < lo) ++drop;
+    while (drop < win_time_.size() && win_time_[drop] < lo) {
+        ++drop;
+    }
     if (drop > 0) {
         win_time_.erase(win_time_.begin(), win_time_.begin() + drop);
         win_updated_.erase(win_updated_.begin(), win_updated_.begin() + drop);
@@ -19,11 +21,17 @@ void HealthMonitor::pushWindow(double t, bool updated) {
 
 // 窗口没填满时返回 -1（不评判），避免开机就误判
 double HealthMonitor::updateRate() const {
-    if (win_time_.empty()) return -1.0;
+    if (win_time_.empty()) {
+        return -1.0;
+    }
     const double span = win_time_.back() - win_time_.front();
-    if (span < 0.8 * cfg_.update_rate_window_s) return -1.0;
+    if (span < 0.8 * cfg_.update_rate_window_s) {
+        return -1.0;
+    }
     int n = 0;
-    for (auto v : win_updated_) n += v;
+    for (auto v : win_updated_) {
+        n += v;
+    }
     return static_cast<double>(n) / static_cast<double>(win_updated_.size());
 }
 
@@ -82,7 +90,9 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
         last_time_ = time_s;
         state_ = VioHealthState::OK;
         state_changed_at_ = time_s;
-        if (visual_updated) last_update_time_ = time_s;
+        if (visual_updated) {
+            last_update_time_ = time_s;
+        }
         features_ = features;
         updated_ = visual_updated;
         return;
@@ -103,7 +113,9 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
 
     // 特征不足的计时
     if (few_features) {
-        if (bad_since_ < 0.0) bad_since_ = time_s;
+        if (bad_since_ < 0.0) {
+            bad_since_ = time_s;
+        }
     } else {
         bad_since_ = -1.0;
     }
@@ -113,7 +125,9 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     const bool bad_dep = (deperr_px >= 0.0) && (deperr_px > cfg_.deperr_degrade_px);
     const bool bad_dep_hard = (deperr_px >= 0.0) && (deperr_px > cfg_.deperr_lost_px);
     if (bad_dep_hard) {
-        if (bad_dep_since_ < 0.0) bad_dep_since_ = time_s;
+        if (bad_dep_since_ < 0.0) {
+            bad_dep_since_ = time_s;
+        }
     } else {
         bad_dep_since_ = -1.0;
     }
@@ -122,7 +136,9 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     // 【2026-10-25】重力泄漏（倾角差）
     const bool tilt_bad = (tilt_deg >= 0.0) && (tilt_deg > cfg_.tilt_lost_deg);
     if (tilt_bad) {
-        if (bad_tilt_since_ < 0.0) bad_tilt_since_ = time_s;
+        if (bad_tilt_since_ < 0.0) {
+            bad_tilt_since_ = time_s;
+        }
     } else {
         bad_tilt_since_ = -1.0;
     }
@@ -173,7 +189,9 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
                 good_since_ = -1.0;
                 break;
             }
-            if (good_since_ < 0.0) good_since_ = time_s;
+            if (good_since_ < 0.0) {
+                good_since_ = time_s;
+            }
             if (time_s - good_since_ >= cfg_.recover_after_s) {
                 // 状态在这里先切回 OK；如果要重建估计器，上层调 notify_recovered()
                 state_ = VioHealthState::OK;
@@ -215,7 +233,9 @@ HealthReport HealthMonitor::report(double now_s) const {
 // 【2026-10-22】物理合理性违规：直接判 LOST 并保持，直到外部重建。
 // 这是"安全阀"，不参与精度优化——它只保证不发明显错误的位姿。
 void HealthMonitor::mark_implausible(double time_s) {
-    if (!cfg_.enabled) return;
+    if (!cfg_.enabled) {
+        return;
+    }
     if (state_ != VioHealthState::LOST) {
         state_changed_at_ = time_s;
         ++lost_count_;
