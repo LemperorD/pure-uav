@@ -1,5 +1,6 @@
-#include "pure_math_tools.hpp"
 #include <iostream>
+
+#include "pure_math_tools.hpp"
 
 int main() {
     double a = 1.0;

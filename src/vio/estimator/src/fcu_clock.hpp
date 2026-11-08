@@ -28,7 +28,7 @@
 namespace pure_uav {
 
 class FcuClock {
-public:
+  public:
     // addSample() 的判定结果
     enum class AddResult {
         kOk,             // 正常样本，已纳入偏移估计
@@ -53,14 +53,18 @@ public:
     size_t sampleCount() const;
 
     // 统计（联调状态行/验收用）：被丢弃的乱序帧、检测到的时间基重置次数
-    uint64_t outOfOrderCount() const { return out_of_order_.load(); }
-    uint64_t timebaseResetCount() const { return timebase_resets_.load(); }
+    uint64_t outOfOrderCount() const {
+        return out_of_order_.load();
+    }
+    uint64_t timebaseResetCount() const {
+        return timebase_resets_.load();
+    }
     uint64_t lastImuTimestampUs() const;
 
     // 手动清空（程序启动、串口重连等）。不清统计计数。
     void reset();
 
-private:
+  private:
     void recomputeLocked() const;
     void clearLocked();
 

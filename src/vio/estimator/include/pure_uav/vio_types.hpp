@@ -10,7 +10,7 @@
 namespace pure_uav {
 
 struct ImuSample {
-    uint64_t timestamp_us = 0;  // us
+    uint64_t timestamp_us = 0;            // us
     double gx = 0.0, gy = 0.0, gz = 0.0;  // rad/s，机体 FRD
     double ax = 0.0, ay = 0.0, az = 0.0;  // m/s²，比力（含重力），机体 FRD
 };

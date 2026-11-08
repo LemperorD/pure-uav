@@ -21,30 +21,28 @@
 #include <cstring>
 
 #include "common/mavlink.h"
-
 #include "mavlink_link.hpp"
 
 namespace {
 
 int g_failed = 0;
 
-#define CHECK(cond)                                                          \
-    do {                                                                     \
-        if (!(cond)) {                                                       \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);        \
-            ++g_failed;                                                      \
-        }                                                                    \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
-#define CHECK_NEAR(a, b, tol)                                                \
-    do {                                                                     \
-        const double _va = static_cast<double>(a);                            \
-        const double _vb = static_cast<double>(b);                            \
-        if (std::fabs(_va - _vb) > (tol)) {                                   \
-            std::printf("  ❌ 第 %d 行: %s=%.9g 与 %s=%.9g 相差超过 %.3g\n",  \
-                        __LINE__, #a, _va, #b, _vb, (double)(tol));           \
-            ++g_failed;                                                      \
-        }                                                                    \
+#define CHECK_NEAR(a, b, tol)                                                                                            \
+    do {                                                                                                                 \
+        const double _va = static_cast<double>(a);                                                                       \
+        const double _vb = static_cast<double>(b);                                                                       \
+        if (std::fabs(_va - _vb) > (tol)) {                                                                              \
+            std::printf("  ❌ 第 %d 行: %s=%.9g 与 %s=%.9g 相差超过 %.3g\n", __LINE__, #a, _va, #b, _vb, (double)(tol)); \
+            ++g_failed;                                                                                                  \
+        }                                                                                                                \
     } while (0)
 
 // 把发送缓冲解析回 mavlink_message_t；返回 false 表示帧头/CRC/长度有问题。
@@ -97,9 +95,8 @@ void caseNormal() {
     p.vz = 0.05f;
 
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(
-        p, /*quality=*/90, /*reset_counter=*/3, /*pos_sigma=*/0.15f, /*vel_sigma=*/0.25f,
-        /*sysid=*/2, /*compid=*/1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, /*quality=*/90, /*reset_counter=*/3, /*pos_sigma=*/0.15f, /*vel_sigma=*/0.25f,
+                                                                 /*sysid=*/2, /*compid=*/1, buf, sizeof(buf));
     CHECK(len > 0);
     CHECK(len <= sizeof(buf));
 
@@ -153,8 +150,7 @@ void caseDegradedKeepsReset() {
     p.timestamp_us = 1787654322ULL;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(
-        p, 50, 3, 0.5f, 0.8f, 2, 1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 50, 3, 0.5f, 0.8f, 2, 1, buf, sizeof(buf));
     CHECK(len > 0);
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
@@ -169,8 +165,7 @@ void caseUnknownCovariance() {
     std::printf("[用例3] 未提供 sigma：协方差应为 NaN(未知)\n");
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len =
-        pure_uav::MavlinkLink::encodeVisionPose(p, 0, 0, 0.0f, 0.0f, 2, 1, buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 0, 0, 0.0f, 0.0f, 2, 1, buf, sizeof(buf));
     CHECK(len > 0);
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
@@ -200,15 +195,14 @@ void caseIndependentSigma() {
     CHECK_NEAR(odo.pose_covariance[0], 0.15 * 0.15, 1e-7);
     CHECK_NEAR(odo.pose_covariance[6], 0.15 * 0.15, 1e-7);
     CHECK_NEAR(odo.pose_covariance[11], 0.15 * 0.15, 1e-7);
-    CHECK(std::isnan(odo.velocity_covariance[0]));   // 速度未知
+    CHECK(std::isnan(odo.velocity_covariance[0]));  // 速度未知
     CHECK(std::isnan(odo.velocity_covariance[6]));
 
     std::printf("[用例3c] 只给速度 sigma：速度协方差有效、位置协方差 NaN\n");
-    len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.0f, /*vel=*/0.25f,
-                                                 2, 1, buf, sizeof(buf));
+    len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, /*pos=*/0.0f, /*vel=*/0.25f, 2, 1, buf, sizeof(buf));
     CHECK(parseFrame(buf, len, msg));
     mavlink_msg_odometry_decode(&msg, &odo);
-    CHECK(std::isnan(odo.pose_covariance[0]));       // 位置未知
+    CHECK(std::isnan(odo.pose_covariance[0]));  // 位置未知
     CHECK_NEAR(odo.velocity_covariance[0], 0.25 * 0.25, 1e-7);
     CHECK_NEAR(odo.velocity_covariance[11], 0.25 * 0.25, 1e-7);
 }
@@ -219,8 +213,7 @@ void caseQualityClamp() {
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
-    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 150, 0, 0.1f, 0.1f, 2, 1, buf,
-                                                           sizeof(buf));
+    uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 150, 0, 0.1f, 0.1f, 2, 1, buf, sizeof(buf));
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
     mavlink_odometry_t odo{};
@@ -238,8 +231,7 @@ void caseSmallBuffer() {
     std::printf("[用例5] 缓冲区不足：返回 0\n");
     pure_uav::VisionPose p;
     uint8_t tiny[8];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, 0.1f, 0.1f, 2, 1, tiny,
-                                                                 sizeof(tiny));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 0, 0.1f, 0.1f, 2, 1, tiny, sizeof(tiny));
     CHECK(len == 0);
 }
 
@@ -248,8 +240,7 @@ void caseResetWrapBoundary() {
     std::printf("[用例6] reset=255 边界\n");
     pure_uav::VisionPose p;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 255, 0.1f, 0.1f, 2, 1,
-                                                                 buf, sizeof(buf));
+    const uint16_t len = pure_uav::MavlinkLink::encodeVisionPose(p, 90, 255, 0.1f, 0.1f, 2, 1, buf, sizeof(buf));
     mavlink_message_t msg{};
     CHECK(parseFrame(buf, len, msg));
     mavlink_odometry_t odo{};

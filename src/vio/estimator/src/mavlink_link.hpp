@@ -18,8 +18,8 @@
 #include <map>
 #include <mutex>
 #include <string>
-#include <vector>
 #include <thread>
+#include <vector>
 
 #include "pure_uav/vio_types.hpp"
 #include "pure_uav/vision_pose.hpp"
@@ -27,28 +27,28 @@
 namespace pure_uav {
 
 class MavlinkLink {
-public:
+  public:
     struct Config {
         std::string device = "/dev/ttyACM0";
         int baudrate = 921600;
-        int highres_imu_interval_us = 5000;   // 200 Hz（5000us；改这个数时随手改注释，别留错）
-        int system_time_interval_us = 1000000; // 1 Hz
-        int heartbeat_interval_ms = 1000;      // 本机心跳
+        int highres_imu_interval_us = 5000;     // 200 Hz（5000us；改这个数时随手改注释，别留错）
+        int system_time_interval_us = 1000000;  // 1 Hz
+        int heartbeat_interval_ms = 1000;       // 本机心跳
         bool send_heartbeat = true;
-        int send_timeout_ms = 200;            // 总写入期限，避免串口背压卡死停机
+        int send_timeout_ms = 200;  // 总写入期限，避免串口背压卡死停机
         int heartbeat_timeout_ms = 3000;
-        size_t max_imu_queue = 2000;           // 200Hz 下约 10 秒
+        size_t max_imu_queue = 2000;  // 200Hz 下约 10 秒
         // 【2026-10-29】目标飞控身份。0 = 自动锁定（首个"像飞控"的心跳）。
         // 锁定后只接受该 sysid/compid 的心跳；地面站/机载计算机/其他飞行器的心跳一律忽略。
         // 多机同链路时显式指定，避免锁错。
         uint8_t target_sysid = 0;
-        uint8_t target_compid = 0;             // 0 = 不限定组件号
+        uint8_t target_compid = 0;  // 0 = 不限定组件号
     };
 
     struct TimedImu {
         ImuSample imu;
-        int64_t host_ns = 0;  // 收到该帧时的主机单调时钟
-        uint64_t session = 0; // 接收时的会话代数，防止消费跨会话队列
+        int64_t host_ns = 0;   // 收到该帧时的主机单调时钟
+        uint64_t session = 0;  // 接收时的会话代数，防止消费跨会话队列
     };
 
     MavlinkLink() = default;
@@ -60,18 +60,30 @@ public:
     bool start(const Config& cfg, std::string* error);
     void stop();
 
-    bool running() const { return running_.load(); }
-    bool connected() const { return connected_.load(); }
+    bool running() const {
+        return running_.load();
+    }
+    bool connected() const {
+        return connected_.load();
+    }
 
     // 【2026-10-25】飞控是否已解锁（HEARTBEAT.base_mode 的 SAFETY_ARMED 位）。
     // 用途：地面上（未解锁）允许开零速更新，空中（已解锁）绝不允许 —— 见 VioManager 的说明。
     // 没收到过心跳时返回 false（= 当成"地面"），这样纯手持/无飞控的场景行为不变。
-    bool armed() const { return armed_.load(); }
-    uint8_t fcuSysId() const { return fcu_sysid_.load(); }
+    bool armed() const {
+        return armed_.load();
+    }
+    uint8_t fcuSysId() const {
+        return fcu_sysid_.load();
+    }
     // 【2026-10-29】串口重连次数。每次设备重开成功或心跳超时 +1。
     // vio_live 用它判定"新会话，时间基要重来"。
-    uint64_t reconnectCount() const { return reconnects_.load(); }
-    bool targetLocked() const { return locked_sysid_.load() != 0; }
+    uint64_t reconnectCount() const {
+        return reconnects_.load();
+    }
+    bool targetLocked() const {
+        return locked_sysid_.load() != 0;
+    }
 
     // 【2026-10-29】清空 IMU 队列（飞控重启/串口重连/时间基变化时用）。
     // 旧时间基的样本绝不能再喂给估计器。
@@ -80,9 +92,15 @@ public:
     // 取出最早的一帧 IMU；无数据返回 false。
     bool popImu(TimedImu& out);
     size_t imuQueueSize() const;
-    uint64_t droppedImu() const { return dropped_imu_.load(); }
-    uint64_t receivedImu() const { return imu_received_.load(); }
-    uint64_t lastImuTimestampUs() const { return last_imu_us_.load(); }
+    uint64_t droppedImu() const {
+        return dropped_imu_.load();
+    }
+    uint64_t receivedImu() const {
+        return imu_received_.load();
+    }
+    uint64_t lastImuTimestampUs() const {
+        return last_imu_us_.load();
+    }
 
     // 发送视觉位姿（MAVLink ODOMETRY）。未连接时返回 false。
     /// 【2026-10-22】发位姿。原来 pose_cov/vel_cov 填 NaN（未知）、quality=0、
@@ -109,17 +127,14 @@ public:
     };
     Ekf3Velocity ekf3Velocity() const;
 
-    bool sendVisionPose(const VisionPose& pose, int quality = 0, uint8_t reset_counter = 0,
-                        float pos_sigma_m = 0.0f, float vel_sigma_mps = 0.0f);
+    bool sendVisionPose(const VisionPose& pose, int quality = 0, uint8_t reset_counter = 0, float pos_sigma_m = 0.0f, float vel_sigma_mps = 0.0f);
 
     // 把一帧 VisionPose 编码成一条 ODOMETRY 的**完整发送缓冲**（含 MAVLink 帧头与 CRC）。
     // 返回写入 buf 的字节数；buf 容量不足返回 0。sendVisionPose() 内部就走这条路径。
     //
     // 单独暴露的唯一理由：没有飞控、没有串口也能做「打包→解析→逐字段核对」的回归测试
     // （tests/test_odometry_pack.cpp）。改字段顺序这种 bug 只看发送返回值是发现不了的。
-    static uint16_t encodeVisionPose(const VisionPose& pose, int quality, uint8_t reset_counter,
-                                     float pos_sigma_m, float vel_sigma_mps, uint8_t sysid,
-                                     uint8_t compid, uint8_t* buf, size_t buf_cap);
+    static uint16_t encodeVisionPose(const VisionPose& pose, int quality, uint8_t reset_counter, float pos_sigma_m, float vel_sigma_mps, uint8_t sysid, uint8_t compid, uint8_t* buf, size_t buf_cap);
 
     // ---- 只读参数查询（PARAM_REQUEST_READ → PARAM_VALUE）----
     // 用途：确认飞控固件对 IMU 做了哪些预处理（低通/陷波/采样率）。
@@ -129,7 +144,7 @@ public:
     std::vector<std::pair<std::string, float>> receivedParams() const;
     size_t receivedParamCount() const;
 
-private:
+  private:
     void recvLoop();
     void requestStreams();
     bool sendBytes(const uint8_t* buf, uint16_t len, bool require_connected = false);
@@ -138,19 +153,19 @@ private:
     // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
     bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
     void invalidateSession();
-    void handleLinkLoss(const char* why);   // 关闭 fd、清状态/队列，等重连
-    bool tryReopen(std::string* error);     // 尝试重新打开串口
+    void handleLinkLoss(const char* why);  // 关闭 fd、清状态/队列，等重连
+    bool tryReopen(std::string* error);    // 尝试重新打开串口
 
     Config cfg_;
     int fd_ = -1;
-    mutable std::mutex fd_mtx_;   // 保护 fd_ 的打开/关闭（发送线程 vs 重连线程）
+    mutable std::mutex fd_mtx_;  // 保护 fd_ 的打开/关闭（发送线程 vs 重连线程）
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> connected_{false};
     std::atomic<bool> armed_{false};
     std::atomic<uint8_t> fcu_sysid_{1};
     std::atomic<uint8_t> fcu_compid_{1};
-    std::atomic<uint8_t> locked_sysid_{0};   // 0 = 还没锁定
+    std::atomic<uint8_t> locked_sysid_{0};  // 0 = 还没锁定
     std::atomic<uint8_t> locked_compid_{0};
     std::atomic<uint64_t> reconnects_{0};
     std::atomic<uint64_t> last_imu_us_{0};

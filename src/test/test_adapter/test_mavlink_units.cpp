@@ -13,7 +13,7 @@
 #include "mavlink_units.hpp"
 
 using namespace pure_uav::mavlink_units;
-namespace mu = pure_uav::mu;   // 顺便验证便捷别名可用
+namespace mu = pure_uav::mu;  // 顺便验证便捷别名可用
 
 // ============================================================
 //  轻量断言
@@ -21,7 +21,7 @@ namespace mu = pure_uav::mu;   // 顺便验证便捷别名可用
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void ok(bool cond, const char *what) {
+static void ok(bool cond, const char* what) {
     if (cond) {
         ++g_pass;
     } else {
@@ -30,7 +30,7 @@ static void ok(bool cond, const char *what) {
     }
 }
 
-static void near(double got, double want, double tol, const char *what) {
+static void near(double got, double want, double tol, const char* what) {
     if (std::fabs(got - want) <= tol) {
         ++g_pass;
     } else {
@@ -39,7 +39,7 @@ static void near(double got, double want, double tol, const char *what) {
     }
 }
 
-static void near_i(long long got, long long want, long long tol, const char *what) {
+static void near_i(long long got, long long want, long long tol, const char* what) {
     const long long d = (got > want) ? (got - want) : (want - got);
     if (d <= tol) {
         ++g_pass;
@@ -49,7 +49,7 @@ static void near_i(long long got, long long want, long long tol, const char *wha
     }
 }
 
-static void section(const char *title) {
+static void section(const char* title) {
     std::printf("\n== %s ==\n", title);
 }
 
@@ -126,8 +126,7 @@ static void test_deg_e7() {
     near(deg_to_deg_e7(-122.0), -1220000000.0, 0.0, "−122° → −1220000000 degE7");
 
     // 往返（浮点往返会有 1 ulp 量级的抖动，容差取 1）
-    near_i(deg_to_deg_e7_round(deg_e7_to_deg(473979710.0)), 473979710, 1,
-           "degE7 → deg → degE7 往返");
+    near_i(deg_to_deg_e7_round(deg_e7_to_deg(473979710.0)), 473979710, 1, "degE7 → deg → degE7 往返");
 }
 
 // ============================================================
@@ -163,8 +162,7 @@ static void test_wrap() {
     ok(big >= -PI_REF && big <= PI_REF, "wrap_pi(1000) 落在 [−π, π]");
     // 非有限值原样透传
     ok(std::isnan(wrap_pi(std::nan(""))), "wrap_pi(NaN) 仍为 NaN");
-    ok(std::isinf(wrap_pi(std::numeric_limits<double>::infinity())),
-       "wrap_pi(+Inf) 仍为 +Inf");
+    ok(std::isinf(wrap_pi(std::numeric_limits<double>::infinity())), "wrap_pi(+Inf) 仍为 +Inf");
 
     near(wrap_2pi(0.0), 0.0, 0.0, "wrap_2pi(0) = 0");
     near(wrap_2pi(PI_REF / 2.0), PI_REF / 2.0, 0.0, "wrap_2pi(π/2) = π/2");
@@ -174,10 +172,8 @@ static void test_wrap() {
 
     //  358° 假跳变：+179° 与 −179° 实际只差 2°
     //   符号约定：正值 = a 在 b 的**逆时针**方向（角度增大方向）
-    near(angle_diff_pi(deg_to_rad(179.0), deg_to_rad(-179.0)), -deg_to_rad(2.0), 1e-12,
-         "angle_diff_pi(179°, −179°) = −2°（顺时针 2°，不是 358°）");
-    near(angle_diff_pi(deg_to_rad(-179.0), deg_to_rad(179.0)), deg_to_rad(2.0), 1e-12,
-         "angle_diff_pi(−179°, 179°) = +2°（逆时针 2°）");
+    near(angle_diff_pi(deg_to_rad(179.0), deg_to_rad(-179.0)), -deg_to_rad(2.0), 1e-12, "angle_diff_pi(179°, −179°) = −2°（顺时针 2°，不是 358°）");
+    near(angle_diff_pi(deg_to_rad(-179.0), deg_to_rad(179.0)), deg_to_rad(2.0), 1e-12, "angle_diff_pi(−179°, 179°) = +2°（逆时针 2°）");
     near(angle_diff_pi(0.3, 0.1), 0.2, 1e-15, "angle_diff_pi 普通情形");
     near(angle_diff_pi(0.1, 0.3), -0.2, 1e-15, "angle_diff_pi 普通情形（反序）");
 }
@@ -206,8 +202,7 @@ static void test_ms_wrap() {
 
     //  回绕：prev 接近 uint32 上限，now 已绕回 0 附近
     //   prev = 4294967290，now = 15  ⇒ 真实间隔 21 ms
-    ok(mu::ms_diff_u32(15u, 4294967290u) == 21u,
-       "回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
+    ok(mu::ms_diff_u32(15u, 4294967290u) == 21u, "回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
     near(mu::ms_diff_to_s(15u, 4294967290u), 0.021, 1e-12, "回绕后换算成秒 = 0.021 s");
 
     // 超时判断（回绕安全）
@@ -237,8 +232,7 @@ static void test_rounding() {
     // 饱和
     ok(round_to_i32_sat(3.0e18) == std::numeric_limits<int32_t>::max(), "巨大正数 → INT32_MAX");
     ok(round_to_i32_sat(-3.0e18) == std::numeric_limits<int32_t>::min(), "巨大负数 → INT32_MIN");
-    ok(round_to_i32_sat(std::numeric_limits<double>::infinity())
-           == std::numeric_limits<int32_t>::max(), "+Inf → INT32_MAX");
+    ok(round_to_i32_sat(std::numeric_limits<double>::infinity()) == std::numeric_limits<int32_t>::max(), "+Inf → INT32_MAX");
     ok(round_to_i32_sat(std::nan("")) == 0, "NaN → 0");
     ok(round_to_u16_sat(-5.0) == 0u, "负数 → 0（uint16 下界）");
     ok(round_to_u16_sat(1.0e9) == 65535u, "巨大正数 → 65535（uint16 上界）");
@@ -260,12 +254,9 @@ static void test_rounding() {
     // 200° × 1e7 = 2.0e9 < INT32_MAX(2.147e9) ⇒ 仍在范围内，不饱和
     ok(deg_to_deg_e7_round(200.0) == 2000000000, "200° 仍在 int32 范围内（不饱和）");
     //  饱和阈值是 |deg| > 214.7483647
-    ok(deg_to_deg_e7_round(214.7483647) == std::numeric_limits<int32_t>::max(),
-       "阈值 214.7483647° 恰好取到 INT32_MAX");
-    ok(deg_to_deg_e7_round(300.0) == std::numeric_limits<int32_t>::max(),
-       "300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
-    ok(deg_to_deg_e7_round(-300.0) == std::numeric_limits<int32_t>::min(),
-       "−300° ⇒ 饱和到 INT32_MIN");
+    ok(deg_to_deg_e7_round(214.7483647) == std::numeric_limits<int32_t>::max(), "阈值 214.7483647° 恰好取到 INT32_MAX");
+    ok(deg_to_deg_e7_round(300.0) == std::numeric_limits<int32_t>::max(), "300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
+    ok(deg_to_deg_e7_round(-300.0) == std::numeric_limits<int32_t>::min(), "−300° ⇒ 饱和到 INT32_MIN");
     ok(deg_to_deg_e7_round(std::nan("")) == 0, "NaN → 0");
 }
 
@@ -293,10 +284,8 @@ static void test_sentinels() {
 
     // lat/lon 的防御性检查
     ok(is_plausible_latlon_deg_e7(473979710), "正常纬度 → plausible");
-    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::max()),
-       "INT32_MAX → 判为可疑（防御性，非规范）");
-    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::min()),
-       "INT32_MIN → 判为可疑（防御性，非规范）");
+    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::max()), "INT32_MAX → 判为可疑（防御性，非规范）");
+    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::min()), "INT32_MIN → 判为可疑（防御性，非规范）");
 }
 
 // ============================================================

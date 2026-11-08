@@ -9,29 +9,27 @@
 #include <cstring>
 
 #include "common/mavlink.h"
-
 #include "odom_tool_core.hpp"
 
 namespace {
 int g_failed = 0;
 
-#define CHECK(cond)                                                      \
-    do {                                                                 \
-        if (!(cond)) {                                                   \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
-            ++g_failed;                                                  \
-        }                                                                \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
-#define CHECK_NEAR(a, b, tol)                                                 \
-    do {                                                                      \
-        const double _va = static_cast<double>(a);                            \
-        const double _vb = static_cast<double>(b);                            \
-        if (std::fabs(_va - _vb) > (tol)) {                                   \
-            std::printf("  ❌ 第 %d 行: %s=%.6f 与 %s=%.6f 差超过 %.3g\n",      \
-                        __LINE__, #a, _va, #b, _vb, (double)(tol));           \
-            ++g_failed;                                                       \
-        }                                                                     \
+#define CHECK_NEAR(a, b, tol)                                                                                          \
+    do {                                                                                                               \
+        const double _va = static_cast<double>(a);                                                                     \
+        const double _vb = static_cast<double>(b);                                                                     \
+        if (std::fabs(_va - _vb) > (tol)) {                                                                            \
+            std::printf("  ❌ 第 %d 行: %s=%.6f 与 %s=%.6f 差超过 %.3g\n", __LINE__, #a, _va, #b, _vb, (double)(tol)); \
+            ++g_failed;                                                                                                \
+        }                                                                                                              \
     } while (0)
 
 }  // namespace
@@ -49,7 +47,7 @@ int main() {
         CHECK_NEAR(p0.z, 0.0, 1e-6);
         CHECK_NEAR(p0.q[0], 1.0, 1e-6);
 
-        const auto fwd = sampleScript(4.5);   // 前移中点
+        const auto fwd = sampleScript(4.5);  // 前移中点
         CHECK_NEAR(fwd.x, 0.5, 1e-6);
         CHECK_NEAR(fwd.y, 0.0, 1e-6);
         CHECK_NEAR(fwd.vx, 1.0 / 3.0, 1e-6);
@@ -59,15 +57,15 @@ int main() {
         CHECK_NEAR(fwd_hold.x, 1.0, 1e-6);
         CHECK_NEAR(fwd_hold.vx, 0.0, 1e-6);
 
-        const auto back = sampleScript(7.5);      // 退回中点
+        const auto back = sampleScript(7.5);  // 退回中点
         CHECK_NEAR(back.x, 0.5, 1e-6);
         CHECK_NEAR(back.vx, -1.0, 1e-6);
 
-        const auto right = sampleScript(10.5);    // 右移中点
+        const auto right = sampleScript(10.5);  // 右移中点
         CHECK_NEAR(right.y, 0.3, 1e-6);
         CHECK_NEAR(right.vy, 0.2, 1e-6);
 
-        const auto up = sampleScript(16.5);       // 上抬中点（FRD: 上为负）
+        const auto up = sampleScript(16.5);  // 上抬中点（FRD: 上为负）
         CHECK_NEAR(up.z, -0.25, 1e-6);
         CHECK_NEAR(up.vz, -0.5 / 3.0, 1e-6);
 
@@ -88,8 +86,7 @@ int main() {
     // ---- 2) Probe 统计 ----
     {
         ProbeStats st;
-        auto make = [](uint64_t t, float x, float y, float z, uint8_t reset, int8_t quality,
-                       uint8_t frame, uint8_t child) {
+        auto make = [](uint64_t t, float x, float y, float z, uint8_t reset, int8_t quality, uint8_t frame, uint8_t child) {
             mavlink_odometry_t o{};
             std::memset(&o, 0, sizeof(o));
             o.time_usec = t;
@@ -115,15 +112,15 @@ int main() {
         CHECK(st.time_backwards == 1);
         CHECK(st.min_quality == 40);
         CHECK(st.max_quality == 90);
-        CHECK(st.bad_quality == 1);   // 只有 40 低于 VISO_QUAL_MIN=50 的典型门限
+        CHECK(st.bad_quality == 1);  // 只有 40 低于 VISO_QUAL_MIN=50 的典型门限
         CHECK(st.bad_frame == 1);
         CHECK_NEAR(st.rateHz(), 30.0, 0.5);  // 333333 us 间隔 ≈ 30 Hz
         st.countGaps();
-        CHECK(st.gaps == 0);          // 倒退那帧不计入间隔，其余等间隔
+        CHECK(st.gaps == 0);  // 倒退那帧不计入间隔，其余等间隔
 
         ProbeStats st2;
         mavlink_odometry_t bad_q = make(2000000ULL, 0, 0, 0, 0, 90, 20, 12);
-        bad_q.q[0] = 0.5f;            // 非归一四元数
+        bad_q.q[0] = 0.5f;  // 非归一四元数
         st2.add(bad_q, 0);
         CHECK(st2.bad_quat == 1);
         std::printf("[2] Probe 统计 OK（帧数/质量/reset/坐标系/乱序/频率）\n");

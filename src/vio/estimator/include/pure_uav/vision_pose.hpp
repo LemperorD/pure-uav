@@ -37,14 +37,14 @@ enum class VisionFrame : uint8_t {
 
 // VIO 位姿
 struct VisionPose {
-    uint64_t timestamp_us = 0;  // us，飞控 boot 时间（在线）
-    VisionFrame frame_id = VisionFrame::LOCAL_FRD;        // 位置的坐标系（惯性系）
-    VisionFrame child_frame_id = VisionFrame::BODY_FRD;   // 速度的坐标系（机体系）
-    float x = 0.0f;     // m
+    uint64_t timestamp_us = 0;                           // us，飞控 boot 时间（在线）
+    VisionFrame frame_id = VisionFrame::LOCAL_FRD;       // 位置的坐标系（惯性系）
+    VisionFrame child_frame_id = VisionFrame::BODY_FRD;  // 速度的坐标系（机体系）
+    float x = 0.0f;                                      // m
     float y = 0.0f;
     float z = 0.0f;
     float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // w x y z  机体系相对惯性系
-    float vx = 0.0f;  // m/s
+    float vx = 0.0f;                        // m/s
     float vy = 0.0f;
     float vz = 0.0f;
 

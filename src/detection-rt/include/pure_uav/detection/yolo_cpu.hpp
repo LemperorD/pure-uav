@@ -3,9 +3,8 @@
 // 模型输入/输出与线程配置见同目录 README。
 
 #include <memory>
-#include <string>
-
 #include <opencv2/core.hpp>
+#include <string>
 
 #include "pure_uav/detection/yolo_output.hpp"
 
@@ -14,7 +13,7 @@ namespace detection {
 
 /// CPU 推理封装；单实例，infer() 不可并发调用。
 class YoloCpu {
-public:
+  public:
     YoloCpu();
     ~YoloCpu();
 
@@ -44,7 +43,7 @@ public:
     /// 释放 session；析构时自动调用。
     void release();
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

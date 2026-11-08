@@ -115,10 +115,7 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
             if (cols.size() < 7) continue;
             ImuSample s;
             double gx, gy, gz, ax, ay, az;
-            if (!toU64(cols[0], s.timestamp_us) || !toDouble(cols[1], gx) ||
-                !toDouble(cols[2], gy) || !toDouble(cols[3], gz) ||
-                !toDouble(cols[4], ax) || !toDouble(cols[5], ay) ||
-                !toDouble(cols[6], az)) {
+            if (!toU64(cols[0], s.timestamp_us) || !toDouble(cols[1], gx) || !toDouble(cols[2], gy) || !toDouble(cols[3], gz) || !toDouble(cols[4], ax) || !toDouble(cols[5], ay) || !toDouble(cols[6], az)) {
                 if (error) *error = "imu.csv 第 " + std::to_string(line_no) + " 行格式非法";
                 return false;
             }
@@ -132,13 +129,8 @@ bool OfflineDataset::load(const std::string& dataset_dir, std::string* error) {
         }
     }
 
-    std::sort(images_.begin(), images_.end(),
-              [](const DatasetImage& a, const DatasetImage& b) {
-                  return a.timestamp_us < b.timestamp_us;
-              });
-    std::sort(imu_.begin(), imu_.end(), [](const ImuSample& a, const ImuSample& b) {
-        return a.timestamp_us < b.timestamp_us;
-    });
+    std::sort(images_.begin(), images_.end(), [](const DatasetImage& a, const DatasetImage& b) { return a.timestamp_us < b.timestamp_us; });
+    std::sort(imu_.begin(), imu_.end(), [](const ImuSample& a, const ImuSample& b) { return a.timestamp_us < b.timestamp_us; });
 
     if (images_.empty()) {
         if (error) *error = "数据集中没有图像";

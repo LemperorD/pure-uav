@@ -8,7 +8,7 @@
 
 using pure_uav::app::GuidanceApplication;
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     GuidanceApplication app;
     return app.run(argc, argv);
 }

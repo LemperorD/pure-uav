@@ -17,7 +17,9 @@ void ensureParentDir(const std::string& path) {
 }
 }  // namespace
 
-PoseLogger::~PoseLogger() { close(); }
+PoseLogger::~PoseLogger() {
+    close();
+}
 
 bool PoseLogger::open(const std::string& csv_path, const std::string& tum_path) {
     close();
@@ -52,25 +54,17 @@ bool PoseLogger::open(const std::string& csv_path, const std::string& tum_path) 
 void PoseLogger::log(const VisionPose& pose) {
     if (csv_.is_open()) {
 #ifdef PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT
-        const float cam_imu_dt_out = -999.0f;   // 仓库版 VisionPose 无此字段
+        const float cam_imu_dt_out = -999.0f;  // 仓库版 VisionPose 无此字段
 #else
         const float cam_imu_dt_out = pose.cam_imu_dt;
 #endif
-        csv_ << pose.timestamp_us << ','
-             << static_cast<int>(pose.frame_id) << ','
-             << static_cast<int>(pose.child_frame_id) << ','
-             << std::setprecision(9)
-             << pose.x << ',' << pose.y << ',' << pose.z << ','
-             << pose.q[0] << ',' << pose.q[1] << ',' << pose.q[2] << ',' << pose.q[3] << ','
-             << pose.vx << ',' << pose.vy << ',' << pose.vz << ',' << cam_imu_dt_out << '\n';
+        csv_ << pose.timestamp_us << ',' << static_cast<int>(pose.frame_id) << ',' << static_cast<int>(pose.child_frame_id) << ',' << std::setprecision(9) << pose.x << ',' << pose.y << ',' << pose.z << ',' << pose.q[0] << ',' << pose.q[1] << ',' << pose.q[2] << ',' << pose.q[3] << ',' << pose.vx
+             << ',' << pose.vy << ',' << pose.vz << ',' << cam_imu_dt_out << '\n';
         csv_.flush();
     }
     if (tum_.is_open()) {
         const double ts = static_cast<double>(pose.timestamp_us) * 1e-6;
-        tum_ << std::fixed << std::setprecision(6) << ts << ' '
-             << std::setprecision(6)
-             << pose.x << ' ' << pose.y << ' ' << pose.z << ' '
-             << pose.q[1] << ' ' << pose.q[2] << ' ' << pose.q[3] << ' ' << pose.q[0] << '\n';
+        tum_ << std::fixed << std::setprecision(6) << ts << ' ' << std::setprecision(6) << pose.x << ' ' << pose.y << ' ' << pose.z << ' ' << pose.q[1] << ' ' << pose.q[2] << ' ' << pose.q[3] << ' ' << pose.q[0] << '\n';
         // 每行刷新：rviz 的实时桥接要能“边跑边读”，ofstream 默认 8 KB 缓冲会晚 ~8 s
         tum_.flush();
     }

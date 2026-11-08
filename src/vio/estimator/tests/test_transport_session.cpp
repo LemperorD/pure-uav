@@ -15,25 +15,36 @@ int main() {
         Transport link;
 #ifdef TEST_COMMUNICATOR
         pure_uav::CommConfig cfg;
-        cfg.device = device.path; cfg.fcu_sysid = 9; cfg.fcu_compid = 42;
+        cfg.device = device.path;
+        cfg.fcu_sysid = 9;
+        cfg.fcu_compid = 42;
         cfg.heartbeat_timeout_ms = 250;
         check(link.start(cfg), "start communicator");
         auto connected = [&] { return link.isConnected(); };
         auto armed = [&] { return link.isArmed(); };
-        auto publish = [&] { pure_uav::VisionPose pose{}; return link.pushVisionPose(pose); };
+        auto publish = [&] {
+            pure_uav::VisionPose pose{};
+            return link.pushVisionPose(pose);
+        };
 #else
         Transport::Config cfg;
-        cfg.device = device.path; cfg.target_sysid = 9; cfg.target_compid = 42;
-        cfg.heartbeat_timeout_ms = 250; cfg.send_heartbeat = false;
+        cfg.device = device.path;
+        cfg.target_sysid = 9;
+        cfg.target_compid = 42;
+        cfg.heartbeat_timeout_ms = 250;
+        cfg.send_heartbeat = false;
         std::string error;
         check(link.start(cfg, &error), "start link");
         auto connected = [&] { return link.connected(); };
         auto armed = [&] { return link.armed(); };
-        auto publish = [&] { pure_uav::VisionPose pose{}; return link.sendVisionPose(pose); };
+        auto publish = [&] {
+            pure_uav::VisionPose pose{};
+            return link.sendVisionPose(pose);
+        };
 #endif
         check(!publish(), "disconnected publication must fail");
         imu(pty.master, 1000000, 8, 42);
-        imu(pty.master, 1005000); // Even configured target data needs a confirming heartbeat.
+        imu(pty.master, 1005000);  // Even configured target data needs a confirming heartbeat.
         std::this_thread::sleep_for(milliseconds(40));
         check(link.receivedImu() == 0 && link.imuQueueSize() == 0, "pre-heartbeat telemetry accepted");
         heartbeat(pty.master, 9, 42, true, MAV_AUTOPILOT_INVALID);
@@ -56,7 +67,8 @@ int main() {
 #ifndef TEST_COMMUNICATOR
         check(link.lastImuTimestampUs() == 0, "timeout retained last IMU timestamp");
 #else
-        pure_uav::ImuData cached{}; link.getImu(cached);
+        pure_uav::ImuData cached{};
+        link.getImu(cached);
         check(cached.timestamp_us == 0, "timeout retained cached IMU timestamp");
 #endif
         check(!publish(), "publication allowed after timeout");
@@ -73,20 +85,27 @@ int main() {
         check(link.popImu(second) && second.session > first.session, "IMU has no session boundary");
         // 物理设备挂断与同路径重开：不依赖实际 USB，不向任何真飞控发命令。
         const auto before_reopen = link.reconnectCount();
-        ::close(pty.master); pty.master = -1;
+        ::close(pty.master);
+        pty.master = -1;
         check(waitFor([&] { return !connected(); }), "device hangup not detected");
         check(link.imuQueueSize() == 0 && armed(), "device loss kept IMU or cleared armed state");
         Pty replacement;
         device.pointTo(replacement.slave);
         check(waitFor([&] { return link.reconnectCount() > before_reopen; }, 2500), "device did not reopen");
-        check(waitFor([&] { heartbeat(replacement.master); return connected(); }), "reopened heartbeat missing");
+        check(waitFor([&] {
+                  heartbeat(replacement.master);
+                  return connected();
+              }),
+              "reopened heartbeat missing");
         imu(replacement.master, 500000);
         check(waitFor([&] { return link.imuQueueSize() == 1; }), "reopened IMU missing");
         Transport::TimedImu third{};
-        check(link.popImu(third) && third.session > second.session && third.imu.timestamp_us == 500000,
-              "reopened queue retained old session");
+        check(link.popImu(third) && third.session > second.session && third.imu.timestamp_us == 500000, "reopened queue retained old session");
         link.stop();
         std::puts("PASS: session admission, timeout isolation and reacquisition");
         return 0;
-    } catch (const std::exception& e) { std::fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "FAIL: %s\n", e.what());
+        return 1;
+    }
 }

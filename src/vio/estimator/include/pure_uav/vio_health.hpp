@@ -41,20 +41,20 @@ struct HealthConfig {
     // 这是比"距上次更新多久"更靠谱的判据 —— session29 的 10~11 s 秒级只有 1 次更新，
     // "距上次更新"永远不到 1.5 s，但视觉其实已经基本没进滤波器了。
     double update_rate_window_s = 2.0;
-    double min_update_rate = 0.15;      // 低于 15% 算"视觉没进滤波器"
+    double min_update_rate = 0.15;  // 低于 15% 算"视觉没进滤波器"
     double min_update_rate_recover = 0.35;
 
     // 时间阈值（秒）
-    double degrade_after_s = 0.4;   // 特征不足持续多久 → DEGRADED
-    double lost_after_s = 1.5;      // 多久没有 MSCKF 更新 / 持续特征不足 → LOST
+    double degrade_after_s = 0.4;  // 特征不足持续多久 → DEGRADED
+    double lost_after_s = 1.5;     // 多久没有 MSCKF 更新 / 持续特征不足 → LOST
 
     // 【2026-10-25】深度一致性门限。这是唯一能抓到"稳定但错"的指标：
     //   run4 全程 0 次重建、特征 169–237（健康门限全过），但 deperr 一直 17–23 px，
     //   速度从 0.65 爬到 1.61 —— 输出的是"看起来连续、其实是错的"轨迹。
     //   好数据实测 1.3–4 px，坏数据 9–23 px，界线很清楚。
-    double deperr_degrade_px = 12.0;   // 近 2 s 深度一致性超过它 → DEGRADED（仍发布，标记不可信）
-    double deperr_lost_px = 15.0;      // 超过它并持续 deperr_lost_s → LOST（停止发布）
-                                       // 实测：好数据 1.3–4 px、run3 峰值 9.4、run4 全程 17–23
+    double deperr_degrade_px = 12.0;  // 近 2 s 深度一致性超过它 → DEGRADED（仍发布，标记不可信）
+    double deperr_lost_px = 15.0;     // 超过它并持续 deperr_lost_s → LOST（停止发布）
+                                      // 实测：好数据 1.3–4 px、run3 峰值 9.4、run4 全程 17–23
     double deperr_lost_s = 2.0;
 
     // 【2026-10-22】物理合理性保护（纯安全项，只会有正面效应）：
@@ -73,10 +73,10 @@ struct HealthConfig {
     // 13 秒从 0.13 涨到 5.92 m/s、位置飘 32.7 m，而这 13 秒里健康状态是 DEGRADED（照发）。
     // 这条是纯粹的"别信我"开关：泄漏超过 tilt_lost_deg 并持续 tilt_lost_s → 停发。
     // 参考刻度：倾角差 1° ↔ 0.17 m/s² 假加速度；5.7° ↔ 1 m/s²。
-    double tilt_degrade_deg = 5.0;   // 超过 → DEGRADED（仍发，标记不可信）
-    double tilt_lost_deg = 8.0;      // 超过并持续 tilt_lost_s → LOST（停发）
+    double tilt_degrade_deg = 5.0;  // 超过 → DEGRADED（仍发，标记不可信）
+    double tilt_lost_deg = 8.0;     // 超过并持续 tilt_lost_s → LOST（停发）
     double tilt_lost_s = 1.0;
-    double recover_after_s = 1.0;   // 恢复需要连续正常多久
+    double recover_after_s = 1.0;  // 恢复需要连续正常多久
 
     // 挂掉后恢复时是否重建估计器（否则只把状态改回 OK，轨迹会带着跑偏的状态）。
     // 默认关：重建是重操作，必须先确认阈值不会误报；实时程序用 --reinit-on-recover 打开。
@@ -98,9 +98,9 @@ struct HealthConfig {
     // 15-25s 的更新率从 3.10 掉到 1.60——增益太大会把状态推过头，然后更快再锁死。
     // 想复现就设 true（或改这里）。
     bool inflate_enable = false;
-    double inflate_after_s = 0.5;    // LOST 持续这么久就放大一次
-    double inflate_scale = 100.0;    // 方差放大倍数（sigma ×10）
-    int max_inflate_times = 3;       // 最多连续放大几次；还不行就交给 force_reinit 重建
+    double inflate_after_s = 0.5;  // LOST 持续这么久就放大一次
+    double inflate_scale = 100.0;  // 方差放大倍数（sigma ×10）
+    int max_inflate_times = 3;     // 最多连续放大几次；还不行就交给 force_reinit 重建
 
     // LOST 持续这么久还没自己恢复 → 强制重建估计器重新初始化。
     // 必须有这条：实测 session29 从 18 s 起特征还有 130~220 个，但 MSCKF 更新恒为 0，
@@ -112,35 +112,40 @@ struct HealthConfig {
 
 struct HealthReport {
     VioHealthState state = VioHealthState::UNKNOWN;
-    bool publishable = false;       // 是否应该把位姿发给飞控
-    int features = 0;               // 最近一帧的特征数
+    bool publishable = false;  // 是否应该把位姿发给飞控
+    int features = 0;          // 最近一帧的特征数
     bool updated_this_frame = false;
-    double since_update_s = 0.0;    // 距离上一次 MSCKF 更新多久
+    double since_update_s = 0.0;  // 距离上一次 MSCKF 更新多久
     double since_state_change_s = 0.0;
-    int recoveries = 0;             // 已经重初始化几次
-    int lost_count = 0;             // 进入 LOST 的次数
+    int recoveries = 0;  // 已经重初始化几次
+    int lost_count = 0;  // 进入 LOST 的次数
 };
 
 class HealthMonitor {
-public:
+  public:
     HealthMonitor() = default;
     explicit HealthMonitor(const HealthConfig& cfg);
 
     void configure(const HealthConfig& cfg);
-    const HealthConfig& config() const { return cfg_; }
+    const HealthConfig& config() const {
+        return cfg_;
+    }
 
     // 每来一帧相机调用一次。time_s 必须单调递增（相机时间域）。
     /// @param visual_updated 这一帧是否产生了**任意**视觉 EKF 更新（MSCKF 或 SLAM）。
     ///        注意：不要只传 MSCKF 的更新标志 —— max_slam>0 时只走 SLAM 的帧也是有效视觉信息。
     /// @param tilt_deg 准静止时刻"滤波器重力方向 vs 加速度计"的夹角（度）；<0 表示本帧测不准（在动）
-    void update(double time_s, int features, bool visual_updated, double deperr_px = -1.0,
-                double tilt_deg = -1.0);
+    void update(double time_s, int features, bool visual_updated, double deperr_px = -1.0, double tilt_deg = -1.0);
 
     /// 物理合理性违规时强制判失效（NaN/Inf 或速度超出物理上限）
     void mark_implausible(double time_s);
 
-    VioHealthState state() const { return state_; }
-    bool publishable() const { return state_ != VioHealthState::LOST && state_ != VioHealthState::UNKNOWN; }
+    VioHealthState state() const {
+        return state_;
+    }
+    bool publishable() const {
+        return state_ != VioHealthState::LOST && state_ != VioHealthState::UNKNOWN;
+    }
     HealthReport report(double now_s) const;
 
     // 恢复动作由上层执行（重建估计器 + 重锚定），执行完调用这个把状态切回 OK。
@@ -148,7 +153,7 @@ public:
 
     void reset();
 
-private:
+  private:
     HealthConfig cfg_;
     VioHealthState state_ = VioHealthState::UNKNOWN;
 
@@ -160,19 +165,19 @@ private:
 
     double start_time_ = -1.0;
     double last_time_ = -1.0;
-    double last_update_time_ = -1.0;   // 上一次真正的 MSCKF 更新
-    double bad_since_ = -1.0;          // 特征不足的起点
-    double bad_dep_since_ = -1.0;      // 深度一致性崩掉的起点
-    double bad_tilt_since_ = -1.0;     // 倾角差超限的起点
-    double good_since_ = -1.0;         // 恢复候选的起点
+    double last_update_time_ = -1.0;  // 上一次真正的 MSCKF 更新
+    double bad_since_ = -1.0;         // 特征不足的起点
+    double bad_dep_since_ = -1.0;     // 深度一致性崩掉的起点
+    double bad_tilt_since_ = -1.0;    // 倾角差超限的起点
+    double good_since_ = -1.0;        // 恢复候选的起点
     double state_changed_at_ = -1.0;
 
     int features_ = 0;
     bool updated_ = false;
     int recoveries_ = 0;
     int lost_count_ = 0;
-    bool physical_fault_ = false;      // 物理异常只能由估计器重建解除
-    bool need_recover_ = false;        // LOST 之后、尚未完成重建
+    bool physical_fault_ = false;  // 物理异常只能由估计器重建解除
+    bool need_recover_ = false;    // LOST 之后、尚未完成重建
 };
 
 }  // namespace pure_uav

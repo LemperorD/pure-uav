@@ -8,9 +8,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <string>
-
 #include <opencv2/core.hpp>
+#include <string>
 
 namespace ob {
 class Pipeline;
@@ -19,7 +18,7 @@ class Pipeline;
 namespace pure_uav {
 
 class OrbbecCamera {
-public:
+  public:
     struct Config {
         int width = 1920;
         int height = 1080;
@@ -49,24 +48,24 @@ public:
         // （同一间教室，晚上只有日间 1/8 的亮度，同一份代码直接发散）。
         // 可复现靠的是"飞行期间不动"，不是"永远用同一个数字"。
         bool auto_tune_exposure = true;
-        int tune_target_mean = 100;        // 目标灰度均值
-        int tune_min_mean = 45;            // 最好也只能到这以下 → 拒绝启动
+        int tune_target_mean = 100;  // 目标灰度均值
+        int tune_min_mean = 45;      // 最好也只能到这以下 → 拒绝启动
 
         // 【2026-10-21】曝光上限不再是拍脑袋的 15 ms，而是从运动模糊预算反推：
         //     blur_px = f * ω * t_exp
         // 实测（session29，18 ms 曝光）：模糊 >12 px 时 KLT 存活率掉到 55%，
         // >20 px 掉到 38%，而且 FAST 检出数也从 400 掉到 25——角点直接被糊没了。
         // 所以「曝光时长」必须是「预期角速度」的函数，不能写死。
-        double tune_blur_budget_px = 3.0;     // 允许的运动模糊上限（像素）
+        double tune_blur_budget_px = 3.0;       // 允许的运动模糊上限（像素）
         double tune_expected_rate_dps = 100.0;  // 预期飞行最大角速度（度/秒）
-        double tune_focal_px = 1367.5;        // 与 kalibr_imucam_chain.yaml 的 fx 一致
-        double tune_max_exposure_ms = 15.0;   // 绝对上限（帧周期以外再兜一层）
-        int tune_max_gain = 40;               // 增益上限：100 的噪声会把 KLT 拖死
+        double tune_focal_px = 1367.5;          // 与 kalibr_imucam_chain.yaml 的 fx 一致
+        double tune_max_exposure_ms = 15.0;     // 绝对上限（帧周期以外再兜一层）
+        int tune_max_gain = 40;                 // 增益上限：100 的噪声会把 KLT 拖死
         bool tune_allow_blur = false;
         // 【2026-10-25】禁止"光不够就把曝光放到现场光上限"。开了就严守模糊预算，
         // 画面会偏暗但更锐。用来做"锐 vs 亮"的 A/B。
-        bool tune_strict_blur = false;         // 明知会糊也继续（只用于排查）
-        bool tune_allow_dark = false;         // 测光不达标也硬飞（只用于排查）
+        bool tune_strict_blur = false;  // 明知会糊也继续（只用于排查）
+        bool tune_allow_dark = false;   // 测光不达标也硬飞（只用于排查）
 
         // 【2026-10-21】是否打开深度流（对齐到彩色）。深度给米制尺度，
         // 让单目 VIO 不再依赖平移视差 —— 直接补上和双目方案的架构差距。
@@ -84,9 +83,7 @@ public:
     // 两者之差 = 编码 + USB 传输 + 解码 + 排队 的整条链路延迟。
     // 它是否稳定，直接决定相机时间戳能不能当曝光时刻用（VIO 的时间基准）。
     /// depth_mm：对齐到彩色的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
-    using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm,
-                                             int64_t host_ns, int64_t device_us,
-                                             int64_t depth_device_us)>;
+    using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_device_us)>;
 
     OrbbecCamera();
     ~OrbbecCamera();
@@ -101,15 +98,17 @@ public:
     struct DepthInfo {
         double fx = 0, fy = 0, cx = 0, cy = 0;
         int width = 0, height = 0;
-        double t_mm[3] = {0.0, 0.0, 0.0};   // 彩色→深度 的平移（mm），已含 −Rᵀt
-        double R_c2d[9] = {1,0,0, 0,1,0, 0,0,1};  // 彩色→深度 旋转（行主序）
-        bool valid() const { return fx > 0 && width > 0; }
+        double t_mm[3] = {0.0, 0.0, 0.0};               // 彩色→深度 的平移（mm），已含 −Rᵀt
+        double R_c2d[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // 彩色→深度 旋转（行主序）
+        bool valid() const {
+            return fx > 0 && width > 0;
+        }
     };
     DepthInfo depthInfo() const;
 
     bool running() const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

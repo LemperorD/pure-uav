@@ -9,13 +9,12 @@
 
 #pragma once
 
+#include <Eigen/Dense>
 #include <cstdint>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <string>
 #include <vector>
-
-#include <Eigen/Dense>
-#include <opencv2/core.hpp>
 
 #include "pure_uav/vio_health.hpp"
 #include "pure_uav/vio_types.hpp"
@@ -25,7 +24,7 @@
 namespace pure_uav {
 
 class VioEstimator {
-public:
+  public:
     // VisionPose.timestamp_us 用哪个时刻：
     //   IMU   ：状态对应的 IMU 时间 = 相机时间 + timeshift_cam_imu。
     //           与 OpenVINS ROS 节点发布的 poseimu.header.stamp 一致（推荐）。
@@ -67,11 +66,11 @@ public:
         bool init_vel_zero = false;
 
         /// 静止判定阈值（只用于 init_vel_zero 的门限）
-        double init_still_acc_thresh = 0.30;     // ||a||-g 小于它算静
-        double init_still_gyro_dps = 10.0;       // |w| 中位小于它算静
+        double init_still_acc_thresh = 0.30;  // ||a||-g 小于它算静
+        double init_still_gyro_dps = 10.0;    // |w| 中位小于它算静
 
         /// 深度查询：算出"每帧最深处理时间"等统计时用（可空）
-        void *unused_pad = nullptr;
+        void* unused_pad = nullptr;
 
         // 静态初始化：要求先静止 init_window_time 秒，用静止段的加速度计均值定重力方向。
         // 动态初始化在运动窗口里分离加速度和重力，倾角误差通常 1~3°；
@@ -104,9 +103,7 @@ public:
 
     /// 【2026-10-21】喂一帧深度（毫米，深度相机坐标）。必须紧邻 feedImage 之前调用。
     /// 只在 Options::use_depth_init 打开时生效。
-    void setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx, double fy,
-                       double cx, double cy, const double R_c2d[9] = nullptr,
-                       const double t_c2d_m[3] = nullptr);
+    void setDepthImage(const cv::Mat& depth_mm, uint64_t timestamp_us, double fx, double fy, double cx, double cy, const double R_c2d[9] = nullptr, const double t_c2d_m[3] = nullptr);
 
     bool initialized() const;
 
@@ -136,9 +133,7 @@ public:
     // MSCKF 更新诊断：calls=更新调用次数，feat_in=进入更新的特征数，
     // chi2_rej=被卡方门限拒掉的数，updates=真正执行的更新次数，rows=压缩后残差行数。
     // 用来区分"没特征可用"和"有特征但全被门限拒了"。
-    void msckfStats(long long &calls, long long &feat_in, long long &chi2_rej,
-                    long long &updates, long long &rows,
-                    long long &clean_drop, long long &tri_drop) const;
+    void msckfStats(long long& calls, long long& feat_in, long long& chi2_rej, long long& updates, long long& rows, long long& clean_drop, long long& tri_drop) const;
     int imageCount() const;
     int poseCount() const;
     uint64_t lastPoseTimestampUs() const;
@@ -212,8 +207,7 @@ public:
     /// 没有样本时返回 -1。健康门限和状态行都用这个，不要再用均值。
     double recentDepthErrMedianPx(double now_s);
 
-
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
