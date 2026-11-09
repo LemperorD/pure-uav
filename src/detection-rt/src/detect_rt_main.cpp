@@ -19,9 +19,9 @@
 #include <thread>
 #include <vector>
 
-#include "pure_uav/detection/detection_types.hpp"
-#include "pure_uav/detection/detector.hpp"
-#include "pure_uav/detection/yolo_backend.hpp"
+#include "detection_types.hpp"
+#include "detector.hpp"
+#include "yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
 namespace {

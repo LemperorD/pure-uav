@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <stdexcept>
 
-#include "pure_uav/detection/input_quantization.hpp"
+#include "input_quantization.hpp"
 
 using namespace pure_uav::detection;
 namespace {

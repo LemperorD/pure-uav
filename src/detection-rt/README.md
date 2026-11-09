@@ -19,7 +19,7 @@ poll(FrameResult&) → to_target_sample() → flight::GuidanceTargetSample
 
 ```text
 src/detection-rt/
-├── include/pure_uav/detection/
+├── include/
 │   ├── detection_types.hpp   # FrameResult / DetectionBox（固定容量，实时无堆分配）
 │   ├── camera_source.hpp     # Orbbec 彩色采集接口
 │   ├── yolo_output.hpp       # NPU/CPU 共用的输出视图
@@ -52,17 +52,11 @@ src/detection-rt/
 | NPU 模型 | `assets/models/yolo26n.nb`（输入 640×640×3 uint8，输出 8400×4 + 8400×2） |
 | CPU 模型 | `assets/models/yolo26n.onnx`（输入 640×640×3 FP32） |
 
-构建开关 `PURE_DETECTION_BUILD`：
+后端自动选择，无需配置开关：
 
-- `AUTO`（默认）：依赖齐全才构建，缺依赖时打印 `STATUS` 并跳过，不影响其余 target；
-- `ON`：缺依赖直接 `FATAL_ERROR` 并列出缺项；
-- `OFF`：不构建。
-
-后端开关 `PURE_DETECTION_BACKEND`：
-
-- `AUTO`（默认）：优先 NPU（VIPLite）；**没有检测到 NPU 时自动改用 CPU（ONNX Runtime）**；
-- `NPU`：强制 NPU，缺 VIPLite 则按 `PURE_DETECTION_BUILD` 跳过/FATAL；
-- `CPU`：强制 CPU（ONNX Runtime），用于无 NPU 机器或对照测试。
+- 先探测 `vip_lite.h`、`libNBGlinker.so`、`libVIPhal.so`，齐全即用 NPU；
+- 缺任一项则改用 CPU（ONNX Runtime）；
+- OpenCV 4 / OrbbecSDK 缺失，或两种后端都不可用时跳过本模块，不影响其它 target。
 
 ## 3. 构建
 
@@ -75,14 +69,10 @@ src/detection-rt/
 手动构建：
 
 ```bash
-# 默认 AUTO：有 NPU 用 NPU；没有 NPU 自动用 CPU
+# 有 NPU 用 NPU；没有 NPU 自动用 CPU
 env -u LD_LIBRARY_PATH -u LD_PRELOAD \
   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 env -u LD_LIBRARY_PATH -u LD_PRELOAD cmake --build build -j8
-
-# 在本机强制 CPU 对照（建议单独 checkout，或切换前清掉共享产物）
-env -u LD_LIBRARY_PATH -u LD_PRELOAD \
-  cmake -S . -B build_cpu -DCMAKE_BUILD_TYPE=Release -DPURE_DETECTION_BACKEND=CPU
 ```
 
 产物：
@@ -163,18 +153,18 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 - `--replace` 会先执行 `sudo fuser -k 8080/tcp`，停掉占用端口的旧 mjpg-streamer；
   若已手动停掉可省略。
 - 其余参数会原样传给 `detect_rt`，例如：
+
   ```bash
   ./scripts/start_detection_stream.sh --replace --conf 0.3 --camera 640x480@60
   ```
+
 - 按 `Ctrl-C` 会同时停止 `detect_rt` 与脚本启动的 mjpg-streamer。
 
 脚本内部做两件事：
 
-1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，
-   等它写出第一帧；
-2. 再启动 mjpg-streamer
-   `input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
-   + `output_http.so -p 8080`。
+1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，等它写出第一帧；
+2. 再启动 mjpg-streamer`input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
+   - `output_http.so -p 8080`。
 
 `detect_rt` 先把带框图写成 `frame_tmp.bin`，再原子 `rename` 成 `frame.jpg`；
 临时文件故意不用 `.jpg` 扩展名，`input_file --existing` 扫描目录时不会把它当成视频帧。
@@ -208,8 +198,8 @@ pkill -f "output_http.so -p 8080"
 ## 5. 库接口
 
 ```cpp
-#include "pure_uav/detection/detector.hpp"
-#include "pure_uav/detection/target_bridge.hpp"
+#include "detector.hpp"
+#include "target_bridge.hpp"
 
 pure_uav::detection::DetectorConfig cfg;
 cfg.model_path = "assets/models/yolo26n.nb";   // CPU 版改成 yolo26n.onnx

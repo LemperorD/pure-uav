@@ -2,8 +2,8 @@
 #include <string>
 
 #include "communicator.hpp"
+#include "detection_runtime.hpp"
 #include "orbbec_camera.hpp"
-#include "pure_uav/detection/detection_runtime.hpp"
 #include "pure_uav/vio_runtime.hpp"
 
 namespace pure_uav::app {

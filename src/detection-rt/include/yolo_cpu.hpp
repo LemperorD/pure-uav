@@ -6,7 +6,7 @@
 #include <opencv2/core.hpp>
 #include <string>
 
-#include "pure_uav/detection/yolo_output.hpp"
+#include "yolo_output.hpp"
 
 namespace pure_uav::detection {
 

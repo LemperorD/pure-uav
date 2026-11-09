@@ -2,8 +2,8 @@
 // 检测后处理：解码 channel-major / anchor-major 两种输出布局 + 逐类 NMS。
 // 内部头文件（不对外安装），只被 detection_rt 使用。
 
-#include "pure_uav/detection/detection_types.hpp"
-#include "pure_uav/detection/yolo_output.hpp"
+#include "detection_types.hpp"
+#include "yolo_output.hpp"
 
 namespace pure_uav::detection {
 

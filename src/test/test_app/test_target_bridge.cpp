@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <stdexcept>
 
-#include "pure_uav/detection/target_bridge.hpp"
+#include "target_bridge.hpp"
 
 using namespace pure_uav;
 namespace {

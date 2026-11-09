@@ -1,4 +1,4 @@
-#include "pure_uav/detection/input_quantization.hpp"
+#include "input_quantization.hpp"
 
 #include <algorithm>
 #include <cmath>

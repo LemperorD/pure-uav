@@ -1,255 +1,124 @@
-# 推理后端：
-#   AUTO（默认）优先 NPU（VIPLite），找不到 NPU 依赖时自动改用 CPU（ONNX Runtime）
-#   NPU / CPU  强制指定后端
-#
-# PURE_DETECTION_BUILD：
-#   AUTO  依赖不全时跳过，整仓库仍可编译
-#   ON    依赖不全时 FATAL_ERROR 并列出缺项
-#   OFF   不构建
-
-set(PURE_DETECTION_BUILD "AUTO" CACHE STRING
-    "Build detection module: AUTO / ON / OFF")
-set_property(CACHE PURE_DETECTION_BUILD PROPERTY STRINGS AUTO ON OFF)
-string(TOUPPER "${PURE_DETECTION_BUILD}" _det_build)
-
-set(PURE_DETECTION_BACKEND "AUTO" CACHE STRING
-    "Inference backend: AUTO / NPU / CPU")
-set_property(CACHE PURE_DETECTION_BACKEND PROPERTY STRINGS AUTO NPU CPU)
-string(TOUPPER "${PURE_DETECTION_BACKEND}" _det_backend)
-
-if(_det_build STREQUAL "OFF")
-    message(STATUS "detection-rt: PURE_DETECTION_BUILD=OFF，跳过")
-    return()
-endif()
-
-function(_det_report_missing)
-    if(_det_build STREQUAL "ON")
-        string(REPLACE ";" "\n  - " _missing_str "${_det_missing}")
-        message(FATAL_ERROR
-            "detection-rt: 缺少以下依赖（PURE_DETECTION_BUILD=ON）：\n  - ${_missing_str}")
-    else()
-        message(STATUS "detection-rt: 依赖不全，跳过构建：${_det_missing}")
-    endif()
-endfunction()
-
-# 公共依赖：OpenCV + 仓库内 OrbbecSDK
-set(_det_missing "")
+# detection-rt：先探测 VIPLite，齐全则用 NPU，否则用 ONNX Runtime target。 产物：detection_rt
+# 静态库、detect_rt 命令行调试程序。 公共依赖：OpenCV 4 与仓库内按架构分目录的 OrbbecSDK。
 find_package(OpenCV 4 QUIET)
-if(NOT OpenCV_FOUND)
-    list(APPEND _det_missing "OpenCV 4（find_package(OpenCV 4) 失败）")
-endif()
-
-set(_orb_root "${CMAKE_SOURCE_DIR}/src/driver/orbbec")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-    set(_orb_arch x86_64)
+  set(_det_arch x86_64)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-    set(_orb_arch aarch64)
+  set(_det_arch aarch64)
 else()
-    set(_orb_arch "${CMAKE_SYSTEM_PROCESSOR}")
+  set(_det_arch "${CMAKE_SYSTEM_PROCESSOR}")
 endif()
-set(_orb_lib_dir "${_orb_root}/lib/${_orb_arch}")
-if(NOT EXISTS "${_orb_root}/include/libobsensor/ObSensor.hpp")
-    list(APPEND _det_missing "OrbbecSDK 头文件 ${_orb_root}/include/libobsensor/ObSensor.hpp")
-endif()
-if(NOT EXISTS "${_orb_lib_dir}/libOrbbecSDK.so")
-    list(APPEND _det_missing "OrbbecSDK 库 ${_orb_lib_dir}/libOrbbecSDK.so")
-endif()
-
-if(_det_missing)
-    _det_report_missing()
-    return()
+set(_det_orb_root "${CMAKE_SOURCE_DIR}/src/driver/orbbec")
+set(_det_orb_lib "${_det_orb_root}/lib/${_det_arch}")
+if(NOT OpenCV_FOUND
+   OR NOT EXISTS "${_det_orb_root}/include/libobsensor/ObSensor.hpp"
+   OR NOT EXISTS "${_det_orb_lib}/libOrbbecSDK.so")
+  message(STATUS "detection-rt: 缺少 OpenCV / OrbbecSDK，跳过")
+  return()
 endif()
 
-# NPU 依赖：VIPLite
-set(_npu_missing "")
+# 后端选择：NPU 优先，三件套缺任一项就退回 CPU。
 find_path(VIP_LITE_INCLUDE_DIR vip_lite.h)
-if(NOT VIP_LITE_INCLUDE_DIR)
-    list(APPEND _npu_missing "vip_lite.h（全志 VIPLite 开发头，通常在 /usr/include）")
-endif()
-
-find_library(NBGLINKER_LIBRARY NAMES NBGlinker
-             PATHS /lib /usr/lib /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu
-                   /usr/lib64 /lib64
-             NO_DEFAULT_PATH)
-if(NOT NBGLINKER_LIBRARY)
-    find_library(NBGLINKER_LIBRARY NAMES NBGlinker)
-endif()
-if(NOT NBGLINKER_LIBRARY)
-    list(APPEND _npu_missing "libNBGlinker.so")
-endif()
-
-find_library(VIPHAL_LIBRARY NAMES VIPhal
-             PATHS /lib /usr/lib /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu
-                   /usr/lib64 /lib64
-             NO_DEFAULT_PATH)
-if(NOT VIPHAL_LIBRARY)
-    find_library(VIPHAL_LIBRARY NAMES VIPhal)
-endif()
-if(NOT VIPHAL_LIBRARY)
-    list(APPEND _npu_missing "libVIPhal.so")
-endif()
-
-# CPU 依赖：ONNX Runtime
-set(_ort_root "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime")
-set(_ort_vendor_lib "")
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-    set(_ort_vendor_lib "${_ort_root}/lib/aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-    # x86_64 上没有就退回系统已装的 ONNX Runtime。
-    set(_ort_vendor_lib "${_ort_root}/lib/x86_64")
-endif()
-set(_cpu_missing "")
-# 头文件：优先 vendored（与 aarch64 一致、版本匹配），再退系统 find_path
-if(EXISTS "${_ort_root}/include/onnxruntime_cxx_api.h")
-    set(ORT_INCLUDE_DIR "${_ort_root}/include")
+find_library(NBGLINKER_LIBRARY NAMES NBGlinker)
+find_library(VIPHAL_LIBRARY NAMES VIPhal)
+if(VIP_LITE_INCLUDE_DIR
+   AND NBGLINKER_LIBRARY
+   AND VIPHAL_LIBRARY)
+  set(_det_backend NPU)
 else()
+  set(_det_backend CPU)
+  set(_det_ort_root "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime")
+
+  # 头文件优先用仓库内版本，与板端保持一致。
+  if(EXISTS "${_det_ort_root}/include/onnxruntime_cxx_api.h")
+    set(ORT_INCLUDE_DIR "${_det_ort_root}/include")
+  else()
     find_path(ORT_INCLUDE_DIR onnxruntime_cxx_api.h)
-    if(NOT ORT_INCLUDE_DIR)
-        list(APPEND _cpu_missing "onnxruntime_cxx_api.h（ONNX Runtime 开发头）")
-    endif()
-endif()
-# 库：优先 vendored 目录里的 .so，没有则退系统 find_library
-if(_ort_vendor_lib AND EXISTS "${_ort_vendor_lib}/libonnxruntime.so")
-    set(ORT_LIBRARY "${_ort_vendor_lib}/libonnxruntime.so")
-else()
-    find_library(ORT_LIBRARY NAMES onnxruntime)
-    if(NOT ORT_LIBRARY)
-        file(GLOB _ort_cands
-            /usr/lib/x86_64-linux-gnu/libonnxruntime.so.*
-            /usr/lib64/libonnxruntime.so.*
-            /usr/lib/libonnxruntime.so.*)
-        foreach(_c ${_ort_cands})
-            if(_c MATCHES "\\.so\\.[0-9]+$")
-                set(ORT_LIBRARY "${_c}")
-                break()
-            endif()
-        endforeach()
-        if(NOT ORT_LIBRARY AND _ort_cands)
-            list(GET _ort_cands 0 ORT_LIBRARY)
-        endif()
-    endif()
-    if(NOT ORT_LIBRARY)
-        list(APPEND _cpu_missing "libonnxruntime.so")
-    endif()
-endif()
+  endif()
 
-# 选择后端
-set(_det_missing "")
-if(_det_backend STREQUAL "AUTO")
-    if(NOT _npu_missing)
-        set(_det_backend_resolved NPU)
-    elseif(NOT _cpu_missing)
-        message(STATUS "detection-rt: 未检测到 NPU，自动改用 CPU（ONNX Runtime）")
-        set(_det_backend_resolved CPU)
+  # 发行版常只装 libonnxruntime.so.1.23 这类带版本号的库， find_library 找不到，故先用 GLOB 枚举候选。
+  set(_det_ort_vendor "${_det_ort_root}/lib/${_det_arch}/libonnxruntime.so")
+  if(EXISTS "${_det_ort_vendor}")
+    set(ORT_LIBRARY "${_det_ort_vendor}")
+  else()
+    file(GLOB _det_ort_cands
+         /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu/libonnxruntime.so.*
+         /usr/lib64/libonnxruntime.so.* /usr/lib/libonnxruntime.so.*)
+    if(_det_ort_cands)
+      list(GET _det_ort_cands 0 ORT_LIBRARY)
     else()
-        foreach(_m ${_npu_missing})
-            list(APPEND _det_missing "NPU 后端: ${_m}")
-        endforeach()
-        foreach(_m ${_cpu_missing})
-            list(APPEND _det_missing "CPU 后端: ${_m}")
-        endforeach()
+      find_library(ORT_LIBRARY NAMES onnxruntime)
     endif()
-elseif(_det_backend STREQUAL "NPU")
-    set(_det_missing ${_npu_missing})
-    set(_det_backend_resolved NPU)
-elseif(_det_backend STREQUAL "CPU")
-    set(_det_missing ${_cpu_missing})
-    set(_det_backend_resolved CPU)
-else()
-    message(FATAL_ERROR
-        "detection-rt: PURE_DETECTION_BACKEND 必须是 AUTO / NPU / CPU，当前: ${PURE_DETECTION_BACKEND}")
+  endif()
+
+  if(NOT ORT_INCLUDE_DIR OR NOT ORT_LIBRARY)
+    message(
+      FATAL_ERROR
+        "detection-rt: NPU 与 CPU 后端均不可用，停止构建。"
+        "需要 VIPLite(vip_lite.h / NBGlinker / VIPhal) 或 ONNX Runtime；"
+        "ORT_INCLUDE_DIR=${ORT_INCLUDE_DIR}, ORT_LIBRARY=${ORT_LIBRARY}")
+  endif()
 endif()
 
-if(_det_missing)
-    _det_report_missing()
-    return()
-endif()
+message(STATUS "detection-rt: backend=${_det_backend}")
 
-if(_det_backend_resolved STREQUAL "NPU")
-    message(STATUS "detection-rt: backend=NPU; OpenCV ${OpenCV_VERSION}; "
-                   "VIPLite ${VIP_LITE_INCLUDE_DIR}; Orbbec ${_orb_lib_dir}")
+# 后端无关源文件，再按后端追加推理实现。
+set(_det_sources src/camera_source.cpp src/yolo_postprocess.cpp
+                 src/detector.cpp src/target_bridge.cpp)
+if(_det_backend STREQUAL "NPU")
+  list(APPEND _det_sources src/yolo_npu.cpp third_party/awnn/awnn_lib.c
+       third_party/awnn/awnn_quantize.c)
 else()
-    message(STATUS "detection-rt: backend=CPU; OpenCV ${OpenCV_VERSION}; "
-                   "ONNX Runtime ${ORT_LIBRARY}; Orbbec ${_orb_lib_dir}")
-endif()
-
-# 库
-set(_det_sources
-    src/camera_source.cpp
-    src/yolo_postprocess.cpp
-    src/detector.cpp
-    src/target_bridge.cpp
-)
-if(_det_backend_resolved STREQUAL "NPU")
-    list(APPEND _det_sources
-        src/yolo_npu.cpp
-        third_party/awnn/awnn_lib.c
-        third_party/awnn/awnn_quantize.c
-    )
-else()
-    list(APPEND _det_sources src/yolo_cpu.cpp)
+  list(APPEND _det_sources src/yolo_cpu.cpp)
 endif()
 
 add_library(detection_rt STATIC ${_det_sources})
+set_target_properties(
+  detection_rt
+  PROPERTIES C_STANDARD 11
+             C_STANDARD_REQUIRED ON
+             POSITION_INDEPENDENT_CODE ON)
 
-set_target_properties(detection_rt PROPERTIES
-    C_STANDARD 11
-    C_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-)
+# PUBLIC 会传递给链接者；PRIVATE 只用于本库内部编译。
+target_include_directories(
+  detection_rt
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+         ${CMAKE_SOURCE_DIR}/src/guidance/flight
+         ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
+         ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-target_include_directories(detection_rt
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/guidance/flight
-        ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
-        ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-if(_det_backend_resolved STREQUAL "NPU")
-    target_include_directories(detection_rt PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/awnn
-        ${VIP_LITE_INCLUDE_DIR}
-    )
-    target_link_libraries(detection_rt PRIVATE
-        ${NBGLINKER_LIBRARY}
-        ${VIPHAL_LIBRARY}
-    )
-    target_compile_definitions(detection_rt PUBLIC PURE_DETECTION_BACKEND_NPU=1)
+# 后端宏必须是 PUBLIC：公开头 yolo_backend.hpp 靠它选 YoloBackend 别名。
+if(_det_backend STREQUAL "NPU")
+  target_include_directories(
+    detection_rt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/awnn
+                         ${VIP_LITE_INCLUDE_DIR})
+  target_link_libraries(detection_rt PRIVATE ${NBGLINKER_LIBRARY}
+                                             ${VIPHAL_LIBRARY})
+  target_compile_definitions(detection_rt PUBLIC PURE_DETECTION_BACKEND_NPU=1)
 else()
-    target_include_directories(detection_rt PRIVATE ${ORT_INCLUDE_DIR})
-    target_link_libraries(detection_rt PRIVATE ${ORT_LIBRARY})
-    target_compile_definitions(detection_rt PUBLIC PURE_DETECTION_BACKEND_CPU=1)
+  target_include_directories(detection_rt PRIVATE ${ORT_INCLUDE_DIR})
+  target_link_libraries(detection_rt PRIVATE ${ORT_LIBRARY})
+  target_compile_definitions(detection_rt PUBLIC PURE_DETECTION_BACKEND_CPU=1)
 endif()
 
-target_link_libraries(detection_rt
-    PUBLIC
-        ${OpenCV_LIBS}
-    PRIVATE
-        OrbbecSDK
-        pthread
-        m
-)
+# OpenCV 出现在公开头里，故 PUBLIC；其余只在本库实现里用。
+target_link_libraries(
+  detection_rt
+  PUBLIC ${OpenCV_LIBS}
+  PRIVATE OrbbecSDK pthread m)
 
-# 命令行程序
-add_executable(detect_rt
-    src/detect_rt_main.cpp
-)
-target_link_libraries(detect_rt
-    PRIVATE
-        detection_rt
-)
+add_executable(detect_rt src/detect_rt_main.cpp)
+target_link_libraries(detect_rt PRIVATE detection_rt)
 
-# RPATH：OrbbecSDK；CPU 后端再加 ONNX Runtime 目录
-set(_det_rpath "${_orb_lib_dir}")
-if(_det_backend_resolved STREQUAL "CPU")
-    get_filename_component(_ort_lib_dir "${ORT_LIBRARY}" DIRECTORY)
-    list(APPEND _det_rpath "${_ort_lib_dir}")
+# 把 .so 目录写进可执行程序，运行时不必设置 LD_LIBRARY_PATH。
+set(_det_rpath "${_det_orb_lib}")
+if(_det_backend STREQUAL "CPU")
+  get_filename_component(_det_ort_lib_dir "${ORT_LIBRARY}" DIRECTORY)
+  list(APPEND _det_rpath "${_det_ort_lib_dir}")
 endif()
-set_target_properties(detect_rt PROPERTIES
-    BUILD_RPATH "${_det_rpath}"
-    INSTALL_RPATH "${_det_rpath}"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
-)
+set_target_properties(
+  detect_rt
+  PROPERTIES BUILD_RPATH "${_det_rpath}"
+             INSTALL_RPATH "${_det_rpath}"
+             INSTALL_RPATH_USE_LINK_PATH TRUE)

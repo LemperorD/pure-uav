@@ -1,4 +1,4 @@
-#include "pure_uav/detection/detection_runtime.hpp"
+#include "detection_runtime.hpp"
 
 #include <atomic>
 #include <chrono>

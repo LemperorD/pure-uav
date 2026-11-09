@@ -1,5 +1,6 @@
 // VIPLite/awnn 推理后端实现；NBG 输入/输出布局见同目录 README。
-#include "pure_uav/detection/yolo_npu.hpp"
+#ifdef PURE_DETECTION_BACKEND_NPU
+#include "yolo_npu.hpp"
 
 #include <unistd.h>
 #include <vip_lite.h>
@@ -426,3 +427,4 @@ void YoloNpu::release() {
 
 }  // namespace detection
 }  // namespace pure_uav
+#endif  // PURE_DETECTION_BACKEND_NPU

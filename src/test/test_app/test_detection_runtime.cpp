@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include "pure_uav/detection/detection_runtime.hpp"
+#include "detection_runtime.hpp"
 
 using namespace pure_uav;
 using namespace pure_uav::detection;
