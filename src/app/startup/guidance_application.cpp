@@ -345,7 +345,7 @@ std::string check_range(const char* key, double v, double lo, double hi, bool lo
     }
     char buf[160];
     std::snprintf(buf, sizeof(buf), "%s 超出范围：%.6g（要求 %s%.6g, %.6g%s）", key, v, lo_open ? "(" : "[", lo, hi, hi_open ? ")" : "]");
-    return std::string(buf);
+    return {buf};
 }
 
 // ---------------------------------------------------------------- CLI

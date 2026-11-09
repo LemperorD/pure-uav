@@ -19,12 +19,16 @@ int64_t nowNs() {
 }
 void check(bool condition, const char* reason) {
     ++checks;
-    if (!condition) throw std::runtime_error(reason);
+    if (!condition) {
+        throw std::runtime_error(reason);
+    }
 }
 template <class Predicate>
 void waitFor(Predicate predicate, const char* reason) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (!predicate() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (!predicate() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     check(predicate(), reason);
 }
 EncodedColorFrame makeFrame(uint64_t seq, unsigned char value = 10) {
@@ -49,7 +53,7 @@ class TestBackend final : public InferenceBackend {
   public:
     explicit TestBackend(std::shared_ptr<EngineState> state) : state_(std::move(state)) {
     }
-    bool load(const RuntimeConfig&, std::string&) override {
+    bool load(const RuntimeConfig& /*config*/, std::string& /*error*/) override {
         return true;
     }
     bool infer(const cv::Mat& bgr, FrameResult& result, std::string& error) override {
@@ -79,17 +83,17 @@ class TestBackend final : public InferenceBackend {
     std::shared_ptr<EngineState> state_;
 };
 void hold(const std::shared_ptr<EngineState>& state) {
-    std::lock_guard<std::mutex> lock(state->mutex);
+    std::scoped_lock lock(state->mutex);
     state->hold = true;
     state->entered = false;
     state->released = false;
 }
 bool entered(const std::shared_ptr<EngineState>& state) {
-    std::lock_guard<std::mutex> lock(state->mutex);
+    std::scoped_lock lock(state->mutex);
     return state->entered;
 }
 void release(const std::shared_ptr<EngineState>& state) {
-    std::lock_guard<std::mutex> lock(state->mutex);
+    std::scoped_lock lock(state->mutex);
     state->released = true;
     state->hold = false;
     state->cv.notify_all();

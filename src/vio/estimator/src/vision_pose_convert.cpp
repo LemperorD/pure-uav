@@ -14,7 +14,7 @@ Eigen::Vector3d horizontalUnit(const Eigen::Vector3d& v) {
     Eigen::Vector3d h(v.x(), v.y(), 0.0);
     const double n = h.norm();
     if (n < 1e-6) {
-        return Eigen::Vector3d(1.0, 0.0, 0.0);
+        return {1.0, 0.0, 0.0};
     }
     return h / n;
 }
@@ -65,7 +65,7 @@ VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3
     const Eigen::Matrix3d R_BtoL = R_GtoL * R_BtoG;
 
     const Eigen::Vector3d p_BinG = p_IinG + R_ItoG * options_.t_imu_body;
-    const Eigen::Vector3d v_BinG = v_IinG + R_ItoG * (omega_I.cross(options_.t_imu_body));
+    const Eigen::Vector3d v_BinG = v_IinG + R_ItoG * omega_I.cross(options_.t_imu_body);
 
     const Eigen::Vector3d p_BinL = R_GtoL * (p_BinG - p_B0inG_);
     const Eigen::Vector3d v_BinB = R_GtoB * v_BinG;

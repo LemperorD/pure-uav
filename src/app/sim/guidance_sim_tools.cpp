@@ -326,11 +326,10 @@ bool GuidanceCsvReplaySource::advance() {
 }
 
 bool GuidanceCsvReplaySource::poll(flight::GuidanceInsSample& out) {
-    if (!have_row_ || (served_ins_ && served_tgt_)) {
-        if (!advance()) {
-            return false;
-        }
+    if ((!have_row_ || (served_ins_ && served_tgt_)) && (!advance())) {
+        return false;
     }
+
     served_ins_ = true;
     if (!row_.ins_new) {
         return false;
@@ -340,11 +339,10 @@ bool GuidanceCsvReplaySource::poll(flight::GuidanceInsSample& out) {
 }
 
 bool GuidanceCsvReplaySource::poll(flight::GuidanceTargetSample& out) {
-    if (!have_row_ || (served_ins_ && served_tgt_)) {
-        if (!advance()) {
-            return false;
-        }
+    if ((!have_row_ || (served_ins_ && served_tgt_)) && (!advance())) {
+        return false;
     }
+
     served_tgt_ = true;
     if (!row_.tgt_new) {
         return false;
