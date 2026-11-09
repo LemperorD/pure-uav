@@ -261,7 +261,7 @@ void VioEstimator::feedImu(const ImuSample& imu) {
     impl_->last_gyro = msg.wm;
     impl_->last_accel = msg.am;
     impl_->acc_norm_hist.push_back(msg.am.norm());
-    impl_->gyr_norm_hist.push_back(msg.wm.norm());                               // 初始化静止判定用
+    impl_->gyr_norm_hist.push_back(msg.wm.norm());  // 初始化静止判定用
     while (impl_->acc_norm_hist.size() > 400) {
         impl_->acc_norm_hist.pop_front();  // 2 s @200Hz
     }
@@ -443,12 +443,10 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // 再走下面的 force_reinit 重建（那条路要重新初始化，约 8 秒）。
         if (st != VioHealthState::LOST) {
             impl_->inflate_count = 0;
-        } else if (impl_->opt.health.inflate_enable && impl_->lost_since >= 0.0 && impl_->inflate_count < impl_->opt.health.max_inflate_times && (ts - impl_->last_inflate_time) > impl_->opt.health.inflate_after_s) {
-            if (impl_->vio->inflate_covariance(impl_->opt.health.inflate_scale)) {
-                impl_->last_inflate_time = ts;
-                ++impl_->inflate_count;
-                impl_->logAlways("[VIO] 卡方锁死：协方差放大 ×%.0f 自救（第 %d/%d 次）\n", impl_->opt.health.inflate_scale, impl_->inflate_count, impl_->opt.health.max_inflate_times);
-            }
+        } else if ((impl_->opt.health.inflate_enable && impl_->lost_since >= 0.0 && impl_->inflate_count < impl_->opt.health.max_inflate_times && (ts - impl_->last_inflate_time) > impl_->opt.health.inflate_after_s) && impl_->vio->inflate_covariance(impl_->opt.health.inflate_scale)) {
+            impl_->last_inflate_time = ts;
+            ++impl_->inflate_count;
+            impl_->logAlways("[VIO] 卡方锁死：协方差放大 ×%.0f 自救（第 %d/%d 次）\n", impl_->opt.health.inflate_scale, impl_->inflate_count, impl_->opt.health.max_inflate_times);
         }
 
         // 触发重建的两种情形：
@@ -471,12 +469,11 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         //=====================================================================
         const bool rebuild_still = init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, 0.5, 10.0);
         const bool can_rebuild = impl_->latched && rebuild_still && (impl_->last_rebuild_time < 0.0 || ts - impl_->last_rebuild_time > impl_->opt.health.min_rebuild_interval_s);
-        if ((soft || force) && impl_->latched && !rebuild_still) {
-            // 每 2 s 提示一次，别刷屏
-            if (ts - impl_->last_still_remind > 2.0) {
-                impl_->last_still_remind = ts;
-                impl_->logAlways("[VIO] LOST 需要重锚定，但当前在动（|w|=%.1f°/s）→ 先停稳再恢复\n", median_of(impl_->gyr_norm_hist) * 180.0 / M_PI);
-            }
+        if (((soft || force) && impl_->latched && !rebuild_still) && (ts - impl_->last_still_remind > 2.0))
+        // 每 2 s 提示一次，别刷屏
+        {
+            impl_->last_still_remind = ts;
+            impl_->logAlways("[VIO] LOST 需要重锚定，但当前在动（|w|=%.1f°/s）→ 先停稳再恢复\n", median_of(impl_->gyr_norm_hist) * 180.0 / M_PI);
         }
 
         if (impl_->opt.health.reinit_on_recover && (soft || force) && can_rebuild) {

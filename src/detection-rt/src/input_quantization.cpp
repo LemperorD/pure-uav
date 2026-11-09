@@ -37,7 +37,7 @@ bool buildInputLut(InputElement element, InputQuantization quantization, float s
             continue;
         }
         const float normalized = static_cast<float>(pixel) / 255.0f;
-        const float value = quantization == InputQuantization::asymmetric ? normalized / scale + static_cast<float>(zero_point) : std::ldexp(normalized, fixed_point);
+        const float value = quantization == InputQuantization::asymmetric ? (normalized / scale) + static_cast<float>(zero_point) : std::ldexp(normalized, fixed_point);
         const float bounded = std::clamp(std::round(value), signed_input ? -128.0f : 0.0f, signed_input ? 127.0f : 255.0f);
         next[static_cast<size_t>(pixel)] = static_cast<uint8_t>(static_cast<int>(bounded));
     }

@@ -520,7 +520,7 @@ int main(int argc, char** argv) {
                             }
                         }
                     }
-                    const auto total = static_cast<size_t>((depth_mm.rows / 8 + 1) * (depth_mm.cols / 8 + 1));
+                    const auto total = static_cast<size_t>(((depth_mm.rows / 8) + 1) * ((depth_mm.cols / 8) + 1));
                     depth_valid_ratio = total ? static_cast<double>(vals.size()) / total : 0.0;
                     if (!vals.empty()) {
                         std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
@@ -729,7 +729,7 @@ int main(int argc, char** argv) {
                 }
             }
             std::fflush(stdout);
-            rec_thread = std::thread([&]() {
+            rec_thread = std::thread([&] {
                 const std::vector<int> png_params{cv::IMWRITE_PNG_COMPRESSION, 1};
                 while (true) {
                     std::tuple<cv::Mat, cv::Mat, uint64_t> item_frame;
@@ -771,7 +771,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::thread vio_thread([&]() {
+    std::thread vio_thread([&] {
         pure_uav::FcuClock clock;
         std::optional<FrameItem> pending;
         pure_uav::ImuTimestampFilter imu_timestamp_filter;

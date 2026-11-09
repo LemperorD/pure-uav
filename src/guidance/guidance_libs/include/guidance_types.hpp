@@ -66,10 +66,10 @@ struct GuidanceState {
 
 // 制导模式
 enum class PureGuidanceMode {
-    PN,     // 比例导引
-    APN,    // 增广比例导引
-    HOLD,   // 末端冻结（t_go 过小，保持上一帧指令）
-    SEARCH  // 目标丢失（输出零指令）
+    PN,      // 比例导引
+    APN,     // 增广比例导引
+    HOLD,    // 末端冻结（t_go 过小，保持上一帧指令）
+    SEARCH,  // 目标丢失（输出零指令）
 };
 
 // 制导输出，字段对齐《输出数据字典.md》
@@ -109,8 +109,8 @@ struct GuidanceMemory {
 
 enum class GuidanceLaw {
     PPN,  // 纯比例导引：a = N·(ω × v_M)
-    TPN,  // 真比例导引：a = N·Vc·(ω × û)
-    APN   // 增广比例导引：a = N·Vc·(ω × û) + (N/2)·a_T⊥
+    TPN,
+    APN,  // 增广比例导引：a = N·Vc·(ω × û) + (N/2)·a_T⊥
 };
 
 // 视线角速率 ω 的来源 —— 两套算法，用 GuidanceParams::los_rate_source 切换。
@@ -123,14 +123,14 @@ enum class LosRateSource {
     // B）真机法（真机用）：ω = û × (dû/dt)，视线方向时序差分。
     //     只需要 û 的历史（存在 GuidanceMemory）+ 自身速度，不需要 v_T / R。
     //     注意：差分会放大噪声，真机通常需再滤波。
-    FROM_LOS_DIFFERENCE
+    FROM_LOS_DIFFERENCE,
 };
 
 // 末端冻结判据；公式/等价关系/默认值见 assets/docs/decisions/0004-freeze-criterion.md。
 enum class FreezeCriterion {
-    BY_TGO,          // 剩余时间 t_go < t_go_freeze（默认）
-    BY_RANGE,        // 剩余距离 R < R_freeze
-    BY_TGO_OR_RANGE  // 任一满足即冻结（R 兜底）
+    BY_TGO,           // 剩余时间 t_go < t_go_freeze（默认）
+    BY_RANGE,         // 剩余距离 R < R_freeze
+    BY_TGO_OR_RANGE,  // 任一满足即冻结（R 兜底）
 };
 
 struct GuidanceParams {
