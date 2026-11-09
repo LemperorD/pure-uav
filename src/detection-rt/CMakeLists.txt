@@ -52,8 +52,11 @@ else()
   endif()
 
   if(NOT ORT_INCLUDE_DIR OR NOT ORT_LIBRARY)
-    message(STATUS "detection-rt: NPU 与 ONNX Runtime 均不可用，跳过")
-    return()
+    message(
+      FATAL_ERROR
+        "detection-rt: NPU 与 CPU 后端均不可用，停止构建。"
+        "需要 VIPLite(vip_lite.h / NBGlinker / VIPhal) 或 ONNX Runtime；"
+        "ORT_INCLUDE_DIR=${ORT_INCLUDE_DIR}, ORT_LIBRARY=${ORT_LIBRARY}")
   endif()
 endif()
 
