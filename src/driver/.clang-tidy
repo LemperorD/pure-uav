@@ -1,9 +1,1 @@
-# driver/ 及其中 vendored 的 mavlink 头不参与静态检查，也不参与
-# run-clang-tidy -fix/-format，避免 --fix 改写第三方/packed 结构体代码导致编译失败。
-# clang-tidy 取"距离源文件最近的 .clang-tidy"，不继承父目录配置。
-#
-# 注意：不能用 Checks: '-*'（空检查集会让 clang-tidy 报 "no checks enabled" 并
-# 返回非零，run-clang-tidy 未带 -allow-no-checks 时整条命令失败）。
-# readability-identifier-naming 在未配置任何 CheckOptions 时不产生任何诊断或
-# fix，等价于"启用检查但零输出"，既满足非空检查集又不会改动任何代码。
 Checks: '-*,readability-identifier-naming'
