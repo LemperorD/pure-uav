@@ -11,8 +11,11 @@ target_link_libraries(guidance_application PUBLIC guidance_sim_tools
 
 add_executable(main main.cpp)
 target_link_libraries(main PRIVATE communicate guidance_application)
-if(TARGET vio_camera)
-  target_link_libraries(main PRIVATE vio_camera)
+if(TARGET pure_vio_runtime)
+  add_library(vio_app_support STATIC camera_service.cpp glue/comm_imu_source.cpp)
+  target_include_directories(vio_app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime)
+  target_link_libraries(main PRIVATE vio_app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
 endif()
 if(TARGET detection_rt)

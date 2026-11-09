@@ -205,6 +205,9 @@ if(_build_live)
   target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(vio_camera PUBLIC pure_vio_core OrbbecSDK)
 
+  add_library(pure_vio_runtime STATIC src/vio_runtime.cpp)
+  target_link_libraries(pure_vio_runtime PUBLIC vio_camera Threads::Threads)
+
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
   target_include_directories(
     vio_live PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src

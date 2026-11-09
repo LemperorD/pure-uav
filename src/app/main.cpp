@@ -26,10 +26,12 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
+#include "camera_service.hpp"
 #include "fcu_clock.hpp"
+#include "glue/comm_imu_source.hpp"
 #include "live_timing.hpp"
 #include "orbbec_camera.hpp"
-#include "pure_uav/vio_estimator.hpp"
+#include "pure_uav/vio_runtime.hpp"
 #endif
 #ifdef PURE_APP_HAS_DETECTION
 #include "detector.hpp"
@@ -145,8 +147,27 @@ class Workers {
 
 int main(int argc, char** argv) {
     Options options = parseOptions(argc, argv);
-    (void)options;  // 预留：后续可按配置加载
     Communicator comm;
+
+#ifdef PURE_APP_HAS_VIO
+    VioEstimator::Options vio_options;
+    vio_options.config_dir = findConfigFile(options.vio);
+
+    // 声明顺序保证退出时先停止 VIO worker，再销毁相机和 IMU 源，最后关闭通信。
+    app::CommImuSource imu(comm);
+    app::CameraService camera;
+    VioRuntime vio(vio_options, imu, camera);
+    std::string vio_error;
+    if (!vio.start(&vio_error)) {
+        std::fprintf(stderr, "[VIO] 运行器启动失败：%s\n", vio_error.c_str());
+        return 1;
+    }
+    // 此处只启动运行器；通信和相机启动后，worker 才能获取数据完成状态初始化。
+    std::printf("[VIO] 运行器已就绪，等待 IMU 和图像输入。\n");
+#else
+    std::fprintf(stderr, "[VIO] 当前构建未启用 VIO，无法初始化。\n");
+    return 1;
+#endif
 
     std::printf("等待飞控心跳...\n");
     while (!comm.isConnected()) {

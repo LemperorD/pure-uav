@@ -27,7 +27,7 @@ bool CameraService::start(const OrbbecCamera::Config& config, std::string* error
         std::string why;
         auto capture_config = config;
         capture_config.callback_device_timestamps = true;
-        if (!camera_.startWithColor(capture_config, [this](const cv::Mat& gray, const cv::Mat& depth, int64_t host, int64_t device, int64_t depth_device) { enqueue(gray, depth, host, device, depth_device); }, std::move(color_callback), &why)) {
+        if (!camera_.start(capture_config, [this](const cv::Mat& gray, const cv::Mat& depth, int64_t host, int64_t device, int64_t depth_device) { enqueue(gray, depth, host, device, depth_device); }, &why, std::move(color_callback))) {
             stop();
             std::lock_guard<std::mutex> lock(mutex_);
             error_ = why;
