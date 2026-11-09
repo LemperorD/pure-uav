@@ -16,12 +16,16 @@ repos:
   - id: no-commit-to-branch # 禁止直接commit到main/master
     args: [--branch, main]
 
-# clang-format C++格式化
+# clang-format C++格式化 clang-tidy 静态检查
 - repo: https://github.com/cpp-linter/cpp-linter-hooks
   rev: v1.8.4
   hooks:
   - id: clang-format
     args: [--style=file]
+    exclude: ^(build|install|log|third_party)/
+  - id: clang-tidy
+    args: [--version=23, --fix]
+    exclude: ^(build|install|log|third_party)/
 
 # cmake-lint 检查CMakeLists.txt
 - repo: https://github.com/cheshirekow/cmake-format-precommit
