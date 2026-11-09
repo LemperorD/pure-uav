@@ -32,8 +32,8 @@
 #include "pure_uav/vio_estimator.hpp"
 #endif
 #ifdef PURE_APP_HAS_DETECTION
-#include "pure_uav/detection/detector.hpp"
-#include "pure_uav/detection/target_bridge.hpp"
+#include "detector.hpp"
+#include "target_bridge.hpp"
 #endif
 
 namespace {

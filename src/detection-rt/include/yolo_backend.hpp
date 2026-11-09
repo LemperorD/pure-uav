@@ -3,14 +3,14 @@
 // 后端由 CMake 的 PURE_DETECTION_BACKEND 决定。
 
 #ifdef PURE_DETECTION_BACKEND_CPU
-#include "pure_uav/detection/yolo_cpu.hpp"
+#include "yolo_cpu.hpp"
 
 namespace pure_uav::detection {
 using YoloBackend = YoloCpu;
 }  // namespace pure_uav::detection
 
 #elif defined(PURE_DETECTION_BACKEND_NPU)
-#include "pure_uav/detection/yolo_npu.hpp"
+#include "yolo_npu.hpp"
 namespace pure_uav {
 namespace detection {
 using YoloBackend = YoloNpu;

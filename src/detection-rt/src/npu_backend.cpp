@@ -1,7 +1,7 @@
-#include "pure_uav/detection/detection_runtime.hpp"
+#include "detection_runtime.hpp"
 
 #if PURE_UAV_HAS_NPU
-#include "pure_uav/detection/yolo_npu.hpp"
+#include "yolo_npu.hpp"
 #include "yolo_postprocess.hpp"
 
 namespace pure_uav::detection {

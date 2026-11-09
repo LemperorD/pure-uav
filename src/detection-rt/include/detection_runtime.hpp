@@ -5,7 +5,7 @@
 #include <string>
 
 #include "color_frame.hpp"
-#include "pure_uav/detection/detection_types.hpp"
+#include "detection_types.hpp"
 
 namespace pure_uav::detection {
 

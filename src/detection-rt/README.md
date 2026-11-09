@@ -19,7 +19,7 @@ poll(FrameResult&) → to_target_sample() → flight::GuidanceTargetSample
 
 ```text
 src/detection-rt/
-├── include/pure_uav/detection/
+├── include/
 │   ├── detection_types.hpp   # FrameResult / DetectionBox（固定容量，实时无堆分配）
 │   ├── camera_source.hpp     # Orbbec 彩色采集接口
 │   ├── yolo_output.hpp       # NPU/CPU 共用的输出视图
@@ -163,18 +163,18 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 - `--replace` 会先执行 `sudo fuser -k 8080/tcp`，停掉占用端口的旧 mjpg-streamer；
   若已手动停掉可省略。
 - 其余参数会原样传给 `detect_rt`，例如：
+
   ```bash
   ./scripts/start_detection_stream.sh --replace --conf 0.3 --camera 640x480@60
   ```
+
 - 按 `Ctrl-C` 会同时停止 `detect_rt` 与脚本启动的 mjpg-streamer。
 
 脚本内部做两件事：
 
-1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，
-   等它写出第一帧；
-2. 再启动 mjpg-streamer
-   `input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
-   + `output_http.so -p 8080`。
+1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，等它写出第一帧；
+2. 再启动 mjpg-streamer`input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
+   - `output_http.so -p 8080`。
 
 `detect_rt` 先把带框图写成 `frame_tmp.bin`，再原子 `rename` 成 `frame.jpg`；
 临时文件故意不用 `.jpg` 扩展名，`input_file --existing` 扫描目录时不会把它当成视频帧。
@@ -208,8 +208,8 @@ pkill -f "output_http.so -p 8080"
 ## 5. 库接口
 
 ```cpp
-#include "pure_uav/detection/detector.hpp"
-#include "pure_uav/detection/target_bridge.hpp"
+#include "detector.hpp"
+#include "target_bridge.hpp"
 
 pure_uav::detection::DetectorConfig cfg;
 cfg.model_path = "assets/models/yolo26n.nb";   // CPU 版改成 yolo26n.onnx

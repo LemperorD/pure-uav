@@ -1,5 +1,5 @@
 // ONNX Runtime CPU 后端实现；预处理与 NPU 后端保持一致。
-#include "pure_uav/detection/yolo_cpu.hpp"
+#include "yolo_cpu.hpp"
 
 #include <onnxruntime_cxx_api.h>
 #include <unistd.h>

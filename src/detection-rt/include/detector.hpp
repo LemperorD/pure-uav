@@ -6,8 +6,8 @@
 #include <memory>
 #include <string>
 
-#include "pure_uav/detection/camera_source.hpp"
-#include "pure_uav/detection/detection_types.hpp"
+#include "camera_source.hpp"
+#include "detection_types.hpp"
 
 namespace pure_uav::detection {
 
