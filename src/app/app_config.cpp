@@ -105,7 +105,7 @@ bool loadAppConfig(const std::string& app_name, const std::string& driver_name, 
             require(fs::is_regular_file(c.detection.model_path), "Detection model file missing: " + c.detection.model_path);
             require(detection::npuBackendAvailable(),
                     "NPU detection unavailable in this build: need vip_lite.h, libNBGlinker.so and libVIPhal.so; "
-                    "build on the NPU board with -DPURE_DETECTION_BUILD=ON");
+                    "rebuild on a board with VIPLite installed");
         }
         const auto pose = app["pose"];
         keys(pose, {"max_age_ms", "quality_ok", "quality_degraded", "pos_sigma_ok_m", "vel_sigma_ok_mps", "pos_sigma_degraded_m", "vel_sigma_degraded_mps"}, "app.pose");

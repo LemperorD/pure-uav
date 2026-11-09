@@ -8,7 +8,7 @@ add_subdirectory(app)
 
 add_subdirectory(test)
 
-# 独立样例注册为 OBJECT 库，仅为 clang-tidy 提供编译参数。
+# 独立样例注册为 OBJECT 库，仅为 clang-tidy 提供编译参数，不参与编译。 删除之后 clang-tidy 会报错。
 find_package(OpenCV 4 REQUIRED)
 add_library(
   det_tooling OBJECT
