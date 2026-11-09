@@ -39,6 +39,24 @@ add_library(mavlink_units SHARED common_libs/src/mavlink_units.cpp)
 target_include_directories(
   mavlink_units PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/common_libs/include)
 
+# ------------------------------------------------------------
+# pure_camera_ipc：相机服务 ↔ 消费者的跨进程帧通道（POSIX shm + seqlock 三缓冲）
+#
+# camera_frame_types 是纯协议头（POD + lock-free atomic），不依赖 OpenCV / 业务模块，
+# 因此相机服务与两个消费者可以各自只链接需要的部分。
+# 用 shm_open 的 rt 库；不用 pthread 跨进程互斥锁——持有者崩溃会永久死锁。
+# ------------------------------------------------------------
+add_library(camera_frame_types INTERFACE)
+target_include_directories(camera_frame_types INTERFACE
+                           ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(pure_camera_ipc STATIC camera_shm.cpp)
+target_include_directories(pure_camera_ipc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(pure_camera_ipc PUBLIC camera_frame_types)
+if(UNIX AND NOT APPLE)
+  target_link_libraries(pure_camera_ipc PUBLIC rt)
+endif()
+
 install(
   TARGETS pure_math_tools mavlink_units
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

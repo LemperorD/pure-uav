@@ -1,5 +1,9 @@
 # 本周上机：VIO → ArduPilot 验收清单
 
+> **架构更新（2026-11-09）**：相机已改为 `camera_server` 独占采集 + 共享内存分发，
+> `bin/main` 不再是运行入口。构建/启动命令已按新架构更新，详见
+> [camera-ipc.md](camera-ipc.md)。本文其余 VIO/飞控验收项保持不变。
+
 日期：2026-11-05。目的先是“机上稳定运行、飞控收到并融合”，不是立即自主飞行。
 按当前工程假定目标为 CUAV-7-Nano / ArduPilot；实际固件版本、板子型号和连接方式仍要记录确认。
 
@@ -15,18 +19,19 @@
 本周基线构建命令（只在目标板上手动运行）：
 
 ```bash
-cmake -S . -B build-uav -DCMAKE_BUILD_TYPE=Release -DPURE_DETECTION_BUILD=OFF
-cmake --build build-uav --target main -j2
-./bin/main --check-config
+cmake -S . -B build-uav -DCMAKE_BUILD_TYPE=Release
+cmake --build build-uav --target camera_server vio_live -j2
+./bin/camera_server --check-config
 ```
 
 ## 1. 先拆桨、确认设备和数据源
 
 - 确认真实 MAVLink 设备名，按实际情况修改 driver.yaml，不能认定一定是 ttyACM0。
 - USB 连接与 UART 连接分开确认。走 TELEM 时，按实际端口设置 MAVLink2、匹配波特率，核对接线和电气兼容性。
-- 飞控串口由本 main 独占，不同时运行另一个 vio_live、串口探针或会争用同一设备的地面站。
-- 相机由本 main 独占，不同时运行 detect_rt、原来直接采集相机的推流程序。
-- 关闭检测，先运行 `./bin/main --no-send`，确认能收到心跳与实际 IMU，而非仅成功打开设备。
+- 相机由 `camera_server` 独占；统一用 `scripts/start_uav.sh` 拉起相机服务与消费者，
+  不同时运行任何直采工具（互斥清单见 `assets/docs/app/camera-ipc.md`）。
+- 飞控串口由 `vio_live` 独占，不同时运行另一个 vio_live、串口探针或会争用同一设备的地面站。
+- 关闭检测，先运行 `./scripts/start_uav.sh --no-send`，确认能收到心跳与实际 IMU，而非仅成功打开设备。
 - 实测 IMU 应接近本配置请求的 200 Hz，且无持续队列溢出、>100 ms 断流或反复时间基重建。
 
 `--no-send` 仅禁止 ODOMETRY，不禁止通信模块正常心跳和消息流订阅。

@@ -1,4 +1,5 @@
-// 机载组合根：单串口、单相机，通信 / 检测 / VIO / 制导并发运行。
+// 通信示例（不再是运行入口）：相机只由 camera_server 初始化一次。
+// 实时运行请通过统一入口 scripts/start_uav.sh 拉起相机服务与消费者。
 // 生命周期和配置见 assets/docs/app/usage.md。
 #include <unistd.h>
 
@@ -160,35 +161,10 @@ int main(int argc, char** argv) {
         std::printf("姿态 roll=%.3f pitch=%.3f yaw=%.3f\n", a.roll, a.pitch, a.yaw);
     }
 
-    detection::DetectorConfig det_cfg;
-#ifdef PURE_DETECTION_BACKEND_CPU
-    det_cfg.model_path = "assets/models/yolo26n.onnx";
-#else
-    det_cfg.model_path = findConfigFile("assets/models/yolo26n.nb");
-#endif
-
-    detection::Detector det;
-    std::string err;
-    if (!det.start(det_cfg, err)) {
-        std::printf("目标检测启动失败：%s\n", err.c_str());
-        return 1;
-    }
-
-    detection::FrameResult r;
-    if (det.poll(r)) {  // 非阻塞；只返回最新结果
-        // boot_us：用通信模块 SystemTime 把 r.host_us 换算到飞控 boot 时钟
-        uint64_t boot_us = 0;
-        SystemTime st;
-        if (comm.getSystemTime(st) && st.time_unix_usec > 0) {
-            const int64_t offset_us = static_cast<int64_t>(st.time_unix_usec) - (static_cast<int64_t>(st.time_boot_ms) * 1000);
-            if (offset_us >= 0 && r.host_us > static_cast<uint64_t>(offset_us)) {
-                boot_us = r.host_us - static_cast<uint64_t>(offset_us);
-            }
-        }
-        guidance::flight::GuidanceTargetSample t;
-        detection::to_target_sample(r, boot_us, t);
-        // t.present=false ⇒ 主循环可进入 SEARCH
-    }
-    det.stop();  // 停线程、释放相机和推理后端
+    // 旧实现在这里直接 Detector::start() 自采相机，与 vio_live / detect_rt
+    // 构成第三个独占入口。现在相机只由 camera_server 打开，本示例不再启动检测。
+    std::fprintf(stderr,
+                 "[main] 相机只由 camera_server 初始化一次；本示例不再打开设备。\n"
+                 "       实时运行请执行 scripts/start_uav.sh [--detection]。\n");
     return 0;
 }

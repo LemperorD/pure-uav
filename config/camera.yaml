@@ -1,0 +1,32 @@
+# 相机服务唯一采集配置。字段名与 config/app.yaml 的 camera / vio / detection 段对齐。
+# 分辨率、曝光与深度策略以 VIO 标定（gemini_1920x1080）为准，不得为检测改动。
+camera:
+  width: 1920
+  height: 1080
+  fps: 30
+  use_depth: true
+  aggregate_mode: 0
+  auto_exposure: false
+  exposure: 100
+  gain: 30
+  white_balance: 4600
+  warmup_frames: 15
+  auto_tune_exposure: true
+  tune_expected_rate_dps: 100
+  tune_blur_budget_px: 3.0
+  tune_max_exposure_ms: 15.0
+  tune_max_gain: 40
+  tune_allow_dark: false
+
+# 两条独立的 POSIX 共享内存通道。VIO 每帧约 6 MB，彩色为 MJPG 且限频。
+channels:
+  vio_name: /pure_uav_camera_vio
+  color_name: /pure_uav_camera_color
+  slots: 3
+  vio_slot_bytes: 8388608    # 8 MiB：1920x1080 gray(2 MB) + CV_16U depth(4 MB)
+  color_slot_bytes: 4194304  # 4 MiB：单帧 MJPG 上限
+  color_max_hz: 10
+  ready_timeout_ms: 5000
+
+runtime:
+  status_period_s: 1.0
