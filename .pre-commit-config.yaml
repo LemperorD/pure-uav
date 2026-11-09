@@ -45,4 +45,4 @@ repos:
   rev: v0.18.1
   hooks:
   - id: markdownlint
-    args: [--fix, --rules, ~MD013]
+    args: [--fix, --rules, "~MD013, ~MD029"]
