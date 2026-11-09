@@ -352,6 +352,25 @@ target_include_directories(test_live_timing
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_live_timing PRIVATE Threads::Threads)
 add_test(NAME live_timing COMMAND test_live_timing)
+add_executable(test_vio_unix_time tests/test_vio_unix_time.cpp
+                                  src/fcu_clock.cpp)
+target_include_directories(test_vio_unix_time
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_vio_unix_time PRIVATE Threads::Threads)
+add_test(NAME vio_unix_time COMMAND test_vio_unix_time)
+
+# Compile the integrated VIO path in the existing hardware-free test.
+set(_vio_runtime_test
+    "${_pure_uav_repo_root}/src/test/test_app/test_vio_runtime.cpp")
+if(EXISTS "${_vio_runtime_test}")
+  add_executable(test_vio_runtime "${_vio_runtime_test}" src/vio_runtime.cpp
+                                  src/fcu_clock.cpp)
+  target_include_directories(test_vio_runtime
+                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(test_vio_runtime PRIVATE pure_vio_core)
+  add_test(NAME vio_runtime COMMAND test_vio_runtime "${_zupt_fixture}")
+  set_tests_properties(vio_runtime PROPERTIES TIMEOUT 30)
+endif()
 
 if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
   foreach(case_name IN ITEMS transport_session link_backpressure)

@@ -9,8 +9,8 @@
 //                    位置；x = 初始化时机头在水平面的投影，y = 右，z = 重力向下。
 //   child_frame_id = BODY_FRD ：速度的参考系，即当前机体系（x 前、y 右、z 下）。
 //   q              ：机体系相对 LOCAL_FRD 的姿态，w x y z。
-//   timestamp_us   ：该位姿对应的时刻。在线运行时使用飞控 boot 时间（与
-//                    HIGHRES_IMU.time_usec 同一时钟域）。
+//   timestamp_us   ：该位姿对应的时刻。在线运行时使用主机 Unix 微秒；
+//                    离线回放时沿用数据集的时间域。
 
 #pragma once
 
@@ -37,7 +37,7 @@ enum class VisionFrame : uint8_t {
 
 // VIO 位姿
 struct VisionPose {
-    uint64_t timestamp_us = 0;                           // us，飞控 boot 时间（在线）
+    uint64_t timestamp_us = 0;                           // us，主机 Unix 时间（在线）
     VisionFrame frame_id = VisionFrame::LOCAL_FRD;       // 位置的坐标系（惯性系）
     VisionFrame child_frame_id = VisionFrame::BODY_FRD;  // 速度的坐标系（机体系）
     float x = 0.0F;                                      // m

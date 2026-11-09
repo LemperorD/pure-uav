@@ -194,9 +194,15 @@ void VioRuntime::Impl::run() noexcept {
                     ++st.imu_out_of_order;
                     continue;
                 }
+                // Coverage stays in the original FCU domain; estimator inputs use Unix microseconds.
+                const uint64_t fcu_us = sample.timestamp_us;
+                if (!clock.fcuToUnixUs(fcu_us, sample.timestamp_us)) {
+                    ++st.imu_dropped;
+                    continue;
+                }
                 estimator.feedImu(sample);
-                last_fed_us = sample.timestamp_us;
-                if (first_fed_us == 0) first_fed_us = sample.timestamp_us;
+                last_fed_us = fcu_us;
+                if (first_fed_us == 0) first_fed_us = fcu_us;
             }
             if (imu.session() != session) continue;
             if (!pending) {
@@ -217,7 +223,8 @@ void VioRuntime::Impl::run() noexcept {
                 if (pending->gray.empty() || pending->gray.type() != CV_8UC1 || pending->host_ns <= 0 || pending->host_ns > nowNs()) {
                     throw std::runtime_error("Invalid camera frame or host timestamp");
                 }
-                if (!clock.valid() || (mapped_us == 0 && !clock.hostToFcuUs(pending->host_ns, mapped_us))) {
+                uint64_t image_unix_us = 0;
+                if (!clock.valid() || (mapped_us == 0 && !clock.hostToFcuUs(pending->host_ns, mapped_us)) || !clock.fcuToUnixUs(mapped_us, image_unix_us)) {
                     if (waited > 2000000000LL) {
                         pending.reset();
                         ++st.frames_dropped;
@@ -244,8 +251,9 @@ void VioRuntime::Impl::run() noexcept {
                             // Both device stamps must be from the same hardware clock.
                             if (pending->device_us > 0 && pending->depth_device_us > 0) {
                                 const int64_t delta = pending->depth_device_us - pending->device_us;
-                                if (std::abs(delta) < 200000 && static_cast<int64_t>(mapped_us) + delta > 0) {
-                                    estimator.setDepthImage(pending->depth_mm, static_cast<uint64_t>(static_cast<int64_t>(mapped_us) + delta), depth.fx, depth.fy, depth.cx, depth.cy, depth.R_c2d, depth.t_c2d_m);
+                                uint64_t depth_unix_us = 0;
+                                if (std::abs(delta) < 200000 && static_cast<int64_t>(mapped_us) + delta > 0 && clock.fcuToUnixUs(static_cast<uint64_t>(static_cast<int64_t>(mapped_us) + delta), depth_unix_us)) {
+                                    estimator.setDepthImage(pending->depth_mm, depth_unix_us, depth.fx, depth.fy, depth.cx, depth.cy, depth.R_c2d, depth.t_c2d_m);
                                     ++st.depth_frames_used;
                                 } else
                                     ++st.depth_frames_rejected;
@@ -254,7 +262,7 @@ void VioRuntime::Impl::run() noexcept {
                         } else if (options.use_depth_init)
                             ++st.depth_frames_rejected;
                         const int64_t image_host_ns = pending->host_ns;
-                        const bool fed = estimator.feedImage(pending->gray, mapped_us);
+                        const bool fed = estimator.feedImage(pending->gray, image_unix_us);
                         pending.reset();
                         if (fed)
                             ++st.frames_fed;

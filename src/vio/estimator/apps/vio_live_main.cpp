@@ -6,8 +6,8 @@
 //   - VIO 线程（本文件）：按时间顺序喂 IMU/图像，输出 VisionPose 并发送
 //
 // 时间戳：
-//   - IMU：飞控 HIGHRES_IMU.time_usec（boot 时间，µs）
-//   - 相机：帧到达主机时的 CLOCK_MONOTONIC，用 FcuClock 映射到 IMU 时钟
+//   - IMU：飞控 HIGHRES_IMU.time_usec 去抖后，由 FcuClock 换算为主机 Unix 微秒
+//   - 相机：主机 CLOCK_MONOTONIC / 设备时间先对齐到飞控，再换算到同一 Unix 时间基
 //   - 输出：t_imu = t_cam + timeshift_cam_imu（由 OpenVINS 配置给出）
 //
 // 用法示例：
@@ -952,14 +952,20 @@ int main(int argc, char** argv) {
                     }
                 }
                 last_raw_imu_us = imu_item.imu.timestamp_us;
+                const uint64_t fed_fcu_us = imu_feed.timestamp_us;
+                uint64_t raw_unix_us = 0;
+                if (!clock.fcuToUnixUs(fed_fcu_us, imu_feed.timestamp_us) || !clock.fcuToUnixUs(imu_item.imu.timestamp_us, raw_unix_us)) {
+                    ++imu_skipped;
+                    continue;
+                }
                 estimator.feedImu(imu_feed);
-                last_fed_imu_us = imu_feed.timestamp_us;
+                last_fed_imu_us = fed_fcu_us;  // 图像覆盖判定仍使用原始 FCU 时钟域
                 if (rec_imu_csv) {
                     // 录"实际喂给估计器的时间戳"（= 去抖后的），这样回放能 1:1 复现实时行为。
                     std::fprintf(rec_imu_csv, "%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n", static_cast<unsigned long long>(imu_feed.timestamp_us), imu_item.imu.gx, imu_item.imu.gy, imu_item.imu.gz, imu_item.imu.ax, imu_item.imu.ay, imu_item.imu.az);
                 }
                 if (imu_log) {
-                    std::fprintf(imu_log, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n", static_cast<unsigned long long>(imu_item.imu.timestamp_us), imu_item.imu.ax, imu_item.imu.ay, imu_item.imu.az, imu_item.imu.gx, imu_item.imu.gy, imu_item.imu.gz);
+                    std::fprintf(imu_log, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n", static_cast<unsigned long long>(raw_unix_us), imu_item.imu.ax, imu_item.imu.ay, imu_item.imu.az, imu_item.imu.gx, imu_item.imu.gy, imu_item.imu.gz);
                 }
                 did_work = true;
             }
@@ -1045,14 +1051,21 @@ int main(int argc, char** argv) {
                                 depth_fcu_us = static_cast<uint64_t>(d);
                             }
                         }
-                        if (use_depth_init && !pending->depth.empty() && cam_depth.valid()) {
-                            estimator.setDepthImage(pending->depth, depth_fcu_us, cam_depth.fx, cam_depth.fy, cam_depth.cx, cam_depth.cy, cam_depth.R_c2d, depth_t_m);
+                        uint64_t image_unix_us = 0;
+                        uint64_t depth_unix_us = 0;
+                        if (!clock.fcuToUnixUs(fcu_us, image_unix_us) || !clock.fcuToUnixUs(depth_fcu_us, depth_unix_us)) {
+                            pending.reset();
+                            stats_drop_no_clock.fetch_add(1);
+                            continue;
                         }
-                        estimator.feedImage(pending->gray, fcu_us);
+                        if (use_depth_init && !pending->depth.empty() && cam_depth.valid()) {
+                            estimator.setDepthImage(pending->depth, depth_unix_us, cam_depth.fx, cam_depth.fy, cam_depth.cx, cam_depth.cy, cam_depth.R_c2d, depth_t_m);
+                        }
+                        estimator.feedImage(pending->gray, image_unix_us);
                         if (rec_images_csv) {
                             std::scoped_lock lk(rec_mtx);
                             if (rec_q.size() < 300) {
-                                rec_q.emplace_back(pending->gray, pending->depth, fcu_us);
+                                rec_q.emplace_back(pending->gray, pending->depth, image_unix_us);
                             }
                         }
                         const int64_t frame_host_ns = pending->host_ns;  // 位姿年龄统计用
