@@ -108,7 +108,7 @@ Vec3 TargetModel::accel_at(const Vec3& p, const Vec3& v, double t) const {
         case TargetType::SNAKE: {
             // 沿初速度方向的直线飞行 + 侧向正弦机动加速度
             const Vec3 dir = normalized(v0_);
-            Vec3 lat = cross(Vec3{0.0, 0.0, 1.0}, dir);       // 水平侧向（⊥ 航向）
+            Vec3 lat = cross(Vec3{0.0, 0.0, 1.0}, dir);  // 水平侧向（⊥ 航向）
             if (norm(lat) < 1e-6) {
                 lat = Vec3{1.0, 0.0, 0.0};  // 垂直上飞时的退化
             }

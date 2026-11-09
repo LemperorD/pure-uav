@@ -610,7 +610,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
 
     impl->running.store(true);
     impl_ = std::move(impl);
-    impl_->thread = std::thread([this]() {
+    impl_->thread = std::thread([this] {
         Impl* impl = impl_.get();
         // 运行中重测光的统计量（见上面的说明）
         double retune_sum = 0.0;

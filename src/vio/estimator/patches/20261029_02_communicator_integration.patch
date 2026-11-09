@@ -23,12 +23,12 @@
 +    float pos_sigma_m = 0.0f;
 +    float vel_sigma_mps = 0.0f;
  };
- 
+
  // 制导控制模式
 --- a/src/driver/communicate/include/communicator.hpp
 +++ b/src/driver/communicate/include/communicator.hpp
 @@ -2,7 +2,9 @@
- 
+
  #include <atomic>
  #include <chrono>
 +#include <cstddef>
@@ -46,11 +46,11 @@
 +    uint8_t fcu_sysid = 0;
 +    uint8_t fcu_compid = 0;                  // 0 = 不限定组件号
  };
- 
+
  // 从 YAML 加载通信配置
 @@ -55,7 +61,7 @@
-     
-     
+
+
      //上位机向飞控通讯
 -    bool pushVisionPose(const VisionPose& p);   // 发视觉位姿
 +    bool pushVisionPose(const VisionPose& p);   // 发视觉位姿（质量/重置/协方差取 p 里的字段）
@@ -60,7 +60,7 @@
 @@ -64,6 +70,27 @@
      bool requestMessageInterval(uint32_t msgid, int32_t interval_us);  // 请求某消息频率（非阻塞，recvLoop 内调用）
      void requestDefaultStreams();               // 连接后请求默认消息流
- 
+
 +    //=======================================================================
 +    // 【2026-10-28 联调新增】逐帧 IMU 交付
 +    //
@@ -82,8 +82,8 @@
 +    void setImuQueueCapacity(size_t cap);   // 0 表示不排队（只保留最新帧语义）
 +    size_t imuQueueCapacity() const { return imu_queue_capacity_.load(); }
 +
- 
- 
+
+
      // 各模块拿数据
 @@ -73,6 +100,15 @@
      bool getImu(ImuData& out) const;                 //IMU数据
@@ -102,7 +102,7 @@
      const char* getFlightModeNameCn() const;    // 当前飞行模式中文名
      uint8_t getAutopilot() const { return autopilot_.load(); }    // 飞控固件类型（3=ArduPilot, 12=PX4）
 @@ -88,6 +124,12 @@
- 
+
  private:
      void recvLoop();  // 接收线程
 +    // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
@@ -128,7 +128,7 @@
 @@ -128,6 +174,16 @@
      std::atomic<uint16_t> last_ack_command_{0};  //最近一次 ACK 对应的命令号
      std::atomic<uint8_t> last_ack_result_{UINT8_MAX};   //最近一次 ACK 结果（UINT8_MAX=未收到）
- 
+
 +    // 【2026-10-28】解锁状态 + 心跳新鲜度
 +    std::atomic<bool> armed_{false};
 +    std::atomic<int64_t> last_heartbeat_ns_{0};   // steady_clock 纳秒，0 = 从未收到
@@ -141,20 +141,20 @@
 +
      std::mutex send_mutex_;  // 串口写锁
  };
- 
+
 --- a/src/driver/communicate/include/serial_port.hpp
 +++ b/src/driver/communicate/include/serial_port.hpp
 @@ -26,6 +26,10 @@
      // 非阻塞读：返回实际读取字节数；0 表示暂无数据；<0 表示错误。
      ssize_t read(uint8_t* buf, size_t len);
- 
+
 +    // 【2026-10-29】等待可读并返回 poll 的 revents（用于发现 POLLHUP/POLLERR = 设备拔出）。
 +    // 返回 -1 表示 fd 无效/poll 失败。
 +    int pollIn(int timeout_ms, short* revents = nullptr);
 +
      // 写：返回实际写入字节数。
      ssize_t write(const uint8_t* buf, size_t len);
- 
+
 --- a/src/driver/communicate/src/communicator.cpp
 +++ b/src/driver/communicate/src/communicator.cpp
 @@ -5,6 +5,7 @@
@@ -163,12 +163,12 @@
  #include <cstring>
 +#include <poll.h>
  #include <unistd.h>
- 
+
  // mavlink c_library_v2 纯头文件：include 路径指向 third_party/mavlink
 @@ -26,6 +27,12 @@
          duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
  }
- 
+
 +// 单调时钟纳秒（IMU 到达时刻用，FcuClock 做主机↔飞控时钟映射）
 +int64_t steadyNowNs() {
 +    using namespace std::chrono;
@@ -190,7 +190,7 @@
          return false;
      }
      port_.flush();   //清空缓冲
- 
+
 +    // 【2026-10-29】每次 start() 都是新会话：清掉上一次连接的 IMU 队列、
 +    // 缓存数据、解锁状态和身份锁定，避免把旧会话的数据混进新连接。
 +    resetSessionState();
@@ -285,24 +285,24 @@
 +    last_ack_command_.store(0);
 +    last_ack_result_.store(UINT8_MAX);
  }
- 
+
 +void Communicator::clearImuQueue() {
 +    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
 +    imu_queue_.clear();
 +}
- 
+
  // 接收线程
  void Communicator::recvLoop() {
 @@ -81,22 +180,116 @@
      mavlink_message_t msg{};
-     mavlink_status_t status{}; 
+     mavlink_status_t status{};
      uint8_t buf[1024];
 +    long long ignored_heartbeats = 0;
      auto last_heartbeat = steady_clock::now();
      auto last_gcs_heartbeat = steady_clock::now();
 +    int read_errors = 0;       // 连续读错误计数（掉线判定）
 +    int reopen_failures = 0;   // 打印节流
- 
+
      while (running_.load()) {
 +        // ---- 串口已关闭：每 500ms 用同一路径尝试重开（飞控重启会重新枚举 USB）----
 +        if (!port_.isOpen()) {
@@ -370,7 +370,7 @@
 +        } else if (n >= 0) {
 +            read_errors = 0;
 +        }
- 
+
          if (n > 0) {
              for (ssize_t i = 0; i < n; ++i) {
                  if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
@@ -415,7 +415,7 @@
                              mavlink_highres_imu_t imu;
                              mavlink_msg_highres_imu_decode(&msg, &imu);
 -                            std::lock_guard<std::mutex> lk(imu_mutex_);
--                            imu_.timestamp_us = imu.time_usec; 
+-                            imu_.timestamp_us = imu.time_usec;
 -                            imu_.gx = imu.xgyro;
 -                            imu_.gy = imu.ygyro;
 -                            imu_.gz = imu.zgyro;
@@ -461,7 +461,7 @@
 +            locked_sysid_.store(0);
 +            locked_compid_.store(0);
          }
- 
+
          if (n <= 0) {
 @@ -299,21 +515,51 @@
  bool Communicator::pushVisionPose(const VisionPose& p) {   //vio数据
@@ -482,9 +482,9 @@
 +    // VISO_YAW_M_NSE 之类的配置下限）。没给 sigma → NaN（MAVLink 约定 = 未知）。
 +    //=======================================================================
      float pose_cov[21] = {0.0f};
--    pose_cov[0] = std::nanf(""); 
+-    pose_cov[0] = std::nanf("");
      float vel_cov[21] = {0.0f};
--    vel_cov[0] = std::nanf("");  
+-    vel_cov[0] = std::nanf("");
 +    if (p.pos_sigma_m > 0.0f) {
 +        pose_cov[0] = pose_cov[6] = pose_cov[11] = p.pos_sigma_m * p.pos_sigma_m;
 +    } else {
@@ -505,18 +505,18 @@
 +    //    这是 MAVLink 生成函数的签名。写反了编译器不会报错（都是整数）。
      mavlink_msg_odometry_pack(sysid_, compid_, &msg,
                                p.timestamp_us,
--                              static_cast<uint8_t>(p.frame_id),       
--                              static_cast<uint8_t>(p.child_frame_id),  
+-                              static_cast<uint8_t>(p.frame_id),
+-                              static_cast<uint8_t>(p.child_frame_id),
 +                              static_cast<uint8_t>(p.frame_id),
 +                              static_cast<uint8_t>(p.child_frame_id),
                                p.x, p.y, p.z, p.q,
                                p.vx, p.vy, p.vz,
--                              0.0f, 0.0f, 0.0f,        
+-                              0.0f, 0.0f, 0.0f,
 +                              0.0f, 0.0f, 0.0f,
                                pose_cov, vel_cov,
--                              0,                      
--                              MAV_ESTIMATOR_TYPE_VIO,  
--                              0);                     
+-                              0,
+-                              MAV_ESTIMATOR_TYPE_VIO,
+-                              0);
 +                              p.reset_counter,                 // 1) 重置计数
 +                              MAV_ESTIMATOR_TYPE_VIO,          // 2) 估计器类型
 +                              static_cast<int8_t>(quality));   // 3) 质量 0-100
@@ -526,7 +526,7 @@
 @@ -497,6 +743,38 @@
      return true;
  }
- 
+
 +// 【2026-10-28】逐帧 IMU 交付给 VIO。
 +bool Communicator::popImu(TimedImu& out) {
 +    std::lock_guard<std::mutex> lk(imu_queue_mutex_);
@@ -571,11 +571,11 @@
 +#include <poll.h>
  #include <termios.h>
  #include <unistd.h>
- 
+
 @@ -90,6 +91,17 @@
      return ::read(fd_, buf, len);
  }
- 
+
 +int SerialPort::pollIn(int timeout_ms, short* revents) {
 +    if (revents) *revents = 0;
 +    if (fd_ < 0) return -1;
@@ -595,7 +595,7 @@
 @@ -119,6 +119,22 @@
      communicate
  )
- 
+
 +# 【2026-10-28】无飞控联调回归：PTY 模拟飞控，验证
 +#   · 心跳解锁位 → isArmed()
 +#   · HIGHRES_IMU → 逐帧队列 popImu()（顺序/主机时钟/溢出计数）

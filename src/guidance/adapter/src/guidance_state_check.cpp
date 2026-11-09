@@ -15,7 +15,7 @@ namespace pure_uav::guidance::adapter {
 std::string GuidanceReport::summary() const {
     char buf[128];
     std::snprintf(buf, sizeof(buf), "%d 项通过 / %d 项告警 / %d 项错误", n_ok, n_warn, n_error);
-    return std::string(buf);
+    return {buf};
 }
 
 std::string GuidanceReport::detail() const {
@@ -73,7 +73,7 @@ namespace {
 std::string fmt(const char* label, double v) {
     char buf[160];
     std::snprintf(buf, sizeof(buf), "%s = %.12g", label, v);
-    return std::string(buf);
+    return {buf};
 }
 
 inline bool finite3(const Vec3& v) noexcept {

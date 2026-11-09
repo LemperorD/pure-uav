@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     const uint64_t session = link.reconnectCount();
     int64_t last_imu_host_ns = 0;
     bool timebase_changed = false;
-    auto collectImu = [&]() {
+    auto collectImu = [&] {
         pure_uav::MavlinkLink::TimedImu item;
         while (link.popImu(item)) {
             if (item.session != session) {

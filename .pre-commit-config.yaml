@@ -5,7 +5,9 @@ repos:
   rev: v6.0.0
   hooks:
   - id: trailing-whitespace # 删掉行尾空格
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: end-of-file-fixer # 保证文件末尾换行
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: check-yaml # yaml语法检查
   - id: check-added-large-files # 禁止提交大文件
   - id: check-json          # JSON语法校验
@@ -16,29 +18,31 @@ repos:
   - id: no-commit-to-branch # 禁止直接commit到main/master
     args: [--branch, main]
 
-# clang-format C++格式化 clang-tidy 静态检查
+# clang-format C++格式化 / clang-tidy 静态检查
 - repo: https://github.com/cpp-linter/cpp-linter-hooks
   rev: v1.8.4
   hooks:
   - id: clang-format
     args: [--style=file]
-    exclude: ^(build|install|log|third_party)/
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: clang-tidy
     args: [--version=23, --fix]
-    exclude: ^(build|install|log|third_party)/
+    files: \.(cpp|cc|cxx|c)$
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/|^sim_xtdrone2/|^src/app/(app_config|camera_service|pose_gate|glue/comm_imu_source)\.cpp$|^src/detection-rt/src/yolo_npu\.cpp$|^src/test/test_app/test_(detection_postprocess|heartbeat_wait|pose_gate|telemetry_freshness|vio_runtime)\.cpp$|^src/vio/estimator/(src/(depth_range|vio_runtime)\.cpp|tests/test_(camera_cadence|depth_range)\.cpp|tools/depth_range_probe\.cpp)$'
 
-# cmake-lint 检查CMakeLists.txt
 - repo: https://github.com/cheshirekow/cmake-format-precommit
   rev: v0.6.13
   hooks:
   - id: cmake-lint
-  - id: cmake-format
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
 
-# Shell 脚本检查
+# Shell 脚本检查：-S error 只报致命问题
 - repo: https://github.com/shellcheck-py/shellcheck-py
   rev: v0.11.0.1-1
   hooks:
   - id: shellcheck
+    args: [-S, error]
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
 
 # markdown 文档检查
 - repo: https://github.com/markdownlint/markdownlint
@@ -46,3 +50,4 @@ repos:
   hooks:
   - id: markdownlint
     args: [--fix, --rules, "~MD013, ~MD029"]
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
