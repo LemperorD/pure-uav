@@ -6,6 +6,7 @@ bin/*
 
 build/*
 !build/.gitkeep
+deps.png
 
 lib/*
 !lib/.gitkeep

@@ -1,3 +1,1 @@
-# third_party/ 下的 vendored 代码（ONNX Runtime 等）不参与静态检查和 --fix/-format。
-# 用"非空但零诊断"的检查集，避免 clang-tidy 报 "no checks enabled" 退出失败。
 Checks: '-*,readability-identifier-naming'
