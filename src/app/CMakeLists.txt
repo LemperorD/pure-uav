@@ -23,7 +23,11 @@ endif()
 add_executable(guidance_example startup/guidance_example.cpp)
 target_link_libraries(guidance_example PRIVATE guidance_application)
 
+# 真机流程测试：只链接 communicate，不依赖相机 / VIO / 检测模块。
+add_executable(test_drone test_drone.cpp)
+target_link_libraries(test_drone PRIVATE communicate)
+
 # 可执行文件统一放到 <仓库>/bin（与 test/CMakeLists.txt 的 TEST_OUTPUT_DIR 一致）， 这样文档里的
-# `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
-set_target_properties(main guidance_example PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-${CMAKE_SOURCE_DIR}/bin)
+# `./bin/main` / `./bin/guidance_example` / `./bin/test_drone` 在 Windows 与 WSL 上都成立。
+set_target_properties(main guidance_example test_drone PROPERTIES
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
