@@ -9,7 +9,12 @@ target_include_directories(guidance_application
 target_link_libraries(guidance_application PUBLIC guidance_sim_tools
                                                   guidance_flight)
 
-add_executable(main main.cpp)
+add_executable(main main.cpp
+                    startup/main_config.cpp
+                    startup/logging.cpp
+                    startup/flight_flow.cpp
+                    startup/flight_safety.cpp
+                    glue/guidance_session.cpp)
 target_link_libraries(main PRIVATE communicate guidance_application)
 if(TARGET vio_camera)
   target_link_libraries(main PRIVATE vio_camera)
