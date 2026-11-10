@@ -19,6 +19,7 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
 
 src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
   main.cpp                         通信 + VIO + 检测子进程监督（相机由 camera_server 提供）
+  mission/                         主任务状态机、无硬件演示（起飞→搜索装甲板→撞板→返航）
   runtime/                         有界图像队列、飞控数据/指令换算
   startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
@@ -34,6 +35,9 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 `guidance_flight_types.hpp` 保持零外部协议依赖。
 
 ---
+
+任务框架与后续接线说明见 [mission/README.md](../../../src/app/mission/README.md)。
+`mission_example` 可独立演示全流程；当前 `main` 尚未启用自动任务。
 
 ## 2 三种跑法（`guidance_example`）
 

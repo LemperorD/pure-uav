@@ -1,3 +1,5 @@
+add_subdirectory(mission)
+
 add_library(guidance_sim_tools STATIC sim/guidance_sim_tools.cpp)
 target_include_directories(guidance_sim_tools
                            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

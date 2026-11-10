@@ -435,7 +435,9 @@ int runVio(const Options& options) {
         // 检测结果尚未接入制导；推理在独立 detect_rt 进程执行。
         // 制导：      50 Hz 消费飞控状态与目标，产出期望指令，经同一个
         //             Communicator 发送。
-        // 应用状态机：自检、解锁、起飞、Offboard 切换在此调度。
+        // 任务框架见 mission/mission_controller.hpp；在此构造 MissionInput 并调 tick。
+        // 按 MissionOutput 选择任务 setpoint 或制导输出，异步执行飞控命令请求。
+        // 检测 IPC、落地反馈和命令执行器接齐后，再启用整机任务。
         // =====================================================================
 
         // 5.3 状态行限频输出（1 Hz），不逐帧打印。
