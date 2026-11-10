@@ -16,6 +16,7 @@ struct VioFrame {
     int64_t host_ns = 0;
     int64_t device_us = 0;
     int64_t depth_device_us = 0;
+    int64_t system_us = 0;  // SDK systemTimeStampUs，供 vio_live 保持既有相机平滑时基
 };
 
 // Depth is in the native depth camera coordinates, not aligned RGB coordinates.
@@ -41,8 +42,8 @@ class VioFrameSource {
 class VioImuSource {
   public:
     struct TimedImu {
-        ImuSample imu;
-        int64_t host_ns = 0;
+        ImuSample imu;        // 原始飞控采样微秒；由 VioRuntime 换算为 Unix 后送入估计器
+        int64_t host_ns = 0;  // steady_clock，IMU 到达主机的时刻
         uint64_t session = 0;
     };
     virtual ~VioImuSource() = default;
@@ -56,7 +57,7 @@ class VioImuSource {
 
 struct VioPoseSnapshot {
     bool valid = false;
-    VisionPose pose;
+    VisionPose pose;  // timestamp_us 为主机 Unix 微秒
     uint64_t session = 0;
     uint64_t timebase_generation = 0;
     int64_t produced_host_ns = 0;

@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "pure_uav/detection/yolo_output.hpp"
+#include "yolo_output.hpp"
 
 namespace pure_uav {
 namespace detection {

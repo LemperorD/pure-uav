@@ -5,6 +5,9 @@
 基于 OpenVINS v2.7.0（mono MSCKF + IMU）改的视觉惯性里程计。输入相机图像 + 飞控 IMU，
 输出 `LOCAL_FRD` 位置/姿态/速度，经 MAVLink `ODOMETRY` 发给 ArduPilot。
 
+实时相机输入已改为外部 `camera_server` 的共享内存通道；先启动相机服务，再运行 VIO。
+现行接口与参数迁移见 [VIO 接入 camera_server](../../../assets/docs/app/camera-ipc.md)。
+
 ## 目录
 
 | 路径 | 作用 |
@@ -13,10 +16,11 @@
 | `apps/live_view.hpp` | 自带窗口：图像+特征、状态面板、底部 2D 俯视轨迹带 |
 | `apps/vio_offline_main.cpp` | **离线回放**：同一份数据可复现实时结果（逐字节相同） |
 | `src/vio_estimator.cpp` | 主入口：包 OpenVINS，喂数据、深度注入、健康门限、LOST 后重锚定 |
-| `src/orbbec_camera.cpp` | 相机驱动：自动测光（含运行中重测光）、深度流+激光重开、帧集模式、设备时间戳 |
+| `src/shm_camera_source.cpp` | 实时 VIO 共用的共享内存输入、尺寸/标定校验与服务故障检测 |
+| `src/orbbec_camera.cpp` | 直采工具使用的相机驱动：自动测光（含运行中重测光）、深度流+激光重开、帧集模式、设备时间戳 |
 | `src/mavlink_link.cpp` | 飞控链路：收 `HIGHRES_IMU`@200Hz，发 `ODOMETRY`（质量/协方差/reset_counter），收 `LOCAL_POSITION_NED` 做第二意见 |
 | `src/vision_pose_convert.cpp` | **坐标换算唯一地点**：OpenVINS global/IMU → LOCAL_FRD/机体系（含杆臂、yaw 对齐） |
-| `src/fcu_clock.cpp` | 相机时钟 ↔ 飞控时钟线性回归 |
+| `src/fcu_clock.cpp` | 主机／飞控时钟偏移估计与 VIO Unix 时间换算 |
 | `src/vio_health.cpp` | OK/DEGRADED/LOST 状态机（失效即停发） |
 | `src/pose_logger.cpp` | CSV / TUM 输出 |
 | `src/offline_dataset.cpp` | 离线数据集读取（`images.csv` + `imu.csv` + `depth/`） |
@@ -34,6 +38,20 @@
 | `rviz/vio.rviz` | RViz 布局 |
 | `docs/` | 诊断记录、精度方法、RViz 用法 |
 | `patches/` | 对通讯模块 IMU 回调的补丁 |
+
+## 时间戳
+
+在线 `vio_live` 和集成 `VioRuntime` 统一使用 **机载电脑的 Unix 微秒时间戳**（`uint64_t`）：
+
+- IMU 保留飞控原始采样时间用于去抖、断流和重启检测，再通过 `FcuClock` 换算为 Unix 微秒。
+- 相机继续使用现有主机／设备时钟到飞控的映射，与 IMU 对齐后使用相同的 Unix 偏移；深度保留与彩色帧的设备时间差。
+- 估计器输入、`VisionPose.timestamp_us`、MAVLink `ODOMETRY.time_usec`、位姿／IMU 日志和在线录制数据均使用这个时间基。
+- 离线回放继续沿用数据集时间戳，兼容已有 boot 时间数据集和新的 Unix 时间数据集。
+
+时间来源与独立 detect 一样是主机 `system_clock`，运行前请确保机载电脑日期时间正确。
+Unix 偏移在映射就绪后首次换算时锁定，当前时间基内保持固定，避免系统校时或串口接收抖动改变采样间隔；
+飞控重启、重连或 IMU 中断触发时间基重建后重新锁定。映射未就绪或过期时不喂入未换算的数据。
+超时、心跳和数据新鲜度仍使用单调时钟；这项修改不改变 detect 和制导的时间约定。
 
 ## 编译
 
@@ -54,17 +72,17 @@ cmake --build build -j$(nproc) --target vio_live vio_offline
 ```bash
 cd /home/kxy/桌面/pure-uav-vio/src/vio/estimator
 ./scripts/run_vio_live.sh --out out/run1 -- \
-  --use-depth-init --init-vel-zero --tune-expected-rate 12 \
+  --use-depth-init --init-vel-zero \
   --record datasets/run1
 ```
 
-**2) 实时 60fps（640×480，深度隔帧）**
+**2) 实时 60fps（先将相机服务配置为 640×480@60，并使用匹配标定）**
 
 ```bash
 ./scripts/run_vio_live.sh --out out/run2 -- \
   --width 640 --height 480 --fps 60 --config-dir config/gemini_640x480 \
-  --aggregate color --cam-ts device \
-  --use-depth-init --init-vel-zero --tune-expected-rate 12
+  --cam-ts device \
+  --use-depth-init --init-vel-zero
 ```
 
 **3) 离线回放**（`--init-threads 1` 才能复现）

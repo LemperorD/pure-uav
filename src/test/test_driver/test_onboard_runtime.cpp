@@ -7,12 +7,12 @@
 #include <stdexcept>
 #include <thread>
 
+#include "detector.hpp"
 #include "guidance_loop.hpp"
-#include "pure_uav/detection/detector.hpp"
-#include "pure_uav/detection/yolo_cpu.hpp"
 #include "runtime/bounded_queue.hpp"
 #include "runtime/guidance_ports.hpp"
 #include "startup/guidance_application.hpp"
+#include "yolo_cpu.hpp"
 
 namespace {
 void check(bool ok) {

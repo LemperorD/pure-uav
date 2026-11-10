@@ -1,5 +1,5 @@
 // 检测门面实现：采集线程发布最新帧，推理线程发布最新结果。
-#include "pure_uav/detection/detector.hpp"
+#include "detector.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -10,7 +10,7 @@
 #include <thread>
 #include <utility>
 
-#include "pure_uav/detection/yolo_backend.hpp"
+#include "yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
 namespace pure_uav::detection {
@@ -171,7 +171,8 @@ bool Detector::start(const DetectorConfig& cfg, std::string& error) {
         return false;
     }
 
-    if (!impl_->camera.start(cfg.camera, [this](const CameraFrame& f) { impl_->onCameraFrame(f); }, &error)) {
+    // 共享相机模式下由宿主通过 submitFrame() 投递帧，绝不二次打开设备。
+    if ((!impl_->cfg.external_camera) && (!impl_->camera.start(cfg.camera, [this](const CameraFrame& f) { impl_->onCameraFrame(f); }, &error))) {
         impl_->backend.release();
         g_instance_used.store(false);
         return false;

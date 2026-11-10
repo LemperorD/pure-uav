@@ -4,8 +4,8 @@
 
 #include <cstdint>
 
+#include "detection_types.hpp"
 #include "guidance_flight_types.hpp"
-#include "pure_uav/detection/detection_types.hpp"
 
 namespace pure_uav::detection {
 

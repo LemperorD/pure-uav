@@ -1,5 +1,5 @@
 // FrameResult → GuidanceTargetSample 桥接实现。
-#include "pure_uav/detection/target_bridge.hpp"
+#include "target_bridge.hpp"
 
 namespace pure_uav::detection {
 

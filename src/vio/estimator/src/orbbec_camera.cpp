@@ -51,12 +51,57 @@ cv::Mat frameToGray(const std::shared_ptr<ob::ColorFrame>& frame) {
     }
     return {};
 }
+
+// SDK 彩色格式 → 跨进程帧协议的编码枚举。只支持能被检测侧 decodeColorFrame 还原的格式。
+bool toColorEncoding(OBFormat format, ColorEncoding& encoding) {
+    switch (format) {
+        case OB_FORMAT_MJPG:
+            encoding = ColorEncoding::jpeg;
+            return true;
+        case OB_FORMAT_RGB:
+            encoding = ColorEncoding::rgb;
+            return true;
+        case OB_FORMAT_YUYV:
+            encoding = ColorEncoding::yuyv;
+            return true;
+        default:
+            return false;
+    }
+}
+
+// 仅供旧 ColorCallback 适配层使用：把原始编码字节解成 BGR。
+// 采集侧仍走 frameToGray（MJPG 直接解灰度），不会为共享内存多解一次彩色。
+cv::Mat decodeEncodedColor(const EncodedColorFrame& frame) {
+    try {
+        if (frame.width < 1 || frame.height < 1 || frame.bytes.empty() || frame.bytes.type() != CV_8UC1 || !frame.bytes.isContinuous()) {
+            return {};
+        }
+        if (frame.encoding == ColorEncoding::jpeg) {
+            return cv::imdecode(frame.bytes, cv::IMREAD_COLOR);
+        }
+        const int channels = frame.encoding == ColorEncoding::yuyv ? 2 : 3;
+        if (frame.bytes.total() != static_cast<size_t>(frame.width) * frame.height * channels) {
+            return {};
+        }
+        cv::Mat pixels(frame.height, frame.width, CV_MAKETYPE(CV_8U, channels), frame.bytes.data);
+        cv::Mat bgr;
+        if (frame.encoding == ColorEncoding::rgb) {
+            cv::cvtColor(pixels, bgr, cv::COLOR_RGB2BGR);
+        } else if (frame.encoding == ColorEncoding::yuyv) {
+            cv::cvtColor(pixels, bgr, cv::COLOR_YUV2BGR_YUYV);
+        } else if (frame.encoding == ColorEncoding::bgr) {
+            bgr = pixels.clone();
+        }
+        return bgr;
+    } catch (...) {
+        return {};
+    }
+}
 }  // namespace
 
 struct OrbbecCamera::Impl {
     Config cfg;
-    FrameCallback callback;
-    ColorCallback color_callback;
+    FramesCallback frames_callback;
     std::unique_ptr<ob::Pipeline> pipe;
     std::thread thread;
     std::atomic<bool> running{false};
@@ -105,15 +150,14 @@ OrbbecCamera::~OrbbecCamera() {
     stop();
 }
 
-bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback) {
+bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, std::string* error) {
     if (impl_ && impl_->running.load()) {
         return true;
     }
 
     auto impl = std::make_unique<Impl>();
     impl->cfg = cfg;
-    impl->callback = std::move(callback);
-    impl->color_callback = std::move(color_callback);
+    impl->frames_callback = std::move(callback);
 
     try {
         impl->pipe = std::make_unique<ob::Pipeline>();
@@ -610,8 +654,10 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
 
     impl->running.store(true);
     impl_ = std::move(impl);
-    impl_->thread = std::thread([this]() {
+    impl_->thread = std::thread([this] {
         Impl* impl = impl_.get();
+        // 帧序号在采集线程内单调递增；两个共享内存通道共用同一个编号。
+        uint64_t seq = 0;
         // 运行中重测光的统计量（见上面的说明）
         double retune_sum = 0.0;
         int retune_n = 0;
@@ -725,30 +771,19 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     sys_us = static_cast<int64_t>(color->systemTimeStampUs());
                 } catch (...) {
                 }
-                cv::Mat bgr;
-                cv::Mat gray;
-                if (impl->color_callback) {
-                    const int w = color->width();
-                    const int h = color->height();
-                    if (color->format() == OB_FORMAT_MJPG) {
-                        cv::Mat raw(1, static_cast<int>(color->dataSize()), CV_8UC1, color->data());
-                        bgr = cv::imdecode(raw, cv::IMREAD_COLOR);
-                    } else if (color->format() == OB_FORMAT_RGB) {
-                        cv::Mat rgb(h, w, CV_8UC3, color->data());
-                        cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
-                    } else if (color->format() == OB_FORMAT_YUYV) {
-                        cv::Mat yuyv(h, w, CV_8UC2, color->data());
-                        cv::cvtColor(yuyv, bgr, cv::COLOR_YUV2BGR_YUYV);
-                    }
-                    if (!bgr.empty()) {
-                        cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
-                    }
-                } else {
-                    gray = frameToGray(color);
+                // 灰度走 frameToGray（MJPG 直接解成 mono8，省一次 BGR 转换）；
+                // 彩色保留 SDK 原始编码字节，供检测进程自己解码，避免服务端重复 imdecode。
+                const int w = static_cast<int>(color->width());
+                const int h = static_cast<int>(color->height());
+                ColorEncoding encoding = ColorEncoding::jpeg;
+                if (!toColorEncoding(color->format(), encoding) || w <= 0 || h <= 0 || color->data() == nullptr || color->dataSize() == 0) {
+                    continue;
                 }
+                cv::Mat gray = frameToGray(color);
                 if (gray.empty()) {
                     continue;
                 }
+                cv::Mat color_encoded(1, static_cast<int>(color->dataSize()), CV_8UC1, color->data());
                 //---------------------------------------------------------------
                 // 运行中重测光：滞回 + 限速（最多每 2 s 调一次）
                 //   过曝（mean>170）：先砍曝光
@@ -820,7 +855,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                         "[Orbbec] ⚠️ 现场光不足（灰度 %.0f，目标 %.0f）：曝光已到模糊预算"
                                         " %.1f ms、增益已到上限 %d。建议补光或降速——"
                                         "本场地上限约 %.2f×Z m/s（1m→%.2f 2m→%.2f）\n",
-                                        mean_now, impl->cfg.tune_target_mean, impl->blur_cap * 0.1, impl->gain_cap, v_cap, v_cap, v_cap * 2.0);
+                                        mean_now, static_cast<double>(impl->cfg.tune_target_mean), impl->blur_cap * 0.1, impl->gain_cap, v_cap, v_cap, v_cap * 2.0);
                                     std::fflush(stdout);
                                 }
                                 std::printf(
@@ -834,11 +869,21 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                     }
                 }
 
-                if (impl->callback) {
-                    impl->callback(gray, depth_mm, host_ns, sys_us, depth_dev_us);
-                }
-                if (impl->color_callback) {
-                    impl->color_callback(bgr, host_ns);
+                CameraFrames frames;
+                frames.gray = gray;
+                frames.depth_mm = depth_mm;
+                frames.color_encoded = color_encoded;  // 零拷贝包裹，仅在本次回调内有效
+                frames.encoding = encoding;
+                frames.width = w;
+                frames.height = h;
+                frames.seq = ++seq;
+                frames.host_ns = host_ns;
+                frames.device_us = device_us;
+                frames.sys_us = sys_us;
+                frames.depth_device_us = depth_dev_us;
+                frames.has_depth = !depth_mm.empty();
+                if (impl->frames_callback) {
+                    impl->frames_callback(frames);
                 }
             }
         } catch (const ob::Error& e) {
@@ -850,6 +895,32 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
     });
 
     return true;
+}
+
+bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback) {
+    const bool use_device_ts = cfg.callback_device_timestamps;
+    auto frames_cb = [callback = std::move(callback), color_callback = std::move(color_callback), use_device_ts](const CameraFrames& frames) {
+        if (callback) {
+            // 默认保持旧语义（SDK 主机系统时间）；显式开启标志才改用真实设备时间。
+            callback(frames.gray, frames.depth_mm, frames.host_ns, use_device_ts ? frames.device_us : frames.sys_us, frames.depth_device_us);
+        }
+        if (!color_callback) {
+            return;
+        }
+        EncodedColorFrame encoded;
+        encoded.bytes = frames.color_encoded;
+        encoded.encoding = frames.encoding;
+        encoded.width = frames.width;
+        encoded.height = frames.height;
+        encoded.host_ns = frames.host_ns;
+        encoded.device_us = frames.device_us;
+        encoded.seq = frames.seq;
+        cv::Mat bgr = decodeEncodedColor(encoded);
+        if (!bgr.empty()) {
+            color_callback(bgr, frames.host_ns);
+        }
+    };
+    return startWithFrames(cfg, std::move(frames_cb), error);
 }
 
 void OrbbecCamera::stop() {

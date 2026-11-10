@@ -1,4 +1,4 @@
-// 主机单调时钟 ↔ 飞控 IMU 时间戳的偏移估计。
+// 主机单调时钟 ↔ 飞控 IMU 时间戳的偏移估计，以及在线 VIO 的 Unix 时间换算。
 //
 // 做法：每收到一帧 HIGHRES_IMU，记录 (host_monotonic_ns, imu.timestamp_us)，
 //       计算 offset = host_ns - fcu_us*1000。串口/调度延迟只会让 offset 偏大，
@@ -10,8 +10,11 @@
 // 注意：相机帧的传输/解码延迟、IMU 的串口延迟都会引入固定偏差，这部分
 // 由标定得到的 timeshift_cam_imu（或 OpenVINS 在线时间偏移）吸收。
 //
+// fcuToUnixUs() 用主机 system_clock 建立固定的 FCU→Unix 微秒偏移。
+// 相机和 IMU 完成原有对齐后统一换算，保留采样间隔；系统校时在下次时间基重建时生效。
+//
 // 【2026-10-29】飞控重启处理：
-//   HIGHRES_IMU.time_usec 是**飞控 boot 以来**的微秒数。飞控重启后它从 ~0 重新开始，
+//   当前飞控的 HIGHRES_IMU.time_usec 是 boot 微秒。飞控重启后它从 ~0 重新开始，
 //   而主机时钟继续前进。旧实现只往 offsets_ 里追加样本，重启后的样本会算出
 //   "约 303 秒"这类完全错误的时间，而且 valid() 依旧返回 true —— 图像、IMU、输出位姿
 //   就会落在两个不同的时间基准里。
@@ -24,6 +27,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <optional>
 
 namespace pure_uav {
 
@@ -49,6 +53,10 @@ class FcuClock {
     // host 单调时钟 → IMU 时钟域（微秒）。valid() 为 false 时返回 false。
     bool hostToFcuUs(int64_t host_ns, uint64_t& imu_us) const;
 
+    // 对齐后的 IMU/相机时间 → 主机 Unix 微秒。同步未就绪、过期或越界时返回 false。
+    // 首次成功换算时锁定偏移，直到 reset()/kTimebaseReset；不会逐帧使用接收时刻。
+    bool fcuToUnixUs(uint64_t imu_us, uint64_t& unix_us) const;
+
     int64_t offsetNs() const;
     size_t sampleCount() const;
 
@@ -67,6 +75,7 @@ class FcuClock {
   private:
     void recomputeLocked() const;
     void clearLocked();
+    bool hostToFcuUsLocked(int64_t host_ns, uint64_t& imu_us) const;
 
     static constexpr size_t kMaxSamples = 600;  // 100Hz 下约 6 秒
     static constexpr size_t kMinSamples = 10;
@@ -82,6 +91,7 @@ class FcuClock {
     mutable bool has_estimate_ = false;
     size_t since_recompute_ = 0;
     uint64_t last_imu_us_ = 0;
+    mutable std::optional<int64_t> unix_offset_us_;
 
     std::atomic<uint64_t> out_of_order_{0};
     std::atomic<uint64_t> timebase_resets_{0};

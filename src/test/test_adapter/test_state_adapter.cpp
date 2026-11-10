@@ -94,9 +94,9 @@ static Vec3 ref_rotate(const double q[4], const Vec3& v) {
     const double y = q[2];
     const double z = q[3];
     const double R[3][3] = {
-        {1 - (2 * (y * y + z * z)), 2 * (x * y - z * w), 2 * (x * z + y * w)},
-        {2 * (x * y + z * w), 1 - (2 * (x * x + z * z)), 2 * (y * z - x * w)},
-        {2 * (x * z - y * w), 2 * (y * z + x * w), 1 - (2 * (x * x + y * y))},
+        {1 - (2 * ((y * y) + (z * z))), 2 * ((x * y) - (z * w)), 2 * ((x * z) + (y * w))},
+        {2 * ((x * y) + (z * w)), 1 - (2 * ((x * x) + (z * z))), 2 * ((y * z) - (x * w))},
+        {2 * ((x * z) - (y * w)), 2 * ((y * z) + (x * w)), 1 - (2 * ((x * x) + (y * y)))},
     };
     return {(R[0][0] * v.x) + (R[0][1] * v.y) + (R[0][2] * v.z), (R[1][0] * v.x) + (R[1][1] * v.y) + (R[1][2] * v.z), (R[2][0] * v.x) + (R[2][1] * v.y) + (R[2][2] * v.z)};
 }
@@ -107,15 +107,15 @@ static void ref_matrix(const double q[4], double R[3][3]) {
     const double x = q[1];
     const double y = q[2];
     const double z = q[3];
-    R[0][0] = 1 - (2 * (y * y + z * z));
-    R[0][1] = 2 * (x * y - z * w);
-    R[0][2] = 2 * (x * z + y * w);
-    R[1][0] = 2 * (x * y + z * w);
-    R[1][1] = 1 - (2 * (x * x + z * z));
-    R[1][2] = 2 * (y * z - x * w);
-    R[2][0] = 2 * (x * z - y * w);
-    R[2][1] = 2 * (y * z + x * w);
-    R[2][2] = 1 - (2 * (x * x + y * y));
+    R[0][0] = 1 - (2 * ((y * y) + (z * z)));
+    R[0][1] = 2 * ((x * y) - (z * w));
+    R[0][2] = 2 * ((x * z) + (y * w));
+    R[1][0] = 2 * ((x * y) + (z * w));
+    R[1][1] = 1 - (2 * ((x * x) + (z * z)));
+    R[1][2] = 2 * ((y * z) - (x * w));
+    R[2][0] = 2 * ((x * z) - (y * w));
+    R[2][1] = 2 * ((y * z) + (x * w));
+    R[2][2] = 1 - (2 * ((x * x) + (y * y)));
 }
 
 // 从四元数取"某机体轴在世界系下的指向"（列向量）
