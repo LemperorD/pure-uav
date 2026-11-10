@@ -29,12 +29,15 @@ Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
 
 ```bash
 cmake --build build --target main vio_live -j2
+./bin/main --check-config
 ./bin/main --no-send
 ```
 
 `main` 使用现有 `config/driver.yaml` 和生产标定 `gemini_1920x1080`，
 期望服务端提供 1920×1080@30。也可传入 `--config-dir` 选择标定，分辨率从标定读取。
-当前 `main` 保持原有算法默认值，未启用深度初始化；服务端仍可为其他消费者采集深度。
+`main` 的运行参数来自 `config/vio.yaml`；当前文件启用深度初始化和静止起步速度约束。
+修改 `use_depth`、`use_depth_init`、`init_vel_zero` 等字段后，使用 `main --check-config`
+确认实际值。配置分工与路径解析见 [usage.md](usage.md#vio-配置)。
 
 独立调试、录制和深度初始化使用 `vio_live`，例如：
 

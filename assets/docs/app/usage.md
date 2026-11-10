@@ -55,6 +55,33 @@ VIO 共享内存输入读取最新完整帧，跳过的帧计入丢帧数；原�
 退出时先通知并 join 算法线程，再停止输入与检测线程，最后关闭通信。
 相机服务的超时检测、停止与重启约定见 [camera-ipc.md](camera-ipc.md)；停止 VIO 消费者不会停止相机服务。
 
+## VIO 配置
+
+`main` 从 `config/app.yaml` 加载应用调度参数和配置路径，再读取 `config/vio.yaml`。
+本节只说明 VIO 配置，检测模块保持原有代码、配置和启动方式。
+
+| 文件 | VIO 侧的用途 |
+|---|---|
+| `config/app.yaml` | 保留应用调度设置，通过 `vio_config` 指向 VIO 参数文件 |
+| `config/vio.yaml` | 标定目录、期望分辨率/帧率、IMU 频率、初始化选项、共享内存连接和位姿发布门限 |
+| `config/driver.yaml` | 沿用原有通信配置；加载时校验 IMU 订阅周期与 VIO 的 `imu_hz` 一致 |
+
+`config/vio.yaml` 的 `config_dir` 指向原有 OpenVINS 参数和相机/IMU 标定链。
+`use_depth` 表示 VIO 是否使用深度图；相机采集与曝光等设置由 `camera_server` 管理。
+原 `app.yaml` 中的 `use_depth_init: true` 和 `init_vel_zero: true` 已迁入 `vio.yaml`，
+现在会用于 `main`。独立调试入口 `vio_live` 继续使用自身命令行参数。
+
+应用配置及其中的相对路径均相对于仓库根目录解析。以下检查不打开串口或相机：
+
+```bash
+./bin/main --check-config
+./bin/main --vio-config config/vio.yaml --no-send --check-config
+```
+
+`--config` 选择应用配置，`--vio-config` 选择 VIO 运行配置；
+`--config-dir` 覆盖 VIO 标定目录并读取其分辨率；
+`--shm-vio` 和 `--shm-timeout-ms` 覆盖 VIO 的共享内存连接参数。
+
 ## 1.1 独立制导仿真入口
 
 ```text

@@ -29,6 +29,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
+#include "app_config.hpp"
 #include "camera_service.hpp"
 #include "fcu_clock.hpp"
 #include "glue/comm_imu_source.hpp"
@@ -61,10 +62,10 @@ int64_t nowNs() {
 struct Options {
     bool help = false;
     bool no_send = false;
-    std::string driver = "config/driver.yaml";
-    std::string shm_vio = "/pure_uav_camera_vio";
-    int shm_timeout_ms = 5000;
-    std::string vio = "src/vio/estimator/config/gemini_1920x1080";
+    bool check_config = false;
+    std::string config = "config/app.yaml";
+    std::string driver, vio_config, shm_vio, vio;
+    int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";  // 预留：制导尚未接入
     std::string model;                                      // 预留：检测尚未接入
     std::string blackbox;                                   // 预留：黑匣子尚未接入
@@ -75,8 +76,11 @@ void usage(const char* name) {
         "用法: %s [选项]\n"
         "启动通信、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
         "检测、制导、自检/解锁/起飞/Offboard 状态机尚未接入。\n"
+        "  --config FILE         应用调度配置（默认 config/app.yaml）\n"
+        "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
+        "  --check-config        校验并打印实际配置后退出，不打开设备\n"
         "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
-        "  --config-dir DIR      VIO 配置目录（默认 gemini_1920x1080）\n"
+        "  --config-dir DIR      覆盖 VIO 标定目录（默认由 vio.yaml 指定）\n"
         "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
         "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
         "  --no-send             运行 VIO 和发布检查，但不发送位姿\n"
@@ -93,6 +97,10 @@ Options parseOptions(int argc, char** argv) {
             options.help = true;
             return options;
         }
+        if (arg == "--check-config") {
+            options.check_config = true;
+            continue;
+        }
         if (arg == "--no-send") {
             options.no_send = true;
             continue;
@@ -105,7 +113,11 @@ Options parseOptions(int argc, char** argv) {
             continue;
         }
         std::string* value = nullptr;
-        if (arg == "--driver-config") {
+        if (arg == "--config") {
+            value = &options.config;
+        } else if (arg == "--vio-config") {
+            value = &options.vio_config;
+        } else if (arg == "--driver-config") {
             value = &options.driver;
         } else if (arg == "--shm-vio") {
             value = &options.shm_vio;
@@ -170,10 +182,6 @@ class Workers {
 
 using namespace pure_uav::app;
 
-constexpr int kMainLoopHz = 50;
-constexpr int kPoseMaxAgeMs = 150;      // 与 PoseGateContext 默认值一致
-constexpr double kStatusPeriodS = 1.0;  // 状态行限频，避免逐帧打印
-constexpr double kHeartbeatWaitS = 5.0;
 constexpr uint8_t kArduPilotAutopilot = 3;  // MAV_AUTOPILOT_ARDUPILOTMEGA
 
 // 位姿发布去重状态：重连或时间基变化时整体归零后重新起算。
@@ -259,37 +267,39 @@ void logStatus(const Communicator& comm, const VioRuntime& vio, const CameraServ
 }
 
 int runVio(const Options& options) {
-    // 1. VIO 配置：沿用现有 --config-dir 和配置文件存在性检查。
-    VioEstimator::Options vio_options;
-    vio_options.config_dir = findConfigFile(options.vio);
-    vio_options.verbose = false;       // 嵌入运行：状态只走限频状态行
-    vio_options.quiet_runtime = true;  // 关闭 OpenVINS 控制台热路径与定时文件写入
-    const auto vio_config_path = std::filesystem::path(vio_options.config_dir) / vio_options.estimator_config;
-    if (!std::filesystem::is_regular_file(vio_config_path)) {
-        std::fprintf(stderr, "[VIO] 配置文件不存在或不是普通文件：%s\n", vio_config_path.c_str());
-        return 1;
+    // 1. 应用只组合模块配置；VIO 参数来自独立 vio.yaml。
+    AppConfig config;
+    ConfigOverrides overrides;
+    overrides.driver_path = options.driver;
+    overrides.vio_path = options.vio_config;
+    overrides.config_dir = options.vio;
+    overrides.shm_vio = options.shm_vio;
+    overrides.shm_timeout_ms = options.shm_timeout_ms;
+    std::string config_error;
+    if (!loadAppConfig(options.config, overrides, config, config_error)) {
+        std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
+        return 2;
     }
-
-    // 2. 整机唯一的 Communicator：VIO 的 IMU 只从它的逐帧队列取，不另开串口。
-    CommConfig comm_config;
-    const auto driver_path = findConfigFile(options.driver);
-    if (!loadCommConfig(driver_path, comm_config)) {
-        std::fprintf(stderr, "[MAIN] 通信配置加载失败：%s\n", driver_path.c_str());
-        return 1;
+    if (options.check_config) {
+        std::printf("Configuration OK\n%sodometry_send_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true");
+        return 0;
     }
+    const auto& vio_options = config.vio;
+    const auto& comm_config = config.comm;
+    // 2. 整机唯一的 Communicator：VIO 不另开飞控串口。
     Communicator comm;
     if (!comm.start(comm_config)) {
         std::fprintf(stderr, "[MAIN] 串口启动失败：%s\n", comm_config.device.c_str());
         return 1;
     }
-    std::printf("[MAIN] 等待飞控心跳（最多 %.1f s）...\n", kHeartbeatWaitS);
-    const auto heartbeat = app::waitForHeartbeat(comm, interrupted, kHeartbeatWaitS);
+    std::printf("[MAIN] 等待飞控心跳（最多 %.1f s）...\n", config.heartbeat_wait_s);
+    const auto heartbeat = app::waitForHeartbeat(comm, interrupted, config.heartbeat_wait_s);
     if (heartbeat == app::HeartbeatWaitResult::stopped) {
         comm.stop();
         return 0;
     }
     if (heartbeat == app::HeartbeatWaitResult::timeout) {
-        std::fprintf(stderr, "[MAIN] %.1f s 内未收到飞控心跳，VIO 未启动。\n", kHeartbeatWaitS);
+        std::fprintf(stderr, "[MAIN] %.1f s 内未收到飞控心跳，VIO 未启动。\n", config.heartbeat_wait_s);
         comm.stop();
         return 1;
     }
@@ -311,13 +321,7 @@ int runVio(const Options& options) {
     // 3. 输入源：同一个 Communicator 的逐帧 IMU + 共享相机（不另开相机）。
     app::CommImuSource imu(comm);
     app::CameraService camera;
-    app::CameraService::Config camera_config;
-    camera_config.channel = options.shm_vio;
-    camera_config.timeout_ms = options.shm_timeout_ms;
-    camera_config.config_dir = vio_options.config_dir;
-    camera_config.width = camera_config.height = 0;  // 使用所选标定的分辨率
-    camera_config.estimator_config = vio_options.estimator_config;
-    camera_config.use_depth = vio_options.use_depth_init;
+    const auto& camera_config = config.camera;
 
     // 4. 先连接相机通道，再启动 VIO，使 discardBefore 的会话边界生效。
     std::string error;
@@ -326,7 +330,7 @@ int runVio(const Options& options) {
         comm.stop();
         return 1;
     }
-    VioRuntime vio(vio_options, imu, camera);
+    VioRuntime vio(vio_options, imu, camera, config.publication);
     if (interrupted.load()) {
         camera.stop();
         comm.stop();
@@ -343,7 +347,7 @@ int runVio(const Options& options) {
     // 5. 公共主循环：各模块按固定顺序执行自己的一拍；本次只启用 VIO。
     PosePublisher publisher;
     uint64_t overruns = 0;
-    const auto period = std::chrono::nanoseconds(1000000000LL / kMainLoopHz);
+    const auto period = std::chrono::nanoseconds(1000000000LL / config.main_loop_hz);
     auto next_tick = Clock::now();
     auto last_status = next_tick;
     int result = 0;
@@ -355,7 +359,7 @@ int runVio(const Options& options) {
             break;
         }
         // 5.2 VIO 一拍：门控 + 发布。喂数在 VioRuntime 内部线程完成。
-        if (!tickVio(vio, comm, !options.no_send, kPoseMaxAgeMs, publisher)) {
+        if (!tickVio(vio, comm, !options.no_send, config.max_age_ms, publisher)) {
             const auto stats = vio.stats();
             std::fprintf(stderr, "[MAIN] VIO 工作线程已停止：%s\n", stats.last_error.empty() ? "原因未报告" : stats.last_error.c_str());
             result = 1;
@@ -371,7 +375,7 @@ int runVio(const Options& options) {
 
         // 5.3 状态行限频输出（1 Hz），不逐帧打印。
         const auto now = Clock::now();
-        if (now - last_status >= std::chrono::duration<double>(kStatusPeriodS)) {
+        if (now - last_status >= std::chrono::duration<double>(config.status_period_s)) {
             last_status = now;
             logStatus(comm, vio, camera, publisher, overruns);
         }

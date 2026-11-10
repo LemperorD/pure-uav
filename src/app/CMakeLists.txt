@@ -12,7 +12,7 @@ target_link_libraries(guidance_application PUBLIC guidance_sim_tools
 add_executable(main main.cpp)
 target_link_libraries(main PRIVATE communicate guidance_application)
 if(TARGET pure_vio_runtime)
-  add_library(vio_app_support STATIC pose_gate.cpp
+  add_library(vio_app_support STATIC app_config.cpp pose_gate.cpp
                                   glue/comm_imu_source.cpp)
   target_include_directories(
     vio_app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
@@ -46,3 +46,12 @@ target_link_libraries(guidance_example PRIVATE guidance_application)
 # `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
 set_target_properties(main guidance_example PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 ${CMAKE_SOURCE_DIR}/bin)
+
+if(TARGET vio_app_support)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  add_test(NAME app_config
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/src/test/test_app/test_app_config.py
+                   $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(app_config PROPERTIES TIMEOUT 30)
+endif()
