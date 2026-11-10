@@ -12,6 +12,8 @@ class MissionController {
     MissionOutput tick(const MissionInput& input);
     // 只能在宿主已停止执行上一轮任务的输出后调用。
     void reset();
+    // 宿主运行层检测到会话/定位基准变化或发送失败时，立即释放控制权。
+    void cancel(MissionReason reason, double now_s);
 
     [[nodiscard]] MissionState state() const {
         return state_;

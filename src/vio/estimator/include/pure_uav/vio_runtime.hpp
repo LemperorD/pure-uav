@@ -111,6 +111,8 @@ class VioRuntime {
         bool publishable() const;
         bool clockValid() const;
         uint64_t generation() const;
+        // 在同一 publication guard 下映射检测采样时刻，防止跨定位重建使用旧时间基。
+        bool hostToFcuUs(int64_t host_ns, uint64_t& boot_us) const;
 
       private:
         friend class VioRuntime;

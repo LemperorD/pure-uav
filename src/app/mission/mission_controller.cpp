@@ -52,6 +52,12 @@ void MissionController::reset() {
     *this = MissionController(config_);
 }
 
+void MissionController::cancel(MissionReason reason, double now_s) {
+    if (!terminal(state_)) {
+        abort(reason, now_s);
+    }
+}
+
 void MissionController::enter(MissionState state, double now_s) {
     state_ = state;
     entered_s_ = now_s;
@@ -384,6 +390,10 @@ const char* toString(MissionReason reason) {
             return "unexpected_disarm";
         case MissionReason::kCommandFailed:
             return "command_failed";
+        case MissionReason::kSessionChanged:
+            return "session_changed";
+        case MissionReason::kNavigationReset:
+            return "navigation_reset";
         case MissionReason::kInvalidTime:
             return "invalid_time";
     }

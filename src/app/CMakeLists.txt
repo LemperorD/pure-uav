@@ -12,14 +12,17 @@ target_link_libraries(guidance_application PUBLIC guidance_sim_tools
                                                   guidance_flight)
 
 add_executable(main main.cpp)
-target_link_libraries(main PRIVATE communicate guidance_application)
+target_link_libraries(main PRIVATE communicate guidance_application
+                                  mission_ports)
 if(TARGET pure_vio_runtime)
-  add_library(vio_app_support STATIC app_config.cpp pose_gate.cpp
-                                  glue/comm_imu_source.cpp)
+  add_library(
+    vio_app_support STATIC app_config.cpp pose_gate.cpp glue/comm_imu_source.cpp
+                           glue/mission_service.cpp)
   target_include_directories(
     vio_app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
                            ${CMAKE_SOURCE_DIR}/src/vio/estimator/src)
-  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime)
+  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime
+                                             mission_ports)
   target_link_libraries(main PRIVATE vio_app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
 endif()

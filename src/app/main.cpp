@@ -23,6 +23,7 @@
 #include "communicator.hpp"
 #include "detection_supervisor.hpp"
 #include "guidance_loop.hpp"
+#include "mission/mission_config.hpp"
 #include "runtime/bounded_queue.hpp"
 #include "runtime/guidance_ports.hpp"
 #include "startup/guidance_application.hpp"
@@ -35,6 +36,7 @@
 #include "camera_service.hpp"
 #include "fcu_clock.hpp"
 #include "glue/comm_imu_source.hpp"
+#include "glue/mission_service.hpp"
 #include "live_timing.hpp"
 #include "pose_gate.hpp"
 #include "pure_uav/vio_runtime.hpp"
@@ -47,10 +49,15 @@ using Clock = std::chrono::steady_clock;
 
 // 信号处理只置位；心跳等待和主循环都只读这一个退出标志，其他模块也复用。
 std::atomic<bool> interrupted{false};
+std::atomic<bool> return_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free, "Signal flag must be lock-free");
 
 void onSignal(int /*unused*/) {
     interrupted.store(true, std::memory_order_relaxed);
+}
+
+void onReturnSignal(int /*unused*/) {
+    return_requested.store(true, std::memory_order_relaxed);
 }
 
 int64_t nowNs() {
@@ -62,20 +69,22 @@ struct Options {
     bool no_send = false;
     bool check_config = false;
     bool no_detection = false;
+    bool mission = false;
+    std::string mission_config = "config/mission.yaml";
     std::string detect_bin, detection_config;
     std::vector<std::string> detect_args;
     std::string config = "config/app.yaml";
     std::string driver, vio_config, shm_vio, vio;
     int shm_timeout_ms = -1;
-    std::string guidance = "config/onboard-guidance.yaml";  // 预留：制导尚未接入
-    std::string blackbox;                                   // 预留：黑匣子尚未接入
+    std::string guidance = "config/onboard-guidance.yaml";
+    std::string blackbox;  // 预留：黑匣子尚未接入
 };
 
 void usage(const char* name) {
     std::printf(
         "用法: %s [选项]\n"
         "启动通信、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
-        "飞控心跳就绪后启动检测子进程；制导与应用状态机尚未接入。\n"
+        "飞控心跳就绪后启动检测子进程；--mission 显式启用主任务。\n"
         "  --config FILE         应用调度配置（默认 config/app.yaml）\n"
         "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
         "  --check-config        校验并打印实际配置后退出，不打开设备\n"
@@ -83,13 +92,16 @@ void usage(const char* name) {
         "  --config-dir DIR      覆盖 VIO 标定目录（默认由 vio.yaml 指定）\n"
         "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
         "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
-        "  --no-send             运行 VIO 和发布检查，但不发送位姿\n"
+        "  --no-send             检查照跑，禁止发送位姿、任务指令和飞控动作请求\n"
+        "  --mission             启用任务：定位就绪后自检、起飞、搜索、撞板和返航\n"
+        "  --mission-config FILE 任务参数（默认 config/mission.yaml）\n"
+        "  --guidance-config FILE 制导/彩色相机标定参数；未就绪时只搜索不撞板\n"
         "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
         "  --detection-config FILE  传给检测子进程的 --config 路径\n"
         "  --detect-arg ARG      可重复，原样传给检测子进程的运行参数\n"
         "  --no-detection        仅运行通信和 VIO，不拉起检测子进程\n"
         "  -h, --help            查看帮助\n"
-        "  --guidance-config/--blackbox 为后续制导预留，当前不生效。\n",
+        "  --blackbox 为后续黑匣子预留；SIGUSR1 请求任务返航。\n",
         name);
 }
 
@@ -100,6 +112,10 @@ Options parseOptions(int argc, char** argv) {
         if (arg == "-h" || arg == "--help") {
             options.help = true;
             return options;
+        }
+        if (arg == "--mission") {
+            options.mission = true;
+            continue;
         }
         if (arg == "--check-config") {
             options.check_config = true;
@@ -134,6 +150,8 @@ Options parseOptions(int argc, char** argv) {
         std::string* value = nullptr;
         if (arg == "--config") {
             value = &options.config;
+        } else if (arg == "--mission-config") {
+            value = &options.mission_config;
         } else if (arg == "--vio-config") {
             value = &options.vio_config;
         } else if (arg == "--driver-config") {
@@ -309,8 +327,32 @@ int runVio(const Options& options) {
         std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
         return 2;
     }
+    mission::RuntimeConfig mission_config;
+    GuidanceAppParams mission_guidance = guidance_default_params();
+    if (options.mission) {
+        const auto resolve = [&](const std::string& path) { return (std::filesystem::path(config.repository_root) / path).string(); };
+        if (!mission::loadRuntimeConfig(resolve(options.mission_config), mission_config, config_error)) {
+            std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
+            return 2;
+        }
+        mission_config.send_enabled = !options.no_send;
+        auto loaded = guidance_load_yaml_file(resolve(options.guidance), &mission_guidance);
+        if (loaded.ok) {
+            loaded = guidance_validate_params(mission_guidance);
+        }
+        if (!loaded.ok) {
+            std::fprintf(stderr, "Configuration error: %s\n", loaded.error.c_str());
+            return 2;
+        }
+        if (config.main_loop_hz < 10 || 1.0 / config.main_loop_hz >= mission_config.max_setpoint_gap_s) {
+            std::fprintf(stderr, "Configuration error: main_loop_hz is too low for mission setpoint continuity\n");
+            return 2;
+        }
+        mission_guidance.loop.loop_hz = config.main_loop_hz;
+    }
     if (options.check_config) {
         std::printf("Configuration OK\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
+        std::printf("mission_enabled: %s\nmission_send_enabled: %s\nmission_guidance_ready: %s\n", options.mission ? "true" : "false", options.mission && !options.no_send ? "true" : "false", options.mission && mission_guidance.loop.cam.valid() ? "true" : "false");
         return 0;
     }
     const auto& vio_options = config.vio;
@@ -374,6 +416,11 @@ int runVio(const Options& options) {
     std::printf("[VIO] 已启动：IMU 来自通信模块逐帧队列，图像来自 camera_server 共享内存。\n");
 
     // 检测单独消费彩色通道；在心跳、相机与 VIO 就绪后启动，主循环继续发布位姿。
+    std::unique_ptr<MissionService> mission_service;
+    if (options.mission) {
+        mission_service = std::make_unique<MissionService>(vio, comm, mission_config, mission_guidance, comm_config.heartbeat_timeout_ms, config.max_age_ms, !options.no_detection);
+        std::printf("[MISSION] enabled send=%s guidance=%s; waiting for navigation\n", options.no_send ? "false" : "true", mission_service->guidanceReady() ? "ready" : "unconfigured");
+    }
     std::unique_ptr<app::DetectionSupervisor> detection;
     if (!options.no_detection) {
 #ifdef PURE_APP_HAS_DETECTION
@@ -384,7 +431,15 @@ int runVio(const Options& options) {
             process_options.arguments.push_back(options.detection_config);
         }
         for (const auto& argument : options.detect_args) {
+            if (argument == "--mission-target-fd") {
+                throw std::invalid_argument("--mission-target-fd is managed by main");
+            }
             process_options.arguments.push_back(argument);
+        }
+        if (options.mission) {
+            process_options.target_publish_fd = mission_service->targetPublisherFd();
+            process_options.arguments.emplace_back("--mission-target-fd");
+            process_options.arguments.push_back(std::to_string(mission_service->targetPublisherFd()));
         }
         detection = std::make_unique<app::DetectionSupervisor>(std::move(process_options));
         if (!detection->start(&error)) {
@@ -403,7 +458,7 @@ int runVio(const Options& options) {
 #endif
     }
 
-    // 5. 公共主循环：监督相机/检测进程，同时持续执行 VIO 发布门控。
+    // 5. 公共主循环：监督相机/检测进程，发布 VIO 并调度任务。
     PosePublisher publisher;
     uint64_t overruns = 0;
     const auto period = std::chrono::nanoseconds(1000000000LL / config.main_loop_hz);
@@ -431,14 +486,16 @@ int runVio(const Options& options) {
             break;
         }
 
-        // ==================== 后续模块待接位置（本次不实现）====================
-        // 检测结果尚未接入制导；推理在独立 detect_rt 进程执行。
-        // 制导：      50 Hz 消费飞控状态与目标，产出期望指令，经同一个
-        //             Communicator 发送。
-        // 任务框架见 mission/mission_controller.hpp；在此构造 MissionInput 并调 tick。
-        // 按 MissionOutput 选择任务 setpoint 或制导输出，异步执行飞控命令请求。
-        // 检测 IPC、落地反馈和命令执行器接齐后，再启用整机任务。
-        // =====================================================================
+        if (mission_service) {
+            const auto& status = mission_service->tick(return_requested.load(std::memory_order_relaxed));
+            if (status.mission.state_changed) {
+                std::printf("[MISSION] state=%s reason=%s strike=%s\n", mission::toString(status.mission.state), mission::toString(status.mission.reason), status.mission.strike_confirmed ? "confirmed" : "unconfirmed");
+            }
+            if (status.mission.state == mission::MissionState::kCompleted || status.mission.state == mission::MissionState::kAborted) {
+                result = status.mission.state == mission::MissionState::kAborted ? 1 : 0;
+                break;
+            }
+        }
 
         // 5.3 状态行限频输出（1 Hz），不逐帧打印。
         const auto now = Clock::now();
@@ -454,6 +511,10 @@ int runVio(const Options& options) {
             next_tick = after_work + period;
         }
         std::this_thread::sleep_until(next_tick);
+    }
+
+    if (mission_service) {
+        mission_service->stop();
     }
 
     // 6. 停止：回收检测子进程，再停止 VIO 与通信；相机服务继续由外部托管。
@@ -485,6 +546,7 @@ int main(int argc, char** argv) {
     }
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+    std::signal(SIGUSR1, onReturnSignal);
     std::signal(SIGPIPE, SIG_IGN);
 
 #ifdef PURE_APP_HAS_VIO

@@ -38,6 +38,8 @@ enum class MissionReason : std::uint8_t {
     kUnexpectedDisarm,
     kCommandFailed,
     kInvalidTime,
+    kSessionChanged,
+    kNavigationReset,
 };
 
 // 边沿请求，由宿主异步执行。不要在 tick/VIO 发布线程等待 COMMAND_ACK。

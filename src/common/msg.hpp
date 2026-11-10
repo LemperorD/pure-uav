@@ -40,6 +40,12 @@ struct SystemTime {
     uint32_t time_boot_ms = 0;    // 上电时间（毫秒）
 };
 
+// 飞控实际落地反馈（MAVLink EXTENDED_SYS_STATE），主机单调时钟用于新鲜度检查。
+struct LandedState {
+    uint8_t state = 0;  // 0=undefined, 1=on ground, 2=in air, 3=takeoff, 4=landing
+    int64_t received_ns = 0;
+};
+
 // ---------- 上位机下发数据 ----------
 // 位姿/速度的参考坐标系
 enum class VisionFrame : uint8_t {

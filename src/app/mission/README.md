@@ -1,112 +1,135 @@
-# 主任务框架（第一版）
+# 主任务与 main 接入
 
-任务层负责 **起飞 → 找装甲板 → 撞板 → 返航 → 降落** 的调度。
-`MissionController::tick()` 只计算本拍意图，不直接打开设备、发送命令或等待 ACK。
-当前提供独立演示和无硬件测试，`main` 中已标注接入位置，尚未启用自动任务。
+任务流程为 **起飞 → 找装甲板 → 撞板 → 返航 → 降落**。
+`main` 已通过 `MissionService` 接入任务运行层，共用现有串口、VIO 与检测进程。
+默认继续运行定位和检测；显式加 `--mission` 才启动任务。任务开始前等待定位就绪。
 
-## 文件与运行
+## 调用关系
+
+```text
+main（固定节拍、生命周期与日志）
+  └─ MissionService::tick()（VIO 发布锁 + 目标接收 + 时间映射）
+       └─ MissionRuntime::tick()（反馈快照、预热、控制权仲裁、发送）
+            ├─ MissionController::tick()：纯状态机
+            ├─ MavlinkMissionPort：main 共用的 Communicator
+            └─ MissionGuidanceRunner：只计算，结果交回 Runtime 发送
+
+detect_rt --独立 Unix datagram 通道--> MissionService
+VioRuntime::PublicationGuard --同一时钟映射--> 目标 boot_us
+```
+
+任务模块不创建后台命令线程，不排队解锁指令。发送模式、解锁和降落请求时，
+使用新增的 `request*ForSession()`，只发送消息，不等待 ACK。
+任务依靠新鲜的模式、armed、落地和位置反馈推进；反馈一直不满足则阶段超时。
+ACK 拒绝尚未单独接入任务原因码，会表现为动作反馈不满足而超时。
+原有同步 `send*()` 接口保留，任务路径不调用它们。
+
+## 文件
 
 | 文件 | 用途 |
 | --- | --- |
-| `mission_types.hpp` | 状态、参数、输入快照、输出意图 |
-| `mission_controller.{hpp,cpp}` | 单线程、非阻塞状态机 |
+| `mission_types.hpp`、`mission_controller.{hpp,cpp}` | 参数、输入输出、纯状态机 |
+| `mission_runtime.{hpp,cpp}` | main 与任务间的运行契约、发送仲裁和故障处理 |
+| `mission_config.{hpp,cpp}` | 严格 YAML 参数加载与校验 |
+| `../glue/mission_service.{hpp,cpp}` | VIO、检测 IPC 与任务运行层的组合门面 |
+| `../glue/mission_ports.{hpp,cpp}` | 真实飞控适配器和制导计算适配器 |
+| `../../common/mission_target_channel.hpp` | 本机父子进程目标协议；有界、非阻塞接收 |
 | `mission_example.cpp` | 合成反馈演示，包含一次合成撞击事件 |
-| `src/test/test_app/test_mission.cpp`（从仓库根目录计） | 正常流程、时间戳、目标丢失、超时和故障回归 |
+| `src/test/test_app/test_mission*.cpp`（仓库根目录计） | 状态机、运行层、真实协议回归 |
 
-在仓库根目录运行：
+## 配置与运行
+
+从仓库根目录执行：
 
 ```bash
 cmake -S . -B build
-cmake --build build --target mission_example test_mission -j4
+cmake --build build --target main mission_example test_mission \
+  test_mission_runtime test_mission_wire -j4
+
+# 不打开设备：校验主入口的实际任务配置
+./bin/main --mission --no-send --check-config
+
+# 相机服务先启动；运行任务调度检查，禁止发送位姿、setpoint 和动作请求
+./bin/main --mission --no-send
+
+# 显式启用任务控制：定位就绪后开始自检和起飞
+./bin/main --mission --mission-config config/mission.yaml \
+  --guidance-config config/onboard-guidance.yaml
+
+# 独立合成演示，不打开设备
 ./bin/mission_example
-ctest --test-dir build -R '^mission(_example)?$' --output-on-failure
+ctest --test-dir build -R '^mission(_example|_runtime|_wire)?$' --output-on-failure
 ```
 
-演示用完美位置跟随代替飞控，用合成事件代替撞击传感器，不验证 PN 制导或飞行动力学。
-任务核心不依赖 ROS、相机或串口；仓库根 CMake 仍会配置工程已有的其他依赖。
+`mission_wire` 使用本地 Unix socket 和 PTY，需要运行环境允许相应系统调用。
 
-## 状态流转
+`config/mission.yaml` 管理任务参数，未知字段、非有限值及非法范围会在打开设备前报错。
+`--mission-config`、`--guidance-config` 中的相对路径从仓库根目录解析。
+`--check-config` 只有配合 `--mission` 才加载这两份配置。
+`--no-send` 不伪造发送成功，因此不会达到 Offboard 预热条件，也不会自动解锁。
+通信模块自身的心跳和遥测订阅请求仍会运行。
+
+默认连续确认 3 个新目标帧、起飞高度 1.5 m、搜索超时 30 s、撞板超时 5 s。
+Offboard 预热默认要求连续成功发送 1.5 s，中间超过 0.2 s 没发送则重新起算。
+当前只支持 PX4 任务控制；其他固件不能通过任务自检。
+
+运行中向 `main` 的 PID 发送 `SIGUSR1` 可请求返航；Ctrl-C / SIGTERM 停止程序并释放输出。
+任务完成或中止会结束本次 `main`，关闭检测、VIO 和通信。
+
+## 状态与反馈
 
 ```text
-Idle --显式启动--> Preflight --自检/定位/落地/未解锁--> Offboard
-Offboard --实际 setpoint 预热就绪 + 模式反馈--> Arming
-Arming --飞控确认已解锁--> Takeoff
-Takeoff --到达相对高度 + 低速持续稳定 + 已离地--> Search
-Search --连续 N 个新目标帧 + 测距/制导就绪--> Strike
-Strike --外部撞击确认--> ReturnHome
-Strike --丢失目标超过窗口--> Search
-Search / Strike --各阶段超时--> ReturnHome
-ReturnHome --回到起飞点上方且稳定--> Landing
-Landing --飞控确认已落地且已上锁--> Completed
+Idle → Preflight → Offboard → Arming → Takeoff → Search → Strike
+                                                    ↑        │
+                                                    └─丢目标─┘
+Strike --撞击确认--> ReturnHome → Landing → Completed
+Search / Strike --超时--> ReturnHome
 ```
 
-- 飞行中收到 `return_requested`：进入返航；还没离地则直接交飞控降落。
-- 总任务时限也会触发返航；返航本身超时则请求飞控在当前位置自主降落。
-- 人工接管、掉线、控制命令失败、定位过期、异常上锁或意外退出 Offboard：进入 `Aborted` 并停止输出。
-- `Completed` 表示流程已结束，撞板是否确认要单独检查 `strike_confirmed`；超时返航不会伪造撞板成功。
-- 终态不会因启动标志仍为真而重复执行；宿主停止执行旧输出后，显式 `reset()` 才能再启动。
+- 起飞条件：新鲜定位、未解锁、真实落地反馈及静止条件通过。
+- 起飞完成：到达起飞点上方、低速持续稳定，并且飞控反馈已离地。
+- 撞板开始：连续新帧、类别/置信度/帧龄/测距满足条件，制导已初始化。
+- 撞板期间：只运行制导计算；Runtime 独占指令发送。丢目标立即定点等待，超时回搜索。
+- 返航：返回起飞点上方；若未离地就取消则直接交飞控降落。
+- 降落完成：`EXTENDED_SYS_STATE` 确认在地面且心跳确认已上锁，不能用高度代替。
+- 掉线、定位过期、人工接管、发送失败、意外退出 Offboard：停止输出并中止任务。
+- 飞控会话变化或 VIO 定位基准重建：中止本轮任务，不沿用旧返航点。
+- `Completed` 表示流程结束；必须另外看 `strike_confirmed`，超时返航不会伪造成功。
 
-## 坐标、时间和目标约定
+Runtime 先检查状态，再发送本拍唯一的任务或制导指令；模式/动作请求也在同拍执行。
+停止以后没有尚待执行的后台请求；已发到飞控的命令不能被撤回，后续依靠飞控接管策略。
+实际串口写还会校验期望的飞控会话，重连后旧指令不能发给新会话。
 
-所有任务位置使用与飞控反馈一致的本地 **NED**：米、米/秒，z 向下。
-自检通过时记录当前位置 `home_ned`；例如起飞点 z=-0.4 m、起飞高度 1.5 m，目标 z=-1.9 m。
-返航回到同一个起飞点上方，之后由飞控自主降落。
-VIO 的原生 ENU/FRD 结果不能未经换算直接填入。
+## 坐标、时间和进程协议
 
-`now_s`、`pose_time_s`、`target_time_s` 必须用同一个 `steady_clock` 原点。
-后两者是采样时刻映射，不是主循环读取缓存的时刻。
-`ins.boot_us` / `target.boot_us` 仍保留飞控 boot 微秒口径；目标确认只统计严格递增的新帧。
-反复读取同一张图不会增加确认次数，旧帧、未来帧、低置信度、错误类别和无测距目标不会进入撞板阶段。
-目标源应先选择并持续跟踪同一块装甲板；第一版没有跨检测框的身份关联。
+任务使用飞控 `LOCAL_POSITION_NED` 的本地 NED，单位米/米每秒，z 向下。
+自检通过记录起飞位置；例如起飞点 z=-0.4 m、起飞高度 1.5 m，目标 z=-1.9 m。
+VIO 只提供导航健康和时间基准门控，不把原生 FRD/ENU 位姿直接作为 NED 指令。
 
-默认连续确认 3 帧、起飞高度 1.5 m、搜索超时 30 s、撞板超时 5 s。
-参数集中在 `MissionConfig`，构造时校验。第一版未接 YAML/CLI。
+`MissionService` 持有 `VioRuntime::PublicationGuard` 直到本拍最终发送，
+定位重建不能越过检查。目标采样时刻通过同一 `FcuClock` 映射，额外保留单调时钟年龄。
+飞控姿态/位置接收时刻在缓存锁内读取；重复读取或相同 boot 时间戳不刷新位置年龄。
 
-## 接入现有主循环
+开启任务后，main 创建私有 `socketpair`，通过 `--mission-target-fd` 传给检测子进程。
+仅发布端 fd 在 exec 时保留；监督线程重启子进程时继续使用同一通道。
+消息带协议版本、采集单调时钟、序号、主目标像素、置信度、类别和可选测距。
+消息通道不解析日志，不传相机大图，单拍最多处理 64 条；错误长度、旧/未来帧和非法值会丢弃。
 
-建议以现有 50 Hz 公共节拍调用，保留 VIO 发布和进程监督。每拍顺序：
+## 当前能力边界
 
-1. 收集飞控、目标和操作者输入，构造 `MissionInput`。
-2. 调用 `MissionController::tick(input)`。
-3. 若 `reset_guidance` 为真，创建新的 `GuidanceLoop` 实例并调用 `init()`，清空上一段制导记忆。
-   当前 `init()` 对已初始化实例直接返回，不会重置；适配层也可后续补显式 reset 接口。
-4. 若 `run_guidance` 为真，调用 `GuidanceLoop::run_once()`，本拍只让它使用共享指令出口。
-5. 否则若 `setpoint` 有值，通过 `Communicator::pushGuidanceCmd()` 发送任务位置目标。
-6. 将非空 `request` 交给命令执行器；下一拍反馈执行失败或真实飞控状态。
+**main、任务、飞控和检测之间的运行通路已实现；实机撞板所需的数据仍需补齐：**
 
-`setpoint` 与 `run_guidance` 互斥，避免任务和制导在同一拍抢占出口。
-不要让另一个线程中的 `GuidanceLoop::run()` 在任务返航后继续发送。
-暂停期间须停止执行制导；重新进入撞板阶段先重置记忆，避免复用旧视线角速度。
-`GuidanceLoop` 初始化/输出失败必须反馈到任务，不能忽略错误后继续把 `guidance_ready` 设为真。
+- 当前检测发布像素框，没有测距，协议明确 `has_range=false`；不会凭空估算距离。
+- `config/onboard-guidance.yaml` 尚无完整彩色相机内参和机体外参，不能用 VIO 灰度标定直接冒充。
+  未配置时 `guidance_ready=false`，仍可检查起飞/搜索/超时返航，不进入撞板。
+- `MissionService::tick(return_requested, manual_takeover, strike_confirmed)` 已留操作者和撞击事件接口。
+  main 当前只接了返航信号；撞击传感器/裁判事件和独立操作者接管信号还没有真实来源。
+  飞控模式退出 Offboard 已能通过反馈触发控制权释放。
+- 搜索先定点观察；巡航搜索、偏航扫描、避障、目标身份关联和撞击退出动作待实现。
+- 返航先走本地位置直返，不规划绕障，也不调用依赖 GPS 的 RTL。
 
-| 任务接口 | 现有模块 / 待接工作 |
-| --- | --- |
-| `ins` | `runtime/guidance_ports.hpp::makeGuidanceIns()` 可合成飞控姿态和位置；宿主补采样年龄检查 |
-| `target` | 复用 `GuidanceTargetSample`；独立 `detect_rt` 的结果传输、时间映射和测距仍待接入 |
-| `fcu_connected / armed / offboard` | 通信心跳、`isArmed()` 与飞控模式反馈；均须有新鲜度保证 |
-| `landed` | 需补飞控落地状态反馈，目前任务层只预留输入，不靠高度猜测 |
-| `preflight_ready` | 宿主汇总定位、操作开关和整机自检；状态机另外检查位置新鲜度及静止条件 |
-| `offboard_stream_ready` | 只在持续实际发送的预热流达标时置真；发送中断/失败须复位，不能按调用次数猜测 |
-| `guidance_ready` | 制导已初始化、标定和测距有效，输入健康且可运行；目标有距离才允许确认 |
-| `FlightRequest::kOffboard` | `sendSetMode(px4_mode::OFFBOARD)` |
-| `FlightRequest::kArm` | `sendArm(true)`；状态转换等真实 armed 反馈 |
-| `FlightRequest::kLand` | `sendLand()`；停止 Offboard setpoint，等待落地和飞控正常上锁 |
-| `strike_confirmed` | 撞击传感器、裁判系统或仿真事件；任务层不从距离推断撞击成功 |
+制导进入/重入时会重新构造 `GuidanceLoop` 并 `init()`，清空旧视线差分记忆。
+制导计算使用空发送出口，所有实际指令统一回 Runtime 仲裁；不存在另一个制导线程继续发包。
 
-现有 `sendSetMode/sendArm/sendLand` 会等待 ACK，应放到独立命令执行器，避免阻塞 VIO 和 setpoint 流。
-`request` 是节流重试的请求，每个请求最多保留一个在途执行；ACK 接受也不等于动作完成。
-进入终态或人工接管时，宿主须取消尚未发送的旧任务请求，防止延迟执行旧解锁命令。
-第一版没有自动强制上锁，落地后等待飞控自身上锁确认。
-
-## 第一版边界与参考
-
-搜索阶段先保持起飞后的观察点；丢目标后在当前位置悬停并重新确认。
-巡航搜索点、偏航扫描、避障、撞板退出动作和实机撞击判据尚未实现。
-当前通信 `GuidanceCmd` 没有航向字段，任务层没有假设已能发送偏航扫描。
-返航是本地位置直返，不使用依赖 GPS 的 RTL，也不规划障碍物绕行。
-接入这些能力时保持任务阶段、制导计算和通信执行三层分开即可。
-
-参考了本机 `repos-for-learning/Fast-Drone-250-master` 的
-`src/realflight_modules/px4ctrl/src/PX4CtrlFSM.{h,cpp}`：
-借鉴起飞/悬停/命令/降落的阶段划分、起飞点记录及依靠反馈转换的思路。
-这里为当前 C++17 工程重新实现，没有引入它的 ROS/MAVROS 控制器或源码依赖。
+初版参考了本机 Fast-Drone-250 的 `PX4CtrlFSM.{h,cpp}` 的阶段划分和反馈转换思路，
+这里为当前 C++17 工程实现，没有引入 ROS/MAVROS 控制器源码。
