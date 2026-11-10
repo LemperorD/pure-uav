@@ -12,7 +12,7 @@ int main() {
         perror("shm_open");
         return 1;
     }
-    struct stat info{};
+    struct stat info {};
     if (fstat(fd, &info) != 0 || info.st_size < 0x400000) {
         fprintf(stderr, "Shared-memory region is missing or smaller than expected\n");
         close(fd);
