@@ -145,7 +145,24 @@ class Workers {
 
 int main(int argc, char** argv) {
     Options options = parseOptions(argc, argv);
-    (void)options;  // 预留：后续可按配置加载
+
+    // 机载目标源目前只有检测框、没有测距；先校验配置不会走进 TPN/APN 或真值法。
+    pure_uav::app::GuidanceAppParams guidance_params;
+    const pure_uav::app::GuidanceParamResult loaded = pure_uav::app::guidance_load_yaml_file(options.guidance, &guidance_params);
+    if (!loaded.ok) {
+        std::printf("制导配置加载失败：%s\n", loaded.error.c_str());
+        return 1;
+    }
+    const pure_uav::app::GuidanceParamResult valid = pure_uav::app::guidance_validate_params(guidance_params);
+    if (!valid.ok) {
+        std::printf("制导参数校验失败：%s\n", valid.error.c_str());
+        return 1;
+    }
+    if (guidance_params.guidance.law != pure_uav::GuidanceLaw::PPN || guidance_params.guidance.los_rate_source != pure_uav::LosRateSource::FROM_LOS_DIFFERENCE) {
+        std::printf("无测距机载路径只支持 PPN + FROM_LOS_DIFFERENCE\n");
+        return 1;
+    }
+
     Communicator comm;
 
     std::printf("等待飞控心跳...\n");
