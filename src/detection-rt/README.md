@@ -257,10 +257,26 @@ det.stop();                                     // 停线程、释放相机和�
 
 - 单进程单实例；不要在多个线程里并发调用同一个 `Detector::poll()` 之外的推理接口。
 
-## 机载共享相机
+## 机载共享相机（2026-11-09 起改为多进程）
 
-`bin/main` 同时运行 VIO 和检测，由 `OrbbecCamera` 统一采集彩色/灰度帧。
-`DetectorConfig.external_camera=true` 时 `Detector::start()` 只启动推理线程，
-宿主用 `submitFrame(bgr, host_us, device_us, seq, host_monotonic_ns)` 投递最新帧。
-像素数据通过 `cv::Mat` 引用计数持有，投递后不得修改；停止前必须先停相机投递。
-独立 `detect_rt` 仍使用检测模块自己的相机采集器。
+相机只由 `camera_server` 初始化一次；`detect_rt` 是**彩色共享内存通道的只读消费者**，
+不再使用 `CameraSource` 打开设备。检测侧走 `DetectionRuntime::submit(EncodedColorFrame)`：
+原始 MJPG 字节在检测进程内解码，带 10 Hz 限频、200 ms 帧龄与会话失效保护。
+
+```bash
+./scripts/start_uav.sh --detection --stream     # 统一入口：相机服务 + vio_live + detect_rt
+./bin/detect_rt --shm /pure_uav_camera_color --shm-timeout-ms 10000 --json
+./bin/detect_rt --image test.jpg                # 离线单图，不连接相机服务
+```
+
+`--camera WxH@FPS` 已移除（分辨率/曝光由 `config/camera.yaml` 统一配置）；
+`--model/--conf/--iou/--frames/--json/--dump-dir/--stream-dir/--stream-fps` 保持原语义。
+完整协议与互斥清单见 `assets/docs/app/camera-ipc.md`。
+
+### 遗留接口
+
+`Detector` / `CameraSource` 源码保留给既有测试，不再是实时运行路径。
+`DetectorConfig.external_camera=true` 时 `Detector::start()` 只启动推理线程、不打开设备，
+宿主用 `submitFrame(bgr, host_us, device_us, seq, host_monotonic_ns)` 投递不可变 BGR 帧；
+停止前必须先停帧投递再调用 `Detector::stop()`。
+任何直采工具（`test_camera`、`depth_range_probe`、V4L2 标定脚本）都禁止与 `camera_server` 同时运行。

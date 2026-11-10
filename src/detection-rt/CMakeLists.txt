@@ -63,8 +63,13 @@ endif()
 message(STATUS "detection-rt: backend=${_det_backend}")
 
 # 后端无关源文件，再按后端追加推理实现。
-set(_det_sources src/camera_source.cpp src/yolo_postprocess.cpp
-                 src/detector.cpp src/target_bridge.cpp)
+# detection_runtime 是 detect_rt 消费者使用的新运行时；npu_backend 提供
+# npuBackendAvailable()/makeNpuBackend()（CPU 构建下走 #else 分支），
+# input_quantization 是配套的量化纯函数。camera_source/detector 仅为遗留测试保留。
+set(_det_sources
+    src/camera_source.cpp src/yolo_postprocess.cpp src/detector.cpp
+    src/target_bridge.cpp src/detection_runtime.cpp src/npu_backend.cpp
+    src/input_quantization.cpp)
 if(_det_backend STREQUAL "NPU")
   list(APPEND _det_sources src/yolo_npu.cpp third_party/awnn/awnn_lib.c
        third_party/awnn/awnn_quantize.c)
@@ -83,6 +88,7 @@ set_target_properties(
 target_include_directories(
   detection_rt
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+         ${CMAKE_SOURCE_DIR}/src/common
          ${CMAKE_SOURCE_DIR}/src/guidance/flight
          ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
          ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
@@ -109,7 +115,8 @@ target_link_libraries(
   PRIVATE OrbbecSDK pthread m)
 
 add_executable(detect_rt src/detect_rt_main.cpp)
-target_link_libraries(detect_rt PRIVATE detection_rt)
+# detect_rt 现在是 camera_server 彩色通道的只读消费者，不再打开 Orbbec 设备。
+target_link_libraries(detect_rt PRIVATE detection_rt pure_camera_ipc)
 
 # 把 .so 目录写进可执行程序，运行时不必设置 LD_LIBRARY_PATH。
 set(_det_rpath "${_det_orb_lib}")

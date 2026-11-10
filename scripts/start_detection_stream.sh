@@ -3,19 +3,21 @@
 #  启动「YOLO 带框画面 → mjpg-streamer → http://<板子IP>:8080/」
 #
 #  原理：
-#    detect_rt 通过 Orbbec SDK 独占相机，把带框图原子写成 <STREAM_DIR>/frame.jpg；
-#    mjpg-streamer 的 input_file 插件监听该目录，再由 output_http 在 8080 输出。
+#    camera_server 独占相机，detect_rt 从共享内存彩色通道取帧，把带框图原子写成
+#    <STREAM_DIR>/frame.jpg；mjpg-streamer 的 input_file 插件监听该目录，
+#    再由 output_http 在 8080 输出。
 #
-#  ⚠ 相机只能被一个进程采集：运行本脚本前必须先停掉原来的 input_uvc 版
-#    mjpg-streamer。可加 --replace 让脚本自动杀掉占用端口的进程（需要 sudo）。
+#  ⚠ 本脚本只负责 mjpg-streamer。相机服务与 detect_rt 必须由统一入口启动：
+#      ./scripts/start_uav.sh --detection --stream
+#    可加 --replace 让脚本自动杀掉占用端口的进程（需要 sudo）。
 #
 #  用法：
 #    ./scripts/start_detection_stream.sh [--port 8080] [--dir /dev/shm/pure-uav-detect]
-#                                        [--replace] [detect_rt 的其它参数...]
+#                                        [--replace]
 #
 #  示例：
+#    ./scripts/start_uav.sh --detection --stream       # 另一个终端
 #    ./scripts/start_detection_stream.sh --replace
-#    ./scripts/start_detection_stream.sh --replace --conf 0.3 --camera 640x480@60
 # =============================================================================
 set -euo pipefail
 
@@ -26,18 +28,18 @@ PORT="${PORT:-8080}"
 STREAM_FPS="${STREAM_FPS:-20}"
 
 REPLACE=0
-DETECT_ARGS=()
 
 usage() {
     cat <<EOF
-用法: $0 [--port N] [--dir DIR] [--replace] [detect_rt 参数...]
+用法: $0 [--port N] [--dir DIR] [--replace]
 
   --port N      mjpg-streamer HTTP 端口（默认 8080）
   --dir DIR     带框 JPG 交换目录（默认 /dev/shm/pure-uav-detect）
   --replace     先杀掉占用该端口的旧 mjpg-streamer（需要 sudo）
   -h, --help    显示帮助
 
-其余参数原样传给 bin/detect_rt，例如 --conf 0.3 --camera 640x480@60 --frames 100。
+相机与检测由 ./scripts/start_uav.sh --detection --stream 启动；
+检测参数（--model/--conf/--frames 等）请在统一入口传递。
 EOF
 }
 
@@ -47,14 +49,17 @@ while [[ $# -gt 0 ]]; do
         --dir) STREAM_DIR="$2"; shift 2 ;;
         --replace) REPLACE=1; shift ;;
         -h|--help) usage; exit 0 ;;
-        --) shift; DETECT_ARGS=("$@"); break ;;
-        *) DETECT_ARGS+=("$1"); shift ;;
+        --) shift; break ;;
+        *)
+            echo "[error] 未知参数: $1（检测参数请在 start_uav.sh 传递）" >&2
+            usage
+            exit 2
+            ;;
     esac
 done
 
-DETECT_BIN="${ROOT_DIR}/bin/detect_rt"
-if [[ ! -x "${DETECT_BIN}" ]]; then
-    echo "[error] 找不到 ${DETECT_BIN}，请先执行 ./scripts/autoBuild.sh" >&2
+if [[ ! -x "${ROOT_DIR}/bin/camera_server" || ! -x "${ROOT_DIR}/bin/detect_rt" ]]; then
+    echo "[error] 缺少 camera_server / detect_rt，请先执行 ./scripts/autoBuild.sh" >&2
     exit 1
 fi
 if [[ ! -x "${MJPG_ROOT}/mjpg_streamer" ]]; then
@@ -105,13 +110,7 @@ rm -f "${STREAM_DIR}/frame.jpg" "${STREAM_DIR}/frame_tmp.jpg" "${STREAM_DIR}/fra
 DELAY="$(awk -v f="${STREAM_FPS}" 'BEGIN { printf "%.3f", 1.0 / f }')"
 
 MJPG_PID=""
-DETECT_PID=""
 cleanup() {
-    if [[ -n "${DETECT_PID}" ]]; then
-        kill "${DETECT_PID}" 2>/dev/null || true
-        wait "${DETECT_PID}" 2>/dev/null || true
-        DETECT_PID=""
-    fi
     if [[ -n "${MJPG_PID}" ]]; then
         kill "${MJPG_PID}" 2>/dev/null || true
         wait "${MJPG_PID}" 2>/dev/null || true
@@ -120,27 +119,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 先启动 detect_rt，等它写出第一帧后再启动 mjpg-streamer：
-# --existing 模式只在启动时扫描一次目录，目录为空会导致插件直接退出。
-echo "[info] 启动 detect_rt..."
-env -u LD_LIBRARY_PATH -u LD_PRELOAD "${DETECT_BIN}" \
-    "${DETECT_ARGS[@]}" \
-    --stream-dir "${STREAM_DIR}" \
-    --stream-fps "${STREAM_FPS}" &
-DETECT_PID=$!
-
-for _ in $(seq 1 50); do
-    if ! kill -0 "${DETECT_PID}" 2>/dev/null; then
-        echo "[error] detect_rt 启动失败（相机被占用或模型错误），请查看上面的日志。" >&2
-        wait "${DETECT_PID}" 2>/dev/null || true
-        DETECT_PID=""
-        exit 1
-    fi
+# 相机服务与 detect_rt 由统一入口管理；这里只等首帧就绪，
+# 因为 input_file --existing 模式启动时扫描一次目录，目录为空会直接退出。
+echo "[info] 等待 detect_rt 首帧（需先运行 ./scripts/start_uav.sh --detection --stream）..."
+for _ in $(seq 1 100); do
     [[ -f "${STREAM_DIR}/frame.jpg" ]] && break
     sleep 0.1
 done
 if [[ ! -f "${STREAM_DIR}/frame.jpg" ]]; then
-    echo "[error] 等待 detect_rt 首帧超时（${STREAM_DIR}/frame.jpg 未出现）。" >&2
+    echo "[error] 等待首帧超时。请先在另一个终端启动 ./scripts/start_uav.sh --detection --stream" >&2
     exit 1
 fi
 
@@ -166,8 +153,8 @@ echo
 echo "======================================================"
 echo "  带框画面: http://${IP}:${PORT}/"
 echo "  视频流  : http://${IP}:${PORT}/?action=stream"
-echo "  按 Ctrl-C 同时停止 detect_rt 与 mjpg-streamer"
+echo "  按 Ctrl-C 停止 mjpg-streamer（相机与检测由 start_uav.sh 管理）"
 echo "======================================================"
 echo
 
-wait "${DETECT_PID}"
+wait "${MJPG_PID}"

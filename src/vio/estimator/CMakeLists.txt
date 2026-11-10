@@ -202,15 +202,19 @@ if(_build_live)
   endif()
 
   add_library(vio_camera STATIC src/orbbec_camera.cpp src/fcu_clock.cpp)
-  target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  # CameraFrames 复用 src/common/color_frame.hpp 的 ColorEncoding。
+  target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
+                                               ${CMAKE_SOURCE_DIR}/src/common)
   target_link_libraries(vio_camera PUBLIC pure_vio_core OrbbecSDK)
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
   target_include_directories(
     vio_live PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+                     ${CMAKE_SOURCE_DIR}/src/common
                      ${PURE_UAV_DRIVER_DIR}/orbbec/include)
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
-  target_link_libraries(vio_live PRIVATE vio_camera)
+  # vio_live 现在是 camera_server 的只读消费者，不再自行打开 Orbbec 设备。
+  target_link_libraries(vio_live PRIVATE vio_camera pure_camera_ipc)
   string(CONCAT _orbbec_rpath
                 "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
                 ";${PURE_UAV_DRIVER_DIR}/orbbec/lib")
