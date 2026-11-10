@@ -122,9 +122,9 @@ bin/guidance_example
 | | `N` | 4.0 |
 | | `a_max` | 10.0 |
 | | `freeze_criterion` | `BY_TGO` |
-| | `t_go_freeze` | 0.15 s |
+| | `t_go_freeze` | 0.0 s |
 | | `R_freeze` | 5.0 m |
-| | `los_rate_source` | `FROM_RELATIVE_VELOCITY` |
+| | `los_rate_source` | `FROM_LOS_DIFFERENCE` |
 | `loop.` | `loop_hz` | 50 |
 | | `max_sample_age_s` | 0.2 |
 | | `sensor_timeout_s` | 0.5 |
