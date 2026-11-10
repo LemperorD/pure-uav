@@ -18,7 +18,7 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
 src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
-  main.cpp                         并发机载主流程（通信 / 共享相机 / 检测 / VIO / 制导）
+  main.cpp                         机载整机集成入口（通信 / 检测 / VIO / 制导；相机由 camera_server 提供）
   runtime/                         有界图像队列、飞控数据/指令换算
   startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
@@ -27,7 +27,7 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 ```
 
 依赖方向：
-- `main → communicate / vio_camera / pure_vio_core / detection_rt / guidance_application`（并发机载）；
+- `main → communicate / pure_vio_runtime / pure_camera_ipc / detection_rt / guidance_application`（整机集成，检测按构建条件链接）；
 - `guidance_example → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`。
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
@@ -51,7 +51,7 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 ./bin/guidance_example --config=guidance.yaml --print-params
 ```
 
-> `./bin/main` 同时启动机载通信、共享相机、检测、VIO 和制导线程；上述仿真与回放仍由独立 `guidance_example` 运行。机载配置见 [usage.md](usage.md)。
+> `./bin/main` 是通信、检测、VIO 和制导的机载整机集成入口；各模块职责及集成约定见 [usage.md](usage.md)。相机服务独立运行，本次 VIO 图像接口迁移见 [camera-ipc.md](camera-ipc.md)，其他模块的接入与验收状态由对应模块说明维护。上述仿真与回放仍由独立 `guidance_example` 运行。
 
 参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 

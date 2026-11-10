@@ -8,6 +8,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -32,7 +33,6 @@
 #include "fcu_clock.hpp"
 #include "glue/comm_imu_source.hpp"
 #include "live_timing.hpp"
-#include "orbbec_camera.hpp"
 #include "pose_gate.hpp"
 #include "pure_uav/vio_runtime.hpp"
 #endif
@@ -62,6 +62,8 @@ struct Options {
     bool help = false;
     bool no_send = false;
     std::string driver = "config/driver.yaml";
+    std::string shm_vio = "/pure_uav_camera_vio";
+    int shm_timeout_ms = 5000;
     std::string vio = "src/vio/estimator/config/gemini_1920x1080";
     std::string guidance = "config/onboard-guidance.yaml";  // 预留：制导尚未接入
     std::string model;                                      // 预留：检测尚未接入
@@ -71,10 +73,12 @@ struct Options {
 void usage(const char* name) {
     std::printf(
         "用法: %s [选项]\n"
-        "启动通信、共享相机和 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
+        "启动通信、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
         "检测、制导、自检/解锁/起飞/Offboard 状态机尚未接入。\n"
         "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
         "  --config-dir DIR      VIO 配置目录（默认 gemini_1920x1080）\n"
+        "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
+        "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
         "  --no-send             运行 VIO 和发布检查，但不发送位姿\n"
         "  -h, --help            查看帮助\n"
         "  --guidance-config/--model/--blackbox 为后续制导/检测预留，当前不生效。\n",
@@ -93,9 +97,18 @@ Options parseOptions(int argc, char** argv) {
             options.no_send = true;
             continue;
         }
+        if (arg == "--shm-timeout-ms") {
+            if (++i == argc) throw std::invalid_argument(arg + " 缺少参数值");
+            size_t used = 0;
+            options.shm_timeout_ms = std::stoi(argv[i], &used);
+            if (used != std::strlen(argv[i]) || options.shm_timeout_ms < 0 || options.shm_timeout_ms > 60000) throw std::invalid_argument("--shm-timeout-ms 只接受 0..60000");
+            continue;
+        }
         std::string* value = nullptr;
         if (arg == "--driver-config") {
             value = &options.driver;
+        } else if (arg == "--shm-vio") {
+            value = &options.shm_vio;
         } else if (arg == "--config-dir") {
             value = &options.vio;
         } else if (arg == "--guidance-config") {
@@ -237,12 +250,11 @@ void logStatus(const Communicator& comm, const VioRuntime& vio, const CameraServ
         "blocked(stale/duplicate/lost/timebase/session/disconnected)=%llu/%llu/%llu/%llu/%llu/%llu "
         "frames=%llu dropped=%llu imu_dropped=%llu camera_dropped=%llu poses=%llu resets=%llu "
         "capture_age_ms=%.1f overruns=%llu error=%s\n",
-        comm.isConnected(), comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), static_cast<unsigned long long>(publisher.session), static_cast<unsigned long long>(publisher.generation), stats.imu_hz,
-        toString(static_cast<VioHealthState>(snapshot.health)), snapshot.features, stats.zupt_enabled ? 1 : 0, static_cast<unsigned long long>(publisher.sent), static_cast<unsigned long long>(publisher.send_errors),
-        static_cast<unsigned long long>(publisher.would_send), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::stale)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::duplicate)]),
-        static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::lost)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::timebase)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::session)]),
-        static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::disconnected)]), static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.frames_dropped), static_cast<unsigned long long>(stats.imu_dropped),
-        static_cast<unsigned long long>(camera.dropped()), static_cast<unsigned long long>(stats.poses), static_cast<unsigned long long>(stats.timebase_resets), capture_age_ms, static_cast<unsigned long long>(overruns),
+        comm.isConnected(), comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), static_cast<unsigned long long>(publisher.session), static_cast<unsigned long long>(publisher.generation), stats.imu_hz, toString(static_cast<VioHealthState>(snapshot.health)), snapshot.features,
+        stats.zupt_enabled ? 1 : 0, static_cast<unsigned long long>(publisher.sent), static_cast<unsigned long long>(publisher.send_errors), static_cast<unsigned long long>(publisher.would_send), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::stale)]),
+        static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::duplicate)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::lost)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::timebase)]),
+        static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::session)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::disconnected)]), static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.frames_dropped),
+        static_cast<unsigned long long>(stats.imu_dropped), static_cast<unsigned long long>(camera.dropped()), static_cast<unsigned long long>(stats.poses), static_cast<unsigned long long>(stats.timebase_resets), capture_age_ms, static_cast<unsigned long long>(overruns),
         stats.last_error.empty() ? "-" : stats.last_error.c_str());
 }
 
@@ -294,39 +306,39 @@ int runVio(const Options& options) {
         std::printf("[MAIN] 姿态示例 roll=%.3f pitch=%.3f yaw=%.3f\n", a.roll, a.pitch, a.yaw);
     }
 
-    // 检测待接：旧的一次性检测示例已删除。接入时检测必须共享 CameraService 的彩色帧
-    //（CameraService::start 的 color_callback），不能像旧示例那样自己再打开一台相机；
-    // 每拍的处理位置见下方“后续模块待接位置”。本次不实现。
+    // 检测进程可独立读取 camera_server 的彩色通道，不能再打开相机设备。
 
     // 3. 输入源：同一个 Communicator 的逐帧 IMU + 共享相机（不另开相机）。
     app::CommImuSource imu(comm);
     app::CameraService camera;
-    OrbbecCamera::Config camera_config;  // 默认 1920x1080@30，与默认 VIO 标定一致
-    // 本次不启用深度初始化；若以后打开 use_depth_init，这里会同步打开深度流，
-    // CameraService 启动时校验深度标定，VioRuntime 逐帧校验深度尺寸与设备时间。
+    app::CameraService::Config camera_config;
+    camera_config.channel = options.shm_vio;
+    camera_config.timeout_ms = options.shm_timeout_ms;
+    camera_config.config_dir = vio_options.config_dir;
+    camera_config.width = camera_config.height = 0;  // 使用所选标定的分辨率
+    camera_config.estimator_config = vio_options.estimator_config;
     camera_config.use_depth = vio_options.use_depth_init;
 
-    // 4. VioRuntime 内部线程是唯一调用 VioEstimator 的地方；主线程不 feed。
-    VioRuntime vio(vio_options, imu, camera);
+    // 4. 先连接相机通道，再启动 VIO，使 discardBefore 的会话边界生效。
     std::string error;
-    if (!vio.start(&error)) {
-        std::fprintf(stderr, "[VIO] 启动失败：%s\n", error.c_str());
+    if (!camera.start(camera_config, &error)) {
+        std::fprintf(stderr, "[CAM] 连接 camera_server 失败：%s\n", error.c_str());
         comm.stop();
         return 1;
     }
+    VioRuntime vio(vio_options, imu, camera);
     if (interrupted.load()) {
-        vio.stop();
+        camera.stop();
         comm.stop();
         return 0;
     }
-    if (!camera.start(camera_config, &error)) {
-        std::fprintf(stderr, "[CAM] 共享相机启动失败：%s\n", error.c_str());
+    if (!vio.start(&error)) {
+        std::fprintf(stderr, "[VIO] 启动失败：%s\n", error.c_str());
         camera.stop();
-        vio.stop();
         comm.stop();
         return 1;
     }
-    std::printf("[VIO] 已启动：IMU 来自通信模块逐帧队列，图像来自共享相机。\n");
+    std::printf("[VIO] 已启动：IMU 来自通信模块逐帧队列，图像来自 camera_server 共享内存。\n");
 
     // 5. 公共主循环：各模块按固定顺序执行自己的一拍；本次只启用 VIO。
     PosePublisher publisher;
@@ -351,8 +363,7 @@ int runVio(const Options& options) {
         }
 
         // ==================== 后续模块待接位置（本次不实现）====================
-        // 检测主循环：消费共享相机的彩色帧（CameraService::ColorCallback），
-        //             不能自己再打开相机；结果按时间/会话与 VIO 位姿对齐。
+        // 检测主循环：独立读取 camera_server 彩色通道，结果按采集时间与 VIO 对齐。
         // 制导：      50 Hz 消费飞控状态与目标，产出期望指令，经同一个
         //             Communicator 发送。
         // 应用状态机：自检、解锁、起飞、Offboard 切换在此调度。
@@ -379,9 +390,8 @@ int runVio(const Options& options) {
     camera.stop();
     comm.stop();
     const auto stats = vio.stats();
-    std::printf("[MAIN] 已停止：sent=%llu send_errors=%llu would_send=%llu frames=%llu poses=%llu resets=%llu error=%s\n", static_cast<unsigned long long>(publisher.sent),
-                static_cast<unsigned long long>(publisher.send_errors), static_cast<unsigned long long>(publisher.would_send), static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.poses),
-                static_cast<unsigned long long>(stats.timebase_resets), stats.last_error.empty() ? "-" : stats.last_error.c_str());
+    std::printf("[MAIN] 已停止：sent=%llu send_errors=%llu would_send=%llu frames=%llu poses=%llu resets=%llu error=%s\n", static_cast<unsigned long long>(publisher.sent), static_cast<unsigned long long>(publisher.send_errors), static_cast<unsigned long long>(publisher.would_send),
+                static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.poses), static_cast<unsigned long long>(stats.timebase_resets), stats.last_error.empty() ? "-" : stats.last_error.c_str());
     return result;
 }
 #endif  // PURE_APP_HAS_VIO

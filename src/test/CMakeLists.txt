@@ -126,3 +126,11 @@ ${TEST_OUTPUT_DIR})
 add_test(NAME onboard_runtime COMMAND test_onboard_runtime)
 set_tests_properties(onboard_runtime PROPERTIES WORKING_DIRECTORY
                                                 ${CMAKE_SOURCE_DIR} TIMEOUT 15)
+
+add_executable(test_camera_shm test_app/test_camera_shm.cpp)
+target_include_directories(test_camera_shm PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(test_camera_shm PRIVATE pure_camera_ipc ${OpenCV_LIBS})
+set_target_properties(test_camera_shm PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                ${TEST_OUTPUT_DIR})
+add_test(NAME camera_shm COMMAND test_camera_shm)
+set_tests_properties(camera_shm PROPERTIES TIMEOUT 15)

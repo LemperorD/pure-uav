@@ -44,3 +44,10 @@ install(
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# 与 camera_server 共用协议版本和布局；消费者只读映射通道。
+add_library(pure_camera_ipc STATIC camera_shm.cpp)
+target_include_directories(pure_camera_ipc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+if(UNIX AND NOT APPLE)
+  target_link_libraries(pure_camera_ipc PUBLIC rt)
+endif()
