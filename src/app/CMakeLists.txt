@@ -34,8 +34,9 @@ if(TARGET vio_app_support)
   target_link_libraries(test_heartbeat_wait PRIVATE vio_app_support)
   add_test(NAME heartbeat_wait COMMAND test_heartbeat_wait)
 endif()
-if(TARGET detection_rt)
-  target_link_libraries(main PRIVATE detection_rt)
+if(TARGET detect_rt)
+  # 检测通过 fork/exec 隔离；main 不链接推理库或 Orbbec 采集实现。
+  add_dependencies(main detect_rt)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_DETECTION=1)
 endif()
 

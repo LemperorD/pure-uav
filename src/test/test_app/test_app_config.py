@@ -26,6 +26,13 @@ def run(args, expected=0, contains=None):
 
 run(["--help"], contains="--vio-config")
 run(["--help"], contains="--check-config")
+run(["--help"], contains="--no-detection")
+run(["--help"], contains="--detect-bin")
+run(["--no-detection", "--check-config"], contains="detection_enabled: false")
+# 校验路径只解析进程参数，不启动子进程或加载检测模型。
+run(["--detect-bin", "/not-a-detector", "--detection-config", "/not-a-config", "--detect-arg", "--json", "--check-config"], contains="Configuration OK")
+for flag in ("--detect-bin", "--detection-config", "--detect-arg"):
+    run([flag], 2, "缺少参数值")
 run(["--no-send", "--check-config"], contains="odometry_send_enabled: false")
 effective = run(["--check-config"], contains="Configuration OK")
 assert str(root / "config/app.yaml") in effective

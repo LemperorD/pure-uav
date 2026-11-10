@@ -17,9 +17,11 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "communicator.hpp"
+#include "detection_supervisor.hpp"
 #include "guidance_loop.hpp"
 #include "runtime/bounded_queue.hpp"
 #include "runtime/guidance_ports.hpp"
@@ -36,10 +38,6 @@
 #include "live_timing.hpp"
 #include "pose_gate.hpp"
 #include "pure_uav/vio_runtime.hpp"
-#endif
-#ifdef PURE_APP_HAS_DETECTION
-#include "detector.hpp"
-#include "target_bridge.hpp"
 #endif
 
 namespace {
@@ -63,11 +61,13 @@ struct Options {
     bool help = false;
     bool no_send = false;
     bool check_config = false;
+    bool no_detection = false;
+    std::string detect_bin, detection_config;
+    std::vector<std::string> detect_args;
     std::string config = "config/app.yaml";
     std::string driver, vio_config, shm_vio, vio;
     int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";  // 预留：制导尚未接入
-    std::string model;                                      // 预留：检测尚未接入
     std::string blackbox;                                   // 预留：黑匣子尚未接入
 };
 
@@ -75,7 +75,7 @@ void usage(const char* name) {
     std::printf(
         "用法: %s [选项]\n"
         "启动通信、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
-        "检测、制导、自检/解锁/起飞/Offboard 状态机尚未接入。\n"
+        "飞控心跳就绪后启动检测子进程；制导与应用状态机尚未接入。\n"
         "  --config FILE         应用调度配置（默认 config/app.yaml）\n"
         "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
         "  --check-config        校验并打印实际配置后退出，不打开设备\n"
@@ -84,8 +84,12 @@ void usage(const char* name) {
         "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
         "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
         "  --no-send             运行 VIO 和发布检查，但不发送位姿\n"
+        "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
+        "  --detection-config FILE  传给检测子进程的 --config 路径\n"
+        "  --detect-arg ARG      可重复，原样传给检测子进程的运行参数\n"
+        "  --no-detection        仅运行通信和 VIO，不拉起检测子进程\n"
         "  -h, --help            查看帮助\n"
-        "  --guidance-config/--model/--blackbox 为后续制导/检测预留，当前不生效。\n",
+        "  --guidance-config/--blackbox 为后续制导预留，当前不生效。\n",
         name);
 }
 
@@ -101,15 +105,30 @@ Options parseOptions(int argc, char** argv) {
             options.check_config = true;
             continue;
         }
+        if (arg == "--no-detection") {
+            options.no_detection = true;
+            continue;
+        }
+        if (arg == "--detect-arg") {
+            if (++i == argc) {
+                throw std::invalid_argument(arg + " 缺少参数值");
+            }
+            options.detect_args.emplace_back(argv[i]);
+            continue;
+        }
         if (arg == "--no-send") {
             options.no_send = true;
             continue;
         }
         if (arg == "--shm-timeout-ms") {
-            if (++i == argc) throw std::invalid_argument(arg + " 缺少参数值");
+            if (++i == argc) {
+                throw std::invalid_argument(arg + " 缺少参数值");
+            }
             size_t used = 0;
             options.shm_timeout_ms = std::stoi(argv[i], &used);
-            if (used != std::strlen(argv[i]) || options.shm_timeout_ms < 0 || options.shm_timeout_ms > 60000) throw std::invalid_argument("--shm-timeout-ms 只接受 0..60000");
+            if (used != std::strlen(argv[i]) || options.shm_timeout_ms < 0 || options.shm_timeout_ms > 60000) {
+                throw std::invalid_argument("--shm-timeout-ms 只接受 0..60000");
+            }
             continue;
         }
         std::string* value = nullptr;
@@ -125,8 +144,10 @@ Options parseOptions(int argc, char** argv) {
             value = &options.vio;
         } else if (arg == "--guidance-config") {
             value = &options.guidance;
-        } else if (arg == "--model") {
-            value = &options.model;
+        } else if (arg == "--detect-bin") {
+            value = &options.detect_bin;
+        } else if (arg == "--detection-config") {
+            value = &options.detection_config;
         } else if (arg == "--blackbox") {
             value = &options.blackbox;
         } else {
@@ -138,6 +159,14 @@ Options parseOptions(int argc, char** argv) {
         *value = argv[i];
     }
     return options;
+}
+
+std::string locateDetectBinary(const std::string& configured) {
+    if (!configured.empty()) {
+        return configured;
+    }
+    const auto self = std::filesystem::read_symlink("/proc/self/exe");
+    return (self.parent_path() / "detect_rt").string();
 }
 
 #ifdef PURE_APP_HAS_VIO
@@ -258,7 +287,7 @@ void logStatus(const Communicator& comm, const VioRuntime& vio, const CameraServ
         "blocked(stale/duplicate/lost/timebase/session/disconnected)=%llu/%llu/%llu/%llu/%llu/%llu "
         "frames=%llu dropped=%llu imu_dropped=%llu camera_dropped=%llu poses=%llu resets=%llu "
         "capture_age_ms=%.1f overruns=%llu error=%s\n",
-        comm.isConnected(), comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), static_cast<unsigned long long>(publisher.session), static_cast<unsigned long long>(publisher.generation), stats.imu_hz, toString(static_cast<VioHealthState>(snapshot.health)), snapshot.features,
+        static_cast<int>(comm.isConnected()), comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), static_cast<unsigned long long>(publisher.session), static_cast<unsigned long long>(publisher.generation), stats.imu_hz, toString(static_cast<VioHealthState>(snapshot.health)), snapshot.features,
         stats.zupt_enabled ? 1 : 0, static_cast<unsigned long long>(publisher.sent), static_cast<unsigned long long>(publisher.send_errors), static_cast<unsigned long long>(publisher.would_send), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::stale)]),
         static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::duplicate)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::lost)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::timebase)]),
         static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::session)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::disconnected)]), static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.frames_dropped),
@@ -281,7 +310,7 @@ int runVio(const Options& options) {
         return 2;
     }
     if (options.check_config) {
-        std::printf("Configuration OK\n%sodometry_send_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true");
+        std::printf("Configuration OK\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
         return 0;
     }
     const auto& vio_options = config.vio;
@@ -344,7 +373,37 @@ int runVio(const Options& options) {
     }
     std::printf("[VIO] 已启动：IMU 来自通信模块逐帧队列，图像来自 camera_server 共享内存。\n");
 
-    // 5. 公共主循环：各模块按固定顺序执行自己的一拍；本次只启用 VIO。
+    // 检测单独消费彩色通道；在心跳、相机与 VIO 就绪后启动，主循环继续发布位姿。
+    std::unique_ptr<app::DetectionSupervisor> detection;
+    if (!options.no_detection) {
+#ifdef PURE_APP_HAS_DETECTION
+        app::DetectionProcessOptions process_options;
+        process_options.executable = locateDetectBinary(options.detect_bin);
+        if (!options.detection_config.empty()) {
+            process_options.arguments.emplace_back("--config");
+            process_options.arguments.push_back(options.detection_config);
+        }
+        for (const auto& argument : options.detect_args) {
+            process_options.arguments.push_back(argument);
+        }
+        detection = std::make_unique<app::DetectionSupervisor>(std::move(process_options));
+        if (!detection->start(&error)) {
+            std::fprintf(stderr, "[MAIN] 检测启动失败：%s\n", error.c_str());
+            vio.stop();
+            camera.stop();
+            comm.stop();
+            return 1;
+        }
+#else
+        std::fprintf(stderr, "[MAIN] 当前构建缺少 detect_rt；可用 --no-detection 只运行 VIO\n");
+        vio.stop();
+        camera.stop();
+        comm.stop();
+        return 1;
+#endif
+    }
+
+    // 5. 公共主循环：监督相机/检测进程，同时持续执行 VIO 发布门控。
     PosePublisher publisher;
     uint64_t overruns = 0;
     const auto period = std::chrono::nanoseconds(1000000000LL / config.main_loop_hz);
@@ -352,6 +411,12 @@ int runVio(const Options& options) {
     auto last_status = next_tick;
     int result = 0;
     while (!interrupted.load()) {
+        app::SuperviseResult detection_result;
+        if (detection && detection->finished(detection_result)) {
+            result = detection_result.status == app::SuperviseStatus::exited || detection_result.status == app::SuperviseStatus::stopped ? 0 : 1;
+            std::fprintf(stderr, "[MAIN] 检测监督结束：restarts=%llu error=%s\n", static_cast<unsigned long long>(detection_result.restarts), detection_result.error.empty() ? "-" : detection_result.error.c_str());
+            break;
+        }
         // 5.1 共享相机监督：相机停止 = 图像断供，不再把旧位姿当新结果发布。
         if (!camera.running()) {
             std::fprintf(stderr, "[MAIN] 共享相机已停止：%s\n", camera.lastError().empty() ? "原因未报告" : camera.lastError().c_str());
@@ -367,7 +432,7 @@ int runVio(const Options& options) {
         }
 
         // ==================== 后续模块待接位置（本次不实现）====================
-        // 检测主循环：独立读取 camera_server 彩色通道，结果按采集时间与 VIO 对齐。
+        // 检测结果尚未接入制导；推理在独立 detect_rt 进程执行。
         // 制导：      50 Hz 消费飞控状态与目标，产出期望指令，经同一个
         //             Communicator 发送。
         // 应用状态机：自检、解锁、起飞、Offboard 切换在此调度。
@@ -389,7 +454,10 @@ int runVio(const Options& options) {
         std::this_thread::sleep_until(next_tick);
     }
 
-    // 6. 停止：先停 VIO 并 join 内部线程，再停相机/通信；输入源对象最后析构。
+    // 6. 停止：回收检测子进程，再停止 VIO 与通信；相机服务继续由外部托管。
+    if (detection) {
+        detection->stop();
+    }
     vio.stop();
     camera.stop();
     comm.stop();
@@ -415,6 +483,7 @@ int main(int argc, char** argv) {
     }
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+    std::signal(SIGPIPE, SIG_IGN);
 
 #ifdef PURE_APP_HAS_VIO
     try {

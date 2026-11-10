@@ -130,7 +130,37 @@ set_tests_properties(onboard_runtime PROPERTIES WORKING_DIRECTORY
 add_executable(test_camera_shm test_app/test_camera_shm.cpp)
 target_include_directories(test_camera_shm PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(test_camera_shm PRIVATE pure_camera_ipc ${OpenCV_LIBS})
-set_target_properties(test_camera_shm PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                                ${TEST_OUTPUT_DIR})
+set_target_properties(
+  test_camera_shm PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR})
 add_test(NAME camera_shm COMMAND test_camera_shm)
 set_tests_properties(camera_shm PROPERTIES TIMEOUT 15)
+
+# 检测配置：字段解析、严格白名单、范围校验与模型路径解析（无硬件）。
+find_package(yaml-cpp REQUIRED)
+add_executable(test_detector_config test_driver/test_detector_config.cpp)
+target_include_directories(test_detector_config PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(test_detector_config PRIVATE detection_rt yaml-cpp)
+set_target_properties(test_detector_config PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+${TEST_OUTPUT_DIR})
+add_test(NAME detector_config COMMAND test_detector_config)
+set_tests_properties(detector_config PROPERTIES WORKING_DIRECTORY
+                                              ${CMAKE_SOURCE_DIR} TIMEOUT 30)
+
+# 检测子进程管理：启动、回收、重启上限、停止与信号转发（无硬件）。
+add_executable(test_detection_process test_app/test_detection_process.cpp)
+target_include_directories(test_detection_process PRIVATE
+                                                 ${CMAKE_SOURCE_DIR}/src/app)
+set_target_properties(test_detection_process PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+${TEST_OUTPUT_DIR})
+add_test(NAME detection_process COMMAND test_detection_process)
+set_tests_properties(detection_process PROPERTIES TIMEOUT 30)
+
+add_executable(test_detection_supervisor test_app/test_detection_supervisor.cpp)
+target_include_directories(test_detection_supervisor PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src/app)
+target_link_libraries(test_detection_supervisor PRIVATE pthread)
+set_target_properties(
+  test_detection_supervisor
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${TEST_OUTPUT_DIR})
+add_test(NAME detection_supervisor COMMAND test_detection_supervisor)
+set_tests_properties(detection_supervisor PROPERTIES TIMEOUT 15)
