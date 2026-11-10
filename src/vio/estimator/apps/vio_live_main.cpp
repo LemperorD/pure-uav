@@ -521,7 +521,7 @@ int main(int argc, char** argv) {
                         }
                     }
                     const auto total = static_cast<size_t>(((depth_mm.rows / 8) + 1) * ((depth_mm.cols / 8) + 1));
-                    depth_valid_ratio = total ? static_cast<double>(vals.size()) / total : 0.0;
+                    depth_valid_ratio = total != 0u ? static_cast<double>(vals.size()) / total : 0.0;
                     if (!vals.empty()) {
                         std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
                         depth_median_mm = vals[vals.size() / 2];
@@ -579,7 +579,7 @@ int main(int argc, char** argv) {
                 if (!depth_age_ms.empty()) {
                     std::vector<double> v(depth_age_ms.begin(), depth_age_ms.end());
                     std::sort(v.begin(), v.end());
-                    std::printf("[cam]   深度年龄 p50=%.1f p95=%.1f ms｜带深度的帧 %lld/%lld (%.0f%%)\n", v[v.size() / 2], v[v.size() * 95 / 100], n_frame_with_depth, n_frame_total, n_frame_total ? 100.0 * n_frame_with_depth / n_frame_total : 0.0);
+                    std::printf("[cam]   深度年龄 p50=%.1f p95=%.1f ms｜带深度的帧 %lld/%lld (%.0f%%)\n", v[v.size() / 2], v[v.size() * 95 / 100], n_frame_with_depth, n_frame_total, n_frame_total != 0 ? 100.0 * n_frame_with_depth / n_frame_total : 0.0);
                     depth_age_ms.clear();
                     n_frame_with_depth = n_frame_total = 0;
                 }
@@ -960,11 +960,11 @@ int main(int argc, char** argv) {
                 }
                 estimator.feedImu(imu_feed);
                 last_fed_imu_us = fed_fcu_us;  // 图像覆盖判定仍使用原始 FCU 时钟域
-                if (rec_imu_csv) {
+                if (rec_imu_csv != nullptr) {
                     // 录"实际喂给估计器的时间戳"（= 去抖后的），这样回放能 1:1 复现实时行为。
                     std::fprintf(rec_imu_csv, "%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n", static_cast<unsigned long long>(imu_feed.timestamp_us), imu_item.imu.gx, imu_item.imu.gy, imu_item.imu.gz, imu_item.imu.ax, imu_item.imu.ay, imu_item.imu.az);
                 }
-                if (imu_log) {
+                if (imu_log != nullptr) {
                     std::fprintf(imu_log, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n", static_cast<unsigned long long>(raw_unix_us), imu_item.imu.ax, imu_item.imu.ay, imu_item.imu.az, imu_item.imu.gx, imu_item.imu.gy, imu_item.imu.gz);
                 }
                 did_work = true;
@@ -1062,7 +1062,7 @@ int main(int argc, char** argv) {
                             estimator.setDepthImage(pending->depth, depth_unix_us, cam_depth.fx, cam_depth.fy, cam_depth.cx, cam_depth.cy, cam_depth.R_c2d, depth_t_m);
                         }
                         estimator.feedImage(pending->gray, image_unix_us);
-                        if (rec_images_csv) {
+                        if (rec_images_csv != nullptr) {
                             std::scoped_lock lk(rec_mtx);
                             if (rec_q.size() < 300) {
                                 rec_q.emplace_back(pending->gray, pending->depth, image_unix_us);

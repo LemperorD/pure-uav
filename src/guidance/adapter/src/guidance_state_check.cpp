@@ -159,7 +159,7 @@ GuidanceReport check_guidance_state(const GuidanceState& st, bool expected_los_u
 
 bool quick_check(const GuidanceState& st, GuidanceCheckCode* first_bad) noexcept {
     const auto fail = [first_bad](GuidanceCheckCode code) noexcept {
-        if (first_bad) {
+        if (first_bad != nullptr) {
             *first_bad = code;
         }
         return false;

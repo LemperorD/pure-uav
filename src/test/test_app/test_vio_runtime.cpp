@@ -15,12 +15,16 @@ int64_t nowNs() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 void expect(bool value, const char* reason) {
-    if (!value) throw std::runtime_error(reason);
+    if (!value) {
+        throw std::runtime_error(reason);
+    }
 }
 template <class Predicate>
 void await(Predicate predicate, const char* reason) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (!predicate() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (!predicate() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
     expect(predicate(), reason);
 }
 class Imus final : public VioImuSource {
@@ -28,9 +32,13 @@ class Imus final : public VioImuSource {
     std::atomic<uint64_t> current_session{0}, drop_count{0};
     std::atomic<bool> is_armed{false}, fail{false};
     bool pop(TimedImu& out) override {
-        if (fail.load()) throw std::runtime_error("injected IMU source failure");
+        if (fail.load()) {
+            throw std::runtime_error("injected IMU source failure");
+        }
         std::lock_guard<std::mutex> lock(mutex);
-        if (queue.empty()) return false;
+        if (queue.empty()) {
+            return false;
+        }
         out = queue.front();
         queue.pop_front();
         return true;
@@ -64,7 +72,9 @@ class Frames final : public VioFrameSource {
     bool pop(VioFrame& out, int timeout_ms) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
         std::lock_guard<std::mutex> lock(mutex);
-        if (queue.empty()) return false;
+        if (queue.empty()) {
+            return false;
+        }
         out = std::move(queue.front());
         queue.pop_front();
         return true;
@@ -76,7 +86,7 @@ class Frames final : public VioFrameSource {
         std::lock_guard<std::mutex> lock(mutex);
         queue.push_back(std::move(frame));
     }
-    void discardBefore(int64_t) override {
+    void discardBefore(int64_t /*unused*/) override {
         ++discards;
     }
 
@@ -106,7 +116,9 @@ int main(int argc, char** argv) {
         expect(runtime.start(&error), error.c_str());
         expect(runtime.running() && !runtime.publishable() && !runtime.clockValid(), "startup gate open");
         uint64_t ts = 1000000;
-        for (int i = 0; i < 180; ++i, ts += 5000) imu.push(ts, 0);
+        for (int i = 0; i < 180; ++i, ts += 5000) {
+            imu.push(ts, 0);
+        }
         await([&] { return runtime.stats().imu_popped == 180; }, "IMU batch not consumed");
         await([&] { return runtime.clockValid(); }, "clock did not recover after warmup");
         auto st = runtime.stats();

@@ -245,7 +245,7 @@ int main(int argc, char** argv) {
     auto feed = [&](const uint8_t* data, size_t n) {
         for (size_t i = 0; i < n; ++i) {
             mavlink_message_t m{};
-            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) {
+            if (mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status) == 0u) {
                 continue;
             }
             if (m.msgid == MAVLINK_MSG_ID_ODOMETRY) {

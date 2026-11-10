@@ -225,7 +225,7 @@ static GuidanceLaw parse_law(const char* s) {
         return GuidanceLaw::PPN;
     }
     auto eq = [](const char* a, const char* b) {
-        for (; *a && *b; ++a, ++b) {
+        for (; (*a != 0) && (*b != 0); ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
             if (ca != cb) {
@@ -249,7 +249,7 @@ static SensorFidelity parse_fidelity(const char* s) {
         return SensorFidelity::IDEAL;
     }
     auto eq = [](const char* a, const char* b) {
-        for (; *a && *b; ++a, ++b) {
+        for (; (*a != 0) && (*b != 0); ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
             if (ca != cb) {
@@ -291,7 +291,7 @@ static TargetType parse_target(const char* s) {
         return TargetType::DART;
     }
     auto eq = [](const char* a, const char* b) {
-        for (; *a && *b; ++a, ++b) {
+        for (; (*a != 0) && (*b != 0); ++a, ++b) {
             char ca = (*a >= 'a' && *a <= 'z') ? char(*a - 32) : *a;
             char cb = (*b >= 'a' && *b <= 'z') ? char(*b - 32) : *b;
             if (ca != cb) {

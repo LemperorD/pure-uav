@@ -10,6 +10,8 @@ repos:
     exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: check-yaml # yaml语法检查
   - id: check-added-large-files # 禁止提交大文件
+    args: ['--maxkb=500']
+    exclude: '^src/detection-rt/third_party/onnxruntime/lib/.*'
   - id: check-json          # JSON语法校验
   - id: check-toml          # TOML校验
   - id: check-merge-conflict # 检查有没有残留的<<<<<<<合并标记

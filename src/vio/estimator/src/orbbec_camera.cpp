@@ -309,7 +309,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
 
         // 失败时先把流停掉再返回：不然相机被占着，下一次重试会直接打不开。
         const auto fail = [&](const std::string& msg) -> bool {
-            if (error) {
+            if (error != nullptr) {
                 *error = msg;
             }
             try {
@@ -695,7 +695,7 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                                 std::printf(
                                     "[Orbbec] 原始深度帧: %dx%d scale=%.4f fmt=%d "
                                     "非零样本=%d 范围=[%d,%d]mm 中位=%dmm\n",
-                                    w, h, scale, static_cast<int>(df->format()), nz, nz ? mn : 0, mx, med);
+                                    w, h, scale, static_cast<int>(df->format()), nz, nz != 0 ? mn : 0, mx, med);
                                 std::fflush(stdout);
                             }
                             const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 2U;
@@ -770,8 +770,8 @@ bool OrbbecCamera::start(const Config& cfg, FrameCallback callback, std::string*
                         int new_exp = cur_exp;
                         int new_gain = cur_gain;
                         // 阈值可用环境变量压窄，用来在亮/暗场景里验证这条路径真的会触发
-                        static const double hi_thr = getenv("OV_RETUNE_HI") ? atof(getenv("OV_RETUNE_HI")) : 170.0;
-                        static const double lo_thr = getenv("OV_RETUNE_LO") ? atof(getenv("OV_RETUNE_LO")) : 45.0;
+                        static const double hi_thr = getenv("OV_RETUNE_HI") != nullptr ? atof(getenv("OV_RETUNE_HI")) : 170.0;
+                        static const double lo_thr = getenv("OV_RETUNE_LO") != nullptr ? atof(getenv("OV_RETUNE_LO")) : 45.0;
                         // 【2026-10-25】有富余就把曝光往模糊预算收回：亮度够却还烧着长曝光 =
                         // 白送模糊。这条只降不升，不会和"太暗"分支打架。
                         if (mean_now > 140.0 && impl->cfg.exposure > impl->blur_cap) {

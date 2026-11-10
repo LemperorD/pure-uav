@@ -26,12 +26,20 @@ bool finiteImu(const ImuSample& s) {
 }  // namespace
 
 bool VioDepthInfo::valid() const {
-    if (!std::isfinite(fx) || !std::isfinite(fy) || !std::isfinite(cx) || !std::isfinite(cy) || fx <= 0 || fy <= 0 || width <= 0 || height <= 0) return false;
+    if (!std::isfinite(fx) || !std::isfinite(fy) || !std::isfinite(cx) || !std::isfinite(cy) || fx <= 0 || fy <= 0 || width <= 0 || height <= 0) {
+        return false;
+    }
     Eigen::Matrix3d rotation;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c) rotation(r, c) = R_c2d[3 * r + c];
-    for (double t : t_c2d_m)
-        if (!std::isfinite(t)) return false;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            rotation(r, c) = R_c2d[3 * r + c];
+        }
+    }
+    for (double t : t_c2d_m) {
+        if (!std::isfinite(t)) {
+            return false;
+        }
+    }
     return rotation.allFinite() && (rotation.transpose() * rotation - Eigen::Matrix3d::Identity()).norm() < 0.02 && std::abs(rotation.determinant() - 1.0) < 0.02;
 }
 
@@ -76,22 +84,33 @@ void VioRuntime::Impl::run() noexcept {
     };
     const auto startup = [&](const std::string& error) {
         std::lock_guard<std::mutex> lock(startup_mutex);
-        if (startup_done) return;
+        if (startup_done) {
+            return;
+        }
         startup_error = error;
         startup_done = true;
         startup_cv.notify_one();
     };
     try {
-        if (!std::filesystem::is_regular_file(std::filesystem::path(options.config_dir) / options.estimator_config)) throw std::runtime_error("VIO estimator configuration file does not exist");
+        if (!std::filesystem::is_regular_file(std::filesystem::path(options.config_dir) / options.estimator_config)) {
+            throw std::runtime_error("VIO estimator configuration file does not exist");
+        }
         VioEstimator estimator(options);
-        if (!estimator.ok()) throw std::runtime_error(estimator.error());
+        if (!estimator.ok()) {
+            throw std::runtime_error(estimator.error());
+        }
         FcuClock clock;
         ImuTimestampFilter filter;
         std::optional<VioFrame> pending;
-        uint64_t mapped_us = 0, last_raw_us = 0, last_fed_us = 0, first_fed_us = 0, last_pose_us = 0;
+        uint64_t mapped_us = 0;
+        uint64_t last_raw_us = 0;
+        uint64_t last_fed_us = 0;
+        uint64_t first_fed_us = 0;
+        uint64_t last_pose_us = 0;
         uint64_t session = imu.session();
         uint64_t source_drops = imu.dropped();
-        int64_t cutoff_ns = nowNs(), pending_since_ns = 0;
+        int64_t cutoff_ns = nowNs();
+        int64_t pending_since_ns = 0;
         int warmup = 150;
         bool recovering = true;
         int zupt_state = -1;
@@ -114,12 +133,18 @@ void VioRuntime::Impl::run() noexcept {
             st.imu_hz = 0;
             warmup = 150;
             estimator.resetForNewTimebase(why);
-            if (!estimator.ok()) throw std::runtime_error(estimator.error());
+            if (!estimator.ok()) {
+                throw std::runtime_error(estimator.error());
+            }
         };
         const auto updateRate = [&](uint64_t timestamp) {
-            if (!rate_window.empty() && timestamp <= rate_window.back()) rate_window.clear();
+            if (!rate_window.empty() && timestamp <= rate_window.back()) {
+                rate_window.clear();
+            }
             rate_window.push_back(timestamp);
-            while (rate_window.size() > 2 && timestamp - rate_window.front() > 1000000) rate_window.pop_front();
+            while (rate_window.size() > 2 && timestamp - rate_window.front() > 1000000) {
+                rate_window.pop_front();
+            }
             if (rate_window.size() >= 8 && timestamp - rate_window.front() >= 20000) {
                 st.imu_hz = static_cast<double>(rate_window.size() - 1) * 1e6 / static_cast<double>(timestamp - rate_window.front());
             }
@@ -133,7 +158,9 @@ void VioRuntime::Impl::run() noexcept {
             }
             const uint64_t drops = imu.dropped();
             if (drops != source_drops) {
-                if (drops > source_drops) st.imu_dropped += drops - source_drops;
+                if (drops > source_drops) {
+                    st.imu_dropped += drops - source_drops;
+                }
                 source_drops = drops;
                 reset("IMU source queue overflow", nowNs());
             }
@@ -202,9 +229,13 @@ void VioRuntime::Impl::run() noexcept {
                 }
                 estimator.feedImu(sample);
                 last_fed_us = fcu_us;
-                if (first_fed_us == 0) first_fed_us = fcu_us;
+                if (first_fed_us == 0) {
+                    first_fed_us = fcu_us;
+                }
             }
-            if (imu.session() != session) continue;
+            if (imu.session() != session) {
+                continue;
+            }
             if (!pending) {
                 VioFrame frame;
                 if (frames.pop(frame, 1)) {
@@ -247,7 +278,9 @@ void VioRuntime::Impl::run() noexcept {
                         }
                     } else {
                         if (options.use_depth_init && !pending->depth_mm.empty()) {
-                            if (pending->depth_mm.type() != CV_16UC1 || pending->depth_mm.cols != depth.width || pending->depth_mm.rows != depth.height) throw std::runtime_error("Depth frame does not match native depth calibration");
+                            if (pending->depth_mm.type() != CV_16UC1 || pending->depth_mm.cols != depth.width || pending->depth_mm.rows != depth.height) {
+                                throw std::runtime_error("Depth frame does not match native depth calibration");
+                            }
                             // Both device stamps must be from the same hardware clock.
                             if (pending->device_us > 0 && pending->depth_device_us > 0) {
                                 const int64_t delta = pending->depth_device_us - pending->device_us;
@@ -255,21 +288,29 @@ void VioRuntime::Impl::run() noexcept {
                                 if (std::abs(delta) < 200000 && static_cast<int64_t>(mapped_us) + delta > 0 && clock.fcuToUnixUs(static_cast<uint64_t>(static_cast<int64_t>(mapped_us) + delta), depth_unix_us)) {
                                     estimator.setDepthImage(pending->depth_mm, depth_unix_us, depth.fx, depth.fy, depth.cx, depth.cy, depth.R_c2d, depth.t_c2d_m);
                                     ++st.depth_frames_used;
-                                } else
+                                } else {
                                     ++st.depth_frames_rejected;
-                            } else
+                                }
+                            } else {
                                 ++st.depth_frames_rejected;
-                        } else if (options.use_depth_init)
+                            }
+                        } else if (options.use_depth_init) {
                             ++st.depth_frames_rejected;
+                        }
                         const int64_t image_host_ns = pending->host_ns;
                         const bool fed = estimator.feedImage(pending->gray, image_unix_us);
                         pending.reset();
-                        if (fed)
+                        if (fed) {
                             ++st.frames_fed;
-                        else
+                        } else {
                             ++st.frames_dropped;
-                        if (!estimator.ok()) throw std::runtime_error(estimator.error());
-                        if (clock.valid() && estimator.initialized()) recovering = false;
+                        }
+                        if (!estimator.ok()) {
+                            throw std::runtime_error(estimator.error());
+                        }
+                        if (clock.valid() && estimator.initialized()) {
+                            recovering = false;
+                        }
                         VisionPose pose;
                         const auto health = estimator.healthReport();
                         const bool can_publish = !recovering && clock.valid() && estimator.publishable();
@@ -290,9 +331,13 @@ void VioRuntime::Impl::run() noexcept {
                             snapshot.pos_sigma_m = ok ? policy.pos_sigma_ok_m : policy.pos_sigma_degraded_m;
                             snapshot.vel_sigma_mps = ok ? policy.vel_sigma_ok_mps : policy.vel_sigma_degraded_mps;
                             ++st.poses;
-                            if (!can_publish) ++st.blocked;
+                            if (!can_publish) {
+                                ++st.blocked;
+                            }
                         }
-                        if (!can_publish || snapshot.rebuilds != estimator.rebuildCount()) snapshot.valid = false;
+                        if (!can_publish || snapshot.rebuilds != estimator.rebuildCount()) {
+                            snapshot.valid = false;
+                        }
                         clock_valid.store(clock.valid());
                         publishable.store(can_publish && snapshot.valid);
                     }
@@ -332,7 +377,9 @@ VioRuntime::~VioRuntime() {
 }
 bool VioRuntime::start(std::string* error) {
     if (impl_->worker.joinable()) {
-        if (error) *error = "VioRuntime is already started";
+        if (error != nullptr) {
+            *error = "VioRuntime is already started";
+        }
         return false;
     }
     impl_->stop.store(false);
@@ -348,13 +395,17 @@ bool VioRuntime::start(std::string* error) {
         impl_->worker = std::thread([this] { impl_->run(); });
     } catch (const std::exception& e) {
         impl_->running.store(false);
-        if (error) *error = e.what();
+        if (error != nullptr) {
+            *error = e.what();
+        }
         return false;
     }
     std::unique_lock<std::mutex> lock(impl_->startup_mutex);
     impl_->startup_cv.wait(lock, [&] { return impl_->startup_done; });
     if (!impl_->startup_error.empty()) {
-        if (error) *error = impl_->startup_error;
+        if (error != nullptr) {
+            *error = impl_->startup_error;
+        }
         lock.unlock();
         stop();
         return false;
@@ -364,7 +415,9 @@ bool VioRuntime::start(std::string* error) {
 void VioRuntime::stop() {
     impl_->stop.store(true);
     impl_->idle_cv.notify_all();
-    if (impl_->worker.joinable()) impl_->worker.join();
+    if (impl_->worker.joinable()) {
+        impl_->worker.join();
+    }
     std::lock_guard<std::mutex> lock(impl_->publication_mutex);
     impl_->publishable.store(false);
     impl_->clock_valid.store(false);

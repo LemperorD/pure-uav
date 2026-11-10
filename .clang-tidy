@@ -19,12 +19,24 @@ Checks: >
   modernize-use-equals-default,
   modernize-use-noexcept
 CheckOptions:
-  readability-identifier-naming.ClassCase: CamelCase
-  readability-identifier-naming.StructCase: CamelCase
-  readability-identifier-naming.FunctionCase: lower_case
-  readability-identifier-naming.VariableCase: lower_case
-  readability-identifier-naming.ConstantCase: UPPER_CASE
-  readability-identifier-naming.MacroCase: UPPER_CASE
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroCase
+    value: UPPER_CASE
+  # readability-identifier-naming.ClassCase: CamelCase
+  # readability-identifier-naming.StructCase: CamelCase
+  # readability-identifier-naming.FunctionCase: lower_case
+  # readability-identifier-naming.VariableCase: lower_case
+  # readability-identifier-naming.ConstantCase: UPPER_CASE
+  # readability-identifier-naming.MacroCase: UPPER_CASE
 HeaderFilterRegex: 'src/(app|common|guidance|test)/.*|src/detection-rt/(src|include)/.*|src/vio/(estimator/(src|include)|extrinsic|imu_accel|imu_noise|intrinsic)/.*'
 FormatStyle: file
 UseColor: true
