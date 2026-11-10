@@ -135,3 +135,14 @@ set_target_properties(test_camera_shm PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 ${TEST_OUTPUT_DIR})
 add_test(NAME camera_shm COMMAND test_camera_shm)
 set_tests_properties(camera_shm PROPERTIES TIMEOUT 30)
+
+# 检测配置：字段解析、严格白名单、范围校验与模型路径解析（无硬件）。
+find_package(yaml-cpp REQUIRED)
+add_executable(test_detector_config test_driver/test_detector_config.cpp)
+target_include_directories(test_detector_config PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(test_detector_config PRIVATE detection_rt yaml-cpp)
+set_target_properties(test_detector_config PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+${TEST_OUTPUT_DIR})
+add_test(NAME detector_config COMMAND test_detector_config)
+set_tests_properties(detector_config PROPERTIES WORKING_DIRECTORY
+                                              ${CMAKE_SOURCE_DIR} TIMEOUT 30)

@@ -53,7 +53,6 @@ struct Options {
     std::string driver = "config/driver.yaml";
     std::string vio = "src/vio/estimator/config/gemini_1920x1080";
     std::string guidance = "config/onboard-guidance.yaml";
-    std::string model;
     std::string blackbox;
     bool no_send = false;
 };
@@ -65,7 +64,6 @@ void usage(const char* name) {
         "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
         "  --config-dir DIR      VIO 配置目录（默认 gemini_1920x1080）\n"
         "  --guidance-config FILE 制导参数覆盖（相机默认读取 VIO 标定）\n"
-        "  --model FILE          检测模型（默认 yolo26n，按编译后端选择）\n"
         "  --blackbox FILE       退出时保存制导黑匣子\n"
         "  --no-send             运行计算但不发送位姿和制导指令\n"
         "  -h, --help            查看帮助\n",
@@ -87,8 +85,6 @@ Options parseOptions(int argc, char** argv) {
             value = &options.vio;
         } else if (arg == "--guidance-config") {
             value = &options.guidance;
-        } else if (arg == "--model") {
-            value = &options.model;
         } else if (arg == "--blackbox") {
             value = &options.blackbox;
         } else {

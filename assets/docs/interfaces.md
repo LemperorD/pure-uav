@@ -201,3 +201,14 @@ VIO 侧 `vio_live` 仍通过 `FcuClock` 把 `host_ns` 映射到飞控 IMU/boot �
 遗留 `DetectorConfig.external_camera=true` 时 `Detector::start()` 只启动推理线程，
 宿主通过 `submitFrame` 投递不可变 BGR 帧，停止时先停止帧投递再调用 `Detector::stop()`；
 该路径仅保留给既有测试，实时运行走 `DetectionRuntime::submit(EncodedColorFrame)`。
+
+### 检测侧配置接口
+
+`config/detector-rt.yaml` 是检测算法参数唯一真源，由 `src/detection-rt/include/detector_config.hpp`
+提供的 `loadDetectorConfig()` / `resolveModelPath()` / `describeDetectorConfig()` 加载与校验。
+顶层键 `detection-rt:` 下 9 个必填字段与 `RuntimeConfig` 一一对应
+（`model_path` / `imgsz` / `num_classes` / `conf_thr` / `iou_thr` / `max_det` /
+`target_class` / `max_hz` / `max_age_ms`）；`model_path: auto` 按编译后端解析默认模型。
+校验复用 `validateRuntimeConfig()`，并对未知键、旧占位字段、越界值、缺模型文件给出明确错误。
+`detect_rt` 不提供这些字段的命令行覆盖，`--config FILE` 只改配置路径，
+`--check-config` 只校验不加载模型；实时与 `--image` 离线单图共用同一份 `RuntimeConfig`。

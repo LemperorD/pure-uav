@@ -8,7 +8,10 @@
 #  用法：
 #    ./scripts/start_uav.sh --no-send
 #    ./scripts/start_uav.sh --detection --stream
-#    ./scripts/start_uav.sh --detection --serial /dev/ttyACM0 --conf 0.3
+#    ./scripts/start_uav.sh --detection --serial /dev/ttyACM0
+#
+#  检测算法参数（模型/阈值/类别/限频/帧龄）唯一真源为 config/detector-rt.yaml，
+#  不通过本脚本传递；改完配置重启 detect_rt 生效。
 # =============================================================================
 set -euo pipefail
 
@@ -31,7 +34,7 @@ DET_PID=0
 DET_RESTARTS=0
 
 VIO_VALUE_OPTS="--serial --baud --config-dir --csv-out --tum-out --safe-tum-out --imu-log --imu-hz --cam-ts --record --duration --health-min-features --width --height --fps --shm-timeout-ms"
-DET_VALUE_OPTS="--model --conf --iou --frames --dump-dir --shm-timeout-ms"
+DET_VALUE_OPTS="--frames --dump-dir --shm-timeout-ms"
 
 usage() {
     cat <<EOF
@@ -51,8 +54,10 @@ VIO 参数（透传 vio_live）：--serial --baud --config-dir --csv-out --tum-o
   --safe-tum-out --imu-log --imu-hz --cam-ts --record --duration
   --health-min-features --width --height --fps --shm-timeout-ms，
   以及 --view --quiet --no-online-timeoffset --no-depth --no-tune。
-检测参数（透传 detect_rt）：--model --conf --iou --frames --dump-dir
-  --shm-timeout-ms，以及 --json。
+检测运行参数（透传 detect_rt）：--frames --dump-dir --shm-timeout-ms，
+  以及 --json。
+检测算法参数（模型/阈值/类别/限频/帧龄）唯一真源为 config/detector-rt.yaml，
+  不通过命令行传递；改完配置重启 detect_rt 生效。
 EOF
 }
 
@@ -74,6 +79,7 @@ route_value_opt() {
     fi
     if [[ "${routed}" -eq 0 ]]; then
         echo "[error] 未知参数: ${opt}" >&2
+        echo "        检测算法参数请改 config/detector-rt.yaml，不通过命令行传递。" >&2
         exit 2
     fi
 }

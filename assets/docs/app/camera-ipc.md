@@ -86,7 +86,10 @@ VIO 与检测作为独立进程从共享内存取帧。
 - 心跳 `heartbeat_ns` 由写者每帧更新。`vio_live` 2 s 无心跳退出、`detect_rt` 3 s 无心跳退出，
   由统一入口重新拉起；慢消费者只丢自己的旧帧，不影响采集。
 - 彩色通道在服务端按 `color_max_hz`（默认 10）限频；`DetectionRuntime` 的
-  `max_hz` / `max_age_ms` / `seq` 单调校验保留为二道防线。
+  `max_hz` / `max_age_ms` / `seq` 单调校验保留为二道防线。两处限频是**独立门限**：
+  前者在 `config/camera.yaml` 的 `channels.color_max_hz`，控制服务端写入共享内存的频率；
+  后者在 `config/detector-rt.yaml` 的 `max_hz`，控制检测侧接受帧与判旧帧龄的速率。
+  本次没有合并这两处配置，调参时需分别确认。
 
 ## 5. 构建与运行
 
@@ -95,6 +98,7 @@ cmake -S . -B build-uav -DCMAKE_BUILD_TYPE=Release
 cmake --build build-uav -j2
 
 ./bin/camera_server --check-config                 # 不打开相机，只校验 config/camera.yaml
+./bin/detect_rt --check-config                     # 不加载模型，只校验 config/detector-rt.yaml
 ./scripts/start_uav.sh --no-send                   # 只跑 VIO + 相机服务
 ./scripts/start_uav.sh --detection --no-send       # VIO + 检测
 ./scripts/start_uav.sh --detection --stream        # 额外写带框 frame.jpg
@@ -105,7 +109,15 @@ cmake --build build-uav -j2
 `vio_live` 的 `--width/--height/--fps` 与曝光类 CLI 只用于兼容旧脚本，不再控制硬件，
 启动时若与通道元数据不一致会打印警告；VIO 标定始终以 camera_server 配置为准。
 
-`detect_rt --image FILE` 仍是离线单图模式，不连接相机服务。
+**`config/detector-rt.yaml` 是检测算法参数唯一真源**：顶层键 `detection-rt:`，
+9 个必填字段为 `model_path` / `imgsz` / `num_classes` / `conf_thr` / `iou_thr` /
+`max_det` / `target_class` / `max_hz` / `max_age_ms`，与 `RuntimeConfig` 一一对应。
+`model_path: auto` 按编译后端自动选择 `assets/models/yolo26n.onnx`(CPU) 或
+`.nb`(NPU)；也可写显式路径。字段缺失、未知字段、旧占位字段（`model`、
+`confidence_threshold` 等）、越界值或模型文件不存在都会明确报错并退出，不做兼容别名。
+`detect_rt` 不提供 `--model/--conf/--iou` 等对应命令行选项，`--config FILE` 只改配置路径；
+实时模式与 `--image FILE` 离线单图模式共用同一份 `RuntimeConfig` 与 `RuntimeBackend`。
+改完配置需重启 `detect_rt` 生效。
 
 ## 6. 互斥清单（禁止与 camera_server 同时运行）
 

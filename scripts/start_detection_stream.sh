@@ -39,7 +39,7 @@ usage() {
   -h, --help    显示帮助
 
 相机与检测由 ./scripts/start_uav.sh --detection --stream 启动；
-检测参数（--model/--conf/--frames 等）请在统一入口传递。
+检测算法参数（模型/阈值/类别/限频/帧龄）唯一真源为 config/detector-rt.yaml。
 EOF
 }
 
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help) usage; exit 0 ;;
         --) shift; break ;;
         *)
-            echo "[error] 未知参数: $1（检测参数请在 start_uav.sh 传递）" >&2
+            echo "[error] 未知参数: $1（检测算法参数请改 config/detector-rt.yaml）" >&2
             usage
             exit 2
             ;;
