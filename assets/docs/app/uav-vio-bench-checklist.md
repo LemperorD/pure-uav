@@ -28,10 +28,10 @@ cmake --build build-uav --target camera_server vio_live -j2
 
 - 确认真实 MAVLink 设备名，按实际情况修改 driver.yaml，不能认定一定是 ttyACM0。
 - USB 连接与 UART 连接分开确认。走 TELEM 时，按实际端口设置 MAVLink2、匹配波特率，核对接线和电气兼容性。
-- 相机由 `camera_server` 独占；统一用 `scripts/start_uav.sh` 拉起相机服务与消费者，
+- 相机由 `camera_server` 独占；相机服务、VIO 与检测均由外部托管启动，
   不同时运行任何直采工具（互斥清单见 `assets/docs/app/camera-ipc.md`）。
 - 飞控串口由 `vio_live` 独占，不同时运行另一个 vio_live、串口探针或会争用同一设备的地面站。
-- 关闭检测，先运行 `./scripts/start_uav.sh --no-send`，确认能收到心跳与实际 IMU，而非仅成功打开设备。
+- 关闭检测，先以 `./bin/vio_live --no-send` 单独验收，确认能收到心跳与实际 IMU，而非仅成功打开设备。
 - 实测 IMU 应接近本配置请求的 200 Hz，且无持续队列溢出、>100 ms 断流或反复时间基重建。
 
 `--no-send` 仅禁止 ODOMETRY，不禁止通信模块正常心跳和消息流订阅。

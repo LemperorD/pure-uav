@@ -1,5 +1,5 @@
 // 通信示例（不再是运行入口）：相机只由 camera_server 初始化一次。
-// 实时运行请通过统一入口 scripts/start_uav.sh 拉起相机服务与消费者。
+// 相机服务、VIO 与检测进程均由外部托管启动，本程序不负责拉起它们。
 // 生命周期和配置见 assets/docs/app/usage.md。
 #include <unistd.h>
 
@@ -161,6 +161,6 @@ int main(int argc, char** argv) {
     // 构成第三个独占入口。现在相机只由 camera_server 打开，本示例不再启动检测。
     std::fprintf(stderr,
                  "[main] 相机只由 camera_server 初始化一次；本示例不再打开设备。\n"
-                 "       实时运行请执行 scripts/start_uav.sh [--detection]。\n");
+                 "       相机服务、VIO 与检测由外部托管启动，本程序不负责拉起。\n");
     return 0;
 }

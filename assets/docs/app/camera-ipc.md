@@ -28,11 +28,12 @@ VIO 与检测作为独立进程从共享内存取帧。
                      MAVLink ODOMETRY        JSON / 带框 frame.jpg
 ```
 
-统一入口 `scripts/start_uav.sh` 按「清理通道 → camera_server → vio_live / detect_rt」顺序拉起，
-退出时逆序停止。`scripts/start_detection_stream.sh` 现在只负责 mjpg-streamer 前端。
+三个进程由外部托管启动（systemd / 板端自启动 / 现场脚本），仓库不再提供统一启动脚本。
+启动顺序仍须为「清理残留共享内存 → camera_server → vio_live / detect_rt」，退出时逆序停止；
+`scripts/start_detection_stream.sh` 只负责 mjpg-streamer 前端。
 
-进程隔离：检测进程原生 NPU 崩溃或挂起不会拖垮 VIO。`start_uav.sh` 检测到 `detect_rt` 退出时
-最多自动重启 3 次，期间 `vio_live` 与 `camera_server` 保持运行；只有相机服务或 VIO 退出才整体停止。
+进程隔离：检测进程原生 NPU 崩溃或挂起不会拖垮 VIO，独立重启 `detect_rt` 即可，
+`vio_live` 与 `camera_server` 无需重启。
 
 ## 2. 帧通道
 
@@ -54,7 +55,8 @@ VIO 与检测作为独立进程从共享内存取帧。
   **不用 `PTHREAD_PROCESS_SHARED` 互斥锁**：持有者崩溃会永久死锁，直接违背进程隔离目标。
 - 读者打开时校验 magic / version / header_bytes / slot_count / slot_stride / total_bytes 与通道类型，
   并校验每帧三段长度之和不超过槽容量，防越界。
-- 共享内存权限 `0660`；`shm_unlink` 在 `ShmChannelWriter::close()` 与统一入口清理时都会执行。
+- 共享内存权限 `0660`；`shm_unlink` 在 `ShmChannelWriter::close()` 与写者进程退出时都会执行；
+  外部托管方在启动前应清理残留通道对象。
 - VIO 通道默认 3×8 MiB，彩色通道默认 3×4 MiB（见 `config/camera.yaml`）。`/dev/shm` 容量需 ≥ 40 MiB。
 
 ## 3. 时间与帧标识
@@ -84,7 +86,7 @@ VIO 与检测作为独立进程从共享内存取帧。
   - `detect_rt` 调 `DetectionRuntime::setEpoch()` 清空 pending 与旧结果；
   - `vio_live` 的 `ShmChannelReader` 重置 `last_seq_`，允许从新会话的最小序号接收。
 - 心跳 `heartbeat_ns` 由写者每帧更新。`vio_live` 2 s 无心跳退出、`detect_rt` 3 s 无心跳退出，
-  由统一入口重新拉起；慢消费者只丢自己的旧帧，不影响采集。
+  由外部托管方重新拉起；慢消费者只丢自己的旧帧，不影响采集。
 - 彩色通道在服务端按 `color_max_hz`（默认 10）限频；`DetectionRuntime` 的
   `max_hz` / `max_age_ms` / `seq` 单调校验保留为二道防线。两处限频是**独立门限**：
   前者在 `config/camera.yaml` 的 `channels.color_max_hz`，控制服务端写入共享内存的频率；
@@ -99,9 +101,11 @@ cmake --build build-uav -j2
 
 ./bin/camera_server --check-config                 # 不打开相机，只校验 config/camera.yaml
 ./bin/detect_rt --check-config                     # 不加载模型，只校验 config/detector-rt.yaml
-./scripts/start_uav.sh --no-send                   # 只跑 VIO + 相机服务
-./scripts/start_uav.sh --detection --no-send       # VIO + 检测
-./scripts/start_uav.sh --detection --stream        # 额外写带框 frame.jpg
+
+# 相机服务、VIO 与检测由外部托管启动；按此顺序，退出时逆序停止：
+./bin/camera_server --config config/camera.yaml
+./bin/vio_live --shm /pure_uav_camera_vio --no-send
+./bin/detect_rt --shm /pure_uav_camera_color --json
 ./scripts/start_detection_stream.sh --replace      # 另一个终端：mjpg-streamer 前端
 ```
 
@@ -123,7 +127,7 @@ cmake --build build-uav -j2
 
 | 入口 | 处理 |
 |---|---|
-| `bin/main` | 已移除 `Detector::start()`，只是通信示例，打印统一入口提示后退出 |
+| `bin/main` | 已移除 `Detector::start()`，只是通信示例，打印外部托管提示后退出 |
 | `bin/detect_rt` / `bin/vio_live` | 已是只读消费者，不再打开设备 |
 | `Detector` / `CameraSource` | 遗留源码保留给既有测试；`external_camera=true` 时不再打开相机 |
 | `src/app/camera_service.cpp` | 未接线的单进程设计代码，保留作语义参考，不要接入构建 |

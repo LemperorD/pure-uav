@@ -366,7 +366,7 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
             last_report = now;
         }
 
-        // 相机服务失联超过 3 s 就退出，由统一入口重新拉起，避免消费者空转。
+        // 相机服务失联超过 3 s 就退出，由外部托管方重新拉起，避免消费者空转。
         if (!reader.writerAlive()) {
             if (heartbeat_lost_since.time_since_epoch().count() == 0) {
                 heartbeat_lost_since = now;

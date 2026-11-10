@@ -7,8 +7,8 @@
 #    <STREAM_DIR>/frame.jpg；mjpg-streamer 的 input_file 插件监听该目录，
 #    再由 output_http 在 8080 输出。
 #
-#  ⚠ 本脚本只负责 mjpg-streamer。相机服务与 detect_rt 必须由统一入口启动：
-#      ./scripts/start_uav.sh --detection --stream
+#  ⚠ 本脚本只负责 mjpg-streamer。相机服务与 VIO 由外部托管启动，
+#    detect_rt 需另行启动并带 --stream-dir / --stream-fps 写出带框图。
 #    可加 --replace 让脚本自动杀掉占用端口的进程（需要 sudo）。
 #
 #  用法：
@@ -16,7 +16,7 @@
 #                                        [--replace]
 #
 #  示例：
-#    ./scripts/start_uav.sh --detection --stream       # 另一个终端
+#    ./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20  # 另一个终端
 #    ./scripts/start_detection_stream.sh --replace
 # =============================================================================
 set -euo pipefail
@@ -38,7 +38,7 @@ usage() {
   --replace     先杀掉占用该端口的旧 mjpg-streamer（需要 sudo）
   -h, --help    显示帮助
 
-相机与检测由 ./scripts/start_uav.sh --detection --stream 启动；
+相机服务与 VIO 由外部托管启动；detect_rt 需单独启动并写 frame.jpg。
 检测算法参数（模型/阈值/类别/限频/帧龄）唯一真源为 config/detector-rt.yaml。
 EOF
 }
@@ -119,15 +119,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 相机服务与 detect_rt 由统一入口管理；这里只等首帧就绪，
+# 相机服务与 VIO 由外部托管，detect_rt 单独启动；这里只等首帧就绪，
 # 因为 input_file --existing 模式启动时扫描一次目录，目录为空会直接退出。
-echo "[info] 等待 detect_rt 首帧（需先运行 ./scripts/start_uav.sh --detection --stream）..."
+echo "[info] 等待 detect_rt 首帧（需先启动 detect_rt --stream-dir ${STREAM_DIR}）..."
 for _ in $(seq 1 100); do
     [[ -f "${STREAM_DIR}/frame.jpg" ]] && break
     sleep 0.1
 done
 if [[ ! -f "${STREAM_DIR}/frame.jpg" ]]; then
-    echo "[error] 等待首帧超时。请先在另一个终端启动 ./scripts/start_uav.sh --detection --stream" >&2
+    echo "[error] 等待首帧超时。请先在另一个终端启动 detect_rt --stream-dir ${STREAM_DIR}" >&2
     exit 1
 fi
 
@@ -153,7 +153,7 @@ echo
 echo "======================================================"
 echo "  带框画面: http://${IP}:${PORT}/"
 echo "  视频流  : http://${IP}:${PORT}/?action=stream"
-echo "  按 Ctrl-C 停止 mjpg-streamer（相机与检测由 start_uav.sh 管理）"
+echo "  按 Ctrl-C 停止 mjpg-streamer（相机服务、VIO 与检测由外部托管启动）"
 echo "======================================================"
 echo
 
