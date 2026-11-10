@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
     while (interrupted == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!camera.running()) {
-            std::fprintf(stderr, "[camera_server] 采集线程已退出，停止服务（由统一入口负责重启）\n");
+            std::fprintf(stderr, "[camera_server] 采集线程已退出，停止服务（由外部托管方负责重启）\n");
             exit_code = 1;
             break;
         }

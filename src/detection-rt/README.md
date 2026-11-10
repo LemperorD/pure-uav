@@ -103,7 +103,11 @@ bin/detect_rt
 # 只校验配置
 ./bin/detect_rt --check-config
 
-# 实时：相机服务与 VIO 由外部托管启动，检测单独运行
+# 实时：相机服务与 VIO 由外部托管启动，检测由 bin/main 心跳后拉起
+./bin/main --detect-arg --frames --detect-arg 100 --detect-arg --json \
+  --detect-arg --dump-dir --detect-arg /tmp/detect
+
+# 单独调试检测时也可直接运行（不要与 bin/main 同时运行，避免两个消费者）
 ./bin/detect_rt --frames 100 --json --dump-dir /tmp/detect
 
 # 离线单图（共用同一份配置）
@@ -174,8 +178,10 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 相机只由 `camera_server` 采集，本模块不再打开设备。画面推流分两步：
 
 ```bash
-# 终端 A：相机服务与 VIO 由外部托管启动，检测单独运行并写 frame.jpg
-./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+# 终端 A：相机服务与 VIO 由外部托管启动；main 拉起检测并写 frame.jpg
+./bin/main --detect-arg --stream-dir --detect-arg /dev/shm/pure-uav-detect \
+  --detect-arg --stream-fps --detect-arg 20
+# 或单独调试：./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
 
 # 终端 B：只启动 mjpg-streamer 前端
 ./scripts/start_detection_stream.sh --replace
@@ -186,9 +192,10 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
   若已手动停掉可省略。
 - 推流脚本只负责 mjpg-streamer，不再启动 `detect_rt`，也不接受检测参数；
   检测算法参数统一改 `config/detector-rt.yaml`。
-- 按 `Ctrl-C` 停止 mjpg-streamer；相机服务、VIO 与检测均由外部托管启动。
+- 按 `Ctrl-C` 停止 mjpg-streamer；相机服务与 VIO 由外部托管启动，
+  检测由 `bin/main` 拉起（或单独运行 `detect_rt`），停止 `bin/main` 即停止检测子进程。
 
-脚本内部流程：等待单独启动的 `detect_rt` 写出首帧 `frame.jpg`，
+脚本内部流程：等待 `detect_rt` 写出首帧 `frame.jpg`，
 再用 `input_file.so -f /dev/shm/pure-uav-detect/ -e -d <延迟>` 读取，
 由 `output_http.so -p 8080` 输出。
 
@@ -205,8 +212,9 @@ inotify 事件会堆积，而该插件每次 `read` 只处理第一个事件，�
 mkdir -p /dev/shm/pure-uav-detect
 MJPG=/home/orangepi/Documents/mjpg-streamer/mjpg-streamer-experimental
 
-# 终端 1：先启动检测，等 /dev/shm/pure-uav-detect/frame.jpg 出现
-./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+# 终端 1：先启动检测（由 main 拉起，或单独运行），等 frame.jpg 出现
+./bin/main --detect-arg --stream-dir --detect-arg /dev/shm/pure-uav-detect \
+  --detect-arg --stream-fps --detect-arg 20
 
 # 终端 2：再启动 mjpg-streamer
 $MJPG/mjpg_streamer \
@@ -217,7 +225,8 @@ $MJPG/mjpg_streamer \
 停止当前推流：
 
 ```bash
-pkill -x detect_rt
+pkill -x main        # main 退出时会先停止 detect_rt 子进程
+pkill -x detect_rt   # 仅在单独运行 detect_rt 时需要
 pkill -f "output_http.so -p 8080"
 ```
 
@@ -291,7 +300,10 @@ det.stop();                                     // 停线程、释放相机和�
 
 ```bash
 ./bin/detect_rt --check-config                  # 只校验检测配置
-# 相机服务与 vio_live 由外部托管启动，检测单独运行
+# 相机服务与 vio_live 由外部托管启动；检测由 bin/main 等心跳后拉起并监督
+./bin/main --detect-arg --shm --detect-arg /pure_uav_camera_color \
+  --detect-arg --shm-timeout-ms --detect-arg 10000 --detect-arg --json
+# 单独调试检测（不要与 bin/main 同时运行）
 ./bin/detect_rt --shm /pure_uav_camera_color --shm-timeout-ms 10000 --json
 ./bin/detect_rt --image test.jpg                # 离线单图，不连接相机服务
 ```

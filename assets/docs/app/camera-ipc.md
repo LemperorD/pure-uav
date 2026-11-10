@@ -28,12 +28,18 @@ VIO 与检测作为独立进程从共享内存取帧。
                      MAVLink ODOMETRY        JSON / 带框 frame.jpg
 ```
 
-三个进程由外部托管启动（systemd / 板端自启动 / 现场脚本），仓库不再提供统一启动脚本。
-启动顺序仍须为「清理残留共享内存 → camera_server → vio_live / detect_rt」，退出时逆序停止；
+`camera_server` 与 `vio_live` 由外部托管启动（systemd / 板端自启动 / 现场脚本）；
+**检测子进程由 `bin/main` 等飞控心跳后 fork/exec 拉起并监督**（信号转发、异常最多自动重启 3 次、
+退出时有序停止）。仓库不提供统一启动脚本。
+外部托管方先清理残留共享内存并启动 `camera_server` / `vio_live`，再运行 `bin/main`；
+退出时先停 `bin/main`（它负责停检测子进程），再停 VIO 与相机服务。
 `scripts/start_detection_stream.sh` 只负责 mjpg-streamer 前端。
 
-进程隔离：检测进程原生 NPU 崩溃或挂起不会拖垮 VIO，独立重启 `detect_rt` 即可，
-`vio_live` 与 `camera_server` 无需重启。
+`main` 只做进程编排：不解析 `config/detector-rt.yaml`、不实例化 `DetectionRuntime`、
+不连接共享内存、不参与取帧与推理；检测算法参数仍由 `bin/detect_rt` 自行读取。
+
+进程隔离：检测进程原生 NPU 崩溃或挂起不会拖垮 VIO，由 `bin/main` 自动重启 `detect_rt`
+（最多 3 次，超限 `main` 退出交由外部托管方处置）；`vio_live` 与 `camera_server` 无需重启。
 
 ## 2. 帧通道
 
@@ -85,8 +91,9 @@ VIO 与检测作为独立进程从共享内存取帧。
   消费者读到的 `session/generation` 变化会：
   - `detect_rt` 调 `DetectionRuntime::setEpoch()` 清空 pending 与旧结果；
   - `vio_live` 的 `ShmChannelReader` 重置 `last_seq_`，允许从新会话的最小序号接收。
-- 心跳 `heartbeat_ns` 由写者每帧更新。`vio_live` 2 s 无心跳退出、`detect_rt` 3 s 无心跳退出，
-  由外部托管方重新拉起；慢消费者只丢自己的旧帧，不影响采集。
+- 心跳 `heartbeat_ns` 由写者每帧更新。`vio_live` 2 s 无心跳退出（由外部托管方重新拉起），
+  `detect_rt` 3 s 无心跳退出（由 `bin/main` 监督重启，最多 3 次）；
+  慢消费者只丢自己的旧帧，不影响采集。
 - 彩色通道在服务端按 `color_max_hz`（默认 10）限频；`DetectionRuntime` 的
   `max_hz` / `max_age_ms` / `seq` 单调校验保留为二道防线。两处限频是**独立门限**：
   前者在 `config/camera.yaml` 的 `channels.color_max_hz`，控制服务端写入共享内存的频率；
@@ -102,10 +109,14 @@ cmake --build build-uav -j2
 ./bin/camera_server --check-config                 # 不打开相机，只校验 config/camera.yaml
 ./bin/detect_rt --check-config                     # 不加载模型，只校验 config/detector-rt.yaml
 
-# 相机服务、VIO 与检测由外部托管启动；按此顺序，退出时逆序停止：
+# 相机服务与 VIO 由外部托管启动：
 ./bin/camera_server --config config/camera.yaml
 ./bin/vio_live --shm /pure_uav_camera_vio --no-send
-./bin/detect_rt --shm /pure_uav_camera_color --json
+
+# 检测由 bin/main 等飞控心跳后拉起并监督：
+./bin/main --detection-config config/detector-rt.yaml
+./bin/main --detect-arg --json --detect-arg --frames --detect-arg 100  # 透传运行参数
+./bin/main --no-detection                         # 只跑通信，不拉起检测
 ./scripts/start_detection_stream.sh --replace      # 另一个终端：mjpg-streamer 前端
 ```
 
@@ -121,13 +132,15 @@ cmake --build build-uav -j2
 `confidence_threshold` 等）、越界值或模型文件不存在都会明确报错并退出，不做兼容别名。
 `detect_rt` 不提供 `--model/--conf/--iou` 等对应命令行选项，`--config FILE` 只改配置路径；
 实时模式与 `--image FILE` 离线单图模式共用同一份 `RuntimeConfig` 与 `RuntimeBackend`。
-改完配置需重启 `detect_rt` 生效。
+改完配置需重启 `bin/main`（或单独重启 `detect_rt`）生效；`main` 不解析、不缓存这份配置。
+`main` 的 `--detection-config FILE` 只改配置文件路径，`--detect-arg ARG` 只透传运行参数，
+均不覆盖任何检测算法参数。
 
 ## 6. 互斥清单（禁止与 camera_server 同时运行）
 
 | 入口 | 处理 |
 |---|---|
-| `bin/main` | 已移除 `Detector::start()`，只是通信示例，打印外部托管提示后退出 |
+| `bin/main` | 等飞控心跳后 fork/exec 拉起并监督 `bin/detect_rt`，自身不打开相机、不解析检测配置、不连共享内存 |
 | `bin/detect_rt` / `bin/vio_live` | 已是只读消费者，不再打开设备 |
 | `Detector` / `CameraSource` | 遗留源码保留给既有测试；`external_camera=true` 时不再打开相机 |
 | `src/app/camera_service.cpp` | 未接线的单进程设计代码，保留作语义参考，不要接入构建 |
@@ -141,11 +154,15 @@ cmake --build build-uav -j2
   - 全量 CMake 配置与构建（`camera_server` / `vio_live` / `detect_rt` / `main` / `test_camera_shm`）；
   - `ctest -R camera_shm`：布局校验、跨进程 mmap 读取、seqlock 撕裂检测重试、seq 单调、
     会话切换失效、长度越界拒绝、双通道隔离、**两个消费者进程并发取帧**、清理；
-  - `camera_server --check-config`、两个消费者 `--help`、无相机服务时消费者明确拒绝启动；
-  - 全量 `ctest`：22 项中 20 通过。`onboard_runtime` 随 `external_camera` 修复转为通过；
+  - `ctest -R detector_config`、`ctest -R detection_process`（后者用 `/bin/true` 与临时脚本
+    覆盖子进程启动、回收、正常退出不重启、异常退出重启上限、停止请求、信号转发与参数透传）；
+  - `camera_server --check-config`、两个消费者 `--help`、`main --help`、无相机服务时消费者明确拒绝启动；
+  - 全量 `ctest`：23 项中 21 通过。`onboard_runtime` 随 `external_camera` 修复转为通过；
     `guidance` / `state_adapter` 是制导模块既有失败，本次未改动 `src/guidance/**`，与相机改造无关。
 - 必须在板端/真机验证，**不得用本机结果代替**：
   - 真实 Orbbec 采集 + 深度对齐、30 fps 下共享内存写带宽与 `/dev/shm` 容量；
   - 真实 `.nb` NPU 推理（`vip_lite.h` / `libNBGlinker.so` / `libVIPhal.so`）与类别语义；
   - VIO 时间同步、IMU 融合、飞控 ODOMETRY 接收率与检测开启前后的定位质量对比；
-  - 检测进程崩溃、相机服务重启、飞控重启时的故障隔离与恢复。
+  - **飞控心跳 → `bin/main` 拉起 `detect_rt` → 连彩色通道 → NPU 推理**的完整链路；
+  - 检测进程崩溃后 `bin/main` 的 3 次重启上限、Ctrl-C 信号转发与退出时子进程回收；
+  - 相机服务重启、飞控重启时的故障隔离与恢复。

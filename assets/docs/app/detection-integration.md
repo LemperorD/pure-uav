@@ -6,6 +6,8 @@
 > 下文保留作检测侧契约参考（限频、帧龄、会话失效、`TargetSnapshot` 语义）。
 > 本树检测算法参数的唯一真源是 `config/detector-rt.yaml`（不是本文的 `app-detection.yaml`），
 > 加载接口见 `src/detection-rt/include/detector_config.hpp`；
+> 本树检测子进程由 `bin/main` 等飞控心跳后拉起并监督（最多自动重启 3 次），
+> 相机服务与 VIO 仍由外部托管启动；`main` 不解析这份配置。
 > 文中的 `./bin/main --config ... --check-config` 也是外部副本用法，本树用
 > `./bin/detect_rt --check-config`。
 

@@ -677,7 +677,7 @@ int main(int argc, char** argv) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             if (!vio_reader.writerAlive()) {
-                std::fprintf(stderr, "[WARN] camera_server 心跳超时，VIO 消费者退出（由统一入口负责重启）\n");
+                std::fprintf(stderr, "[WARN] camera_server 心跳超时，VIO 消费者退出（由外部托管方负责重启）\n");
                 capture_failed.store(true);
                 break;
             }

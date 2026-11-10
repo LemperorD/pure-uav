@@ -212,3 +212,6 @@ VIO 侧 `vio_live` 仍通过 `FcuClock` 把 `host_ns` 映射到飞控 IMU/boot �
 校验复用 `validateRuntimeConfig()`，并对未知键、旧占位字段、越界值、缺模型文件给出明确错误。
 `detect_rt` 不提供这些字段的命令行覆盖，`--config FILE` 只改配置路径，
 `--check-config` 只校验不加载模型；实时与 `--image` 离线单图共用同一份 `RuntimeConfig`。
+`bin/main` 不参与检测初始化：它在等飞控心跳后 fork/exec 拉起并监督 `bin/detect_rt`
+（信号转发、异常最多重启 3 次、退出时停止），只透传 `--config` 路径与运行参数，
+不读取 `config/detector-rt.yaml`、不连接共享内存、不参与取帧与推理。

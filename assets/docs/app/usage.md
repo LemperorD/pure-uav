@@ -1,7 +1,8 @@
 # app 用法（CLI / YAML / 跑法）
 
-> **架构更新（2026-11-09）**：本树相机由 `camera_server` 独占采集，`bin/main` 只是通信示例，
-> 不再是运行入口。本文描述的是外部工作副本中的单进程 `main` 组合根，命令与线程表
+> **架构更新（2026-11-09）**：本树相机由 `camera_server` 独占采集，`bin/main` 负责
+> 等飞控心跳后 fork/exec 拉起并监督检测子进程（不解析检测配置、不连共享内存）。
+> 本文描述的是外部工作副本中的单进程 `main` 组合根，命令与线程表
 > 不适用于本树；实际运行见 [camera-ipc.md](camera-ipc.md)。检测算法参数唯一真源为
 > `config/detector-rt.yaml`，不通过命令行传递。
 
@@ -38,8 +39,10 @@
 
 检测模型与阈值等算法参数的唯一真源为 `config/detector-rt.yaml`（`model_path: auto`
 按编译后端选择 `yolo26n.onnx` / `yolo26n.nb`），不提供 `--model/--conf/--iou` 等命令行选项。
-本树 `main` 只是通信示例；实时检测由 `detect_rt` 从共享内存彩色通道取帧。
-原有 `detect_rt`、`vio_live`、`vio_offline`、`guidance_example` 保留供独立调试。
+本树 `main` 等飞控心跳后拉起并监督 `bin/detect_rt`，由后者从共享内存彩色通道取帧；
+`main` 自身不解析检测配置、不连接共享内存、不参与推理。
+单独调试检测时仍可直接运行 `./bin/detect_rt`；`--no-detection` 可让 `main` 只跑通信。
+原有 `vio_live`、`vio_offline`、`guidance_example` 保留供独立调试。
 
 启动时加载模型和 VIO 标定，再打开一个串口、一个相机。主循环不自动解锁、起飞或切换飞行模式。
 IMU 请求频率为 200 Hz；相机分辨率来自 VIO 标定，彩色 30 Hz，主流程不启用深度流。

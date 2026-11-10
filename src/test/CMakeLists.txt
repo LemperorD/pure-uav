@@ -146,3 +146,12 @@ ${TEST_OUTPUT_DIR})
 add_test(NAME detector_config COMMAND test_detector_config)
 set_tests_properties(detector_config PROPERTIES WORKING_DIRECTORY
                                               ${CMAKE_SOURCE_DIR} TIMEOUT 30)
+
+# 检测子进程管理：启动、回收、重启上限、停止与信号转发（无硬件）。
+add_executable(test_detection_process test_app/test_detection_process.cpp)
+target_include_directories(test_detection_process PRIVATE
+                                                 ${CMAKE_SOURCE_DIR}/src/app)
+set_target_properties(test_detection_process PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+${TEST_OUTPUT_DIR})
+add_test(NAME detection_process COMMAND test_detection_process)
+set_tests_properties(detection_process PROPERTIES TIMEOUT 30)
