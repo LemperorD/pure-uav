@@ -16,6 +16,7 @@ struct VioFrame {
     int64_t host_ns = 0;
     int64_t device_us = 0;
     int64_t depth_device_us = 0;
+    int64_t system_us = 0;  // SDK systemTimeStampUs，供 vio_live 保持既有相机平滑时基
 };
 
 // Depth is in the native depth camera coordinates, not aligned RGB coordinates.

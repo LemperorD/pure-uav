@@ -11,6 +11,8 @@
 #include <opencv2/core.hpp>
 #include <string>
 
+#include "color_frame.hpp"
+
 namespace ob {
 class Pipeline;
 }
@@ -88,13 +90,42 @@ class OrbbecCamera {
     /// depth_mm：对齐到彩色的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
     using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_device_us)>;
 
+    // 完整帧集：一次采集同时交付灰度、深度与**相机原始编码字节**。
+    // CameraFrames 只在回调期间有效：color_encoded 零拷贝包裹 SDK 帧缓冲，
+    // 需要留存时必须自行 clone（共享内存发布是在回调内同步 memcpy，无需 clone）。
+    // device_us  = SDK timeStampUs()，时基不同，只能当相对量；
+    // sys_us     = SDK systemTimeStampUs()，主机时基（旧 FrameCallback 第 4 参数语义）；
+    // host_ns    = CLOCK_MONOTONIC，跨进程可比。
+    struct CameraFrames {
+        cv::Mat gray;           // CV_8UC1
+        cv::Mat depth_mm;       // CV_16UC1，无深度流时为空
+        cv::Mat color_encoded;  // CV_8UC1，MJPG / RGB / YUYV 原始字节
+        ColorEncoding encoding = ColorEncoding::jpeg;
+        int width = 0;
+        int height = 0;
+        uint64_t seq = 0;  // 从 1 起单调递增，两个共享内存通道共用同一编号
+        int64_t host_ns = 0;
+        int64_t device_us = 0;
+        int64_t sys_us = 0;
+        int64_t depth_device_us = 0;
+        bool has_depth = false;
+    };
+    using FramesCallback = std::function<void(const CameraFrames&)>;
+
     OrbbecCamera();
     ~OrbbecCamera();
 
     OrbbecCamera(const OrbbecCamera&) = delete;
     OrbbecCamera& operator=(const OrbbecCamera&) = delete;
 
+    /// 唯一采集入口：所有消费者（含共享内存发布）都从这里取完整帧集。
+    /// 回调在相机线程同步执行，禁止在回调内做推理、日志刷屏或阻塞等待。
+    bool startWithFrames(const Config& cfg, FramesCallback callback, std::string* error);
+
     /// 可选彩色回调与灰度回调在同一采集线程执行；BGR 像素由 cv::Mat 共享持有，不得修改。
+    /// 兼容适配层（depth_range_probe 等旧调用点）：内部转成 startWithFrames。
+    /// Config::callback_device_timestamps 决定 FrameCallback 第 4 参数传 SDK 设备时间
+    /// 还是 SDK 主机系统时间（默认后者，保持旧语义）。
     using ColorCallback = std::function<void(const cv::Mat& bgr, int64_t host_ns)>;
     bool start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback = {});
     void stop();

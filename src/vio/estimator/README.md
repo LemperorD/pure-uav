@@ -5,6 +5,9 @@
 基于 OpenVINS v2.7.0（mono MSCKF + IMU）改的视觉惯性里程计。输入相机图像 + 飞控 IMU，
 输出 `LOCAL_FRD` 位置/姿态/速度，经 MAVLink `ODOMETRY` 发给 ArduPilot。
 
+实时相机输入已改为外部 `camera_server` 的共享内存通道；先启动相机服务，再运行 VIO。
+现行接口与参数迁移见 [VIO 接入 camera_server](../../../assets/docs/app/camera-ipc.md)。
+
 ## 目录
 
 | 路径 | 作用 |
@@ -13,7 +16,8 @@
 | `apps/live_view.hpp` | 自带窗口：图像+特征、状态面板、底部 2D 俯视轨迹带 |
 | `apps/vio_offline_main.cpp` | **离线回放**：同一份数据可复现实时结果（逐字节相同） |
 | `src/vio_estimator.cpp` | 主入口：包 OpenVINS，喂数据、深度注入、健康门限、LOST 后重锚定 |
-| `src/orbbec_camera.cpp` | 相机驱动：自动测光（含运行中重测光）、深度流+激光重开、帧集模式、设备时间戳 |
+| `src/shm_camera_source.cpp` | 实时 VIO 共用的共享内存输入、尺寸/标定校验与服务故障检测 |
+| `src/orbbec_camera.cpp` | 直采工具使用的相机驱动：自动测光（含运行中重测光）、深度流+激光重开、帧集模式、设备时间戳 |
 | `src/mavlink_link.cpp` | 飞控链路：收 `HIGHRES_IMU`@200Hz，发 `ODOMETRY`（质量/协方差/reset_counter），收 `LOCAL_POSITION_NED` 做第二意见 |
 | `src/vision_pose_convert.cpp` | **坐标换算唯一地点**：OpenVINS global/IMU → LOCAL_FRD/机体系（含杆臂、yaw 对齐） |
 | `src/fcu_clock.cpp` | 主机／飞控时钟偏移估计与 VIO Unix 时间换算 |
@@ -68,17 +72,17 @@ cmake --build build -j$(nproc) --target vio_live vio_offline
 ```bash
 cd /home/kxy/桌面/pure-uav-vio/src/vio/estimator
 ./scripts/run_vio_live.sh --out out/run1 -- \
-  --use-depth-init --init-vel-zero --tune-expected-rate 12 \
+  --use-depth-init --init-vel-zero \
   --record datasets/run1
 ```
 
-**2) 实时 60fps（640×480，深度隔帧）**
+**2) 实时 60fps（先将相机服务配置为 640×480@60，并使用匹配标定）**
 
 ```bash
 ./scripts/run_vio_live.sh --out out/run2 -- \
   --width 640 --height 480 --fps 60 --config-dir config/gemini_640x480 \
-  --aggregate color --cam-ts device \
-  --use-depth-init --init-vel-zero --tune-expected-rate 12
+  --cam-ts device \
+  --use-depth-init --init-vel-zero
 ```
 
 **3) 离线回放**（`--init-threads 1` 才能复现）
