@@ -3,12 +3,12 @@
 // bin/main 与无硬件单测共用同一实现：main 只负责启动、监督、重启与停止
 // bin/detect_rt；检测监督部分不解析算法配置、不打开帧通道、不参与推理。
 #include <fcntl.h>
-#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
