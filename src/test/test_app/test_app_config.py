@@ -2,6 +2,7 @@
 """Exercise the actual main config path without opening a camera or serial port."""
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -112,4 +113,20 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     run(["--driver-config", str(path), "--check-config"], 2, "baudrate")
     custom_app.write_text(json.dumps({"app": {"driver_config": "missing-driver", "vio_config": "missing-vio"}}))
     run(["--config", str(custom_app), "--driver-config", "config/driver.yaml", "--vio-config", "config/vio.yaml", "--check-config"], contains="Configuration OK")
+
+    # 任务制导：onboard-guidance 与 guidance-camera 分开加载。
+    camera_text = (root / "config/guidance-camera.yaml").read_text()
+    camera_false = tmp / "camera-false.yaml"
+    camera_false.write_text(camera_text.replace("calibrated: true", "calibrated: false"))
+    run(["--mission", "--no-send", "--camera-calibration", str(camera_false), "--check-config"], contains="mission_guidance_ready: false")
+    camera_true = tmp / "camera-true.yaml"
+    camera_true.write_text(
+        re.sub(
+            r"R_body_cam:\s*\[[^\]]*\]",
+            "R_body_cam: [1, 0, 0, 0, 1, 0, 0, 0, 1]",
+            camera_text.replace("calibrated: false", "calibrated: true", 1),
+            flags=re.S,
+        )
+    )
+    run(["--mission", "--no-send", "--camera-calibration", str(camera_true), "--check-config"], contains="mission_guidance_ready: true")
 print(f"PASS: {checks} application/VIO config checks; no hardware opened")

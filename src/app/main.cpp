@@ -22,6 +22,7 @@
 
 #include "communicator.hpp"
 #include "detection_supervisor.hpp"
+#include "glue/guidance_session.hpp"
 #include "guidance_loop.hpp"
 #include "mission/mission_config.hpp"
 #include "runtime/bounded_queue.hpp"
@@ -77,6 +78,7 @@ struct Options {
     std::string driver, vio_config, shm_vio, vio;
     int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";
+    std::string camera_calibration = "config/guidance-camera.yaml";
     std::string blackbox;  // 预留：黑匣子尚未接入
 };
 
@@ -95,7 +97,8 @@ void usage(const char* name) {
         "  --no-send             检查照跑，禁止发送位姿、任务指令和飞控动作请求\n"
         "  --mission             启用任务：定位就绪后自检、起飞、搜索、撞板和返航\n"
         "  --mission-config FILE 任务参数（默认 config/mission.yaml）\n"
-        "  --guidance-config FILE 制导/彩色相机标定参数；未就绪时只搜索不撞板\n"
+        "  --guidance-config FILE 制导律/loop 参数（默认 config/onboard-guidance.yaml）\n"
+        "  --camera-calibration FILE 彩色相机内参/畸变/外参（默认 config/guidance-camera.yaml）\n"
         "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
         "  --detection-config FILE  传给检测子进程的 --config 路径\n"
         "  --detect-arg ARG      可重复，原样传给检测子进程的运行参数\n"
@@ -162,6 +165,8 @@ Options parseOptions(int argc, char** argv) {
             value = &options.vio;
         } else if (arg == "--guidance-config") {
             value = &options.guidance;
+        } else if (arg == "--camera-calibration") {
+            value = &options.camera_calibration;
         } else if (arg == "--detect-bin") {
             value = &options.detect_bin;
         } else if (arg == "--detection-config") {
@@ -334,14 +339,20 @@ int runVio(const Options& options) {
             return 2;
         }
         mission_config.send_enabled = !options.no_send;
-        auto loaded = guidance_load_yaml_file(resolve(options.guidance), &mission_guidance);
-        if (loaded.ok) {
-            loaded = guidance_validate_params(mission_guidance);
-        }
-        if (!loaded.ok) {
-            std::fprintf(stderr, "Configuration error: %s\n", loaded.error.c_str());
+        GuidanceSession guidance;
+        if (!guidance.initParams(resolve(options.guidance), config_error)) {
+            std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
             return 2;
         }
+        const CameraLoadResult camera = guidance.initCamera(resolve(options.camera_calibration), config_error);
+        if (camera == CameraLoadResult::kError) {
+            std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
+            return 2;
+        }
+        if (camera == CameraLoadResult::kNotCalibrated) {
+            std::fprintf(stderr, "[MAIN] 彩色相机未标定：%s；任务只搜索，不进入撞板\n", guidance.cameraReason().c_str());
+        }
+        mission_guidance = guidance.params();
         if (config.main_loop_hz < 10 || 1.0 / config.main_loop_hz >= mission_config.max_setpoint_gap_s) {
             std::fprintf(stderr, "Configuration error: main_loop_hz is too low for mission setpoint continuity\n");
             return 2;

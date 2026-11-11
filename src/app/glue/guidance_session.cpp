@@ -430,4 +430,8 @@ const std::string& GuidanceSession::cameraReason() const {
     return impl_->camera_reason;
 }
 
+const GuidanceAppParams& GuidanceSession::params() const {
+    return impl_->params;
+}
+
 }  // namespace pure_uav::app

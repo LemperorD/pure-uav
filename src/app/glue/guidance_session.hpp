@@ -9,6 +9,8 @@ class Communicator;
 
 namespace pure_uav::app {
 
+struct GuidanceAppParams;
+
 enum class CameraLoadResult {
     kOk,
     kNotCalibrated,
@@ -34,6 +36,8 @@ class GuidanceSession {
     [[nodiscard]] bool cameraFatal() const;
     [[nodiscard]] bool readyForGuidance() const;
     [[nodiscard]] const std::string& cameraReason() const;
+    /// 已加载的制导参数；未成功 initParams 时为默认值。
+    [[nodiscard]] const GuidanceAppParams& params() const;
 
   private:
     struct Impl;

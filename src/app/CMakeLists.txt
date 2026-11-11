@@ -11,7 +11,7 @@ target_include_directories(guidance_application
 target_link_libraries(guidance_application PUBLIC guidance_sim_tools
                                                   guidance_flight)
 
-add_executable(main main.cpp)
+add_executable(main main.cpp glue/guidance_session.cpp)
 target_link_libraries(main PRIVATE communicate guidance_application
                                   mission_ports)
 if(TARGET pure_vio_runtime)
