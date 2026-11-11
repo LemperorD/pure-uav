@@ -72,7 +72,7 @@ src/guidance/
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
 
-单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 304 条断言，产物 `bin/test/`）。
+单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 339 条断言，产物 `bin/test/`）。
 > ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
 > 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
 > 只链接 `guidance_state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。

@@ -58,8 +58,9 @@ enum class GuidanceInputHealth : std::uint8_t {
     kRangeNegative,
     kStale,
     kTimeBackwards,
-    kNoRange,     // 无距离输入（未测量到相对距离）
-    kNoAttitude,  // 无姿态输入（未测量到当前姿态）
+    kTimeUnknown,  // 时间基不可用（boot_us == 0）
+    kNoRange,      // 无距离输入（未测量到相对距离）
+    kNoAttitude,   // 无姿态输入（未测量到当前姿态）
 };
 
 enum class GuidanceControlMode : std::uint8_t {

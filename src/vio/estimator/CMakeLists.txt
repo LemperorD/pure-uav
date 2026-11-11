@@ -1,6 +1,4 @@
 cmake_minimum_required(VERSION 3.16)
-project(pure_uav_vio_online LANGUAGES CXX)
-
 if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
 endif()
@@ -10,13 +8,14 @@ endif()
 #
 # 目标：把 IMU + 相机数据变成 pure_uav::VisionPose（给飞控通信模块）
 #
-# 依赖：Eigen3 / OpenCV4 / Boost(filesystem,thread,date_time) / Ceres OpenVINS
-# 核心（ov_core + ov_init + ov_msckf，ROS-free，已裁到本项目 third_party/open_vins）
+# 依赖：Eigen3 / OpenCV4 / Boost(filesystem,date_time) / Ceres OpenVINS 核心：ov_core
+# + ov_init + ov_msckf（ROS-free，源码在 third_party/open_vins）
 #
 # 不依赖 ROS。可视化/数据集回放可继续用你现有的 ~/vio_ws_ros1 环境做对照。
 # ==============================================================================
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(pure_uav_vio_online LANGUAGES CXX)
   if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE
         Release
@@ -26,19 +25,27 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
   set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
   set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+  set(CMAKE_CXX_EXTENSIONS OFF)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+  enable_testing()
 endif()
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # AUTO: 能找到 Orbbec SDK 和 MAVLink 头文件才编译实时程序
 set(PURE_VIO_BUILD_LIVE
     "AUTO"
     CACHE STRING "Build live app: AUTO / ON / OFF"
 )
-option(PURE_VIO_BUILD_OPENVINS "Build vendored OpenVINS core" ON)
+set_property(CACHE PURE_VIO_BUILD_LIVE PROPERTY STRINGS AUTO ON OFF)
+if(NOT PURE_VIO_BUILD_LIVE MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "PURE_VIO_BUILD_LIVE 必须为 AUTO、ON 或 OFF")
+endif()
+
+# 估计器直接依赖 OpenVINS；旧开关 OFF 从未提供可用的构建路径。
+if(DEFINED PURE_VIO_BUILD_OPENVINS AND NOT PURE_VIO_BUILD_OPENVINS)
+  message(FATAL_ERROR "OpenVINS 是 VIO 的必需依赖，请移除 PURE_VIO_BUILD_OPENVINS=OFF")
+endif()
 
 set(OPENVINS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/open_vins)
 
@@ -47,7 +54,7 @@ set(OPENVINS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/open_vins)
 # ------------------------------------------------------------------------------
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
-find_package(Boost 1.65 REQUIRED COMPONENTS filesystem thread date_time)
+find_package(Boost 1.65 REQUIRED COMPONENTS filesystem date_time)
 find_package(Ceres REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -59,51 +66,42 @@ message(STATUS "Ceres:  ${Ceres_VERSION}")
 # ------------------------------------------------------------------------------
 # OpenVINS 核心库（ROS-free）
 # ------------------------------------------------------------------------------
-if(PURE_VIO_BUILD_OPENVINS)
-  file(GLOB_RECURSE OPENVINS_SOURCES ${OPENVINS_DIR}/ov_core/src/*.cpp
-       ${OPENVINS_DIR}/ov_init/src/*.cpp ${OPENVINS_DIR}/ov_msckf/src/*.cpp
-  )
-  list(LENGTH OPENVINS_SOURCES OPENVINS_SOURCE_COUNT)
+file(GLOB_RECURSE OPENVINS_SOURCES ${OPENVINS_DIR}/ov_core/src/*.cpp
+     ${OPENVINS_DIR}/ov_init/src/*.cpp ${OPENVINS_DIR}/ov_msckf/src/*.cpp
+)
+list(LENGTH OPENVINS_SOURCES OPENVINS_SOURCE_COUNT)
 
-  add_library(openvins_core STATIC ${OPENVINS_SOURCES})
-  set_target_properties(
-    openvins_core
-    PROPERTIES CXX_STANDARD 14
-               CXX_STANDARD_REQUIRED ON
-               POSITION_INDEPENDENT_CODE ON
-  )
-  target_compile_definitions(
-    openvins_core PUBLIC ROS_AVAILABLE=0 ENABLE_ARUCO_TAGS=0
-  )
-  target_compile_options(
-    openvins_core
-    PRIVATE -O3
-            -fomit-frame-pointer
-            -fno-signed-zeros
-            -fno-math-errno
-            -funroll-loops
-            -Wno-unused-parameter
-            -Wno-unused-variable
-            -Wno-sign-compare
-            -Wno-maybe-uninitialized
-  )
-  target_include_directories(
-    openvins_core
-    PUBLIC ${OPENVINS_DIR}/ov_core/src ${OPENVINS_DIR}/ov_init/src
-           ${OPENVINS_DIR}/ov_msckf/src ${Eigen3_INCLUDE_DIRS}
-  )
-  target_link_libraries(
-    openvins_core
-    PUBLIC Eigen3::Eigen
-           ${OpenCV_LIBS}
-           Boost::filesystem
-           Boost::thread
-           Boost::date_time
-           Ceres::ceres
-           Threads::Threads
-  )
-  message(STATUS "OpenVINS sources: ${OPENVINS_SOURCE_COUNT} (ROS-free)")
-endif()
+add_library(openvins_core STATIC ${OPENVINS_SOURCES})
+set_target_properties(
+  openvins_core
+  PROPERTIES CXX_STANDARD 14
+             CXX_STANDARD_REQUIRED ON
+             POSITION_INDEPENDENT_CODE ON
+)
+target_compile_definitions(
+  openvins_core PUBLIC ROS_AVAILABLE=0 ENABLE_ARUCO_TAGS=0
+)
+target_compile_options(
+  openvins_core
+  PRIVATE -O3
+          -fomit-frame-pointer
+          -fno-signed-zeros
+          -fno-math-errno
+          -funroll-loops
+          -Wno-unused-parameter
+          -Wno-unused-variable
+          -Wno-sign-compare
+          -Wno-maybe-uninitialized
+)
+target_include_directories(
+  openvins_core PUBLIC ${OPENVINS_DIR}/ov_core/src ${OPENVINS_DIR}/ov_init/src
+                       ${OPENVINS_DIR}/ov_msckf/src ${Eigen3_INCLUDE_DIRS}
+)
+target_link_libraries(
+  openvins_core PUBLIC Eigen3::Eigen ${OpenCV_LIBS} Boost::filesystem
+                       Boost::date_time Ceres::ceres Threads::Threads
+)
+message(STATUS "OpenVINS sources: ${OPENVINS_SOURCE_COUNT} (ROS-free)")
 
 # ------------------------------------------------------------------------------
 # pure_vio_core：估计器封装 + 坐标系转换 + 数据源/输出
@@ -130,8 +128,8 @@ if(EXISTS
     pure_vio_core PUBLIC PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT
   )
   target_include_directories(
-    pure_vio_core PUBLIC "${CMAKE_SOURCE_DIR}/src/driver/communicate/include"
-                         "${CMAKE_SOURCE_DIR}/src/common"
+    pure_vio_core PUBLIC "${_pure_uav_repo_root}/src/driver/communicate/include"
+                         "${_pure_uav_repo_root}/src/common"
   )
   message(
     STATUS "VisionPose: 复用 src/driver/communicate/include/communicator.hpp"
@@ -139,7 +137,7 @@ if(EXISTS
 endif()
 target_link_libraries(
   pure_vio_core PUBLIC openvins_core Eigen3::Eigen ${OpenCV_LIBS}
-                       Boost::filesystem Threads::Threads
+                       Threads::Threads
 )
 
 # 离线回放
@@ -162,11 +160,7 @@ if(NOT PURE_UAV_MAVLINK_DIR)
       "${_pure_uav_repo_root}/src/driver/communicate/third_party/mavlink"
   )
   if(EXISTS "${_pure_uav_mavlink_dir}/common/mavlink.h")
-    set(PURE_UAV_MAVLINK_DIR
-        "${_pure_uav_repo_root}/src/driver/communicate/third_party/mavlink"
-    )
-  elseif(EXISTS "${CMAKE_SOURCE_DIR}/third_party/mavlink/common/mavlink.h")
-    set(PURE_UAV_MAVLINK_DIR "${CMAKE_SOURCE_DIR}/third_party/mavlink")
+    set(PURE_UAV_MAVLINK_DIR "${_pure_uav_mavlink_dir}")
   endif()
 endif()
 
@@ -195,32 +189,33 @@ endif()
 
 if(_build_live)
   message(STATUS "实时程序: 启用 (driver=${PURE_UAV_DRIVER_DIR})")
-  # 【2026-10-25】仓库里 SDK 放在 lib/<arch>/ 下（x86_64、aarch64）， 本地开发树是平铺在 lib/
-  # 里。两个位置都找，按架构优先。
-  find_library(
-    ORBBEC_SDK_LIB
-    NAMES OrbbecSDK
-    PATHS "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
-          "${PURE_UAV_DRIVER_DIR}/orbbec/lib/x86_64"
-          "${PURE_UAV_DRIVER_DIR}/orbbec/lib"
-    NO_DEFAULT_PATH
-  )
-  if(NOT ORBBEC_SDK_LIB)
-    message(
-      FATAL_ERROR "找不到 libOrbbecSDK.so（${PURE_UAV_DRIVER_DIR}/orbbec/lib）"
+  # 仓库整体构建复用 driver 提供的目标；独立构建才需要查找并导入 SDK。
+  if(NOT TARGET OrbbecSDK)
+    find_library(
+      ORBBEC_SDK_LIB
+      NAMES OrbbecSDK
+      PATHS "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
+            "${PURE_UAV_DRIVER_DIR}/orbbec/lib/x86_64"
+            "${PURE_UAV_DRIVER_DIR}/orbbec/lib"
+      NO_DEFAULT_PATH
+    )
+    if(NOT ORBBEC_SDK_LIB)
+      message(
+        FATAL_ERROR "找不到 libOrbbecSDK.so（${PURE_UAV_DRIVER_DIR}/orbbec/lib）"
+      )
+    endif()
+    add_library(OrbbecSDK SHARED IMPORTED GLOBAL)
+    set_property(
+      TARGET OrbbecSDK PROPERTY IMPORTED_LOCATION "${ORBBEC_SDK_LIB}"
+    )
+    target_include_directories(
+      OrbbecSDK INTERFACE "${PURE_UAV_DRIVER_DIR}/orbbec/include"
     )
   endif()
-
-  # 仓库里原有的 test_camera 直接 target_link_libraries(... OrbbecSDK)， 但没有定义这个
-  # target。这里补一个 imported target，让整个仓库能一次编过。
-  if(NOT TARGET OrbbecSDK)
-    add_library(OrbbecSDK SHARED IMPORTED GLOBAL)
-    set_target_properties(
-      OrbbecSDK
-      PROPERTIES IMPORTED_LOCATION "${ORBBEC_SDK_LIB}"
-                 INTERFACE_INCLUDE_DIRECTORIES
-                 "${PURE_UAV_DRIVER_DIR}/orbbec/include"
-    )
+  # 检查真正参与链接的文件，而不是另行查找到但未使用的 SDK 路径。
+  get_target_property(_orbbec_sdk_lib OrbbecSDK IMPORTED_LOCATION)
+  if(NOT EXISTS "${_orbbec_sdk_lib}")
+    message(FATAL_ERROR "OrbbecSDK 导入目标的库文件不存在：${_orbbec_sdk_lib}")
   endif()
 
   add_library(vio_camera STATIC src/orbbec_camera.cpp)
@@ -251,20 +246,10 @@ if(_build_live)
   )
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
-  target_include_directories(
-    vio_live PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-                     ${PURE_UAV_DRIVER_DIR}/orbbec/include
-  )
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
   target_link_libraries(vio_live PRIVATE pure_vio_runtime)
-  string(CONCAT _orbbec_rpath
-                "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
-                ";${PURE_UAV_DRIVER_DIR}/orbbec/lib"
-  )
-  set_target_properties(
-    vio_live PROPERTIES INSTALL_RPATH "${_orbbec_rpath}" BUILD_RPATH
-                                                         "${_orbbec_rpath}"
-  )
+elseif(PURE_VIO_BUILD_LIVE STREQUAL "OFF")
+  message(STATUS "实时程序: 已禁用（PURE_VIO_BUILD_LIVE=OFF）")
 else()
   message(STATUS "实时程序: 跳过（找不到 Orbbec SDK / MAVLink，"
                  "可手动设 -DPURE_UAV_DRIVER_DIR / -DPURE_UAV_MAVLINK_DIR）"
@@ -303,7 +288,6 @@ add_executable(test_fcu_clock tests/test_fcu_clock.cpp src/fcu_clock.cpp)
 target_include_directories(
   test_fcu_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-find_package(Threads REQUIRED)
 target_link_libraries(test_fcu_clock PRIVATE Threads::Threads)
 
 # ODOMETRY 打包/解析回归：不需要飞控、相机、串口，只需要 MAVLink 头文件。 它拦的是「字段顺序传反」这类只看发送返回值发现不了的
@@ -371,7 +355,6 @@ else()
   )
 endif()
 
-enable_testing()
 set(_zupt_fixture "${CMAKE_CURRENT_BINARY_DIR}/test_config/zupt")
 file(MAKE_DIRECTORY "${_zupt_fixture}")
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080/"

@@ -1106,6 +1106,7 @@ static void test_checks() {
         st.t = 1.0;
         st.los_hat = Vec3(1, 0, 0);
         st.range = 100.0;
+        st.has_range = true;
         st.valid = true;
         st.v_M = Vec3(20.0, 0.0, 0.0);
         st.v_T = Vec3(-5.0, 3.0, 0.0);  // 有横向相对运动 ⇒ ω ≠ 0

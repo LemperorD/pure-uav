@@ -18,7 +18,13 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
   guidance_loop.{hpp,cpp}  主循环本体 + 内存黑匣子 GuidanceRingLog
 
 src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
-  main.cpp                         通信 + VIO + 检测子进程监督（相机由 camera_server 提供）
+  main.cpp                         组合根：直接调用启动函数、公共循环与退出
+  startup/app_options.{hpp,cpp}     应用命令行参数和帮助
+  startup/app_startup.{hpp,cpp}     应用配置合成、飞控连接检查、任务/检测启动
+  runtime/vio_pose_publisher.{hpp,cpp}  VIO 发布门控、发布状态与统计日志
+  mission/                         主任务状态机、运行桥接、参数和无硬件回归
+  glue/mission_service.{hpp,cpp}    main 任务门面：VIO 门控、目标 IPC 和运行调度
+  glue/mission_ports.{hpp,cpp}      飞控反馈/指令与制导计算适配
   runtime/                         有界图像队列、飞控数据/指令换算
   startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
@@ -26,14 +32,22 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
   sim/guidance_sim_tools.{hpp,cpp}        合成世界 + 闭环驱动 + CSV 录制/回放 + guidance_run_synthetic/guidance_run_replay
 ```
 
+命名按职责区分：`app` 表示整机应用，`vio` 表示 VIO 数据处理或接入，
+`mission` 表示任务调度。`VioPosePublishState` 同时保存发布去重状态和统计，
+CMake 的 `app_support` 聚合应用配置、VIO 接入和任务服务。
+
 依赖方向：
-- `main → communicate / pure_vio_runtime / pure_camera_ipc / guidance_application`（检测通过独立 detect_rt 子进程运行）；
+- `main → communicate / pure_vio_runtime / mission_service`（检测通过独立 detect_rt 子进程运行）；
 - `guidance_example → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`。
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。
 ⚠ **只有** `mavlink_ins_source.cpp` / `mavlink_sink.cpp` 这类实现文件才 include 通信模块头文件；
 `guidance_flight_types.hpp` 保持零外部协议依赖。
 
 ---
+
+任务框架与后续接线说明见 [mission/README.md](../../../src/app/mission/README.md)。
+`mission_example` 可独立演示全流程；`main --mission` 显式启用主任务，
+`--no-send` 同时禁止任务/制导控制和飞控动作请求。
 
 ## 2 三种跑法（`guidance_example`）
 
@@ -51,7 +65,8 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 ./bin/guidance_example --config=guidance.yaml --print-params
 ```
 
-> `./bin/main` 运行通信、VIO 和检测子进程监督；制导控制仍未接入该入口。相机服务独立运行，接口与启动顺序见 [camera-ipc.md](camera-ipc.md)，参数见 [usage.md](usage.md)。上述仿真与回放由独立 `guidance_example` 运行。
+> `./bin/main` 运行通信、VIO 和检测子进程监督；`--mission` 接入任务运行层和制导仲裁，
+实机撞板还需有效测距及彩色相机标定。相机服务独立运行，接口与启动顺序见 [camera-ipc.md](camera-ipc.md)，参数见 [usage.md](usage.md)。上述仿真与回放由独立 `guidance_example` 运行。
 
 参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 

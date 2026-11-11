@@ -200,7 +200,7 @@ bool MavlinkLink::writeAll(int fd, const uint8_t* buf, size_t len) {
             continue;
         }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            struct pollfd pfd{};
+            struct pollfd pfd {};
             pfd.fd = fd;
             pfd.events = POLLOUT;
             const int pr = ::poll(&pfd, 1, 10);
@@ -428,7 +428,7 @@ void MavlinkLink::recvLoop() {
             continue;
         }
 
-        struct pollfd pfd{};
+        struct pollfd pfd {};
         pfd.fd = fd;
         pfd.events = POLLIN;
         const int pr = ::poll(&pfd, 1, 50);

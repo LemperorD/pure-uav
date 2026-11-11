@@ -4,6 +4,11 @@
 
 namespace pure_uav {
 
+// HEARTBEAT.autopilot 对应的 MAV_AUTOPILOT 值；入口与任务适配器共用。
+namespace autopilot {
+constexpr uint8_t PX4 = 12;
+}  // namespace autopilot
+
 // ---------- 飞控回传数据 ----------
 // 机体姿态（rad）
 struct Attitude {
@@ -38,6 +43,12 @@ struct ImuData {
 struct SystemTime {
     uint64_t time_unix_usec = 0;  // Unix 时间戳（微秒）
     uint32_t time_boot_ms = 0;    // 上电时间（毫秒）
+};
+
+// 飞控实际落地反馈（MAVLink EXTENDED_SYS_STATE），主机单调时钟用于新鲜度检查。
+struct LandedState {
+    uint8_t state = 0;  // 0=undefined, 1=on ground, 2=in air, 3=takeoff, 4=landing
+    int64_t received_ns = 0;
 };
 
 // ---------- 上位机下发数据 ----------

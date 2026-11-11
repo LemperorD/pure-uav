@@ -1,24 +1,36 @@
 # app 用法（CLI / YAML / 跑法）
 
 - 状态：现行
-- 相关代码：`src/app/main.cpp`（并发机载主流程）、`src/app/startup/guidance_example.cpp`（制导示例入口）、`src/app/startup/guidance_application.{hpp,cpp}`
+- 相关代码：`src/app/main.cpp`（机载组合根）、`src/app/startup/app_options.cpp`（参数解析）、`src/app/runtime/vio_pose_publisher.cpp`（位姿发布）、`src/app/startup/guidance_example.cpp`（制导示例入口）、`src/app/startup/guidance_application.{hpp,cpp}`
 - 相关文档：[README.md](README.md)、[csv-format.md](csv-format.md)、[blackbox.md](blackbox.md)
 
 ---
 
 ## 1 机载入口与线程
 
-`./bin/main` 运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
-制导控制、自动解锁、起飞与 Offboard 状态机仍未接入当前入口。
+`main.cpp` 保留信号处理、模块启动顺序、固定节拍公共循环和退出清理，
+便于直接阅读通信、VIO、检测和任务之间的调用关系。
+命令行解析与帮助移到 `startup/app_options.cpp`，
+配置合成、飞控检查和任务/检测启动细节移到 `startup/app_startup.cpp`；
+VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`。
+`main()` 直接调用这些函数并持有模块对象，公共循环也在 `main()` 内。
+
+`./bin/main` 连接 PX4，运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+主入口和任务适配器统一接受 PX4；其他固件会在连接相机前被拒绝。
+`--check-config` 会打印 `flight_stack: PX4`。外部定位融合验收见
+[uav-vio-bench-checklist.md](uav-vio-bench-checklist.md)。
+`--mission` 显式启用主任务，通过 MissionService / MissionRuntime 调度 Offboard、
+解锁、起飞、目标搜索、制导和返航；接线及当前能力边界见
+[任务文档](../../../src/app/mission/README.md)。
 
 | 线程 / 服务 | 职责 | 数据交付 |
 |---|---|---|
 | 通信接收（Communicator 内部） | 唯一串口、心跳、IMU、遥测 | 逐帧 IMU 队列、遥测缓存 |
 | camera_server（独立进程） | 唯一相机采集 | VIO 灰度/深度通道、检测彩色通道 |
 | VIO（main 内部） | 顺序处理 IMU/图像、健康监控 | 位姿快照，经同一串口发送 ODOMETRY |
-| detect_rt（子进程） | 彩色通道取帧、模型推理 | JSON / 检测预览，尚未用于制导 |
+| detect_rt（子进程） | 彩色通道取帧、模型推理 | JSON / 检测预览；任务开启时独立通道回传目标 |
 | 检测监督线程（main 内部） | 启动后监督、异常重启、退出回收 | 完成状态交给主循环 |
-| main | 位姿发布门控、输入监督、统一退出 | Ctrl-C / SIGTERM / 故障处理 |
+| main | 位姿发布门控、输入监督、任务服务调用、统一退出 | Ctrl-C / SIGTERM / 故障处理；SIGUSR1 请求返航 |
 
 ```bash
 # 从仓库根目录执行；相机独立终端启动：
@@ -38,7 +50,13 @@
 `--detect-bin FILE` 覆盖检测子程序路径；默认使用 `main` 同目录下的 `detect_rt`。
 `--detection-config FILE` 传给子进程 `--config`；模型、阈值、类别、限频和帧龄
 统一由 `config/detector-rt.yaml` 管理，不接受 `main --model` 覆盖。
-`--guidance-config` 与 `--blackbox` 仍是预留参数，当前不生效。
+`--mission-config` 指向任务配置，默认 `config/mission.yaml`；
+`--guidance-config` 在任务启用时加载制导律/loop 参数，默认 `config/onboard-guidance.yaml`；
+`--camera-calibration` 单独加载彩色相机内参、畸变和 `R_body_cam`，默认 `config/guidance-camera.yaml`。
+彩色相机 `calibrated=false` 时任务仍可搜索/返航，但 `mission_guidance_ready=false`，不会进入撞板。
+`--mission --no-send --check-config` 可校验实际任务配置，不打开设备。
+`--no-send` 也禁止任务 setpoint 和飞控动作请求，预热不会假装成功。
+`--blackbox` 仍是预留参数。
 
 检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测正常结束或重启超限后，
 主循环退出；相机断供、VIO 故障和用户停止时同样回收检测子进程，再关闭 VIO 与串口。
@@ -151,9 +169,9 @@ bin/guidance_example
 | | `N` | 4.0 |
 | | `a_max` | 10.0 |
 | | `freeze_criterion` | `BY_TGO` |
-| | `t_go_freeze` | 0.15 s |
+| | `t_go_freeze` | 0.0 s |
 | | `R_freeze` | 5.0 m |
-| | `los_rate_source` | `FROM_RELATIVE_VELOCITY` |
+| | `los_rate_source` | `FROM_LOS_DIFFERENCE` |
 | `loop.` | `loop_hz` | 50 |
 | | `max_sample_age_s` | 0.2 |
 | | `sensor_timeout_s` | 0.5 |
@@ -224,7 +242,8 @@ bin/guidance_example
 
 ## 10 机载接线
 
-`main.cpp` 中的 `InsSource` 使用飞控位置/姿态，`TargetSource` 消费检测最新结果并通过
-`FcuClock` 将采集单调时钟映射到飞控 boot 时钟，`CommandSink` 转成通信模块的 `GuidanceCmd`。
+`main.cpp` 组合通信、VIO、检测监督与 `MissionService`。
+`glue/mission_ports.cpp` 读取飞控位置/姿态，`glue/mission_service.cpp` 接收检测结果并通过
+`FcuClock` 将采集单调时钟映射到飞控 boot 时钟，任务运行层统一发送 `GuidanceCmd`。
 VIO 的 LOCAL_FRD 位姿只发给飞控；制导读取飞控融合后的 LOCAL_POSITION_NED 与姿态，避免混用坐标系。
 独立 `GuidanceApplication` 仍负责仿真/回放。

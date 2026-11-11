@@ -97,6 +97,7 @@ static GuidanceState make_state(double t, double range, const Vec3& u, const Vec
     st.t = t;
     st.los_hat = u;
     st.range = range;
+    st.has_range = true;
     st.v_M = vM;
     st.v_T = vT;
     st.valid = true;

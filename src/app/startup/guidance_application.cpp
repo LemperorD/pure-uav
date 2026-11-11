@@ -494,9 +494,10 @@ GuidanceAppParams guidance_default_params() {
     p.guidance.N = 4.0;
     p.guidance.a_max = 10.0;
     p.guidance.freeze_criterion = FreezeCriterion::BY_TGO;
-    p.guidance.t_go_freeze = 0.15;
+    // 机载默认无测距：不启用 t_go 冻结，ω 用视线差分；仿真可在 YAML/CLI 里覆盖。
+    p.guidance.t_go_freeze = 0.0;
     p.guidance.R_freeze = 5.0;
-    p.guidance.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+    p.guidance.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
 
     p.loop.loop_hz = 50;
     p.loop.max_sample_age_s = 0.2;

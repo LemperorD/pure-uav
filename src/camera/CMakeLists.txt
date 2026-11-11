@@ -18,7 +18,7 @@ target_link_libraries(
   camera_server PRIVATE pure_camera_ipc vio_camera ${OpenCV_LIBS} yaml-cpp
 )
 
-# 与 vio_live 一致：把仓库内 OrbbecSDK 目录写进 RPATH，运行时无需 LD_LIBRARY_PATH。
+# 相机服务直接链接 OrbbecSDK，把 SDK 目录写进 RPATH，运行时无需 LD_LIBRARY_PATH。
 set(_orbbec_rpath
     "${CMAKE_SOURCE_DIR}/src/driver/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
     "${CMAKE_SOURCE_DIR}/src/driver/orbbec/lib"
