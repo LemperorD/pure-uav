@@ -28,11 +28,17 @@ repos:
   - id: clang-tidy
     args: [--version=23, --fix]
     files: \.(cpp|cc|cxx|c)$
-    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/|^sim_xtdrone2/|^src/app/(app_config|camera_service|pose_gate|glue/comm_imu_source)\.cpp$|^src/detection-rt/src/yolo_npu\.cpp$|^src/test/test_app/test_(detection_postprocess|heartbeat_wait|pose_gate|telemetry_freshness|vio_runtime)\.cpp$|^src/vio/estimator/(src/(depth_range|vio_runtime)\.cpp|tests/test_(camera_cadence|depth_range)\.cpp|tools/depth_range_probe\.cpp)$'
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/|^sim_xtdrone2/|^src/app/(app_config|camera_service|pose_gate|glue/comm_imu_source)\.cpp$|^src/detection-rt/src/yolo_npu\.cpp$|^src/test/test_app/test_(detection_postprocess|heartbeat_wait|pose_gate|telemetry_freshness|vio_runtime)\.cpp$|^src/vio/estimator/(src/(depth_range|vio_runtime|shm_camera_source)\.cpp|tests/test_(camera_cadence|depth_range|shm_camera_source)\.cpp|tools/depth_range_probe\.cpp)$'
 
+# CMake 格式：先自动修复（cmake-format），再静态检查（cmake-lint）。
+# 两者共享根目录 .cmake-format.json；其中 format.dangle_parens=true
+# 让闭合括号单独成行，消除 cmake-format 的「续行对齐」与 cmake-lint C0307
+# 缩进规则的冲突，无需禁用任何 lint 规则。
 - repo: https://github.com/cheshirekow/cmake-format-precommit
   rev: v0.6.13
   hooks:
+  - id: cmake-format
+    exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: cmake-lint
     exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
 
