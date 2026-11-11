@@ -38,7 +38,7 @@ bool TargetAdapter::make(const MissionTargetPacket& packet, std::uint64_t boot_u
     out.conf = packet.confidence;
     out.class_id = packet.class_id;
 
-    // 测距由 VIO 深度解算负责；这里只透传检测侧已有的有效 range。
+    // 测距由检测进程用同帧原生深度投影得到；这里只透传有效 range，不补算。
     if (packet.has_range != 0 && std::isfinite(packet.range_m) && packet.range_m > 0.0) {
         out.has_range = true;
         out.range_m = packet.range_m;

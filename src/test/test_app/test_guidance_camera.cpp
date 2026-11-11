@@ -53,6 +53,13 @@ int main() {
         stream.color_distortion[1] = cam.distortion[1];
         stream.width = 640;
         check(!pure_uav::app::guidanceCameraMatchesStream(cam, stream, error), "different stream dimensions accepted");
+        stream.has_depth = 1;
+        check(pure_uav::app::rangeMeasurementError(stream).empty(), "complete depth calibration reported unusable");
+        stream.has_depth = 0;
+        check(!pure_uav::app::rangeMeasurementError(stream).empty(), "disabled depth accepted for ranging");
+        stream.has_depth = 1;
+        stream.range_calibration_valid = 0;
+        check(!pure_uav::app::rangeMeasurementError(stream).empty(), "missing D2C calibration accepted for ranging");
         const cv::Matx33d K(cam.fx, 0, cam.cx, 0, cam.fy, cam.cy, 0, 0, 1);
         // 对已知光学射线正向加畸变，检查制导恢复射线。覆盖中心/边缘及切向畸变。
         const std::vector<cv::Point3d> points{{0, 0, 1}, {0.5, 0.2, 1}, {-0.6, -0.3, 1}, {0.6, -0.35, 1}, {-0.6, 0.35, 1}};
@@ -70,7 +77,7 @@ int main() {
         check(!bad.ray(971, 550, ray), "invalid distortion accepted");
         fixture.write(false);
         check(session.initCamera(fixture.path, error) == pure_uav::app::CameraLoadResult::kNotCalibrated && !session.params().loop.cam.valid(), "uninstalled camera became guidance-ready");
-        std::puts("PASS: loaded guidance calibration, radtan rays, pixel bounds and uncalibrated gating");
+        std::puts("PASS: loaded guidance calibration, radtan rays, pixel bounds, uncalibrated gating and range availability");
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "FAIL: %s\n", e.what());

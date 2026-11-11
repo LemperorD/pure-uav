@@ -77,6 +77,7 @@ set(_det_sources
     src/yolo_postprocess.cpp
     src/detector.cpp
     src/target_bridge.cpp
+    src/shm_color_frame.cpp
     src/detection_runtime.cpp
     src/npu_backend.cpp
     src/input_quantization.cpp
@@ -129,7 +130,7 @@ endif()
 # 内部使用，公开头不泄漏其类型。
 target_link_libraries(
   detection_rt
-  PUBLIC ${OpenCV_LIBS}
+  PUBLIC ${OpenCV_LIBS} pure_depth_range
   PRIVATE OrbbecSDK pthread m yaml-cpp
 )
 

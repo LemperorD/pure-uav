@@ -198,7 +198,7 @@ GuidanceLoop loop(params, cfg, ins, tgt, sink);
 | 项 | 依赖 |
 | --- | --- |
 | 真机数据入口/出口 | 已在 main 的 InsSource / CommandSink 接入共享 Communicator |
-| 检测目标源 | 已在 main 的 TargetSource 接入像素检测与采集时间映射；测距待接入 |
+| 检测目标源 | 已在 main 的 TargetSource 接入像素检测与采集时间映射；测距已由检测侧同帧深度投影提供，随目标包进入 main（见 [depth-guidance.md](depth-guidance.md)、[vio-depth-range-contract.md](vio-depth-range-contract.md)） |
 | `SimTruthInsSource` / `SimTruthTargetSource`（XTDrone2 真值） | 仿真桥 |
 | 端到端打点（t0 取数 → t3 发出，P50/P95/max） | ✅ 已完成（§20） |
 | 环形缓冲黑匣子（循环内零 I/O） | ✅ 已完成（§21） |

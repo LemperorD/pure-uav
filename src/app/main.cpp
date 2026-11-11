@@ -78,6 +78,18 @@ int main(int argc, char** argv) {
             comm.stop();
             return 1;
         }
+        if (options.mission) {
+            const auto range_error = rangeMeasurementError(camera.streamMeta());
+            if (!range_error.empty()) {
+                if (!options.no_send) {
+                    std::fprintf(stderr, "[CAM] 目标测距不可用：%s\n[CAM] 任务无法进入撞板；只做像素/状态机联调请加 --no-send。\n", range_error.c_str());
+                    camera.stop();
+                    comm.stop();
+                    return 1;
+                }
+                std::fprintf(stderr, "[CAM] 目标测距不可用：%s（--no-send：继续运行，但不会撞板）\n", range_error.c_str());
+            }
+        }
         if (options.mission && !guidanceCameraMatchesStream(settings.guidance.loop.cam, camera.streamMeta(), error)) {
             std::fprintf(stderr, "[CAM] %s\n", error.c_str());
             camera.stop();

@@ -9,7 +9,8 @@
 namespace pure_uav::app {
 
 /// 把检测目标包映射成制导目标样本。
-/// 当前只做像素校正；range 仍由后续的 VIO 测距适配器填充。
+/// 只做制导侧像素去畸变；range 由检测进程用同帧原生深度投影得到，这里仅透传，
+/// 不补算、不外推、不把无测距目标伪造成可撞目标。
 class TargetAdapter {
   public:
     explicit TargetAdapter(CameraCalibration camera);
