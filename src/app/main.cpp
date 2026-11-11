@@ -1,4 +1,3 @@
-// main 只保留启动顺序、每拍调度和停止；具体配置/协议/日志实现在辅助模块。
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -10,6 +9,7 @@
 #include "startup/app_options.hpp"
 
 #ifdef PURE_APP_HAS_VIO
+#include "runtime/guidance_camera.hpp"
 #include "runtime/landing_failsafe.hpp"
 #include "runtime/vio_pose_publisher.hpp"
 #include "startup/app_startup.hpp"
@@ -20,7 +20,6 @@ using namespace pure_uav;
 using namespace pure_uav::app;
 using Clock = std::chrono::steady_clock;
 
-// 信号处理只置位；心跳等待和主循环都只读这一个退出标志，其他模块也复用。
 std::atomic<bool> interrupted{false};
 std::atomic<bool> return_requested{false};
 static_assert(std::atomic<bool>::is_always_lock_free, "Signal flag must be lock-free");
@@ -76,6 +75,12 @@ int main(int argc, char** argv) {
         CameraService camera;
         if (!camera.start(config.camera, &error)) {
             std::fprintf(stderr, "[CAM] 连接 camera_server 失败：%s\n", error.c_str());
+            comm.stop();
+            return 1;
+        }
+        if (options.mission && !guidanceCameraMatchesStream(settings.guidance.loop.cam, camera.streamMeta(), error)) {
+            std::fprintf(stderr, "[CAM] %s\n", error.c_str());
+            camera.stop();
             comm.stop();
             return 1;
         }

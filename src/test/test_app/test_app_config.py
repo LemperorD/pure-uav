@@ -130,6 +130,10 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     )
     run(["--mission", "--no-send", "--camera-calibration", str(camera_true), "--check-config"], contains="mission_guidance_ready: true")
 
+    camera_wrong_size = tmp / "camera-wrong-size.yaml"
+    camera_wrong_size.write_text(camera_true.read_text().replace("width: 1920", "width: 640"))
+    run(["--mission", "--no-send", "--camera-calibration", str(camera_wrong_size), "--check-config"], 2, "分辨率")
+
     camera_bad_r = tmp / "camera-bad-r.yaml"
     camera_bad_r.write_text(
         re.sub(

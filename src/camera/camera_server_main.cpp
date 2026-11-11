@@ -2,6 +2,7 @@
 // main 内的 VIO（或独立 vio_live）与 detect_rt 从两条共享内存通道取帧。
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -84,6 +85,7 @@ bool loadConfig(const YAML::Node& root, ServerConfig& out, std::string& error) {
         read(cam, "height", out.camera.height);
         read(cam, "fps", out.camera.fps);
         read(cam, "use_depth", out.camera.use_depth);
+        read(cam, "range_color_calibration_path", out.camera.range_color_calibration_path);
         read(cam, "aggregate_mode", out.camera.aggregate_mode);
         read(cam, "auto_exposure", out.camera.auto_exposure);
         read(cam, "exposure", out.camera.exposure);
@@ -96,6 +98,12 @@ bool loadConfig(const YAML::Node& root, ServerConfig& out, std::string& error) {
         read(cam, "tune_max_exposure_ms", out.camera.tune_max_exposure_ms);
         read(cam, "tune_max_gain", out.camera.tune_max_gain);
         read(cam, "tune_allow_dark", out.camera.tune_allow_dark);
+
+        if (!out.camera.range_color_calibration_path.empty()) {
+            out.camera.range_color_calibration_path = locateConfig(out.camera.range_color_calibration_path);
+            pure_uav::RangeCameraModel checked;
+            if (!pure_uav::loadRangeColorCalibration(out.camera.range_color_calibration_path, out.camera.width, out.camera.height, checked, &error)) return false;
+        }
 
         const YAML::Node channels = root["channels"];
         read(channels, "vio_name", out.publisher.vio_name);
@@ -150,6 +158,14 @@ StreamMeta buildStreamMeta(const ServerConfig& cfg, const OrbbecCamera& camera) 
     // 实际编码格式逐帧写在 FrameMeta.color_encoding；这里只给期望值。
     meta.color_encoding = static_cast<uint32_t>(pure_uav::ColorEncoding::jpeg);
 
+    const auto range = camera.rangeCalibration();
+    meta.range_calibration_valid = range.valid() ? 1U : 0U;
+    meta.color_fx = range.color.fx;
+    meta.color_fy = range.color.fy;
+    meta.color_cx = range.color.cx;
+    meta.color_cy = range.color.cy;
+    std::copy(range.depth.distortion.begin(), range.depth.distortion.end(), meta.depth_distortion);
+    std::copy(range.color.distortion.begin(), range.color.distortion.end(), meta.color_distortion);
     const auto depth = camera.depthInfo();
     meta.fx = depth.fx;
     meta.fy = depth.fy;

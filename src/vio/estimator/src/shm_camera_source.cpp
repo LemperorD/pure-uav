@@ -179,6 +179,11 @@ void ShmCameraSource::discardBefore(int64_t stamp) {
     std::lock_guard<std::mutex> lock(mutex_);
     discard_before_ns_ = std::max(discard_before_ns_, stamp);
 }
+camera::StreamMeta ShmCameraSource::streamMeta() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return accepting_ ? reader_.streamMeta() : camera::StreamMeta{};
+}
+
 VioDepthInfo ShmCameraSource::depthInfo() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return depth_info_;

@@ -6,9 +6,7 @@
 #include <stdexcept>
 
 #include "pure_uav/depth_range.hpp"
-#ifdef PURE_VIO_TEST_APP_RANGE
 #include "pure_uav/target_depth_range.hpp"
-#endif
 
 namespace {
 void check(bool value, const char* why) {
@@ -106,8 +104,12 @@ int main() {
         missing(projector.sample(20, 15, 949999), "future mismatched depth accepted");
         check(projector.sample(20, 15, 1050000).has_range, "timestamp tolerance boundary rejected");
 
-#ifdef PURE_VIO_TEST_APP_RANGE
-        app::TargetSample target;
+        struct Target {
+            bool present = false, has_range = false, has_box = false;
+            uint64_t boot_us = 0;
+            double u_px = 0, v_px = 0, w_px = 0, conf = 0, range_m = 0;
+            int class_id = -1;
+        } target;
         target.present = true;
         target.boot_us = 1000000;
         target.u_px = 30;
@@ -116,17 +118,16 @@ int main() {
         target.w_px = 12;
         target.conf = 0.8;
         target.class_id = 7;
-        check(fillTargetDepthRange(target, projector), "app bridge rejected valid range");
+        check(fillTargetDepthRange(target, projector, target.boot_us), "app bridge rejected valid range");
         near(target.range_m, off_axis.range_m, 1e-6, "app range value");
         check(target.boot_us == 1000000 && target.u_px == 30 && target.has_box && target.w_px == 12 && target.conf == 0.8 && target.class_id == 7, "bridge changed detection fields");
         target.boot_us = 2000000;
-        check(!fillTargetDepthRange(target, projector) && !target.has_range && target.range_m == 0, "stale range leaked into new TargetSample");
+        check(!fillTargetDepthRange(target, projector, target.boot_us) && !target.has_range && target.range_m == 0, "stale range leaked into new TargetSample");
         target.boot_us = 1000000;
         target.present = false;
         target.has_range = true;
         target.range_m = 9;
-        check(!fillTargetDepthRange(target, projector) && !target.has_range && target.range_m == 0 && !target.present, "lost target retained range or became present");
-#endif
+        check(!fillTargetDepthRange(target, projector, target.boot_us) && !target.has_range && target.range_m == 0 && !target.present, "lost target retained range or became present");
 
         // 无效输入必须清空上一帧，不允许复用旧的目标距离。
         for (const cv::Mat& bad : std::vector<cv::Mat>{cv::Mat{}, cv::Mat::zeros(31, 41, CV_32FC1), cv::Mat::zeros(30, 41, CV_16UC1)}) {

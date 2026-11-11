@@ -120,7 +120,7 @@ VIO 只提供导航健康和时间基准门控，不把原生 FRD/ENU 位姿直�
 
 **main、任务、飞控和检测之间的运行通路已实现；实机撞板所需的数据仍需补齐：**
 
-- 当前检测发布像素框，没有测距，协议明确 `has_range=false`；不会凭空估算距离。
+- 检测使用同帧原生深度投影填写 `has_range/range_m`；缺深度、时间超限或标定无效时清零，任务保持测距门控。接线见 [深度与制导](../../../assets/docs/app/depth-guidance.md)。
 - `config/onboard-guidance.yaml` 尚无完整彩色相机内参和机体外参，不能用 VIO 灰度标定直接冒充。
   未配置时 `guidance_ready=false`，仍可检查起飞/搜索/超时返航，不进入撞板。
 - `MissionService::tick(return_requested, manual_takeover, strike_confirmed)` 已留操作者和撞击事件接口。

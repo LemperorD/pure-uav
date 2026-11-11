@@ -257,7 +257,7 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
             }
         }
 
-        if (camera.width <= 0 || camera.height <= 0 || !(camera.fx > 0.0) || !(camera.fy > 0.0) || !std::isfinite(camera.cx) || !std::isfinite(camera.cy)) {
+        if (camera.width <= 0 || camera.height <= 0 || !std::isfinite(camera.fx) || !std::isfinite(camera.fy) || !(camera.fx > 0.0) || !(camera.fy > 0.0) || !std::isfinite(camera.cx) || !std::isfinite(camera.cy)) {
             camera_reason = "相机内参/分辨率非法";
             camera_fatal = true;
             error = camera_reason;
@@ -269,6 +269,9 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
             return CameraLoadResult::kError;
         }
 
+        params.loop.cam.width = camera.width;
+        params.loop.cam.height = camera.height;
+        for (int i = 0; i < 5; ++i) params.loop.cam.distortion[i] = camera.distortion[i];
         params.loop.cam.fx = camera.fx;
         params.loop.cam.fy = camera.fy;
         params.loop.cam.cx = camera.cx;

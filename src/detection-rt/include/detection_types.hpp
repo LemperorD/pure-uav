@@ -31,7 +31,9 @@ struct FrameResult {
     double u_px, v_px, w_px, h_px;
     double conf;
     int class_id;
-    float infer_ms;  // 当前推理后端的前向耗时
+    bool has_range = false;
+    double range_m = 0.0;  // 彩色相机中心到目标的直线距离（m）
+    float infer_ms;        // 当前推理后端的前向耗时
 };
 
 }  // namespace pure_uav::detection

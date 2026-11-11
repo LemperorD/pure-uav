@@ -191,3 +191,51 @@ set_target_properties(
 )
 add_test(NAME detection_supervisor COMMAND test_detection_supervisor)
 set_tests_properties(detection_supervisor PROPERTIES TIMEOUT 15)
+
+# RGB-D 到目标结果的回归：合成后端、真实线程/共享内存，无相机或模型依赖。
+add_executable(
+  test_detection_runtime test_app/test_detection_runtime.cpp
+                         ../detection-rt/src/detection_runtime.cpp
+)
+target_include_directories(
+  test_detection_runtime PRIVATE ../detection-rt/include ../common
+)
+target_link_libraries(test_detection_runtime PRIVATE pure_depth_range pthread)
+add_test(NAME detection_runtime COMMAND test_detection_runtime)
+set_tests_properties(detection_runtime PROPERTIES TIMEOUT 20)
+
+add_executable(
+  test_target_bridge test_app/test_target_bridge.cpp
+                     ../detection-rt/src/target_bridge.cpp
+)
+target_include_directories(test_target_bridge PRIVATE ../detection-rt/include)
+target_include_directories(test_target_bridge PRIVATE ../common)
+target_link_libraries(
+  test_target_bridge PRIVATE guidance_flight pure_depth_range
+)
+add_test(NAME target_bridge COMMAND test_target_bridge)
+
+add_executable(
+  test_rgbd_pipeline
+  test_app/test_rgbd_pipeline.cpp ../camera/frame_publisher.cpp
+  ../detection-rt/src/shm_color_frame.cpp ../detection-rt/src/target_bridge.cpp
+)
+target_include_directories(
+  test_rgbd_pipeline PRIVATE ../camera ../vio/estimator/src
+                             ../detection-rt/include
+)
+target_link_libraries(
+  test_rgbd_pipeline PRIVATE pure_camera_ipc pure_depth_range guidance_flight
+)
+add_test(NAME rgbd_pipeline COMMAND test_rgbd_pipeline)
+set_tests_properties(rgbd_pipeline PROPERTIES TIMEOUT 15)
+
+add_executable(
+  test_guidance_camera test_app/test_guidance_camera.cpp
+                       ../app/glue/guidance_session.cpp
+)
+target_link_libraries(
+  test_guidance_camera PRIVATE guidance_application yaml-cpp pure_depth_range
+                               camera_frame_types
+)
+add_test(NAME guidance_camera COMMAND test_guidance_camera)

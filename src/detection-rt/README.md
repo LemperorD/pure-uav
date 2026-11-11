@@ -272,6 +272,7 @@ det.stop();                                     // 停线程、释放相机和�
 | `count/present` | 有效框数量 / 是否有目标 |
 | `boxes[]` | `x1,y1,x2,y2, conf, class_id`（原始图像像素坐标） |
 | `u_px/v_px/w_px/h_px/conf/class_id` | 置信度最高的主目标，直接对应 `GuidanceTargetSample` |
+| `has_range/range_m` | 主目标有效测距 / 彩色相机中心到表面的直线距离（m） |
 | `infer_ms` | 当前推理后端的前向耗时 |
 
 类别：`0=armor_blue`、`1=armor_red`。
@@ -280,19 +281,19 @@ det.stop();                                     // 停线程、释放相机和�
 
 | GuidanceTargetSample | 来源 |
 | --- | --- |
-| `boot_us` | 调用方传入（由 `host_us` 经 SystemTime 换算） |
+| `boot_us` | 调用方传入；共享采集路径由 `captured_host_ns` 经主程序时钟映射换算 |
 | `u_px/v_px/w_px/h_px/conf/class_id` | 主目标 |
 | `present/has_box` | `present` |
-| `has_range/range_m` | 恒 `false/0`（本模块不测距） |
+| `has_range/range_m` | 同帧原生深度投影的直线距离（m）；无有效深度/标定时为 `false/0` |
 | `has_v_T/v_T` | 恒 `false/零向量`（真机拿不到目标速度） |
 
-**时间戳语义**：`host_us` 是帧到达时刻，不是曝光中点，也不是飞控 boot 时钟；曝光→到达的链路时延本次不补偿。换算成 `GuidanceTargetSample.boot_us` 后可直接供制导使用。
+**时间戳语义**：旧直采接口的 `host_us` 是主机 Unix 到达时间；共享采集路径将其置 0，以 `TargetSnapshot.captured_host_ns` 保留 CLOCK_MONOTONIC 采集时刻。该值由主程序换算为飞控 boot 时间。测距、标定与 V2 负载约定见 [depth-guidance.md](../../assets/docs/app/depth-guidance.md)。
 
 ## 7. 范围与限制
 
 - 单进程单实例；不要在多个线程里并发调用同一个 `Detector::poll()` 之外的推理接口。
 
-## 机载共享相机（2026-11-09 起改为多进程）
+## 机载共享相机（2026-11-11：V2 同帧深度测距）
 
 相机只由 `camera_server` 初始化一次；`detect_rt` 是**彩色共享内存通道的只读消费者**，
 不再使用 `CameraSource` 打开设备。检测侧走 `DetectionRuntime::submit(EncodedColorFrame)`：

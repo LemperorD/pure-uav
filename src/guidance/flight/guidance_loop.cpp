@@ -183,7 +183,7 @@ inline Vec3 mat3_mul(const double R[9], const Vec3& v) noexcept {
 
 // 像素 → 世界系单位视线
 //
-//   第 1 步：(u,v) → 相机系射线 d_cam = ((u−cx)/fx, (v−cy)/fy, 1)
+//   第 1 步：(u,v) → radtan 去畸变 → 相机系射线 d_cam
 //   第 2 步：d_body = R_body_cam · d_cam
 //   第 3 步：d_world = R(q) · d_body
 bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSample& t, const double q_frd_world[4], Vec3& los_world) noexcept {
@@ -194,13 +194,8 @@ bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSamp
         return false;
     }
 
-    const double xn = (t.u_px - cam.cx) / cam.fx;
-    const double yn = (t.v_px - cam.cy) / cam.fy;
-    if (!std::isfinite(xn) || !std::isfinite(yn)) {
-        return false;
-    }
-
-    const Vec3 d_cam(xn, yn, 1.0);
+    Vec3 d_cam;
+    if (!cam.ray(t.u_px, t.v_px, d_cam)) return false;
     const Vec3 d_body = mat3_mul(cam.R_body_cam, d_cam);
     const Vec3 d_world = quat_rotate_vec(q_frd_world, d_body);
 

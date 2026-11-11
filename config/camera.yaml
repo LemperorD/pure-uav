@@ -5,6 +5,8 @@ camera:
   height: 1080
   fps: 30
   use_depth: true
+  # 原始彩色像素的内参/畸变；与 guidance-camera.yaml 中确认的彩色标定保持一致。
+  range_color_calibration_path: src/vio/estimator/config/gemini_1920x1080/kalibr_imucam_chain.yaml
   aggregate_mode: 0
   auto_exposure: false
   exposure: 100
@@ -18,13 +20,13 @@ camera:
   tune_max_gain: 40
   tune_allow_dark: false
 
-# 两条独立的 POSIX 共享内存通道。VIO 每帧约 6 MB，彩色为 MJPG 且限频。
+# 两条独立的 POSIX 共享内存通道。VIO 为 gray+depth，检测为 depth+MJPG 且限频。
 channels:
   vio_name: /pure_uav_camera_vio
   color_name: /pure_uav_camera_color
   slots: 3
   vio_slot_bytes: 8388608    # 8 MiB：1920x1080 gray(2 MB) + CV_16U depth(4 MB)
-  color_slot_bytes: 4194304  # 4 MiB：单帧 MJPG 上限
+  color_slot_bytes: 8388608  # 8 MiB：原生深度 + 单帧 MJPG
   color_max_hz: 10
   ready_timeout_ms: 5000
 

@@ -19,7 +19,7 @@ struct MissionTargetPacket {
     double u_px = 0, v_px = 0, w_px = 0, h_px = 0, confidence = 0;
     std::int32_t class_id = -1;
     std::uint32_t has_range = 0;
-    double range_m = 0;  // 后续测距适配器填写；当前纯检测不伪造距离。
+    double range_m = 0;  // 同帧原生深度投影测距；无有效测距时为 0。
 };
 static_assert(std::is_trivially_copyable_v<MissionTargetPacket>);
 
