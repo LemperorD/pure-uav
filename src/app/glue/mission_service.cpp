@@ -7,8 +7,8 @@
 #include "pose_gate.hpp"
 
 namespace pure_uav::app {
-MissionService::MissionService(VioRuntime& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, CameraCalibration camera, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled)
-    : vio_(vio), comm_(comm), config_(config), navigation_max_age_ms_(navigation_max_age_ms), target_adapter_(std::move(camera)), flight_(comm, config.mission.pose_max_age_s, heartbeat_max_age_ms), guidance_(std::move(guidance)), runtime_(config, flight_, &guidance_) {
+MissionService::MissionService(VioRuntime& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, CameraCalibration camera, PreflightConfig preflight, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled)
+    : vio_(vio), comm_(comm), config_(config), navigation_max_age_ms_(navigation_max_age_ms), target_adapter_(std::move(camera)), flight_(comm, config.mission.pose_max_age_s, heartbeat_max_age_ms, preflight), guidance_(std::move(guidance)), runtime_(config, flight_, &guidance_) {
     if (detection_enabled && !channel_.open()) {
         throw std::runtime_error("cannot open mission target channel");
     }

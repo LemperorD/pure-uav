@@ -17,7 +17,10 @@ target_link_libraries(
   PRIVATE yaml-cpp
 )
 
-add_library(mission_ports STATIC ../glue/mission_ports.cpp)
+add_library(
+  mission_ports STATIC ../glue/mission_ports.cpp
+                       ../glue/preflight_evaluator.cpp
+)
 target_link_libraries(
   mission_ports PUBLIC mission_runtime communicate guidance_flight
 )
@@ -55,3 +58,11 @@ target_link_libraries(test_mission_wire PRIVATE mission_ports)
 target_compile_options(test_mission_wire PRIVATE -Wno-address-of-packed-member)
 add_test(NAME mission_wire COMMAND test_mission_wire)
 set_tests_properties(mission_wire PROPERTIES TIMEOUT 15)
+
+add_executable(
+  test_preflight_evaluator
+  ${CMAKE_SOURCE_DIR}/src/test/test_app/test_preflight_evaluator.cpp
+)
+target_link_libraries(test_preflight_evaluator PRIVATE mission_ports)
+add_test(NAME preflight_evaluator COMMAND test_preflight_evaluator)
+set_tests_properties(preflight_evaluator PROPERTIES TIMEOUT 15)

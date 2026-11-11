@@ -1,0 +1,9 @@
+# 任务起飞前自检阈值。进入 Preflight 后每拍检查，失败不会解锁。
+preflight:
+  min_battery_percent: 30
+  max_tilt_deg: 10.0
+  max_vertical_speed_mps: 0.2
+  heartbeat_max_age_ms: 3000
+  attitude_max_age_ms: 200
+  local_position_max_age_ms: 200
+  system_time_max_age_ms: 2000

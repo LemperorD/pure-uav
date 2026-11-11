@@ -41,6 +41,9 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
         if (!mission::loadRuntimeConfig(resolve(options.mission_config), mission_config, error)) {
             return false;
         }
+        if (!loadPreflightConfig(resolve(options.preflight_config), settings.preflight, error)) {
+            return false;
+        }
         mission_config.send_enabled = !options.no_send;
         GuidanceSession guidance;
         if (!guidance.init(resolve(options.guidance), resolve(options.camera_calibration), error)) {
@@ -102,7 +105,7 @@ FlightConnectionResult connectFlightController(Communicator& comm, const AppConf
 std::unique_ptr<MissionService> createMissionService(const AppOptions& options, const AppStartupConfig& settings, VioRuntime& vio, Communicator& comm) {
     std::unique_ptr<MissionService> mission_service;
     if (options.mission) {
-        mission_service = std::make_unique<MissionService>(vio, comm, settings.mission, settings.guidance, settings.camera, settings.app.comm.heartbeat_timeout_ms, settings.app.max_age_ms, !options.no_detection);
+        mission_service = std::make_unique<MissionService>(vio, comm, settings.mission, settings.guidance, settings.camera, settings.preflight, settings.app.comm.heartbeat_timeout_ms, settings.app.max_age_ms, !options.no_detection);
         std::printf("[MISSION] enabled send=%s guidance=%s; waiting for navigation\n", options.no_send ? "false" : "true", mission_service->guidanceReady() ? "ready" : "unconfigured");
     }
     return mission_service;

@@ -23,6 +23,7 @@ void printAppUsage(const char* name) {
         "  --mission-config FILE 任务参数（默认 config/mission.yaml）\n"
         "  --guidance-config FILE 制导律/loop 参数（默认 config/onboard-guidance.yaml）\n"
         "  --camera-calibration FILE 彩色相机内参/畸变/外参（默认 config/guidance-camera.yaml）\n"
+        "  --preflight-config FILE 任务自检阈值（默认 config/preflight.yaml）\n"
         "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
         "  --detection-config FILE  传给检测子进程的 --config 路径\n"
         "  --detect-arg ARG      可重复，原样传给检测子进程的运行参数\n"
@@ -91,6 +92,8 @@ AppOptions parseAppOptions(int argc, char** argv) {
             value = &options.guidance;
         } else if (arg == "--camera-calibration") {
             value = &options.camera_calibration;
+        } else if (arg == "--preflight-config") {
+            value = &options.preflight_config;
         } else if (arg == "--detect-bin") {
             value = &options.detect_bin;
         } else if (arg == "--detection-config") {
