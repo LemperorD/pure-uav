@@ -19,7 +19,8 @@ add_library(
   test/test_app/test_target_bridge.cpp
   detection-rt/src/detection_runtime.cpp
   detection-rt/src/input_quantization.cpp
-  detection-rt/src/npu_backend.cpp)
+  detection-rt/src/npu_backend.cpp
+)
 target_include_directories(
   det_tooling
   PRIVATE ${CMAKE_SOURCE_DIR}/src/detection-rt/include
@@ -28,6 +29,6 @@ target_include_directories(
           ${CMAKE_SOURCE_DIR}/src/guidance/flight
           ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
           ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
-          ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(det_tooling PRIVATE pure_depth_range)
+          ${OpenCV_INCLUDE_DIRS}
+)
 target_compile_definitions(det_tooling PRIVATE PURE_DETECTION_BACKEND_CPU=1)

@@ -8,6 +8,7 @@
 #include "camera_service.hpp"
 #include "detection_supervisor.hpp"
 #include "glue/comm_imu_source.hpp"
+#include "glue/guidance_session.hpp"
 #include "glue/mission_service.hpp"
 #include "mission/mission_runtime.hpp"
 #include "startup/app_options.hpp"
@@ -19,6 +20,7 @@ struct AppStartupConfig {
     AppConfig app;
     mission::RuntimeConfig mission;
     GuidanceAppParams guidance;
+    CameraCalibration camera;
 };
 
 // 只做加载和校验，不连接设备。

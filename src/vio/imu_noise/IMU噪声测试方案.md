@@ -37,6 +37,7 @@ ModuleNotFoundError: No module named 'logparse'        ← 缺依赖文件
 $ python camera/imu/src/analyze_noise.py log_8.bin log_2.bin
 NameError: name 'analyze_group' is not defined         ← 函数根本没定义
 ```
+
 `analyze_group()` 在 `main()` 里被调用两次，但全文件**没有它的定义**。
 
 ### 2.2 结果文件（`camera/imu/results/`，时间戳 10-15 15:23）

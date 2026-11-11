@@ -300,10 +300,12 @@ range:
 1. detect 继续只发像素框；
 2. `MissionService` 收到目标包后调用 `rangeAtPixel(u_px, v_px, captured_ns)`；
 3. 只有 `status == kOk` 且时间/序号匹配时，填：
+
    ```text
    GuidanceTargetSample.has_range = true
    GuidanceTargetSample.range_m = range_m
    ```
+
 4. 否则 `has_range = false`，任务不进入 Strike；
 5. `MissionController` 仍会检查 `has_range && range_m > 0`，不会绕过。
 

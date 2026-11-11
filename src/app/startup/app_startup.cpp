@@ -50,10 +50,7 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
             std::fprintf(stderr, "[MAIN] 彩色相机未标定：%s；任务只搜索，不进入撞板\n", guidance.cameraReason().c_str());
         }
         mission_guidance = guidance.params();
-        if (guidance.cameraOk() && (mission_guidance.loop.cam.width != config.camera.width || mission_guidance.loop.cam.height != config.camera.height)) {
-            error = "guidance 彩色标定分辨率与 camera_server/VIO 期望不一致";
-            return false;
-        }
+        settings.camera = guidance.cameraCalibration();
         if (config.main_loop_hz < 10 || 1.0 / config.main_loop_hz >= mission_config.max_setpoint_gap_s) {
             error = "main_loop_hz is too low for mission setpoint continuity";
             return false;
@@ -105,7 +102,7 @@ FlightConnectionResult connectFlightController(Communicator& comm, const AppConf
 std::unique_ptr<MissionService> createMissionService(const AppOptions& options, const AppStartupConfig& settings, VioRuntime& vio, Communicator& comm) {
     std::unique_ptr<MissionService> mission_service;
     if (options.mission) {
-        mission_service = std::make_unique<MissionService>(vio, comm, settings.mission, settings.guidance, settings.app.comm.heartbeat_timeout_ms, settings.app.max_age_ms, !options.no_detection);
+        mission_service = std::make_unique<MissionService>(vio, comm, settings.mission, settings.guidance, settings.camera, settings.app.comm.heartbeat_timeout_ms, settings.app.max_age_ms, !options.no_detection);
         std::printf("[MISSION] enabled send=%s guidance=%s; waiting for navigation\n", options.no_send ? "false" : "true", mission_service->guidanceReady() ? "ready" : "unconfigured");
     }
     return mission_service;

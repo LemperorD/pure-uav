@@ -8,8 +8,8 @@ endif()
 #
 # 目标：把 IMU + 相机数据变成 pure_uav::VisionPose（给飞控通信模块）
 #
-# 依赖：Eigen3 / OpenCV4 / Boost(filesystem,date_time) / Ceres
-# OpenVINS 核心：ov_core + ov_init + ov_msckf（ROS-free，源码在 third_party/open_vins）
+# 依赖：Eigen3 / OpenCV4 / Boost(filesystem,date_time) / Ceres OpenVINS 核心：ov_core
+# + ov_init + ov_msckf（ROS-free，源码在 third_party/open_vins）
 #
 # 不依赖 ROS。可视化/数据集回放可继续用你现有的 ~/vio_ws_ros1 环境做对照。
 # ==============================================================================
@@ -19,7 +19,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE
         Release
-        CACHE STRING "Build type" FORCE)
+        CACHE STRING "Build type" FORCE
+    )
   endif()
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
   set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -34,7 +35,8 @@ endif()
 # AUTO: 能找到 Orbbec SDK 和 MAVLink 头文件才编译实时程序
 set(PURE_VIO_BUILD_LIVE
     "AUTO"
-    CACHE STRING "Build live app: AUTO / ON / OFF")
+    CACHE STRING "Build live app: AUTO / ON / OFF"
+)
 set_property(CACHE PURE_VIO_BUILD_LIVE PROPERTY STRINGS AUTO ON OFF)
 if(NOT PURE_VIO_BUILD_LIVE MATCHES "^(AUTO|ON|OFF)$")
   message(FATAL_ERROR "PURE_VIO_BUILD_LIVE 必须为 AUTO、ON 或 OFF")
@@ -65,7 +67,8 @@ message(STATUS "Ceres:  ${Ceres_VERSION}")
 # OpenVINS 核心库（ROS-free）
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE OPENVINS_SOURCES ${OPENVINS_DIR}/ov_core/src/*.cpp
-     ${OPENVINS_DIR}/ov_init/src/*.cpp ${OPENVINS_DIR}/ov_msckf/src/*.cpp)
+     ${OPENVINS_DIR}/ov_init/src/*.cpp ${OPENVINS_DIR}/ov_msckf/src/*.cpp
+)
 list(LENGTH OPENVINS_SOURCES OPENVINS_SOURCE_COUNT)
 
 # 相机与检测共用的投影/测距库，不链接 OpenVINS、IMU 或通信模块。
@@ -81,9 +84,11 @@ set_target_properties(
   openvins_core
   PROPERTIES CXX_STANDARD 14
              CXX_STANDARD_REQUIRED ON
-             POSITION_INDEPENDENT_CODE ON)
-target_compile_definitions(openvins_core PUBLIC ROS_AVAILABLE=0
-                                                ENABLE_ARUCO_TAGS=0)
+             POSITION_INDEPENDENT_CODE ON
+)
+target_compile_definitions(
+  openvins_core PUBLIC ROS_AVAILABLE=0 ENABLE_ARUCO_TAGS=0
+)
 target_compile_options(
   openvins_core
   PRIVATE -O3
@@ -94,42 +99,54 @@ target_compile_options(
           -Wno-unused-parameter
           -Wno-unused-variable
           -Wno-sign-compare
-          -Wno-maybe-uninitialized)
+          -Wno-maybe-uninitialized
+)
 target_include_directories(
   openvins_core PUBLIC ${OPENVINS_DIR}/ov_core/src ${OPENVINS_DIR}/ov_init/src
-                       ${OPENVINS_DIR}/ov_msckf/src ${Eigen3_INCLUDE_DIRS})
+                       ${OPENVINS_DIR}/ov_msckf/src ${Eigen3_INCLUDE_DIRS}
+)
 target_link_libraries(
   openvins_core PUBLIC Eigen3::Eigen ${OpenCV_LIBS} Boost::filesystem
-                       Boost::date_time Ceres::ceres Threads::Threads)
+                       Boost::date_time Ceres::ceres Threads::Threads
+)
 message(STATUS "OpenVINS sources: ${OPENVINS_SOURCE_COUNT} (ROS-free)")
 
 # ------------------------------------------------------------------------------
 # pure_vio_core：估计器封装 + 坐标系转换 + 数据源/输出
 # ------------------------------------------------------------------------------
 # 同时支持仓库根目录构建和从 estimator 目录独立构建。
-get_filename_component(_pure_uav_repo_root
-                       "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+get_filename_component(
+  _pure_uav_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE
+)
 
 add_library(
   pure_vio_core STATIC src/vio_estimator.cpp src/vio_health.cpp
-                       src/vision_pose_convert.cpp src/pose_logger.cpp)
-target_include_directories(pure_vio_core
-                           PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+                       src/vision_pose_convert.cpp src/pose_logger.cpp
+)
+target_include_directories(
+  pure_vio_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 # 如果仓库里已经有通信模块，直接复用它的 VisionPose 定义，避免同一个 struct 定义两份。
 if(EXISTS
-   "${_pure_uav_repo_root}/src/driver/communicate/include/communicator.hpp")
+   "${_pure_uav_repo_root}/src/driver/communicate/include/communicator.hpp"
+)
   # 仓库的 VisionPose 没有 cam_imu_dt 这个纯诊断字段（它归通讯模块维护）。 用宏把它关掉，避免为一个诊断字段去改别人的公开头文件。
-  target_compile_definitions(pure_vio_core
-                             PUBLIC PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT)
+  target_compile_definitions(
+    pure_vio_core PUBLIC PURE_UAV_VISIONPOSE_NO_CAM_IMU_DT
+  )
   target_include_directories(
     pure_vio_core PUBLIC "${_pure_uav_repo_root}/src/driver/communicate/include"
-                         "${_pure_uav_repo_root}/src/common")
+                         "${_pure_uav_repo_root}/src/common"
+  )
   message(
-    STATUS "VisionPose: 复用 src/driver/communicate/include/communicator.hpp")
+    STATUS "VisionPose: 复用 src/driver/communicate/include/communicator.hpp"
+  )
 endif()
-target_link_libraries(pure_vio_core PUBLIC openvins_core Eigen3::Eigen
-                                           ${OpenCV_LIBS} Threads::Threads)
+target_link_libraries(
+  pure_vio_core PUBLIC openvins_core Eigen3::Eigen ${OpenCV_LIBS}
+                       Threads::Threads
+)
 
 # 离线回放
 add_executable(vio_offline apps/vio_offline_main.cpp src/offline_dataset.cpp)
@@ -148,7 +165,8 @@ endif()
 
 if(NOT PURE_UAV_MAVLINK_DIR)
   set(_pure_uav_mavlink_dir
-      "${_pure_uav_repo_root}/src/driver/communicate/third_party/mavlink")
+      "${_pure_uav_repo_root}/src/driver/communicate/third_party/mavlink"
+  )
   if(EXISTS "${_pure_uav_mavlink_dir}/common/mavlink.h")
     set(PURE_UAV_MAVLINK_DIR "${_pure_uav_mavlink_dir}")
   endif()
@@ -156,7 +174,8 @@ endif()
 
 set(_have_live_prereqs FALSE)
 if(EXISTS "${PURE_UAV_DRIVER_DIR}/orbbec/include/libobsensor/ObSensor.hpp"
-   AND EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
+   AND EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h"
+)
   set(_have_live_prereqs TRUE)
 endif()
 
@@ -172,7 +191,8 @@ if(PURE_VIO_BUILD_LIVE STREQUAL "ON" AND NOT _have_live_prereqs)
     FATAL_ERROR
       "PURE_VIO_BUILD_LIVE=ON，但找不到 Orbbec SDK 或 MAVLink 头文件：\n"
       "  driver   = ${PURE_UAV_DRIVER_DIR}\n"
-      "  mavlink  = ${PURE_UAV_MAVLINK_DIR}")
+      "  mavlink  = ${PURE_UAV_MAVLINK_DIR}"
+  )
 endif()
 
 if(_build_live)
@@ -185,16 +205,20 @@ if(_build_live)
       PATHS "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
             "${PURE_UAV_DRIVER_DIR}/orbbec/lib/x86_64"
             "${PURE_UAV_DRIVER_DIR}/orbbec/lib"
-      NO_DEFAULT_PATH)
+      NO_DEFAULT_PATH
+    )
     if(NOT ORBBEC_SDK_LIB)
       message(
-        FATAL_ERROR "找不到 libOrbbecSDK.so（${PURE_UAV_DRIVER_DIR}/orbbec/lib）")
+        FATAL_ERROR "找不到 libOrbbecSDK.so（${PURE_UAV_DRIVER_DIR}/orbbec/lib）"
+      )
     endif()
     add_library(OrbbecSDK SHARED IMPORTED GLOBAL)
-    set_property(TARGET OrbbecSDK PROPERTY IMPORTED_LOCATION
-                                          "${ORBBEC_SDK_LIB}")
-    target_include_directories(OrbbecSDK INTERFACE
-                               "${PURE_UAV_DRIVER_DIR}/orbbec/include")
+    set_property(
+      TARGET OrbbecSDK PROPERTY IMPORTED_LOCATION "${ORBBEC_SDK_LIB}"
+    )
+    target_include_directories(
+      OrbbecSDK INTERFACE "${PURE_UAV_DRIVER_DIR}/orbbec/include"
+    )
   endif()
   # 检查真正参与链接的文件，而不是另行查找到但未使用的 SDK 路径。
   get_target_property(_orbbec_sdk_lib OrbbecSDK IMPORTED_LOCATION)
@@ -211,20 +235,26 @@ if(_build_live)
 
   # estimator 独立构建时也使用仓库里的同一份 camera_server 协议。
   if(NOT TARGET pure_camera_ipc)
-    add_library(pure_camera_ipc STATIC
-                "${_pure_uav_repo_root}/src/common/camera_shm.cpp")
-    target_include_directories(pure_camera_ipc
-                               PUBLIC "${_pure_uav_repo_root}/src/common")
+    add_library(
+      pure_camera_ipc STATIC "${_pure_uav_repo_root}/src/common/camera_shm.cpp"
+    )
+    target_include_directories(
+      pure_camera_ipc PUBLIC "${_pure_uav_repo_root}/src/common"
+    )
     if(UNIX AND NOT APPLE)
       target_link_libraries(pure_camera_ipc PUBLIC rt)
     endif()
   endif()
-  add_library(pure_vio_runtime STATIC src/vio_runtime.cpp src/fcu_clock.cpp
-                                      src/shm_camera_source.cpp)
-  target_include_directories(pure_vio_runtime
-                             PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(pure_vio_runtime PUBLIC pure_vio_core pure_camera_ipc
-                                                Threads::Threads)
+  add_library(
+    pure_vio_runtime STATIC src/vio_runtime.cpp src/fcu_clock.cpp
+                            src/shm_camera_source.cpp
+  )
+  target_include_directories(
+    pure_vio_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
+  target_link_libraries(
+    pure_vio_runtime PUBLIC pure_vio_core pure_camera_ipc Threads::Threads
+  )
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
@@ -233,7 +263,8 @@ elseif(PURE_VIO_BUILD_LIVE STREQUAL "OFF")
   message(STATUS "实时程序: 已禁用（PURE_VIO_BUILD_LIVE=OFF）")
 else()
   message(STATUS "实时程序: 跳过（找不到 Orbbec SDK / MAVLink，"
-                 "可手动设 -DPURE_UAV_DRIVER_DIR / -DPURE_UAV_MAVLINK_DIR）")
+                 "可手动设 -DPURE_UAV_DRIVER_DIR / -DPURE_UAV_MAVLINK_DIR）"
+  )
 endif()
 
 # ------------------------------------------------------------------------------
@@ -243,87 +274,107 @@ add_executable(test_pose_convert tests/test_pose_convert.cpp)
 target_link_libraries(test_pose_convert PRIVATE pure_vio_core)
 
 # 无硬件回归：估计器重建后保留零速更新的运行期开关。
-add_executable(test_zupt_rebuild tests/test_zupt_rebuild.cpp
-                                 src/offline_dataset.cpp)
-target_include_directories(test_zupt_rebuild
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_executable(
+  test_zupt_rebuild tests/test_zupt_rebuild.cpp src/offline_dataset.cpp
+)
+target_include_directories(
+  test_zupt_rebuild PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(test_zupt_rebuild PRIVATE pure_vio_core)
 
 # 离线"飞控时间基变化"恢复测试：需要已录数据集，没给 --dataset 时返回 77（ctest=skip）。 手动跑：
 # ./bin/test_timebase_recovery --dataset datasets/loop5 --config-dir
 # config/gemini_1920x1080
-add_executable(test_timebase_recovery tests/test_timebase_recovery_offline.cpp
-                                      src/offline_dataset.cpp)
+add_executable(
+  test_timebase_recovery tests/test_timebase_recovery_offline.cpp
+                         src/offline_dataset.cpp
+)
 target_include_directories(
   test_timebase_recovery PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-                                 ${CMAKE_CURRENT_SOURCE_DIR}/include)
+                                 ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 target_link_libraries(test_timebase_recovery PRIVATE pure_vio_core)
 
 add_executable(test_fcu_clock tests/test_fcu_clock.cpp src/fcu_clock.cpp)
-target_include_directories(test_fcu_clock
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(
+  test_fcu_clock PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(test_fcu_clock PRIVATE Threads::Threads)
 
 # ODOMETRY 打包/解析回归：不需要飞控、相机、串口，只需要 MAVLink 头文件。 它拦的是「字段顺序传反」这类只看发送返回值发现不了的
 # bug（2026-10-28 修过一次）。
 if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
-  add_executable(test_odometry_pack tests/test_odometry_pack.cpp
-                                    src/mavlink_link.cpp)
+  add_executable(
+    test_odometry_pack tests/test_odometry_pack.cpp src/mavlink_link.cpp
+  )
   target_include_directories(
     test_odometry_pack
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${PURE_UAV_MAVLINK_DIR})
+            ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(test_odometry_pack PRIVATE Threads::Threads)
 
   # MavlinkLink 的 PTY 线上回归：心跳来源筛选 + 解锁状态 + IMU 队列/清空
-  add_executable(test_mavlink_link_wire tests/test_mavlink_link_wire.cpp
-                                        src/mavlink_link.cpp)
+  add_executable(
+    test_mavlink_link_wire tests/test_mavlink_link_wire.cpp
+                           src/mavlink_link.cpp
+  )
   target_include_directories(
     test_mavlink_link_wire
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${PURE_UAV_MAVLINK_DIR})
+            ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(test_mavlink_link_wire PRIVATE Threads::Threads)
 
   # 联调工具核心逻辑（合成轨迹 + ODOMETRY 统计）
   add_executable(test_odom_tool_core tests/test_odom_tool_core.cpp)
   target_include_directories(
     test_odom_tool_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools
-                                ${PURE_UAV_MAVLINK_DIR})
+                                ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(test_odom_tool_core PRIVATE Threads::Threads)
 
   # 台架工具：合成轨迹发送器（无相机/无 VIO 时单独测飞控接收与轴向）
-  add_executable(odometry_sender tools/odometry_sender.cpp src/mavlink_link.cpp
-                                 src/fcu_clock.cpp)
+  add_executable(
+    odometry_sender tools/odometry_sender.cpp src/mavlink_link.cpp
+                    src/fcu_clock.cpp
+  )
   target_include_directories(
     odometry_sender
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/tools ${PURE_UAV_MAVLINK_DIR})
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(odometry_sender PRIVATE Threads::Threads)
 
   # 台架工具：假飞控（PTY），没有飞机时把"上位机→飞控"整段跑通
   add_executable(fake_fcu tools/fake_fcu.cpp)
-  target_include_directories(fake_fcu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools
-                                              ${PURE_UAV_MAVLINK_DIR})
+  target_include_directories(
+    fake_fcu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(fake_fcu PRIVATE Threads::Threads)
 
   # 台架工具：ODOMETRY 线上探针（从串口/原始字节文件解码核对）
   add_executable(odometry_probe tools/odometry_probe.cpp)
   target_include_directories(
     odometry_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools
-                           ${PURE_UAV_MAVLINK_DIR})
+                           ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(odometry_probe PRIVATE Threads::Threads)
 else()
   message(
-    STATUS "test_odometry_pack: 跳过（没找到 MAVLink 头文件: ${PURE_UAV_MAVLINK_DIR}）")
+    STATUS "test_odometry_pack: 跳过（没找到 MAVLink 头文件: ${PURE_UAV_MAVLINK_DIR}）"
+  )
 endif()
 
 set(_zupt_fixture "${CMAKE_CURRENT_BINARY_DIR}/test_config/zupt")
 file(MAKE_DIRECTORY "${_zupt_fixture}")
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080/"
-     DESTINATION "${_zupt_fixture}")
+     DESTINATION "${_zupt_fixture}"
+)
 file(READ "${_zupt_fixture}/estimator_config.yaml" _zupt_yaml)
 string(REGEX REPLACE "try_zupt:[ \t]*(true|false)" "try_zupt: true" _zupt_yaml
-                     "${_zupt_yaml}")
+                     "${_zupt_yaml}"
+)
 file(WRITE "${_zupt_fixture}/estimator_config.yaml" "${_zupt_yaml}")
 add_test(NAME pose_convert COMMAND test_pose_convert)
 add_test(NAME zupt_rebuild COMMAND test_zupt_rebuild "${_zupt_fixture}")
@@ -341,45 +392,56 @@ endif()
 # 离线时间基恢复测试需要一份已录数据集。给了路径才加进 ctest；否则只保留可执行文件。
 set(PURE_VIO_TEST_DATASET
     ""
-    CACHE PATH "已录数据集目录（离线时间基恢复测试用；空则跳过）")
+    CACHE PATH "已录数据集目录（离线时间基恢复测试用；空则跳过）"
+)
 if(PURE_VIO_TEST_DATASET AND TARGET test_timebase_recovery)
   add_test(
     NAME timebase_recovery
     COMMAND
       test_timebase_recovery --dataset ${PURE_VIO_TEST_DATASET} --config-dir
       ${CMAKE_CURRENT_SOURCE_DIR}/config/gemini_1920x1080 --warmup-frames 100
-      --max-after 200 --quiet)
+      --max-after 200 --quiet
+  )
   set_tests_properties(timebase_recovery PROPERTIES TIMEOUT 900)
   add_test(NAME zupt_lost_rebuild COMMAND test_zupt_rebuild "${_zupt_fixture}"
-                                          ${PURE_VIO_TEST_DATASET})
+                                          ${PURE_VIO_TEST_DATASET}
+  )
   set_tests_properties(zupt_lost_rebuild PROPERTIES TIMEOUT 900)
 endif()
 
 # 2026-11-01：物理失效锁定、时间基准和串口异常路径回归（全部不接硬件）。
 add_executable(test_vio_health tests/test_vio_health.cpp src/vio_health.cpp)
-target_include_directories(test_vio_health
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(
+  test_vio_health PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 add_test(NAME vio_health COMMAND test_vio_health)
 add_executable(test_live_timing tests/test_live_timing.cpp src/fcu_clock.cpp)
-target_include_directories(test_live_timing
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(
+  test_live_timing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(test_live_timing PRIVATE Threads::Threads)
 add_test(NAME live_timing COMMAND test_live_timing)
-add_executable(test_vio_unix_time tests/test_vio_unix_time.cpp
-                                  src/fcu_clock.cpp)
-target_include_directories(test_vio_unix_time
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_executable(
+  test_vio_unix_time tests/test_vio_unix_time.cpp src/fcu_clock.cpp
+)
+target_include_directories(
+  test_vio_unix_time PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_link_libraries(test_vio_unix_time PRIVATE Threads::Threads)
 add_test(NAME vio_unix_time COMMAND test_vio_unix_time)
 
 # Compile the integrated VIO path in the existing hardware-free test.
 set(_vio_runtime_test
-    "${_pure_uav_repo_root}/src/test/test_app/test_vio_runtime.cpp")
+    "${_pure_uav_repo_root}/src/test/test_app/test_vio_runtime.cpp"
+)
 if(EXISTS "${_vio_runtime_test}")
-  add_executable(test_vio_runtime "${_vio_runtime_test}" src/vio_runtime.cpp
-                                  src/fcu_clock.cpp)
-  target_include_directories(test_vio_runtime
-                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  add_executable(
+    test_vio_runtime "${_vio_runtime_test}" src/vio_runtime.cpp
+                     src/fcu_clock.cpp
+  )
+  target_include_directories(
+    test_vio_runtime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+  )
   target_link_libraries(test_vio_runtime PRIVATE pure_vio_core)
   add_test(NAME vio_runtime COMMAND test_vio_runtime "${_zupt_fixture}")
   set_tests_properties(vio_runtime PROPERTIES TIMEOUT 30)
@@ -387,30 +449,36 @@ endif()
 
 if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
   foreach(case_name IN ITEMS transport_session link_backpressure)
-    add_executable(test_${case_name} tests/test_${case_name}.cpp
-                                     src/mavlink_link.cpp)
+    add_executable(
+      test_${case_name} tests/test_${case_name}.cpp src/mavlink_link.cpp
+    )
     target_include_directories(
       test_${case_name}
       PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-              ${CMAKE_CURRENT_SOURCE_DIR}/include ${PURE_UAV_MAVLINK_DIR})
+              ${CMAKE_CURRENT_SOURCE_DIR}/include ${PURE_UAV_MAVLINK_DIR}
+    )
     target_link_libraries(test_${case_name} PRIVATE Threads::Threads)
     add_test(NAME ${case_name} COMMAND test_${case_name})
     set_tests_properties(${case_name} PROPERTIES TIMEOUT 15)
   endforeach()
-  add_executable(test_odometry_sender_session
-                 tests/test_odometry_sender_session.cpp)
-  target_include_directories(test_odometry_sender_session
-                             PRIVATE ${PURE_UAV_MAVLINK_DIR})
+  add_executable(
+    test_odometry_sender_session tests/test_odometry_sender_session.cpp
+  )
+  target_include_directories(
+    test_odometry_sender_session PRIVATE ${PURE_UAV_MAVLINK_DIR}
+  )
   target_link_libraries(test_odometry_sender_session PRIVATE Threads::Threads)
   add_dependencies(test_odometry_sender_session odometry_sender)
   add_test(NAME odometry_sender_session COMMAND test_odometry_sender_session
-                                                $<TARGET_FILE:odometry_sender>)
+                                                $<TARGET_FILE:odometry_sender>
+  )
   set_tests_properties(odometry_sender_session PROPERTIES TIMEOUT 25)
 
   if(TARGET communicate)
     add_executable(test_communicator_session tests/test_transport_session.cpp)
-    target_compile_definitions(test_communicator_session
-                               PRIVATE TEST_COMMUNICATOR)
+    target_compile_definitions(
+      test_communicator_session PRIVATE TEST_COMMUNICATOR
+    )
     target_link_libraries(test_communicator_session PRIVATE communicate)
     add_test(NAME communicator_session COMMAND test_communicator_session)
     set_tests_properties(communicator_session PROPERTIES TIMEOUT 15)
@@ -425,6 +493,7 @@ if(TARGET pure_vio_runtime)
   add_executable(test_shm_camera_source tests/test_shm_camera_source.cpp)
   target_link_libraries(test_shm_camera_source PRIVATE pure_vio_runtime)
   add_test(NAME shm_camera_source COMMAND test_shm_camera_source
-                                          "${_zupt_fixture}")
+                                          "${_zupt_fixture}"
+  )
   set_tests_properties(shm_camera_source PROPERTIES TIMEOUT 15)
 endif()

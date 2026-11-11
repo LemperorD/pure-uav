@@ -73,7 +73,7 @@ int openSerial(const std::string& device, int baud, std::string* error) {
         }
         return -1;
     }
-    struct termios tty {};
+    struct termios tty{};
     if (tcgetattr(fd, &tty) != 0) {
         if (error != nullptr) {
             *error = "tcgetattr 失败";
@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
                     break;
                 }
             }
-            struct pollfd pfd {};
+            struct pollfd pfd{};
             pfd.fd = fd;
             pfd.events = POLLIN;
             const int pr = ::poll(&pfd, 1, 50);

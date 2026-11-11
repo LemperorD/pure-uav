@@ -16,18 +16,6 @@
 namespace pure_uav::app {
 namespace {
 
-struct CameraCalibration {
-    int width = 0;
-    int height = 0;
-    double fx = 0.0;
-    double fy = 0.0;
-    double cx = 0.0;
-    double cy = 0.0;
-    double distortion[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-    double R_body_cam[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    std::string source;
-};
-
 bool checkKeys(const YAML::Node& node, std::initializer_list<const char*> allowed, const char* section, std::string& error) {
     if (!node) {
         return true;
@@ -291,6 +279,7 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
         for (int i = 0; i < 9; ++i) {
             params.loop.cam.R_body_cam[i] = camera.R_body_cam[i];
         }
+        camera.calibrated = true;
         camera_ok = true;
         camera_reason = camera.source.empty() ? "calibrated=true" : ("calibrated=true (" + camera.source + ")");
         return CameraLoadResult::kOk;
@@ -345,6 +334,10 @@ bool GuidanceSession::readyForGuidance() const {
 
 const std::string& GuidanceSession::cameraReason() const {
     return impl_->camera_reason;
+}
+
+const CameraCalibration& GuidanceSession::cameraCalibration() const {
+    return impl_->camera;
 }
 
 const GuidanceAppParams& GuidanceSession::params() const {
