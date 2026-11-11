@@ -121,6 +121,11 @@ int main(int argc, char** argv) {
         }
         await([&] { return runtime.stats().imu_popped == 180; }, "IMU batch not consumed");
         await([&] { return runtime.clockValid(); }, "clock did not recover after warmup");
+        {
+            auto guard = runtime.publication();
+            uint64_t mapped_us = 0;
+            expect(guard.hostToFcuUs(nowNs(), mapped_us) && mapped_us > 0, "mission cannot map a target with the active VIO clock");
+        }
         auto st = runtime.stats();
         expect(st.imu_dropped >= 150 && st.imu_hz > 199 && st.imu_hz < 201, "warmup or measured timestamp-based rate is wrong");
         expect(!runtime.publishable(), "no images yet, publication must remain disabled");
@@ -153,6 +158,8 @@ int main(int argc, char** argv) {
         {
             auto guard = runtime.publication();
             expect(!guard.snapshot().valid && !guard.publishable(), "guard exposed invalid pose");
+            uint64_t mapped_us = 0;
+            expect(!guard.hostToFcuUs(nowNs(), mapped_us), "target mapping retained an invalidated VIO clock");
         }
         imu.fail.store(true);
         await([&] { return !runtime.running(); }, "source exception did not stop worker");

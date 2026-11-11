@@ -182,6 +182,10 @@ void Communicator::resetSessionState() {
 
 void Communicator::invalidateTelemetry() {
     {
+        std::lock_guard<std::mutex> lock(landed_mutex_);
+        landed_ = {};
+    }
+    {
         std::lock_guard<std::mutex> lock(attitude_mutex_);
         last_attitude_ns_.store(0);
     }
@@ -347,6 +351,14 @@ void Communicator::recvLoop() {
                             if (!streams_requested_.exchange(true)) {
                                 requestDefaultStreams();
                             }
+                            break;
+                        }
+                        case MAVLINK_MSG_ID_EXTENDED_SYS_STATE: {
+                            mavlink_extended_sys_state_t state;
+                            mavlink_msg_extended_sys_state_decode(&msg, &state);
+                            std::lock_guard<std::mutex> lock(landed_mutex_);
+                            landed_.state = state.landed_state;
+                            landed_.received_ns = steadyNowNs();
                             break;
                         }
                         case MAVLINK_MSG_ID_ATTITUDE: {  // 姿态
@@ -644,7 +656,13 @@ bool Communicator::sendVisionPose(const VisionPose& p, std::optional<uint64_t> e
     return sendMessage(buf, len, true, expected_session);
 }
 
-bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {  // 发送制导律
+bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {
+    return sendGuidanceCmd(c, std::nullopt);
+}
+bool Communicator::pushGuidanceCmdForSession(const GuidanceCmd& c, uint64_t expected_session) {
+    return sendGuidanceCmd(c, expected_session);
+}
+bool Communicator::sendGuidanceCmd(const GuidanceCmd& c, std::optional<uint64_t> expected_session) {  // 发送制导律
     mavlink_message_t msg;
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     //   制导律不输出航向，所有模式都完全忽略 yaw + yaw_rate
@@ -670,7 +688,33 @@ bool Communicator::pushGuidanceCmd(const GuidanceCmd& c) {  // 发送制导律
     }
     packMessage(mavlink_msg_set_position_target_local_ned_pack, sysid_, compid_, &msg, timeBootMs(), fcu_sysid_.load(), fcu_compid_.load(), MAV_FRAME_LOCAL_NED, type_mask, c.x, c.y, c.z, c.vx, c.vy, c.vz, c.afx, c.afy, c.afz, 0.0f, 0.0f);
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    return sendMessage(buf, len, true);
+    return sendMessage(buf, len, true, expected_session);
+}
+
+// 任务调度没有后台命令队列，取消后不会延迟执行旧解锁请求。
+// 与同步 send* API 分开，避免 timeout_ms=0 把“已发出”误报为失败。
+bool Communicator::requestFlightCommand(uint16_t command, float p1, float p2, uint64_t expected_session) {
+    mavlink_message_t msg;
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+    packMessage(mavlink_msg_command_long_pack, sysid_, compid_, &msg, fcu_sysid_.load(), fcu_compid_.load(), command, 0, p1, p2, 0, 0, 0, 0, 0);
+    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+    return sendMessage(buf, len, true, expected_session);
+}
+bool Communicator::requestOffboardForSession(uint64_t expected_session) {
+    if (autopilot_.load() != MAV_AUTOPILOT_PX4) return false;
+    return requestFlightCommand(MAV_CMD_DO_SET_MODE, MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 6, expected_session);
+}
+bool Communicator::requestArmForSession(uint64_t expected_session) {
+    return requestFlightCommand(MAV_CMD_COMPONENT_ARM_DISARM, 1, 0, expected_session);
+}
+bool Communicator::requestLandForSession(uint64_t expected_session) {
+    return requestFlightCommand(MAV_CMD_NAV_LAND, 0, 0, expected_session);
+}
+bool Communicator::getLandedState(LandedState& out, int max_age_ms) const {
+    std::lock_guard<std::mutex> lock(landed_mutex_);
+    if (!connected_.load() || !telemetryFresh(landed_.received_ns, max_age_ms) || landed_.state == 0) return false;
+    out = landed_;
+    return true;
 }
 
 bool Communicator::sendTakeoff(float altitude_m, int timeout_ms, uint8_t* result) {  // 命令PX4起飞到目标高度
@@ -757,6 +801,7 @@ void Communicator::requestDefaultStreams() {
     requestMessageInterval(MAVLINK_MSG_ID_HIGHRES_IMU, cfg_.highres_imu_interval_us);
     requestMessageInterval(MAVLINK_MSG_ID_BATTERY_STATUS, cfg_.battery_interval_us);
     requestMessageInterval(MAVLINK_MSG_ID_SYSTEM_TIME, cfg_.system_time_interval_us);
+    requestMessageInterval(MAVLINK_MSG_ID_EXTENDED_SYS_STATE, 1000000);
 }
 
 // 各模块拿数据
@@ -765,8 +810,12 @@ bool Communicator::getAttitude(Attitude& out) const {
 }
 
 bool Communicator::getAttitude(Attitude& out, int max_age_ms) const {
+    return getAttitude(out, max_age_ms, nullptr);
+}
+bool Communicator::getAttitude(Attitude& out, int max_age_ms, int64_t* received_ns) const {
     std::lock_guard<std::mutex> lk(attitude_mutex_);
     if (!connected_.load() || !telemetryFresh(last_attitude_ns_.load(), max_age_ms)) return false;
+    if (received_ns) *received_ns = last_attitude_ns_.load();
     out = attitude_;
     return true;
 }
@@ -782,8 +831,12 @@ bool Communicator::getLocalPosition(LocalPosition& out) const {
 }
 
 bool Communicator::getLocalPosition(LocalPosition& out, int max_age_ms) const {
+    return getLocalPosition(out, max_age_ms, nullptr);
+}
+bool Communicator::getLocalPosition(LocalPosition& out, int max_age_ms, int64_t* received_ns) const {
     std::lock_guard<std::mutex> lk(local_position_mutex_);
     if (!connected_.load() || !telemetryFresh(last_local_position_ns_.load(), max_age_ms)) return false;
+    if (received_ns) *received_ns = last_local_position_ns_.load();
     out = local_pos_;
     return true;
 }
