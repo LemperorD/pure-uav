@@ -28,9 +28,11 @@
 
 add_library(
   guidance_core SHARED guidance_libs/src/guidance.cpp
-                       guidance_libs/src/pn_law.cpp guidance_libs/src/quat.cpp)
+                       guidance_libs/src/pn_law.cpp guidance_libs/src/quat.cpp
+)
 target_include_directories(
-  guidance_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include)
+  guidance_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include
+)
 
 # 说明：2026-10-20 起 `vec3.hpp` 已迁到 `src/common/common_libs/include`， 由 INTERFACE
 # 目标 `pure_vec3` 提供 include 目录（header-only，不产生 .so）。 仍**不**链接 pure_math_tools ——
@@ -38,10 +40,12 @@ target_include_directories(
 # 因此"制导模块可脱离仓库单独拷走"的说法不再成立。
 target_link_libraries(guidance_core PUBLIC pure_vec3)
 
-add_library(guidance_sim SHARED guidance_libs/src/sensor.cpp
-                                guidance_libs/src/target.cpp)
+add_library(
+  guidance_sim SHARED guidance_libs/src/sensor.cpp guidance_libs/src/target.cpp
+)
 target_include_directories(
-  guidance_sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include)
+  guidance_sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include
+)
 target_link_libraries(guidance_sim guidance_core)
 
 # ============================================================
@@ -54,27 +58,32 @@ target_link_libraries(guidance_sim guidance_core)
 # 只借用纯头文件的类型（GuidanceState / Vec3）， 不调用任何核心函数，继续保持原设计的"零链接依赖"（机载可单独复用）。
 # 机载想"只记一个名字"时用下面的 guidance_flight 聚合目标。
 # ============================================================
-add_library(guidance_state_adapter SHARED adapter/src/guidance_state_adapter.cpp
-                                          adapter/src/guidance_state_check.cpp)
+add_library(
+  guidance_state_adapter SHARED adapter/src/guidance_state_adapter.cpp
+                                adapter/src/guidance_state_check.cpp
+)
 target_include_directories(
   guidance_state_adapter
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/adapter/include
-         ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include)
+         ${CMAKE_CURRENT_SOURCE_DIR}/guidance_libs/include
+)
 target_link_libraries(guidance_state_adapter pure_vec3 mavlink_units)
 
 install(
   TARGETS guidance_state_adapter
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
 
 # ------------------------------------------------------------
 # guidance_shell：飞行外壳（主循环 + 内存黑匣子） 只依赖 core + guidance_state_adapter；由
 # guidance_flight 聚合给机载使用。 ⚠ 不含仿真；test_state_adapter 仍只链 core + adapter。
 # ------------------------------------------------------------
 add_library(guidance_shell STATIC flight/guidance_loop.cpp)
-target_include_directories(guidance_shell
-                           PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/flight)
+target_include_directories(
+  guidance_shell PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/flight
+)
 target_link_libraries(guidance_shell guidance_core guidance_state_adapter)
 
 # ------------------------------------------------------------
@@ -86,7 +95,8 @@ target_link_libraries(guidance_shell guidance_core guidance_state_adapter)
 add_library(guidance_flight INTERFACE)
 target_link_libraries(
   guidance_flight INTERFACE guidance_core guidance_state_adapter mavlink_units
-                            guidance_shell)
+                            guidance_shell
+)
 
 # 数值仿真可执行文件（离线验证用，**不进机载**）
 add_executable(pn_sim sim/pn_sim.cpp)
