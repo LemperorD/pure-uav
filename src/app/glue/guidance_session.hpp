@@ -13,6 +13,20 @@ enum class CameraLoadResult {
     kError,
 };
 
+/// 彩色相机标定：内参 + radtan 畸变 + 相机光学系到机体 FRD 的旋转。
+struct CameraCalibration {
+    bool calibrated = false;
+    int width = 0;
+    int height = 0;
+    double fx = 0.0;
+    double fy = 0.0;
+    double cx = 0.0;
+    double cy = 0.0;
+    double distortion[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double R_body_cam[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    std::string source;
+};
+
 /// guidance 的 app 层胶水：只负责参数/相机标定加载与校验。
 /// 不构造 GuidanceLoop、不启动线程；guidance 核本身不依赖 driver/YAML。
 class GuidanceSession {
@@ -34,6 +48,8 @@ class GuidanceSession {
     [[nodiscard]] bool cameraFatal() const;
     [[nodiscard]] bool readyForGuidance() const;
     [[nodiscard]] const std::string& cameraReason() const;
+    /// 已加载的彩色相机标定；calibrated=false 时不要用于畸变校正。
+    [[nodiscard]] const CameraCalibration& cameraCalibration() const;
     /// 已加载的制导参数；未成功 initParams 时为默认值。
     [[nodiscard]] const GuidanceAppParams& params() const;
 

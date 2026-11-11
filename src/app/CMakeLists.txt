@@ -19,6 +19,17 @@ target_link_libraries(
   main PRIVATE communicate guidance_application mission_ports
 )
 if(TARGET pure_vio_runtime)
+  find_package(OpenCV 4 REQUIRED)
+  add_library(
+    target_adapter STATIC glue/camera_undistort.cpp glue/target_adapter.cpp
+  )
+  target_include_directories(
+    target_adapter
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/common
+           ${CMAKE_SOURCE_DIR}/src/guidance/flight ${OpenCV_INCLUDE_DIRS}
+  )
+  target_link_libraries(target_adapter PUBLIC guidance_flight ${OpenCV_LIBS})
+
   add_library(
     app_support STATIC app_config.cpp pose_gate.cpp glue/comm_imu_source.cpp
                        glue/mission_service.cpp
@@ -29,6 +40,7 @@ if(TARGET pure_vio_runtime)
   )
   target_link_libraries(
     app_support PUBLIC communicate pure_vio_runtime mission_ports
+                       target_adapter
   )
   target_sources(
     main PRIVATE runtime/vio_pose_publisher.cpp startup/app_startup.cpp
@@ -39,6 +51,13 @@ endif()
 
 # VIO 接入的无硬件回归；不打开串口或相机。
 if(TARGET app_support)
+  add_executable(
+    test_target_adapter
+    ${CMAKE_SOURCE_DIR}/src/test/test_app/test_target_adapter.cpp
+  )
+  target_link_libraries(test_target_adapter PRIVATE target_adapter)
+  add_test(NAME target_adapter COMMAND test_target_adapter)
+
   add_executable(
     test_pose_gate ${CMAKE_SOURCE_DIR}/src/test/test_app/test_pose_gate.cpp
   )

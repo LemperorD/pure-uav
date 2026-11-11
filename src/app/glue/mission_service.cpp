@@ -7,8 +7,8 @@
 #include "pose_gate.hpp"
 
 namespace pure_uav::app {
-MissionService::MissionService(VioRuntime& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled)
-    : vio_(vio), comm_(comm), config_(config), navigation_max_age_ms_(navigation_max_age_ms), flight_(comm, config.mission.pose_max_age_s, heartbeat_max_age_ms), guidance_(std::move(guidance)), runtime_(config, flight_, &guidance_) {
+MissionService::MissionService(VioRuntime& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, CameraCalibration camera, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled)
+    : vio_(vio), comm_(comm), config_(config), navigation_max_age_ms_(navigation_max_age_ms), target_adapter_(std::move(camera)), flight_(comm, config.mission.pose_max_age_s, heartbeat_max_age_ms), guidance_(std::move(guidance)), runtime_(config, flight_, &guidance_) {
     if (detection_enabled && !channel_.open()) {
         throw std::runtime_error("cannot open mission target channel");
     }
@@ -50,19 +50,11 @@ const mission::RuntimeStatus& MissionService::tick(bool return_requested, bool m
     channel_.latest(target_, now_ns, target_max_age_ns);
     uint64_t target_boot_us = 0;
     if (target_.captured_ns > 0 && target_.captured_ns <= now_ns && now_ns - target_.captured_ns <= target_max_age_ns && publication.hostToFcuUs(target_.captured_ns, target_boot_us)) {
-        auto& target = signals.target;
-        target.boot_us = target_boot_us;
-        target.present = target_.present != 0;
-        target.has_box = target.present;
-        target.u_px = target_.u_px;
-        target.v_px = target_.v_px;
-        target.w_px = target_.w_px;
-        target.h_px = target_.h_px;
-        target.conf = target_.confidence;
-        target.class_id = target_.class_id;
-        target.has_range = target_.has_range != 0;
-        target.range_m = target_.range_m;
-        signals.target_time_s = static_cast<double>(target_.captured_ns) * 1e-9;
+        guidance::flight::GuidanceTargetSample target;
+        if (target_adapter_.make(target_, target_boot_us, target)) {
+            signals.target = target;
+            signals.target_time_s = static_cast<double>(target_.captured_ns) * 1e-9;
+        }
     }
     return runtime_.tick(signals);
 }
