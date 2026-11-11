@@ -44,6 +44,7 @@ if(TARGET pure_vio_runtime)
   )
   target_sources(
     main PRIVATE runtime/vio_pose_publisher.cpp startup/app_startup.cpp
+                 startup/preflight_config.cpp
   )
   target_link_libraries(main PRIVATE app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)

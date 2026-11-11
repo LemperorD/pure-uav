@@ -53,6 +53,7 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 `--mission-config` 指向任务配置，默认 `config/mission.yaml`；
 `--guidance-config` 在任务启用时加载制导律/loop 参数，默认 `config/onboard-guidance.yaml`；
 `--camera-calibration` 单独加载彩色相机内参、畸变和 `R_body_cam`，默认 `config/guidance-camera.yaml`。
+`--preflight-config` 加载任务自检阈值，默认 `config/preflight.yaml`；检查心跳、目标锁定、姿态水平、位置、SYSTEM_TIME、电池和落地状态。
 彩色相机 `calibrated=false` 时任务仍可搜索/返航，但 `mission_guidance_ready=false`，不会进入撞板。
 `--mission --no-send --check-config` 可校验实际任务配置，不打开设备。
 `--no-send` 也禁止任务 setpoint 和飞控动作请求，预热不会假装成功。

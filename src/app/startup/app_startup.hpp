@@ -13,6 +13,7 @@
 #include "mission/mission_runtime.hpp"
 #include "startup/app_options.hpp"
 #include "startup/guidance_app_params.hpp"
+#include "startup/preflight_config.hpp"
 
 namespace pure_uav::app {
 
@@ -21,6 +22,7 @@ struct AppStartupConfig {
     mission::RuntimeConfig mission;
     GuidanceAppParams guidance;
     CameraCalibration camera;
+    PreflightConfig preflight;
 };
 
 // 只做加载和校验，不连接设备。
