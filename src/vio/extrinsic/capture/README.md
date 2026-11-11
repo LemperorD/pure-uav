@@ -1,6 +1,5 @@
 # capture/ —— 外参标定的采集链路
 
-
 在 PyCharm 里打开 `camera_imu_calibration` 作为项目（解释器选
 `/home/kxy/miniforge3/envs/vins/bin/python`），然后：
 

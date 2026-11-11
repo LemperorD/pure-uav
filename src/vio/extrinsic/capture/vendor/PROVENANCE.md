@@ -104,6 +104,7 @@ found, corners = cv2.findChessboardCornersSB(
 cp /home/kxy/Documents/Codex/2026-10-13/vio-1-https-github-com-ethz-2/outputs/capture_calibration.py \
    /home/kxy/calib/camera_imu_calibration/capture/vendor/capture_calibration.py
 ```
+
 （那样帧率会退回 2.6 fps —— 除非改回 `SHOW_PREVIEW = True` 并且不在乎帧率。）
 
 ## 为什么要复制 `capture_calibration.py`

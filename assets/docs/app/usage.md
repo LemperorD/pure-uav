@@ -140,11 +140,13 @@ bin/guidance_example
 支持：
 
 - 嵌套：
+
   ```yaml
   guidance:
     law: PPN
     N: 4
   ```
+
 - 扁平点号：`guidance.N: 4`
 - `#` 注释（引号外）、空行、字符串两端引号；
 - 空格缩进；**tab 直接报错**；

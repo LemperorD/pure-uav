@@ -30,6 +30,7 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 ```
 
 依赖方向：
+
 - `main → communicate / pure_vio_runtime / pure_camera_ipc / guidance_application`（检测通过独立 detect_rt 子进程运行）；
 - `guidance_example → startup/guidance_application → startup/guidance_app_params / sim/guidance_sim_tools → guidance_loop → flight_types`。
 底层是 `guidance_flight`（= `guidance_core` + `guidance_state_adapter` + `mavlink_units` + `guidance_shell`）。

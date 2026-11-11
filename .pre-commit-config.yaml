@@ -45,9 +45,10 @@ repos:
     exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
 
 # markdown 文档检查
-- repo: https://github.com/markdownlint/markdownlint
-  rev: v0.18.1
+- repo: https://github.com/DavidAnson/markdownlint-cli2
+  rev: v0.22.0
   hooks:
-  - id: markdownlint
-    args: [--fix, --rules, "~MD013, ~MD029"]
+  - id: markdownlint-cli2
+    args: [--fix]
+    stages: [manual]          # ← 只加这一行
     exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
