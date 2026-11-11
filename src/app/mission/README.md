@@ -7,7 +7,7 @@
 ## 调用关系
 
 ```text
-main（固定节拍、生命周期与日志）
+main.cpp（模块启动、固定节拍公共循环、退出清理）
   └─ MissionService::tick()（VIO 发布锁 + 目标接收 + 时间映射）
        └─ MissionRuntime::tick()（反馈快照、预热、控制权仲裁、发送）
             ├─ MissionController::tick()：纯状态机
