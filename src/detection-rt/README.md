@@ -1,5 +1,10 @@
 # YOLO26n目标检测
 
+> **现行运行方式**：相机由 `camera_server` 独占采集，`detect_rt` 从共享内存彩色通道取帧，
+> 检测走 `DetectionRuntime`。检测算法参数的**唯一真源**是
+> [`config/detector-rt.yaml`](../../config/detector-rt.yaml)，不提供对应命令行选项。
+> 下文凡标注「旧台架」的内容只描述遗留 `Detector` / `CameraSource` 实现。
+
 ```text
 Orbbec 彩色流 640×480@60
         │  MJPG → BGR
@@ -26,13 +31,17 @@ src/detection-rt/
 │   ├── yolo_npu.hpp          # NPU 后端：NBG 加载 / 量化 / 输出融合
 │   ├── yolo_cpu.hpp          # CPU 后端：ONNX Runtime
 │   ├── yolo_backend.hpp      # 编译期后端别名 YoloBackend
-│   ├── detector.hpp          # 门面：采集+推理流水线、poll、stats
+│   ├── detection_runtime.hpp # RuntimeConfig / DetectionRuntime
+│   ├── detector_config.hpp   # config/detector-rt.yaml 加载接口
+│   ├── detector.hpp          # 旧台架门面：采集+推理流水线、poll、stats
 │   └── target_bridge.hpp     # FrameResult → flight::GuidanceTargetSample
 ├── src/
 │   ├── camera_source.cpp
 │   ├── yolo_npu.cpp
 │   ├── yolo_cpu.cpp
 │   ├── yolo_postprocess.{hpp,cpp}
+│   ├── detection_runtime.cpp
+│   ├── detector_config.cpp
 │   ├── detector.cpp
 │   ├── target_bridge.cpp
 │   └── detect_rt_main.cpp    # CLI
@@ -46,7 +55,8 @@ src/detection-rt/
 | 依赖 | 说明 |
 | --- | --- |
 | OpenCV 4.5.4 | 图像解码、letterbox、NMS |
-| OrbbecSDK 1.10.37 | 仓库内 `src/driver/orbbec` |
+| OrbbecSDK 1.10.37 | 仓库内 `src/driver/orbbec`（仅遗留台架与相机服务使用） |
+| yaml-cpp | 解析 `config/detector-rt.yaml` |
 | 全志 VIPLite（NPU 后端） | 系统 `/usr/include/vip_lite.h`、`/lib/libNBGlinker.so`、`/lib/libVIPhal.so` |
 | ONNX Runtime 1.23.2（CPU 后端） | 仓库内 `third_party/onnxruntime`（aarch64 库；其他架构用系统安装） |
 | NPU 模型 | `assets/models/yolo26n.nb`（输入 640×640×3 uint8，输出 8400×4 + 8400×2） |
@@ -84,35 +94,58 @@ bin/detect_rt
 
 ## 4. 运行
 
-```bash
-# 实时相机，处理 100 帧后退出（--frames 0 表示一直运行到 Ctrl-C）
-./bin/detect_rt --frames 100
+检测算法参数只从 `config/detector-rt.yaml` 读取（可用 `--config FILE` 改路径），
+启动时打印解析后的配置摘要。字段缺失、未知字段、旧占位字段、越界值或模型文件不存在
+都会直接报错退出，不存在隐藏的 C++ 默认值。`--check-config` 只校验配置，
+不加载模型、不连接相机服务。
 
-# 实时 + 每帧一行 JSON + 保存带框图
+```bash
+# 只校验配置
+./bin/detect_rt --check-config
+
+# 实时：先独立启动 camera_server，VIO 由 main 内部运行，检测由 bin/main 心跳后拉起
+./bin/main --detect-arg --frames --detect-arg 100 --detect-arg --json \
+  --detect-arg --dump-dir --detect-arg /tmp/detect
+
+# 单独调试检测时也可直接运行（不要与 bin/main 同时运行，避免两个消费者）
 ./bin/detect_rt --frames 100 --json --dump-dir /tmp/detect
 
-# 离线单图
+# 离线单图（共用同一份配置）
 ./bin/detect_rt --image /path/to/image.jpg --json
 
-# 指定相机参数/阈值
-./bin/detect_rt --camera 640x480@60 --conf 0.25 --iou 0.45
+# 指定另一份配置
+./bin/detect_rt --config /tmp/detector-alt.yaml --check-config
 ```
 
-参数：
+运行参数：
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `--model PATH` | NPU: `yolo26n.nb`；CPU: `yolo26n.onnx` | 模型路径；默认从当前目录/可执行文件向上查找 |
-| `--conf` | `0.25` | 置信度阈值 |
-| `--iou` | `0.45` | 逐类 NMS IoU |
+| `--config FILE` | `config/detector-rt.yaml` | 配置文件路径 |
+| `--check-config` | 关 | 只校验配置后退出 |
 | `--image FILE` | — | 离线单图模式 |
 | `--frames N` | `0` | 实时模式处理 N 帧后退出，`0` = 无限 |
 | `--json` | 关 | 每个处理帧向 stdout 输出一行 JSON，诊断日志走 stderr |
 | `--dump-dir DIR` | 关 | 保存带框 JPG |
 | `--stream-dir DIR` | 关 | 把带框图原子写成 `DIR/frame.jpg`，供 mjpg-streamer 远程推流 |
 | `--stream-fps FPS` | `20` | 推流 JPG 最大写入帧率（1~60） |
-| `--camera WxH@FPS` | `640x480@60` | 彩色流 profile |
-| `--verbose` | 关 | 放开 OrbbecSDK 日志 |
+| `--shm NAME` | `/pure_uav_camera_color` | 彩色共享内存通道 |
+| `--shm-timeout-ms N` | `5000` | 等待通道就绪的超时 |
+| `--verbose` | 关 | 兼容旧脚本，无实际作用 |
+
+检测算法参数（唯一真源 `config/detector-rt.yaml`，顶层键 `detection-rt:`，全部必填）：
+
+| 字段 | 当前值 | 说明 |
+| --- | --- | --- |
+| `model_path` | `auto` | `auto` 按编译后端选 `yolo26n.onnx` / `.nb`，也可写显式路径 |
+| `imgsz` | `640` | 当前后端只支持 640 |
+| `num_classes` | `2` | 模型类别数（1~1000） |
+| `conf_thr` | `0.25` | 置信度阈值 (0,1] |
+| `iou_thr` | `0.45` | 逐类 NMS IoU (0,1] |
+| `max_det` | `100` | 单帧最大框数（1~300） |
+| `target_class` | `-1` | `-1` 接受所有类别；否则只保留指定类别 |
+| `max_hz` | `10` | 检测侧限频（1~60），与 `config/camera.yaml` 的服务端限频是两道独立门限 |
+| `max_age_ms` | `200` | 输入帧与结果的最大帧龄（1~2000） |
 
 若终端本身注入了 IDE 的旧版 libstdc++，运行前加：
 
@@ -142,29 +175,29 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./bin/detect_rt --frames 100
 >
 > 在浏览器中输入 `http://192.168.3.163:8080/` 查看实时画面。
 
-相机只能被一个进程采集：`detect_rt` 用 Orbbec SDK 打开相机时，原来的
-`input_uvc` 版 mjpg-streamer 必须停掉。推荐用仓库脚本一键启动：
+相机只由 `camera_server` 采集，本模块不再打开设备。画面推流分两步：
 
 ```bash
+# 终端 A：先独立启动 camera_server，VIO 由 main 内部运行；main 拉起检测并写 frame.jpg
+./bin/main --detect-arg --stream-dir --detect-arg /dev/shm/pure-uav-detect \
+  --detect-arg --stream-fps --detect-arg 20
+# 或单独调试：./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+
+# 终端 B：只启动 mjpg-streamer 前端
 ./scripts/start_detection_stream.sh --replace
-# 浏览器打开 http://192.168.3.163:8080/ （板子 IP 以实际为准）
+# 浏览器打开 http://<板子 IP>:8080/
 ```
 
 - `--replace` 会先执行 `sudo fuser -k 8080/tcp`，停掉占用端口的旧 mjpg-streamer；
   若已手动停掉可省略。
-- 其余参数会原样传给 `detect_rt`，例如：
+- 推流脚本只负责 mjpg-streamer，不再启动 `detect_rt`，也不接受检测参数；
+  检测算法参数统一改 `config/detector-rt.yaml`。
+- 按 `Ctrl-C` 停止 mjpg-streamer；先独立启动 camera_server，VIO 由 main 内部运行，
+  检测由 `bin/main` 拉起（或单独运行 `detect_rt`），停止 `bin/main` 即停止检测子进程。
 
-  ```bash
-  ./scripts/start_detection_stream.sh --replace --conf 0.3 --camera 640x480@60
-  ```
-
-- 按 `Ctrl-C` 会同时停止 `detect_rt` 与脚本启动的 mjpg-streamer。
-
-脚本内部做两件事：
-
-1. 先启动 `bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20`，等它写出第一帧；
-2. 再启动 mjpg-streamer`input_file.so -f /dev/shm/pure-uav-detect/ -e -d 0.05`
-   - `output_http.so -p 8080`。
+脚本内部流程：等待 `detect_rt` 写出首帧 `frame.jpg`，
+再用 `input_file.so -f /dev/shm/pure-uav-detect/ -e -d <延迟>` 读取，
+由 `output_http.so -p 8080` 输出。
 
 `detect_rt` 先把带框图写成 `frame_tmp.bin`，再原子 `rename` 成 `frame.jpg`；
 临时文件故意不用 `.jpg` 扩展名，`input_file --existing` 扫描目录时不会把它当成视频帧。
@@ -179,8 +212,9 @@ inotify 事件会堆积，而该插件每次 `read` 只处理第一个事件，�
 mkdir -p /dev/shm/pure-uav-detect
 MJPG=/home/orangepi/Documents/mjpg-streamer/mjpg-streamer-experimental
 
-# 终端 1：先启动检测，等 /dev/shm/pure-uav-detect/frame.jpg 出现
-./bin/detect_rt --stream-dir /dev/shm/pure-uav-detect --stream-fps 20
+# 终端 1：先启动检测（由 main 拉起，或单独运行），等 frame.jpg 出现
+./bin/main --detect-arg --stream-dir --detect-arg /dev/shm/pure-uav-detect \
+  --detect-arg --stream-fps --detect-arg 20
 
 # 终端 2：再启动 mjpg-streamer
 $MJPG/mjpg_streamer \
@@ -191,7 +225,8 @@ $MJPG/mjpg_streamer \
 停止当前推流：
 
 ```bash
-pkill -x detect_rt
+pkill -x main        # main 退出时会先停止 detect_rt 子进程
+pkill -x detect_rt   # 仅在单独运行 detect_rt 时需要
 pkill -f "output_http.so -p 8080"
 ```
 
@@ -264,14 +299,19 @@ det.stop();                                     // 停线程、释放相机和�
 原始 MJPG 字节在检测进程内解码，带 10 Hz 限频、200 ms 帧龄与会话失效保护。
 
 ```bash
-./scripts/start_uav.sh --detection --stream     # 统一入口：相机服务 + vio_live + detect_rt
+./bin/detect_rt --check-config                  # 只校验检测配置
+# 先启动 camera_server，再由 main 同时运行 VIO 与检测进程监督；勿同时运行 vio_live
+./bin/main --detect-arg --shm --detect-arg /pure_uav_camera_color \
+  --detect-arg --shm-timeout-ms --detect-arg 10000 --detect-arg --json
+# 单独调试检测（不要与 bin/main 同时运行）
 ./bin/detect_rt --shm /pure_uav_camera_color --shm-timeout-ms 10000 --json
 ./bin/detect_rt --image test.jpg                # 离线单图，不连接相机服务
 ```
 
-`--camera WxH@FPS` 已移除（分辨率/曝光由 `config/camera.yaml` 统一配置）；
-`--model/--conf/--iou/--frames/--json/--dump-dir/--stream-dir/--stream-fps` 保持原语义。
-完整协议与互斥清单见 `assets/docs/app/camera-ipc.md`。
+`--camera WxH@FPS` 已移除（分辨率/曝光由 `config/camera.yaml` 统一配置）。
+`--model` / `--conf` / `--iou` 等检测算法参数也已移除，唯一真源为
+`config/detector-rt.yaml`；`--frames/--json/--dump-dir/--stream-dir/--stream-fps`
+等运行参数保持原语义。完整协议与互斥清单见 `assets/docs/app/camera-ipc.md`。
 
 ### 遗留接口
 

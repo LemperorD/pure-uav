@@ -23,6 +23,7 @@
 #include "camera_shm.hpp"
 #include "detection_runtime.hpp"
 #include "detection_types.hpp"
+#include "detector_config.hpp"
 #include "yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
@@ -53,67 +54,6 @@ void onSigint(int /*unused*/) {
 uint64_t unixNowUs() {
     using namespace std::chrono;
     return static_cast<uint64_t>(duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
-}
-
-bool fileExists(const std::string& p) {
-    std::error_code ec;
-    return std::filesystem::is_regular_file(p, ec);
-}
-
-#ifdef PURE_DETECTION_BACKEND_CPU
-constexpr const char* kDefaultModelRel = "assets/models/yolo26n.onnx";
-#else
-constexpr const char* kDefaultModelRel = "assets/models/yolo26n.nb";
-#endif
-
-// 默认模型：cwd 下的 assets/models/<模型>，其次从可执行文件向上找仓库根。
-std::string resolveDefaultModel() {
-    const std::string rel = kDefaultModelRel;
-    if (fileExists(rel)) {
-        return rel;
-    }
-
-    std::string exe;
-    {
-        char buf[4096];
-        const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (n > 0) {
-            buf[n] = '\0';
-            exe = buf;
-        }
-    }
-    if (!exe.empty()) {
-        std::filesystem::path dir = std::filesystem::path(exe).parent_path();
-        for (int i = 0; i < 6 && !dir.empty(); ++i) {
-            const auto candidate = dir / rel;
-            if (fileExists(candidate.string())) {
-                return candidate.string();
-            }
-            dir = dir.parent_path();
-        }
-    }
-    return rel;
-}
-
-// CLI 参数（与 DetectorConfig 解耦：detect_rt 不再引用 Detector / CameraSource）。
-struct CliConfig {
-    std::string model_path;
-    int imgsz = 640;
-    int num_classes = 2;
-    float conf_thr = 0.25F;
-    float iou_thr = 0.45F;
-    int max_det = 100;
-};
-
-RuntimeConfig toRuntimeConfig(const CliConfig& cfg) {
-    RuntimeConfig out;
-    out.model_path = cfg.model_path;
-    out.imgsz = cfg.imgsz;
-    out.num_classes = cfg.num_classes;
-    out.conf_thr = cfg.conf_thr;
-    out.iou_thr = cfg.iou_thr;
-    out.max_det = cfg.max_det;
-    return out;
 }
 
 // 把现有 YoloBackend（CPU 的 ONNX Runtime 或板端 NPU）适配成 DetectionRuntime
@@ -272,16 +212,18 @@ void drawAndSave(const cv::Mat& bgr, const FrameResult& r, const std::string& du
     }
 }
 
-int runImage(const std::string& image_path, const CliConfig& cfg, bool json, const std::string& dump_dir, const std::string& stream_dir) {
+// 离线单图与实时模式共用同一个 RuntimeConfig 与 RuntimeBackend，
+// 保证阈值、类别过滤和后处理的解释完全一致。
+int runImage(const std::string& image_path, const RuntimeConfig& cfg, bool json, const std::string& dump_dir, const std::string& stream_dir) {
     cv::Mat bgr = cv::imread(image_path, cv::IMREAD_COLOR);
     if (bgr.empty()) {
         std::fprintf(stderr, "[error] 无法读取图片: %s\n", image_path.c_str());
         return 1;
     }
 
-    YoloBackend backend;
+    RuntimeBackend backend;
     std::string error;
-    if (!backend.load(cfg.model_path, cfg.imgsz, error)) {
+    if (!backend.load(cfg, error)) {
         std::fprintf(stderr, "[error] 模型加载失败: %s\n", error.c_str());
         return 1;
     }
@@ -289,27 +231,15 @@ int runImage(const std::string& image_path, const CliConfig& cfg, bool json, con
     std::fprintf(stderr, "[detect_rt] %s\n", backend.info().c_str());
     std::fprintf(stderr, "[detect_rt] image=%s %dx%d\n", image_path.c_str(), bgr.cols, bgr.rows);
 
-    YoloOutputView view;
-    if (!backend.infer(bgr, view, error)) {
-        std::fprintf(stderr, "[error] 推理失败: %s\n", error.c_str());
-        return 1;
-    }
-
-    PostprocessParams pp;
-    pp.num_classes = cfg.num_classes;
-    pp.conf_thr = cfg.conf_thr;
-    pp.iou_thr = cfg.iou_thr;
-    pp.max_det = cfg.max_det;
-    pp.img_w = bgr.cols;
-    pp.img_h = bgr.rows;
-
     FrameResult r{};
     r.host_us = unixNowUs();
     r.seq = 1;
     r.width = bgr.cols;
     r.height = bgr.rows;
-    r.infer_ms = view.infer_ms;
-    postprocess(view, pp, r);
+    if (!backend.infer(bgr, r, error)) {
+        std::fprintf(stderr, "[error] 推理失败: %s\n", error.c_str());
+        return 1;
+    }
 
     printBoxes(r, json);
     if (!dump_dir.empty()) {
@@ -436,7 +366,8 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
             last_report = now;
         }
 
-        // 相机服务失联超过 3 s 就退出，由统一入口重新拉起，避免消费者空转。
+        // 相机服务失联超过 3 s 就退出：由 bin/main 监督重启（最多 3 次），
+        // 超限或单独运行时交由外部托管方处置，避免消费者空转。
         if (!reader.writerAlive()) {
             if (heartbeat_lost_since.time_since_epoch().count() == 0) {
                 heartbeat_lost_since = now;
@@ -468,10 +399,14 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
 
 void usage() {
     std::fprintf(stderr,
-                 "用法: detect_rt [--model PATH] [--conf 0.25] [--iou 0.45]\n"
+                 "用法: detect_rt [--config FILE] [--check-config]\n"
                  "                [--image FILE] [--frames N] [--json] [--dump-dir DIR]\n"
                  "                [--stream-dir DIR] [--stream-fps FPS]\n"
                  "                [--shm NAME] [--shm-timeout-ms N] [--verbose]\n"
+                 "\n检测算法参数（model_path/imgsz/阈值/类别/限频/帧龄）唯一真源为\n"
+                 "config/detector-rt.yaml，不提供对应命令行选项。\n"
+                 "  --config FILE     指定配置文件路径（默认 config/detector-rt.yaml）\n"
+                 "  --check-config    只校验配置，不加载模型、不连接相机服务\n"
                  "\n默认从 camera_server 的彩色共享内存通道取帧；相机只由 camera_server 打开。\n"
                  "--image 为离线单图模式，不连接相机服务。\n");
 }
@@ -481,8 +416,8 @@ void usage() {
 int main(int argc, char** argv) {
     std::signal(SIGINT, onSigint);
 
-    CliConfig cfg;
-    std::string model;
+    RuntimeConfig cfg;
+    std::string config_path = pure_uav::detection::kDefaultDetectorConfig;
     std::string image_path;
     std::string dump_dir;
     std::string stream_dir;
@@ -491,6 +426,7 @@ int main(int argc, char** argv) {
     long frames = 0;
     double stream_fps = 20.0;
     bool json = false;
+    bool check_config = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -502,12 +438,10 @@ int main(int argc, char** argv) {
             return argv[++i];
         };
 
-        if (arg == "--model") {
-            model = requireValue("--model");
-        } else if (arg == "--conf") {
-            cfg.conf_thr = static_cast<float>(std::atof(requireValue("--conf").c_str()));
-        } else if (arg == "--iou") {
-            cfg.iou_thr = static_cast<float>(std::atof(requireValue("--iou").c_str()));
+        if (arg == "--config") {
+            config_path = requireValue("--config");
+        } else if (arg == "--check-config") {
+            check_config = true;
         } else if (arg == "--image") {
             image_path = requireValue("--image");
         } else if (arg == "--frames") {
@@ -557,10 +491,17 @@ int main(int argc, char** argv) {
         dup2(STDERR_FILENO, STDOUT_FILENO);
     }
 
-    if (cfg.conf_thr <= 0.0F || cfg.conf_thr > 1.0F || cfg.iou_thr <= 0.0F || cfg.iou_thr > 1.0F) {
-        std::fprintf(stderr, "[error] --conf/--iou 必须在 (0,1] 内\n");
+    std::string config_error;
+    if (!pure_uav::detection::loadDetectorConfig(config_path, cfg, config_error)) {
+        std::fprintf(stderr, "[error] %s\n", config_error.c_str());
         return 2;
     }
+    std::fprintf(stderr, "[detect_rt] %s\n", pure_uav::detection::describeDetectorConfig(cfg).c_str());
+    if (check_config) {
+        std::fprintf(stderr, "[detect_rt] 配置有效（未加载模型、未连接相机服务）\n");
+        return 0;
+    }
+
     if (stream_fps < 1.0 || stream_fps > 60.0) {
         std::fprintf(stderr, "[error] --stream-fps 必须在 [1,60] 内\n");
         return 2;
@@ -571,12 +512,6 @@ int main(int argc, char** argv) {
     }
     if (shm_name.empty() || shm_name.front() != '/') {
         std::fprintf(stderr, "[error] --shm 通道名必须以 '/' 开头\n");
-        return 2;
-    }
-
-    cfg.model_path = model.empty() ? resolveDefaultModel() : model;
-    if (cfg.model_path.empty()) {
-        std::fprintf(stderr, "[error] 无法解析默认模型路径\n");
         return 2;
     }
 
@@ -595,5 +530,5 @@ int main(int argc, char** argv) {
     if (!image_path.empty()) {
         return runImage(image_path, cfg, json, dump_dir, stream_dir);
     }
-    return runCamera(toRuntimeConfig(cfg), shm_name, shm_timeout_ms, frames, json, dump_dir, stream_dir, stream_fps);
+    return runCamera(cfg, shm_name, shm_timeout_ms, frames, json, dump_dir, stream_dir, stream_fps);
 }

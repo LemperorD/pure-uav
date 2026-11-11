@@ -4,6 +4,12 @@
 > 多进程消费者」。本文描述的「单进程共享相机 + `main` 组合根」是外部工作副本的设计，
 > **不是本树的运行方式**。当前实现与运行方法见 [camera-ipc.md](camera-ipc.md)。
 > 下文保留作检测侧契约参考（限频、帧龄、会话失效、`TargetSnapshot` 语义）。
+> 本树检测算法参数的唯一真源是 `config/detector-rt.yaml`（不是本文的 `app-detection.yaml`），
+> 加载接口见 `src/detection-rt/include/detector_config.hpp`；
+> 本树检测子进程由 `bin/main` 等飞控心跳后拉起并监督（最多自动重启 3 次），
+> 相机服务由外部托管启动，VIO 在 `main` 内运行；`main` 不解析检测算法配置。
+> `./bin/main --check-config` 校验应用/VIO 配置；检测配置用 `./bin/detect_rt --check-config` 校验。
+> 本文其余单进程检测设计作为历史记录保留。
 
 日期：2026-11-05。只在 `/home/kxy/桌面/pure-uav-test/pure-uav-main` 中修改。
 

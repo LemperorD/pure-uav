@@ -11,12 +11,32 @@ target_link_libraries(guidance_application PUBLIC guidance_sim_tools
 
 add_executable(main main.cpp)
 target_link_libraries(main PRIVATE communicate guidance_application)
-if(TARGET vio_camera)
-  target_link_libraries(main PRIVATE vio_camera)
+if(TARGET pure_vio_runtime)
+  add_library(vio_app_support STATIC app_config.cpp pose_gate.cpp
+                                  glue/comm_imu_source.cpp)
+  target_include_directories(
+    vio_app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+                           ${CMAKE_SOURCE_DIR}/src/vio/estimator/src)
+  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime)
+  target_link_libraries(main PRIVATE vio_app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
 endif()
-if(TARGET detection_rt)
-  target_link_libraries(main PRIVATE detection_rt)
+
+# VIO 接入的无硬件回归；不打开串口或相机。
+if(TARGET vio_app_support)
+  add_executable(test_pose_gate
+                 ${CMAKE_SOURCE_DIR}/src/test/test_app/test_pose_gate.cpp)
+  target_link_libraries(test_pose_gate PRIVATE vio_app_support)
+  add_test(NAME pose_gate COMMAND test_pose_gate)
+
+  add_executable(test_heartbeat_wait
+                 ${CMAKE_SOURCE_DIR}/src/test/test_app/test_heartbeat_wait.cpp)
+  target_link_libraries(test_heartbeat_wait PRIVATE vio_app_support)
+  add_test(NAME heartbeat_wait COMMAND test_heartbeat_wait)
+endif()
+if(TARGET detect_rt)
+  # 检测通过 fork/exec 隔离；main 不链接推理库或 Orbbec 采集实现。
+  add_dependencies(main detect_rt)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_DETECTION=1)
 endif()
 
@@ -27,3 +47,12 @@ target_link_libraries(guidance_example PRIVATE guidance_application)
 # `./bin/main` / `./bin/guidance_example` 在 Windows 与 WSL 上都成立。
 set_target_properties(main guidance_example PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 ${CMAKE_SOURCE_DIR}/bin)
+
+if(TARGET vio_app_support)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  add_test(NAME app_config
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/src/test/test_app/test_app_config.py
+                   $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(app_config PROPERTIES TIMEOUT 30)
+endif()

@@ -1,8 +1,9 @@
 # 本周上机：VIO → ArduPilot 验收清单
 
-> **架构更新（2026-11-09）**：相机已改为 `camera_server` 独占采集 + 共享内存分发，
-> `bin/main` 不再是运行入口。构建/启动命令已按新架构更新，详见
-> [camera-ipc.md](camera-ipc.md)。本文其余 VIO/飞控验收项保持不变。
+> **架构更新（2026-11-09）**：相机已改为 `camera_server` 独占采集 + 共享内存分发；
+> 相机服务外部托管启动，VIO 在 main 内运行，检测由 `bin/main` 等飞控心跳后拉起并监督。
+> 构建/启动命令已按新架构更新，详见 [camera-ipc.md](camera-ipc.md)。
+> 本文其余 VIO/飞控验收项保持不变。
 
 日期：2026-11-05。目的先是“机上稳定运行、飞控收到并融合”，不是立即自主飞行。
 按当前工程假定目标为 CUAV-7-Nano / ArduPilot；实际固件版本、板子型号和连接方式仍要记录确认。
@@ -14,13 +15,13 @@
 - 相机与 IMU 的安装关系必须和标定时一致；拆装、旋转或显著改变安装关系后需重新核验标定。
 - 确认输出的“机体系”是否与飞控实际 FRD 一致，不以单位安装矩阵当作实测证明。
 - 不把开发机的 bin、lib 编译产物和 CMakeCache 拷到 ARM 上；使用新 build-uav 目录重新构建。
-- 先用 `config/app.yaml` 关闭检测完成定位验收。不要一开始并行调检测、制导、融合和飞行。
+- 先用 `main --no-detection` 关闭检测完成定位验收。不要一开始并行调检测、制导、融合和飞行。
 
 本周基线构建命令（只在目标板上手动运行）：
 
 ```bash
 cmake -S . -B build-uav -DCMAKE_BUILD_TYPE=Release
-cmake --build build-uav --target camera_server vio_live -j2
+cmake --build build-uav --target camera_server main vio_live detect_rt -j2
 ./bin/camera_server --check-config
 ```
 
@@ -28,10 +29,11 @@ cmake --build build-uav --target camera_server vio_live -j2
 
 - 确认真实 MAVLink 设备名，按实际情况修改 driver.yaml，不能认定一定是 ttyACM0。
 - USB 连接与 UART 连接分开确认。走 TELEM 时，按实际端口设置 MAVLink2、匹配波特率，核对接线和电气兼容性。
-- 相机由 `camera_server` 独占；统一用 `scripts/start_uav.sh` 拉起相机服务与消费者，
+- 相机由 `camera_server` 独占；相机服务先行启动，VIO 在 main 内运行，检测由 `bin/main` 拉起并监督；
   不同时运行任何直采工具（互斥清单见 `assets/docs/app/camera-ipc.md`）。
 - 飞控串口由 `vio_live` 独占，不同时运行另一个 vio_live、串口探针或会争用同一设备的地面站。
-- 关闭检测，先运行 `./scripts/start_uav.sh --no-send`，确认能收到心跳与实际 IMU，而非仅成功打开设备。
+- 关闭检测，先以 `./bin/vio_live --no-send` 单独验收，确认能收到心跳与实际 IMU，而非仅成功打开设备；
+  若通过 `bin/main` 验收则加 `--no-detection`，避免它拉起检测子进程。
 - 实测 IMU 应接近本配置请求的 200 Hz，且无持续队列溢出、>100 ms 断流或反复时间基重建。
 
 `--no-send` 仅禁止 ODOMETRY，不禁止通信模块正常心跳和消息流订阅。
@@ -73,7 +75,8 @@ ODOMETRY 官方最低要求为至少 4 Hz；对本工程建议以正常运动时
 
 ## 4. 发送与融合验收，仍拆桨
 
-- `--no-send` 阶段正常后，人工确认准备妥当，再运行不带该参数的 `./bin/main`。
+- `--no-send` 阶段正常后，人工确认准备妥当，再运行不带该参数的 `./bin/main --no-detection`
+  （VIO 单独验收阶段不拉起检测子进程）。
 - 在飞控端检查视觉数据接收与 EKF 实际融合、位置/速度/姿态方向、时间与 reset_counter。
 - 保存飞控 DataFlash 日志。台架未解锁也要记录时，可按实际固件确认并使用 LOG_DISARMED=1。
 - 同时保存飞控参数文件、地面站日志和主机控制台输出；未有飞控日志证据前，不把 main 的 sent 当作已融合。
@@ -85,7 +88,9 @@ ODOMETRY 官方最低要求为至少 4 Hz；对本工程建议以正常运动时
 
 地面分别测试遮挡、低纹理、光照变化、相机掉线、飞控链路断开、飞控重启与软件重启。
 检查失效后不再发送旧定位，恢复后重新建立时钟/估计器，新 reset_counter 能在飞控端解释位姿变化。
-相机故障当前会让 main 退出；检测线程故障则只停用检测。确认实际操作人员理解这两种不同故障策略。
+相机服务故障会让 `vio_live` / `detect_rt` 消费者退出；检测子进程异常时由 `bin/main`
+最多自动重启 3 次，超限 `main` 退出并停止其内部 VIO，交由外部托管方处置；相机服务继续运行。
+确认实际操作人员理解这两种不同故障策略。
 
 “上位机停发”不保证飞机会自动安全悬停、切源或降落。
 必须在实际固件上检查 EKF 失效行为、定位源切换/备份来源以及遥控人工接管。

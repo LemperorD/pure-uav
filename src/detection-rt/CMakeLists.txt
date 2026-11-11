@@ -17,6 +17,9 @@ if(NOT OpenCV_FOUND
   return()
 endif()
 
+# 检测参数唯一真源 config/detector-rt.yaml 的解析依赖。
+find_package(yaml-cpp REQUIRED)
+
 # 后端选择：NPU 优先，三件套缺任一项就退回 CPU。
 find_path(VIP_LITE_INCLUDE_DIR vip_lite.h)
 find_library(NBGLINKER_LIBRARY NAMES NBGlinker)
@@ -69,7 +72,7 @@ message(STATUS "detection-rt: backend=${_det_backend}")
 set(_det_sources
     src/camera_source.cpp src/yolo_postprocess.cpp src/detector.cpp
     src/target_bridge.cpp src/detection_runtime.cpp src/npu_backend.cpp
-    src/input_quantization.cpp)
+    src/input_quantization.cpp src/detector_config.cpp)
 if(_det_backend STREQUAL "NPU")
   list(APPEND _det_sources src/yolo_npu.cpp third_party/awnn/awnn_lib.c
        third_party/awnn/awnn_quantize.c)
@@ -109,10 +112,11 @@ else()
 endif()
 
 # OpenCV 出现在公开头里，故 PUBLIC；其余只在本库实现里用。
+# yaml-cpp 只在 detector_config.cpp 内部使用，公开头不泄漏其类型。
 target_link_libraries(
   detection_rt
   PUBLIC ${OpenCV_LIBS}
-  PRIVATE OrbbecSDK pthread m)
+  PRIVATE OrbbecSDK pthread m yaml-cpp)
 
 add_executable(detect_rt src/detect_rt_main.cpp)
 # detect_rt 现在是 camera_server 彩色通道的只读消费者，不再打开 Orbbec 设备。

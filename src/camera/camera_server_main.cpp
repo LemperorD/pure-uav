@@ -1,5 +1,5 @@
 // 唯一相机采集进程：Orbbec 设备只在这里被初始化一次。
-// VIO 与检测作为独立进程从两条共享内存通道取帧，任何一侧崩溃都不会影响另一侧。
+// main 内的 VIO（或独立 vio_live）与 detect_rt 从两条共享内存通道取帧。
 #include <yaml-cpp/yaml.h>
 
 #include <chrono>
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
     while (interrupted == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!camera.running()) {
-            std::fprintf(stderr, "[camera_server] 采集线程已退出，停止服务（由统一入口负责重启）\n");
+            std::fprintf(stderr, "[camera_server] 采集线程已退出，停止服务（由外部托管方负责重启）\n");
             exit_code = 1;
             break;
         }

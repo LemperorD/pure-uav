@@ -8,44 +8,73 @@
 
 ## 1 机载入口与线程
 
-`./bin/main` 直接启动机载主流程，所有功能同时运行，不使用子命令。
+`./bin/main` 运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+制导控制、自动解锁、起飞与 Offboard 状态机仍未接入当前入口。
 
-| 线程 | 职责 | 数据交付 |
+| 线程 / 服务 | 职责 | 数据交付 |
 |---|---|---|
-| 通信接收（Communicator 内部） | 唯一串口、心跳、IMU、位置和姿态 | IMU 有界队列、线程安全遥测缓存 |
-| 相机采集（OrbbecCamera 内部） | 唯一相机，彩色解码一次并生成灰度 | 灰度送 VIO，BGR 送检测 |
-| 检测推理（Detector 内部） | 只处理最新彩色帧，不自行打开相机 | 最新检测框 + 原始采集时刻 |
-| VIO | 顺序喂 IMU/图像、健康监控、输出位姿 | 通过同一个 Communicator 发送 ODOMETRY |
-| 制导 | 默认 50 Hz 读取遥测与检测结果，运行 GuidanceLoop | 通过同一个 Communicator 发送控制指令 |
-| main | 启动、监督、状态输出、停止与 join | Ctrl-C / SIGTERM / 故障触发统一退出 |
+| 通信接收（Communicator 内部） | 唯一串口、心跳、IMU、遥测 | 逐帧 IMU 队列、遥测缓存 |
+| camera_server（独立进程） | 唯一相机采集 | VIO 灰度/深度通道、检测彩色通道 |
+| VIO（main 内部） | 顺序处理 IMU/图像、健康监控 | 位姿快照，经同一串口发送 ODOMETRY |
+| detect_rt（子进程） | 彩色通道取帧、模型推理 | JSON / 检测预览，尚未用于制导 |
+| 检测监督线程（main 内部） | 启动后监督、异常重启、退出回收 | 完成状态交给主循环 |
+| main | 位姿发布门控、输入监督、统一退出 | Ctrl-C / SIGTERM / 故障处理 |
 
 ```bash
-# 从仓库根目录执行；默认同时启动所有机载功能
-./bin/main
-# 台架检查：运行计算，不发送 ODOMETRY 或制导指令
+# 从仓库根目录执行；相机独立终端启动：
+./bin/camera_server --config config/camera.yaml
+# 另一个终端：运行通信、VIO 与检测
 ./bin/main --no-send
-# 指定各模块配置，并在退出时保存黑匣子
-./bin/main --driver-config config/driver.yaml \
-  --config-dir src/vio/estimator/config/gemini_1920x1080 \
-  --guidance-config config/onboard-guidance.yaml --blackbox flight_bb.csv
+# 仅 VIO 台架验收
+./bin/main --no-send --no-detection
+# 应用与 VIO 配置校验，不打开任何设备或启动子进程
+./bin/main --check-config
+# 检测配置由检测进程解析；运行参数逐个透传
+./bin/main --detection-config config/detector-rt.yaml \
+  --detect-arg --shm --detect-arg /pure_uav_camera_color
 ./bin/main --help
 ```
 
-`--model FILE` 覆盖检测模型；默认按编译后端选择 `yolo26n.onnx` / `yolo26n.nb`。
-`main` 必须同时具备实时 VIO 和检测依赖；模块缺失时启动失败，不以部分功能冒充整机运行。
-原有 `detect_rt`、`vio_live`、`vio_offline`、`guidance_example` 保留供独立调试。
+`--detect-bin FILE` 覆盖检测子程序路径；默认使用 `main` 同目录下的 `detect_rt`。
+`--detection-config FILE` 传给子进程 `--config`；模型、阈值、类别、限频和帧龄
+统一由 `config/detector-rt.yaml` 管理，不接受 `main --model` 覆盖。
+`--guidance-config` 与 `--blackbox` 仍是预留参数，当前不生效。
 
-启动时加载模型和 VIO 标定，再打开一个串口、一个相机。主循环不自动解锁、起飞或切换飞行模式。
-IMU 请求频率为 200 Hz；相机分辨率来自 VIO 标定，彩色 30 Hz，主流程不启用深度流。
-当前安装假设 IMU 系与机体系重合，`T_imu_cam` 旋转直接作为相机到机体外参；实际安装需与标定一致。
-检测像素先按标定去畸变，再交给制导。检测没有距离和目标速度，机载配置使用
-**PPN + FROM_LOS_DIFFERENCE**，`t_go_freeze=0` 关闭依赖距离的冻结；不接受需要测距的 TPN/APN 配置。
+检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测正常结束或重启超限后，
+主循环退出；相机断供、VIO 故障和用户停止时同样回收检测子进程，再关闭 VIO 与串口。
+相机服务由外部托管，不随 `main` 关闭。
 
-VIO 图像队列最多 4 帧，溢出丢最旧帧并显示丢帧数；IMU 队列最多 2000 帧。
-连接会话变化、IMU 丢帧或时间基跳变会重建 VIO，丢弃旧图像并复位制导。
-串口初始等待最多 10 秒；相机断供 3 秒、IMU 断供 3 秒（启动宽限 10 秒）、
-检测断供 10 秒、制导数据超时或发送失败均触发停止。
-退出时先通知并 join 算法线程，再停止相机投递、检测线程，最后关闭通信。
+`main` 与 `vio_live` 是替代入口，不可同时占用同一飞控串口。
+相机默认 1920×1080@30，必须匹配 VIO 标定；采集、曝光和增益在 `config/camera.yaml` 中设置。
+`main` 通过 `config/vio.yaml` 决定是否使用深度，当前启用深度初始化。
+完整协议、尺寸/深度校验和时间戳约定见 [camera-ipc.md](camera-ipc.md)。
+
+## VIO 配置
+
+`main` 从 `config/app.yaml` 加载应用调度参数和配置路径，再读取 `config/vio.yaml`。
+检测算法使用独立的 `config/detector-rt.yaml`，由检测子进程解析。
+
+| 文件 | VIO 侧的用途 |
+|---|---|
+| `config/app.yaml` | 保留应用调度设置，通过 `vio_config` 指向 VIO 参数文件 |
+| `config/vio.yaml` | 标定目录、期望分辨率/帧率、IMU 频率、初始化选项、共享内存连接和位姿发布门限 |
+| `config/driver.yaml` | 沿用原有通信配置；加载时校验 IMU 订阅周期与 VIO 的 `imu_hz` 一致 |
+
+`config/vio.yaml` 的 `config_dir` 指向原有 OpenVINS 参数和相机/IMU 标定链。
+`use_depth` 表示 VIO 是否使用深度图；相机采集与曝光等设置由 `camera_server` 管理。
+原 `app.yaml` 中的 `use_depth_init: true` 和 `init_vel_zero: true` 已迁入 `vio.yaml`，
+现在会用于 `main`。独立调试入口 `vio_live` 继续使用自身命令行参数。
+
+应用配置及其中的相对路径均相对于仓库根目录解析。以下检查不打开串口或相机：
+
+```bash
+./bin/main --check-config
+./bin/main --vio-config config/vio.yaml --no-send --check-config
+```
+
+`--config` 选择应用配置，`--vio-config` 选择 VIO 运行配置；
+`--config-dir` 覆盖 VIO 标定目录并读取其分辨率；
+`--shm-vio` 和 `--shm-timeout-ms` 覆盖 VIO 的共享内存连接参数。
 
 ## 1.1 独立制导仿真入口
 

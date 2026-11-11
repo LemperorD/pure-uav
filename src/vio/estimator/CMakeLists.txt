@@ -201,20 +201,33 @@ if(_build_live)
     )
   endif()
 
-  add_library(vio_camera STATIC src/orbbec_camera.cpp src/fcu_clock.cpp)
-  # CameraFrames 复用 src/common/color_frame.hpp 的 ColorEncoding。
-  target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
-                                               ${CMAKE_SOURCE_DIR}/src/common)
+  add_library(vio_camera STATIC src/orbbec_camera.cpp)
+  target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(vio_camera PUBLIC pure_vio_core OrbbecSDK)
+
+  # estimator 独立构建时也使用仓库里的同一份 camera_server 协议。
+  if(NOT TARGET pure_camera_ipc)
+    add_library(pure_camera_ipc STATIC
+                "${_pure_uav_repo_root}/src/common/camera_shm.cpp")
+    target_include_directories(pure_camera_ipc PUBLIC
+                               "${_pure_uav_repo_root}/src/common")
+    if(UNIX AND NOT APPLE)
+      target_link_libraries(pure_camera_ipc PUBLIC rt)
+    endif()
+  endif()
+  add_library(pure_vio_runtime STATIC src/vio_runtime.cpp src/fcu_clock.cpp
+                                     src/shm_camera_source.cpp)
+  target_include_directories(pure_vio_runtime
+                             PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(pure_vio_runtime PUBLIC pure_vio_core pure_camera_ipc
+                                               Threads::Threads)
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
   target_include_directories(
     vio_live PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-                     ${CMAKE_SOURCE_DIR}/src/common
                      ${PURE_UAV_DRIVER_DIR}/orbbec/include)
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
-  # vio_live 现在是 camera_server 的只读消费者，不再自行打开 Orbbec 设备。
-  target_link_libraries(vio_live PRIVATE vio_camera pure_camera_ipc)
+  target_link_libraries(vio_live PRIVATE pure_vio_runtime)
   string(CONCAT _orbbec_rpath
                 "${PURE_UAV_DRIVER_DIR}/orbbec/lib/${CMAKE_SYSTEM_PROCESSOR}"
                 ";${PURE_UAV_DRIVER_DIR}/orbbec/lib")
@@ -410,4 +423,12 @@ if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
     add_test(NAME command_targets COMMAND test_command_targets)
     set_tests_properties(command_targets PROPERTIES TIMEOUT 15)
   endif()
+endif()
+
+if(TARGET pure_vio_runtime)
+  add_executable(test_shm_camera_source tests/test_shm_camera_source.cpp)
+  target_link_libraries(test_shm_camera_source PRIVATE pure_vio_runtime)
+  add_test(NAME shm_camera_source COMMAND test_shm_camera_source
+                                           "${_zupt_fixture}")
+  set_tests_properties(shm_camera_source PROPERTIES TIMEOUT 15)
 endif()
