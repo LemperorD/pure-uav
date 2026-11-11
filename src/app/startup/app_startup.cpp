@@ -53,6 +53,11 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
             std::fprintf(stderr, "[MAIN] 彩色相机未标定：%s；任务只搜索，不进入撞板\n", guidance.cameraReason().c_str());
         }
         mission_guidance = guidance.params();
+        // 配置期先按 VIO 期望分辨率挡住明显不匹配的标定；实际彩色内参/畸变在相机连接后再核对。
+        if (guidance.cameraOk() && (mission_guidance.loop.cam.width != config.camera.width || mission_guidance.loop.cam.height != config.camera.height)) {
+            error = "guidance 彩色标定分辨率与 camera_server/VIO 期望不一致";
+            return false;
+        }
         settings.camera = guidance.cameraCalibration();
         if (config.main_loop_hz < 10 || 1.0 / config.main_loop_hz >= mission_config.max_setpoint_gap_s) {
             error = "main_loop_hz is too low for mission setpoint continuity";
