@@ -10,6 +10,7 @@
 #include "startup/app_options.hpp"
 
 #ifdef PURE_APP_HAS_VIO
+#include "runtime/landing_failsafe.hpp"
 #include "runtime/vio_pose_publisher.hpp"
 #include "startup/app_startup.hpp"
 #endif
@@ -100,8 +101,23 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        // 公共循环：监督相机/检测进程，发布 VIO 并调度任务。
         VioPosePublishState publish_state;
+        // 故障兜底：停止任务/检测后，由飞控执行降落；不在这里直接退出。
+        const auto failsafeLand = [&]() -> bool {
+            if (mission_service) {
+                mission_service->stop();
+            }
+            if (detection) {
+                detection->stop();
+            }
+            if (!comm.isArmed()) {
+                return true;
+            }
+            const auto keepalive = [&] { return publishVioPose(vio, comm, !options.no_send, config.max_age_ms, publish_state); };
+            return runLandingFailsafe(comm, settings.mission.mission.landing_timeout_s, settings.mission.mission.request_retry_s, interrupted, keepalive);
+        };
+
+        // 公共循环：监督相机/检测进程，发布 VIO 并调度任务。
         uint64_t overruns = 0;
         const auto period = std::chrono::nanoseconds(1000000000LL / config.main_loop_hz);
         auto next_tick = Clock::now();
@@ -110,13 +126,17 @@ int main(int argc, char** argv) {
         while (!interrupted.load()) {
             SuperviseResult detection_result;
             if (detection && detection->finished(detection_result)) {
-                result = detection_result.status == SuperviseStatus::exited || detection_result.status == SuperviseStatus::stopped ? 0 : 1;
                 std::fprintf(stderr, "[MAIN] 检测监督结束：restarts=%llu error=%s\n", static_cast<unsigned long long>(detection_result.restarts), detection_result.error.empty() ? "-" : detection_result.error.c_str());
-                break;
+                detection.reset();
+                if (mission_service) {
+                    return_requested.store(true, std::memory_order_relaxed);
+                    std::fprintf(stderr, "[FAILSAFE] 检测不可用，请求任务返航\n");
+                }
             }
             // 共享相机监督：相机停止 = 图像断供，不再把旧位姿当新结果发布。
             if (!camera.running()) {
                 std::fprintf(stderr, "[MAIN] 共享相机已停止：%s\n", camera.lastError().empty() ? "原因未报告" : camera.lastError().c_str());
+                failsafeLand();
                 result = 1;
                 break;
             }
@@ -124,6 +144,7 @@ int main(int argc, char** argv) {
             if (!publishVioPose(vio, comm, !options.no_send, config.max_age_ms, publish_state)) {
                 const auto stats = vio.stats();
                 std::fprintf(stderr, "[MAIN] VIO 工作线程已停止：%s\n", stats.last_error.empty() ? "原因未报告" : stats.last_error.c_str());
+                failsafeLand();
                 result = 1;
                 break;
             }
@@ -133,8 +154,14 @@ int main(int argc, char** argv) {
                 if (status.mission.state_changed) {
                     std::printf("[MISSION] state=%s reason=%s strike=%s\n", mission::toString(status.mission.state), mission::toString(status.mission.reason), status.mission.strike_confirmed ? "confirmed" : "unconfirmed");
                 }
-                if (status.mission.state == mission::MissionState::kCompleted || status.mission.state == mission::MissionState::kAborted) {
-                    result = status.mission.state == mission::MissionState::kAborted ? 1 : 0;
+                if (status.mission.state == mission::MissionState::kCompleted) {
+                    result = 0;
+                    break;
+                }
+                if (status.mission.state == mission::MissionState::kAborted) {
+                    std::fprintf(stderr, "[FAILSAFE] 任务中止：%s\n", mission::toString(status.mission.reason));
+                    failsafeLand();
+                    result = 1;
                     break;
                 }
             }

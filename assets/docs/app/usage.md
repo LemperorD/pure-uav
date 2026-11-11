@@ -59,9 +59,10 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 `--no-send` 也禁止任务 setpoint 和飞控动作请求，预热不会假装成功。
 `--blackbox` 仍是预留参数。
 
-检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测正常结束或重启超限后，
-主循环退出；相机断供、VIO 故障和用户停止时同样回收检测子进程，再关闭 VIO 与串口。
-相机服务由外部托管，不随 `main` 关闭。
+检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测最终停止后不直接退出主程序：
+任务模式会请求返航，VIO 继续运行；相机断供、VIO 故障或任务中止时，main 停止任务与检测，
+按 `mission.landing_timeout_s` / `request_retry_s` 反复请求 NAV_LAND，等待飞控确认 landed 且未上锁后，
+再关闭 VIO 与串口。用户 Ctrl-C 仍按停止流程退出。相机服务由外部托管，不随 `main` 关闭。
 
 `main` 与 `vio_live` 是替代入口，不可同时占用同一飞控串口。
 相机默认 1920×1080@30，必须匹配 VIO 标定；采集、曝光和增益在 `config/camera.yaml` 中设置。

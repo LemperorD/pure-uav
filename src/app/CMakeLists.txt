@@ -43,8 +43,8 @@ if(TARGET pure_vio_runtime)
                        target_adapter
   )
   target_sources(
-    main PRIVATE runtime/vio_pose_publisher.cpp startup/app_startup.cpp
-                 startup/preflight_config.cpp
+    main PRIVATE runtime/landing_failsafe.cpp runtime/vio_pose_publisher.cpp
+                 startup/app_startup.cpp startup/preflight_config.cpp
   )
   target_link_libraries(main PRIVATE app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
@@ -52,6 +52,17 @@ endif()
 
 # VIO 接入的无硬件回归；不打开串口或相机。
 if(TARGET app_support)
+  add_executable(
+    test_landing_failsafe
+    ${CMAKE_SOURCE_DIR}/src/test/test_app/test_landing_failsafe.cpp
+    runtime/landing_failsafe.cpp
+  )
+  target_include_directories(
+    test_landing_failsafe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+  target_link_libraries(test_landing_failsafe PRIVATE communicate)
+  add_test(NAME landing_failsafe COMMAND test_landing_failsafe)
+
   add_executable(
     test_target_adapter
     ${CMAKE_SOURCE_DIR}/src/test/test_app/test_target_adapter.cpp
