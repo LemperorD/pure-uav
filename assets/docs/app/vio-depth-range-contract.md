@@ -95,6 +95,8 @@ main / MissionService
 
 ## 5 板端验收
 
+可执行的逐步清单、预期日志与记录表见 [range-acceptance.md](range-acceptance.md)；下面只列要点。
+
 1. **停旧进程再重建**：V2 共享内存协议与旧版不兼容，`camera_server / main / vio_live / detect_rt`
    必须一起重启；`/dev/shm` 建议 ≥ 64 MiB。
 2. `./bin/camera_server --check-config`，确认启动日志没有 `深度外参查不到`；
