@@ -13,6 +13,8 @@
 #include <thread>
 #include <utility>
 
+#include "pure_uav/target_depth_range.hpp"
+
 namespace pure_uav::detection {
 namespace {
 int64_t steadyNs() {
@@ -100,6 +102,7 @@ cv::Mat decodeColorFrame(const EncodedColorFrame& frame) {
 
 struct DetectionRuntime::Impl {
     RuntimeConfig config;
+    DepthRangeCalibration range_calibration;
     std::unique_ptr<InferenceBackend> backend;
     mutable std::mutex mutex;
     std::condition_variable cv;
@@ -112,7 +115,7 @@ struct DetectionRuntime::Impl {
     uint64_t session = 0, generation = 0, epoch = 0, last_seq = 0;
     int64_t cutoff_ns = 0, last_capture_ns = 0, last_admitted_ns = 0;
 
-    Impl(const RuntimeConfig& settings, std::unique_ptr<InferenceBackend> engine) : config(settings), backend(std::move(engine)) {
+    Impl(const RuntimeConfig& settings, std::unique_ptr<InferenceBackend> engine, const DepthRangeCalibration& calibration) : config(settings), range_calibration(calibration), backend(std::move(engine)) {
     }
 
     void run() noexcept {
@@ -121,6 +124,8 @@ struct DetectionRuntime::Impl {
             if (!backend->load(config, error)) {
                 throw std::runtime_error("Detection model load: " + error);
             }
+            DepthRangeProjector projector;
+            projector.configure(range_calibration);
             {
                 std::scoped_lock lock(mutex);
                 ready = true;
@@ -158,6 +163,14 @@ struct DetectionRuntime::Impl {
                     throw std::runtime_error("Detection backend returned invalid boxes or model classes");
                 }
                 selectPrimary(result);
+                // 同一任务持有彩色及深度，推理延迟不会换成较新的深度。
+                const auto color_us = frame.host_ns > 0 ? static_cast<uint64_t>(frame.host_ns / 1000) : 0;
+                if (result.present && frame.width == range_calibration.color.width && frame.height == range_calibration.color.height) {
+                    projector.update(frame.depth_mm, depthTimestampFromColor(color_us, frame.device_us, frame.depth_device_us));
+                } else {
+                    projector.clear();
+                }
+                fillTargetDepthRange(result, projector, color_us);
                 result.host_us = 0;
                 result.device_us = frame.device_us > 0 ? static_cast<uint64_t>(frame.device_us) : 0;
                 result.seq = frame.seq;
@@ -203,7 +216,7 @@ struct DetectionRuntime::Impl {
     }
 };
 
-DetectionRuntime::DetectionRuntime(const RuntimeConfig& config, std::unique_ptr<InferenceBackend> backend) : impl_(std::make_unique<Impl>(config, std::move(backend))) {
+DetectionRuntime::DetectionRuntime(const RuntimeConfig& config, std::unique_ptr<InferenceBackend> backend, const DepthRangeCalibration& calibration) : impl_(std::make_unique<Impl>(config, std::move(backend), calibration)) {
 }
 DetectionRuntime::~DetectionRuntime() {
     stop();
@@ -294,6 +307,11 @@ bool DetectionRuntime::submit(const EncodedColorFrame& frame) noexcept {
         lock.unlock();
         EncodedColorFrame owned = frame;
         owned.bytes = frame.bytes.clone();
+        // 非法深度关闭本帧测距，彩色检测继续。
+        owned.depth_mm.release();
+        if (!frame.depth_mm.empty() && frame.depth_mm.type() == CV_16UC1 && frame.depth_mm.cols == impl_->range_calibration.depth.width && frame.depth_mm.rows == impl_->range_calibration.depth.height) {
+            owned.depth_mm = frame.depth_mm.clone();
+        }
         lock.lock();
         if (impl_->stopping || frame_epoch != impl_->epoch || frame.seq != impl_->last_seq) {
             ++impl_->counters.invalidated;
@@ -326,6 +344,7 @@ void DetectionRuntime::setEpoch(uint64_t session, uint64_t generation) {
     ++impl_->epoch;
     impl_->cutoff_ns = steadyNs();
     impl_->last_capture_ns = impl_->last_admitted_ns = 0;
+    impl_->last_seq = 0;
     impl_->pending.reset();
     impl_->snapshot = {};
 }

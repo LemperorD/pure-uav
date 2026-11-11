@@ -29,4 +29,5 @@ target_include_directories(
           ${CMAKE_SOURCE_DIR}/src/guidance/guidance_libs/include
           ${CMAKE_SOURCE_DIR}/src/common/common_libs/include
           ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(det_tooling PRIVATE pure_depth_range)
 target_compile_definitions(det_tooling PRIVATE PURE_DETECTION_BACKEND_CPU=1)

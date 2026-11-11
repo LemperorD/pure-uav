@@ -1,6 +1,6 @@
 # VIO 接入 camera_server
 
-更新：2026-11-10。本文描述合并 detect 与 VIO 分支后的相机接口和进程分工。
+更新：2026-11-11。本文描述合并 detect 与 VIO 分支后的相机接口和进程分工。
 整机模块分工见 [usage.md](usage.md)；无硬件测试不替代整机实机联调。
 `camera_server` 独占相机，当前仓库的 `main` 和 `vio_live` 均通过 POSIX 共享内存读图，
 不再创建 Orbbec 采集管线。
@@ -9,7 +9,7 @@
 
 ```text
 Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
-                       /pure_uav_camera_color → 独立检测进程
+                       /pure_uav_camera_color → 独立检测进程（同帧彩色 + 原生深度 → 目标距离）
 飞控 IMU → main 的 Communicator 或 vio_live 的 MavlinkLink → VIO → ODOMETRY
 ```
 
@@ -19,7 +19,8 @@ Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
 使用 `--no-detection` 可仅运行通信和 VIO；检测参数见 `config/detector-rt.yaml`。
 
 协议头和通道实现位于 `src/common/camera_frame.hpp`、`camera_shm.hpp/.cpp`，
-与接口提供方保持相同布局和 `kShmVersion = 1`。读者只读映射、不删除服务端通道。
+使用 `kShmVersion = 2`，完整测距标定随通道传递；旧版进程不兼容，需要统一重建和重启。
+读者只读映射、不删除服务端通道。检测与制导接线见 [depth-guidance.md](depth-guidance.md)。
 `ShmCameraSource` 位于 `src/vio/estimator/src/shm_camera_source.*`，供两个入口共用。
 
 ## 启动
@@ -65,7 +66,7 @@ cmake --build build --target camera_server main vio_live detect_rt -j2
 ## 进程与通道
 
 两条独立通道使用 seqlock 三缓冲，慢消费者不占用另一通道槽位。VIO 默认 3×8 MiB，
-彩色默认 3×4 MiB；`/dev/shm` 至少预留 40 MiB。写者不等待消费者，消费者只读最新稳定帧。
+彩色（含同帧原生深度）默认 3×8 MiB；`/dev/shm` 建议至少预留 64 MiB。写者不等待消费者，消费者只读最新稳定帧。
 `camera_server` 创建并在正常关闭时清理通道；消费者关闭不执行 `shm_unlink`。
 
 `main --detect-bin FILE` 覆盖检测可执行程序，默认取 `main` 同目录的 `detect_rt`。

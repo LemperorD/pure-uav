@@ -104,11 +104,13 @@ void FramePublisher::publish(const OrbbecCamera::CameraFrames& frames) noexcept 
         color_meta.device_us = frames.device_us;
         color_meta.sys_us = frames.sys_us;
         color_meta.depth_device_us = frames.depth_device_us;
+        color_meta.depth_bytes = static_cast<uint32_t>(depth_bytes);
+        color_meta.flags = depth_bytes != 0 ? kFrameHasDepth : 0U;
         color_meta.color_bytes = static_cast<uint32_t>(color_bytes);
         color_meta.color_encoding = static_cast<uint32_t>(frames.encoding);
         color_meta.width = static_cast<uint32_t>(frames.width);
         color_meta.height = static_cast<uint32_t>(frames.height);
-        if (!color_.publish(color_meta, nullptr, nullptr, color->data)) {
+        if (!color_.publish(color_meta, nullptr, depth_bytes != 0 ? depth->data : nullptr, color->data)) {
             dropped_.fetch_add(1, std::memory_order_relaxed);
             return;
         }

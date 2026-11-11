@@ -68,6 +68,14 @@ file(GLOB_RECURSE OPENVINS_SOURCES ${OPENVINS_DIR}/ov_core/src/*.cpp
      ${OPENVINS_DIR}/ov_init/src/*.cpp ${OPENVINS_DIR}/ov_msckf/src/*.cpp)
 list(LENGTH OPENVINS_SOURCES OPENVINS_SOURCE_COUNT)
 
+# 相机与检测共用的投影/测距库，不链接 OpenVINS、IMU 或通信模块。
+add_library(pure_depth_range STATIC src/depth_range.cpp)
+target_include_directories(pure_depth_range PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pure_depth_range PUBLIC ${OpenCV_LIBS})
+add_executable(test_depth_range tests/test_depth_range.cpp)
+target_link_libraries(test_depth_range PRIVATE pure_depth_range)
+add_test(NAME depth_range COMMAND test_depth_range)
+
 add_library(openvins_core STATIC ${OPENVINS_SOURCES})
 set_target_properties(
   openvins_core
@@ -196,7 +204,10 @@ if(_build_live)
 
   add_library(vio_camera STATIC src/orbbec_camera.cpp)
   target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-  target_link_libraries(vio_camera PUBLIC pure_vio_core OrbbecSDK)
+  target_link_libraries(vio_camera PUBLIC pure_depth_range OrbbecSDK)
+  target_include_directories(vio_camera PUBLIC "${_pure_uav_repo_root}/src/common")
+  add_executable(depth_range_probe tools/depth_range_probe.cpp)
+  target_link_libraries(depth_range_probe PRIVATE vio_camera)
 
   # estimator 独立构建时也使用仓库里的同一份 camera_server 协议。
   if(NOT TARGET pure_camera_ipc)

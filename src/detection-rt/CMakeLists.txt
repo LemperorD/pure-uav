@@ -71,7 +71,7 @@ message(STATUS "detection-rt: backend=${_det_backend}")
 # input_quantization 是配套的量化纯函数。camera_source/detector 仅为遗留测试保留。
 set(_det_sources
     src/camera_source.cpp src/yolo_postprocess.cpp src/detector.cpp
-    src/target_bridge.cpp src/detection_runtime.cpp src/npu_backend.cpp
+    src/target_bridge.cpp src/detection_runtime.cpp src/shm_color_frame.cpp src/npu_backend.cpp
     src/input_quantization.cpp src/detector_config.cpp)
 if(_det_backend STREQUAL "NPU")
   list(APPEND _det_sources src/yolo_npu.cpp third_party/awnn/awnn_lib.c
@@ -115,7 +115,7 @@ endif()
 # yaml-cpp 只在 detector_config.cpp 内部使用，公开头不泄漏其类型。
 target_link_libraries(
   detection_rt
-  PUBLIC ${OpenCV_LIBS}
+  PUBLIC ${OpenCV_LIBS} pure_depth_range
   PRIVATE OrbbecSDK pthread m yaml-cpp)
 
 add_executable(detect_rt src/detect_rt_main.cpp)

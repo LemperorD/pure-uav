@@ -1,6 +1,6 @@
 // Orbbec Gemini 彩色相机（灰度输出）。
 //
-// 只用彩色流（VIO 不需要深度），MJPG 解码为 mono8；时间戳用帧到达主机的
+// 同时采集彩色与原生深度，MJPG 解码为 mono8；时间戳用帧到达主机的
 // CLOCK_MONOTONIC 时间，再由 FcuClock 映射到飞控 IMU 时钟。
 
 #pragma once
@@ -12,6 +12,7 @@
 #include <string>
 
 #include "color_frame.hpp"
+#include "pure_uav/depth_range.hpp"
 
 namespace ob {
 class Pipeline;
@@ -69,9 +70,11 @@ class OrbbecCamera {
         bool tune_strict_blur = false;  // 明知会糊也继续（只用于排查）
         bool tune_allow_dark = false;   // 测光不达标也硬飞（只用于排查）
 
-        // 【2026-10-21】是否打开深度流（对齐到彩色）。深度给米制尺度，
+        // 【2026-10-21】是否打开原生深度流。深度给米制尺度，
         // 让单目 VIO 不再依赖平移视差 —— 直接补上和双目方案的架构差距。
         bool use_depth = true;
+        // 空路径使用 SDK 彩色标定；非空时严格校验原始图分辨率。
+        std::string range_color_calibration_path;
         // 【2026-10-23】帧集聚合模式。当年为拿到深度改成 FULL_FRAME_REQUIRE（0），
         // 代价是彩色被拽到深度的帧率（实测 640x480@60 + 深度只交付 31 fps）。
         //   0 = FULL_FRAME_REQUIRE   两路都齐才出帧（旧行为）
@@ -87,7 +90,7 @@ class OrbbecCamera {
     // device_us 是**相机自己的帧时间戳**（SDK 的 getTimeStampUs）。
     // 两者之差 = 编码 + USB 传输 + 解码 + 排队 的整条链路延迟。
     // 它是否稳定，直接决定相机时间戳能不能当曝光时刻用（VIO 的时间基准）。
-    /// depth_mm：对齐到彩色的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
+    /// depth_mm：原生深度相机坐标系的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
     using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_device_us)>;
 
     // 完整帧集：一次采集同时交付灰度、深度与**相机原始编码字节**。
@@ -141,6 +144,7 @@ class OrbbecCamera {
         }
     };
     [[nodiscard]] DepthInfo depthInfo() const;
+    [[nodiscard]] DepthRangeCalibration rangeCalibration() const;
 
     [[nodiscard]] bool running() const;
 

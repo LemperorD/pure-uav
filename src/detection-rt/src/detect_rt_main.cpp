@@ -20,11 +20,14 @@
 #include <thread>
 #include <vector>
 
+#include "camera_geometry.hpp"
 #include "camera_shm.hpp"
 #include "detection_runtime.hpp"
 #include "detection_types.hpp"
 #include "detector_config.hpp"
 #include "mission_target_channel.hpp"
+#include "shm_color_frame.hpp"
+#include "target_bridge.hpp"
 #include "yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
@@ -134,7 +137,7 @@ void printBoxes(const FrameResult& r, bool json, int64_t captured_host_ns = 0) {
                          "\"h\":%.3f}",
                          (i != 0) ? "," : "", b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), u, v, w, h);
         }
-        std::fprintf(out, "]}\n");
+        std::fprintf(out, "],\"has_range\":%s,\"range_m\":%.6f}\n", r.has_range ? "true" : "false", r.range_m);
         std::fflush(out);
         return;
     }
@@ -147,7 +150,7 @@ void printBoxes(const FrameResult& r, bool json, int64_t captured_host_ns = 0) {
             i, b.class_id, static_cast<double>(b.conf), static_cast<double>(b.x1), static_cast<double>(b.y1), static_cast<double>(b.x2), static_cast<double>(b.y2), 0.5 * (b.x1 + b.x2), 0.5 * (b.y1 + b.y2), static_cast<double>(b.x2 - b.x1), static_cast<double>(b.y2 - b.y1));
     }
     if (r.present) {
-        std::printf("main target: class=%d conf=%.4f u=%.1f v=%.1f w=%.1f h=%.1f\n", r.class_id, r.conf, r.u_px, r.v_px, r.w_px, r.h_px);
+        std::printf("main target: class=%d conf=%.4f u=%.1f v=%.1f w=%.1f h=%.1f has_range=%s range_m=%.4f\n", r.class_id, r.conf, r.u_px, r.v_px, r.w_px, r.h_px, r.has_range ? "true" : "false", r.range_m);
     } else {
         std::printf("main target: present=false\n");
     }
@@ -265,7 +268,9 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
     const auto& stream = reader.streamMeta();
     std::fprintf(stderr, "[detect_rt] shm=%s stream=%ux%u@%u model=%s\n", shm_name.c_str(), stream.width, stream.height, stream.fps, cfg.model_path.c_str());
 
-    DetectionRuntime runtime(cfg, std::make_unique<RuntimeBackend>());
+    const auto calibration = pure_uav::camera::rangeCalibration(stream);
+    std::fprintf(stderr, "[detect_rt] depth_range=%s (native depth -> raw color)\n", calibration.valid() ? "enabled" : "unavailable: incomplete calibration");
+    DetectionRuntime runtime(cfg, std::make_unique<RuntimeBackend>(), calibration);
     if (!runtime.start(&error)) {
         std::fprintf(stderr, "[error] 检测运行时启动失败: %s\n", error.c_str());
         reader.close();
@@ -303,15 +308,13 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
                 last_result_seq = 0;
                 latest_bgr.release();
             }
-            if (meta.color_bytes != 0 && meta.width > 0 && meta.height > 0 && payload.size() >= meta.color_bytes) {
+            {
                 pure_uav::EncodedColorFrame encoded;
-                encoded.bytes = cv::Mat(1, static_cast<int>(meta.color_bytes), CV_8UC1, payload.data());
-                encoded.encoding = static_cast<ColorEncoding>(meta.color_encoding);
-                encoded.width = static_cast<int>(meta.width);
-                encoded.height = static_cast<int>(meta.height);
-                encoded.host_ns = meta.host_ns;
-                encoded.device_us = meta.device_us;
-                encoded.seq = meta.seq;
+                if (!pure_uav::detection::unpackColorFrame(stream, meta, payload, encoded, error)) {
+                    std::fprintf(stderr, "[error] %s\n", error.c_str());
+                    runtime.stop();
+                    return 1;
+                }
                 runtime.submit(encoded);
 
                 // DetectionRuntime 解码后不对外暴露 BGR；画框/推流需要自己解一份。
@@ -342,16 +345,7 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
             printBoxes(snapshot.result, json, snapshot.captured_host_ns);
             if (mission_target_fd >= 0) {
                 const auto& result = snapshot.result;
-                pure_uav::app::MissionTargetPacket packet;
-                packet.captured_ns = snapshot.captured_host_ns;
-                packet.sequence = result.seq;
-                packet.present = result.present ? 1U : 0U;
-                packet.u_px = result.u_px;
-                packet.v_px = result.v_px;
-                packet.w_px = result.w_px;
-                packet.h_px = result.h_px;
-                packet.confidence = result.conf;
-                packet.class_id = result.class_id;
+                const auto packet = pure_uav::detection::to_mission_target_packet(result, snapshot.captured_host_ns);
                 pure_uav::app::publishMissionTarget(mission_target_fd, packet);
             }
             const bool frame_matches = !latest_bgr.empty() && latest_bgr_seq >= snapshot.result.seq;
