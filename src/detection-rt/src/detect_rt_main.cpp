@@ -24,6 +24,7 @@
 #include "detection_runtime.hpp"
 #include "detection_types.hpp"
 #include "detector_config.hpp"
+#include "mission_target_channel.hpp"
 #include "yolo_backend.hpp"
 #include "yolo_postprocess.hpp"
 
@@ -254,7 +255,7 @@ int runImage(const std::string& image_path, const RuntimeConfig& cfg, bool json,
     return 0;
 }
 
-int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_timeout_ms, long frames, bool json, const std::string& dump_dir, const std::string& stream_dir, double stream_fps) {
+int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_timeout_ms, long frames, bool json, const std::string& dump_dir, const std::string& stream_dir, double stream_fps, int mission_target_fd) {
     ShmChannelReader reader;
     std::string error;
     if (!reader.open(shm_name, pure_uav::camera::ChannelType::color, shm_timeout_ms, &error)) {
@@ -339,6 +340,20 @@ int runCamera(const RuntimeConfig& cfg, const std::string& shm_name, int shm_tim
                 ++present_frames;
             }
             printBoxes(snapshot.result, json, snapshot.captured_host_ns);
+            if (mission_target_fd >= 0) {
+                const auto& result = snapshot.result;
+                pure_uav::app::MissionTargetPacket packet;
+                packet.captured_ns = snapshot.captured_host_ns;
+                packet.sequence = result.seq;
+                packet.present = result.present ? 1U : 0U;
+                packet.u_px = result.u_px;
+                packet.v_px = result.v_px;
+                packet.w_px = result.w_px;
+                packet.h_px = result.h_px;
+                packet.confidence = result.conf;
+                packet.class_id = result.class_id;
+                pure_uav::app::publishMissionTarget(mission_target_fd, packet);
+            }
             const bool frame_matches = !latest_bgr.empty() && latest_bgr_seq >= snapshot.result.seq;
             if (!dump_dir.empty() && frame_matches) {
                 drawAndSave(latest_bgr, snapshot.result, dump_dir, snapshot.result.seq);
@@ -423,6 +438,7 @@ int main(int argc, char** argv) {
     std::string stream_dir;
     std::string shm_name = pure_uav::camera::kColorChannel;
     int shm_timeout_ms = 5000;
+    int mission_target_fd = -1;
     long frames = 0;
     double stream_fps = 20.0;
     bool json = false;
@@ -444,6 +460,15 @@ int main(int argc, char** argv) {
             check_config = true;
         } else if (arg == "--image") {
             image_path = requireValue("--image");
+        } else if (arg == "--mission-target-fd") {
+            const auto value = requireValue("--mission-target-fd");
+            char* end = nullptr;
+            const long fd = std::strtol(value.c_str(), &end, 10);
+            if (end == value.c_str() || *end != '\0' || fd < 3 || fd > 1048576) {
+                std::fprintf(stderr, "[error] invalid mission target fd\n");
+                return 2;
+            }
+            mission_target_fd = static_cast<int>(fd);
         } else if (arg == "--frames") {
             frames = std::atol(requireValue("--frames").c_str());
             frames = std::max<long>(frames, 0);
@@ -530,5 +555,5 @@ int main(int argc, char** argv) {
     if (!image_path.empty()) {
         return runImage(image_path, cfg, json, dump_dir, stream_dir);
     }
-    return runCamera(cfg, shm_name, shm_timeout_ms, frames, json, dump_dir, stream_dir, stream_fps);
+    return runCamera(cfg, shm_name, shm_timeout_ms, frames, json, dump_dir, stream_dir, stream_fps, mission_target_fd);
 }

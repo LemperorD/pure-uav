@@ -25,8 +25,17 @@ def run(args, expected=0, contains=None):
 
 
 run(["--help"], contains="--vio-config")
+run(["--help"], contains="PX4")
+run(["--check-config"], contains="flight_stack: PX4")
 run(["--help"], contains="--check-config")
 run(["--help"], contains="--no-detection")
+run(["--help"], contains="--mission-config")
+run(["--check-config"], contains="mission_enabled: false")
+run(["--mission", "--check-config"], contains="mission_enabled: true")
+run(["--mission", "--no-send", "--check-config"], contains="mission_send_enabled: false")
+run(["--mission", "--guidance-config", "missing-guidance.yaml", "--check-config"], 2, "Configuration error")
+run(["--mission", "--mission-config", "missing-mission.yaml", "--check-config"], 2, "Configuration error")
+run(["--mission-config"], 2, "缺少参数值")
 run(["--help"], contains="--detect-bin")
 run(["--no-detection", "--check-config"], contains="detection_enabled: false")
 # 校验路径只解析进程参数，不启动子进程或加载检测模型。
@@ -44,6 +53,11 @@ run(["--vio-config"], 2, "缺少参数值")
 run(["--unknown"], 2, "未知参数")
 with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as directory:
     tmp = pathlib.Path(directory)
+
+    invalid_mission = tmp / "invalid-mission.yaml"
+    for content in ("mission: {typo: 1}", "mission: {takeoff_height_m: .nan}", "mission: {target_confirm_frames: -1}", "mission: {prestream_s: 0.01}"):
+        invalid_mission.write_text(content)
+        run(["--mission", "--mission-config", str(invalid_mission), "--check-config"], 2, "Configuration error")
 
     def variant(name, text, old, new, flag, error):
         path = tmp / (name + ".yaml")

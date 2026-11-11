@@ -45,6 +45,7 @@ struct VioRuntime::Impl {
     std::atomic<uint64_t> generation{0};
     mutable std::mutex publication_mutex;
     VioPoseSnapshot snapshot;
+    FcuClock clock;
     mutable std::mutex stats_mutex;
     Stats cached_stats;
     std::mutex startup_mutex;
@@ -85,7 +86,7 @@ void VioRuntime::Impl::run() noexcept {
         if (!std::filesystem::is_regular_file(std::filesystem::path(options.config_dir) / options.estimator_config)) throw std::runtime_error("VIO estimator configuration file does not exist");
         VioEstimator estimator(options);
         if (!estimator.ok()) throw std::runtime_error(estimator.error());
-        FcuClock clock;
+        clock.reset();
         ImuTimestampFilter filter;
         std::optional<VioFrame> pending;
         uint64_t mapped_us = 0, last_raw_us = 0, last_fed_us = 0, first_fed_us = 0, last_pose_us = 0;
@@ -401,6 +402,9 @@ bool VioRuntime::PublicationGuard::publishable() const {
 }
 bool VioRuntime::PublicationGuard::clockValid() const {
     return runtime_.impl_->clock_valid.load();
+}
+bool VioRuntime::PublicationGuard::hostToFcuUs(int64_t host_ns, uint64_t& boot_us) const {
+    return clockValid() && runtime_.impl_->clock.hostToFcuUs(host_ns, boot_us);
 }
 uint64_t VioRuntime::PublicationGuard::generation() const {
     return runtime_.impl_->generation.load();

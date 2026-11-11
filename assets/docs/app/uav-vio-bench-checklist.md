@@ -1,12 +1,11 @@
-# 本周上机：VIO → ArduPilot 验收清单
+# 上机联调：VIO → PX4 验收清单
 
-> **架构更新（2026-11-09）**：相机已改为 `camera_server` 独占采集 + 共享内存分发；
-> 相机服务外部托管启动，VIO 在 main 内运行，检测由 `bin/main` 等飞控心跳后拉起并监督。
-> 构建/启动命令已按新架构更新，详见 [camera-ipc.md](camera-ipc.md)。
-> 本文其余 VIO/飞控验收项保持不变。
+更新：2026-11-11，已确认实际飞控使用 PX4。原先按 ArduPilot 编写的参数项已替换。
+目标是先验证机载程序稳定运行、飞控接收并融合外部定位，再验证任务控制。
+记录实际飞控型号、PX4 固件版本、机载板和连接方式；以下不是可直接导入的飞控参数文件。
 
-日期：2026-11-05。目的先是“机上稳定运行、飞控收到并融合”，不是立即自主飞行。
-按当前工程假定目标为 CUAV-7-Nano / ArduPilot；实际固件版本、板子型号和连接方式仍要记录确认。
+相机由 `camera_server` 独占采集并经共享内存分发；VIO 在 main 内运行，
+检测由 main 等飞控心跳后拉起并监督。架构见 [camera-ipc.md](camera-ipc.md)。
 
 ## 0. 先固定基线
 
@@ -17,7 +16,7 @@
 - 不把开发机的 bin、lib 编译产物和 CMakeCache 拷到 ARM 上；使用新 build-uav 目录重新构建。
 - 先用 `main --no-detection` 关闭检测完成定位验收。不要一开始并行调检测、制导、融合和飞行。
 
-本周基线构建命令（只在目标板上手动运行）：
+板端基线构建命令（只在目标板上手动运行）：
 
 ```bash
 cmake -S . -B build-uav -DCMAKE_BUILD_TYPE=Release
@@ -31,12 +30,14 @@ cmake --build build-uav --target camera_server main vio_live detect_rt -j2
 - USB 连接与 UART 连接分开确认。走 TELEM 时，按实际端口设置 MAVLink2、匹配波特率，核对接线和电气兼容性。
 - 相机由 `camera_server` 独占；相机服务先行启动，VIO 在 main 内运行，检测由 `bin/main` 拉起并监督；
   不同时运行任何直采工具（互斥清单见 `assets/docs/app/camera-ipc.md`）。
-- 飞控串口由 `vio_live` 独占，不同时运行另一个 vio_live、串口探针或会争用同一设备的地面站。
+- 选择 main 或 vio_live 中的一个入口独占串口，不同时运行串口探针或争用同一设备的地面站。
+- main 只接受 PX4 心跳，任务适配器同样按 PX4 Offboard 工作；不匹配的固件会在连接相机前拒绝启动。
 - 关闭检测，先以 `./bin/vio_live --no-send` 单独验收，确认能收到心跳与实际 IMU，而非仅成功打开设备；
   若通过 `bin/main` 验收则加 `--no-detection`，避免它拉起检测子进程。
 - 实测 IMU 应接近本配置请求的 200 Hz，且无持续队列溢出、>100 ms 断流或反复时间基重建。
 
-`--no-send` 仅禁止 ODOMETRY，不禁止通信模块正常心跳和消息流订阅。
+`main --no-send` 禁止 ODOMETRY、任务 setpoint 和飞控动作请求，通信心跳和消息流订阅仍然运行。
+本阶段不传 `--mission`，避免在定位就绪后自动进入起飞流程。
 初始动态初始化需要运动激励；先等时钟、测光和相机预热就绪，再按既有 VIO 测试方式温和移动。
 不要用假位姿、无限放宽门限或未解锁不能发的附加判断，让系统“看起来通过”。
 
@@ -51,34 +52,33 @@ cmake --build build-uav --target camera_server main vio_live detect_rt -j2
 
 ## 3. 配置飞控“使用外部定位”，不只是“收消息”
 
-先备份参数。以下来自 2026-11-05 核对的 ArduPilot 官方 Non-GPS Position Estimation 文档，
-不是所有固件版本和所有飞机的通用参数文件：
+先备份参数，并按实际安装的 PX4 版本核对 External Position Estimation 文档。
+软件输出 MAVLink ODOMETRY，位置/姿态参考系为 LOCAL_FRD，速度参考系为 BODY_FRD；
+任务仍使用飞控融合后的 LOCAL_POSITION_NED 和姿态，不能把 VIO 原生位置直接改标签当成 NED。
 
-| 项目 | 官方 ODOMETRY 接入参考 | 本轮应如何处理 |
-|---|---|---|
-| VISO_TYPE | 按实际固件版本的参数枚举和官方接入文档核对 | 本地历史记录互有差异，不把任一数字当作通用固定值 |
-| EK3_SRC1_POSXY | 6，ExternalNav | 确认实际使用的是哪一组 EKF 来源 |
-| EK3_SRC1_VELXY | 6 或 0 | 水平速度验证后选 6；不能只凭有输出就信任 |
-| EK3_SRC1_POSZ | 6 或 1（气压） | 首轮可保留已有可靠气压高度，不一次全改成视觉 |
-| EK3_SRC1_VELZ | 6 或 0 | 垂直速度验证后再决定 |
-| EK3_SRC1_YAW | 6 或 1（罗盘） | 初始 FRD 不等于正北；核对航向对齐，不盲目同时换成视觉 yaw |
-| VISO_POS_X/Y/Z | 按实际位置补偿 | 核对本代码输出参考点，避免相机杆臂被补偿两次 |
-| VISO_QUAL_MIN | 过滤低质量输入 | 当前软件配置 OK=90、DEGRADED=50，按验收策略选择门限 |
+| 项目 | PX4 侧需要核对的内容 |
+|---|---|
+| MAVLink 接入端口 | 核对实际串口、波特率和 MAVLink 2；按版本配置对应 MAVLink 实例 |
+| EKF2_EV_CTRL | 按版本启用需要融合的外部视觉水平位置、垂直位置、速度或航向，不照抄未知位掩码 |
+| 高度参考 | 按实际传感器和 EKF2_HGT_REF 等版本对应参数选择；首轮保留已验证的高度来源 |
+| EKF2_EV_DELAY | 对照采样时刻与飞控接收时刻测量延迟，避免重复补偿 VIO 相机/IMU 时移 |
+| EKF2_EV_POS_X/Y/Z | 核对外部定位输出参考点相对飞控机体原点的位置，避免重复杆臂补偿 |
+| 外部视觉噪声与质量门限 | 按实际版本核对 EKF2_EV_NOISE_MD、相关噪声及质量参数；软件默认 sigma 不是实测精度 |
 
-ODOMETRY 官方最低要求为至少 4 Hz；对本工程建议以正常运动时稳定接近实际相机/VIO 输出频率为目标，
-同时测量抖动和最长间断，不能只用平均值或“略高于最低值”证明可飞。
-无 GPS 时需要先设置 EKF origin；这和随意重设当前位置、覆盖原点或仅设置 Home 不是同一个验证步骤。
-相机输出的 LOCAL_FRD 与 BODY_FRD、四元数 wxyz 和米制单位应按接口验证，不能当作全球经纬度或默认 NED。
+ODOMETRY 的 q 为 wxyz，位置单位米、速度单位米/秒。初始 FRD 朝向不等于正北，
+应通过可重复的前后/左右/上下和偏航动作验证方向与融合结果。
+以 PX4 实际外部视觉接收率、EKF 融合状态和最长数据间断作为验收依据，
+主循环 50 Hz 和软件 sent 计数不能代替这些证据。
 
-不要从网上的仿真教程照抄关闭解锁检查、强制解锁或一键修改 GPS/罗盘的指令。
-本主程序不会自动修改飞控参数。
+本主程序不会自动修改飞控参数；不要为绕过失败而关闭解锁检查、强制解锁或伪造定位。
 
 ## 4. 发送与融合验收，仍拆桨
 
 - `--no-send` 阶段正常后，人工确认准备妥当，再运行不带该参数的 `./bin/main --no-detection`
   （VIO 单独验收阶段不拉起检测子进程）。
 - 在飞控端检查视觉数据接收与 EKF 实际融合、位置/速度/姿态方向、时间与 reset_counter。
-- 保存飞控 DataFlash 日志。台架未解锁也要记录时，可按实际固件确认并使用 LOG_DISARMED=1。
+- 保存 PX4 的 ULog 日志。需要未解锁也记录时，按当前固件文档核对 SDLOG_MODE；不要沿用 ArduPilot 的 DataFlash/LOG_DISARMED 设置。
+- 在地面站或 PX4 shell 检查 vehicle_visual_odometry、vehicle_local_position 以及版本对应的 EKF 状态与创新量，确认数据确实参与融合。
 - 同时保存飞控参数文件、地面站日志和主机控制台输出；未有飞控日志证据前，不把 main 的 sent 当作已融合。
 - 不为使 EKF 接受而把噪声设置成任意极小值；软件里的 sigma 默认值是策略配置，不是本次测得的协方差。
 - 如需设置视觉延迟参数，先测量并核对时间戳含义，不盲目照抄零延迟，也不把已经补偿过的相机/IMU 时移重复添加。
@@ -94,10 +94,10 @@ ODOMETRY 官方最低要求为至少 4 Hz；对本工程建议以正常运动时
 
 “上位机停发”不保证飞机会自动安全悬停、切源或降落。
 必须在实际固件上检查 EKF 失效行为、定位源切换/备份来源以及遥控人工接管。
-如使用 GPS/外部定位切换，先在地面手动切换并确认 EKF 来源与健康，之后才考虑安全场地的低速飞行测试。
+如使用 GPS/外部定位切换，先在地面手动切换并确认 融合来源与健康，之后才考虑安全场地的低速飞行测试。
 不要把室内 RTL 当作默认安全退路。保留飞手、明确中止条件，未完成这些验收不进行自主飞行。
 
-## 6. 建议本周交付物
+## 6. 本轮建议交付物
 
 1. 一份可复现的目标板构建记录与生效配置。
 2. 一份包含静止、平移、转向的 VIO 参考误差记录。
@@ -107,10 +107,20 @@ ODOMETRY 官方最低要求为至少 4 Hz；对本工程建议以正常运动时
 
 先交付 1–4，再把检测作为额外负载接入；截止日期不能代替验收。
 
+## 7. 任务联调
+
+先完成定位接收与融合验收，再启用 `--mission`。
+任务通过连续 setpoint 预热、PX4 Offboard 模式反馈、解锁反馈及落地状态推进，
+模式切换或解锁请求发出后仍等待飞控真实状态，不能用发送成功代替完成。
+先在仿真中验证完整起飞/悬停/返航/降落，再按实机验收流程推进。
+撞板还需有效测距、彩色相机内外参和撞击确认，详见 [任务文档](../../../src/app/mission/README.md)。
+
 ## 官方核对来源
 
+按已安装的 PX4 版本选择对应文档，不假定 main 分支参数与旧版本完全相同。
+
 ```text
-https://ardupilot.org/dev/docs/mavlink-nongps-position-estimation.html
-https://ardupilot.org/copter/docs/common-non-gps-to-gps.html
-https://ardupilot.org/copter/docs/common-downloading-and-analyzing-data-logs-in-mission-planner.html
+https://docs.px4.io/main/en/ros/external_position_estimation.html
+https://docs.px4.io/main/en/flight_modes/offboard.html
+https://docs.px4.io/main/en/dev_log/logging.html
 ```

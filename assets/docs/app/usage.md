@@ -8,17 +8,22 @@
 
 ## 1 机载入口与线程
 
-`./bin/main` 运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
-制导控制、自动解锁、起飞与 Offboard 状态机仍未接入当前入口。
+`./bin/main` 连接 PX4，运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+主入口和任务适配器统一接受 PX4；其他固件会在连接相机前被拒绝。
+`--check-config` 会打印 `flight_stack: PX4`。外部定位融合验收见
+[uav-vio-bench-checklist.md](uav-vio-bench-checklist.md)。
+`--mission` 显式启用主任务，通过 MissionService / MissionRuntime 调度 Offboard、
+解锁、起飞、目标搜索、制导和返航；接线及当前能力边界见
+[任务文档](../../../src/app/mission/README.md)。
 
 | 线程 / 服务 | 职责 | 数据交付 |
 |---|---|---|
 | 通信接收（Communicator 内部） | 唯一串口、心跳、IMU、遥测 | 逐帧 IMU 队列、遥测缓存 |
 | camera_server（独立进程） | 唯一相机采集 | VIO 灰度/深度通道、检测彩色通道 |
 | VIO（main 内部） | 顺序处理 IMU/图像、健康监控 | 位姿快照，经同一串口发送 ODOMETRY |
-| detect_rt（子进程） | 彩色通道取帧、模型推理 | JSON / 检测预览，尚未用于制导 |
+| detect_rt（子进程） | 彩色通道取帧、模型推理 | JSON / 检测预览；任务开启时独立通道回传目标 |
 | 检测监督线程（main 内部） | 启动后监督、异常重启、退出回收 | 完成状态交给主循环 |
-| main | 位姿发布门控、输入监督、统一退出 | Ctrl-C / SIGTERM / 故障处理 |
+| main | 位姿发布门控、输入监督、任务服务调用、统一退出 | Ctrl-C / SIGTERM / 故障处理；SIGUSR1 请求返航 |
 
 ```bash
 # 从仓库根目录执行；相机独立终端启动：
@@ -38,7 +43,11 @@
 `--detect-bin FILE` 覆盖检测子程序路径；默认使用 `main` 同目录下的 `detect_rt`。
 `--detection-config FILE` 传给子进程 `--config`；模型、阈值、类别、限频和帧龄
 统一由 `config/detector-rt.yaml` 管理，不接受 `main --model` 覆盖。
-`--guidance-config` 与 `--blackbox` 仍是预留参数，当前不生效。
+`--mission-config` 指向任务配置，默认 `config/mission.yaml`；
+`--guidance-config` 在任务启用时加载制导及彩色相机标定参数。
+`--mission --no-send --check-config` 可校验实际任务配置，不打开设备。
+`--no-send` 也禁止任务 setpoint 和飞控动作请求，预热不会假装成功。
+`--blackbox` 仍是预留参数。
 
 检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测正常结束或重启超限后，
 主循环退出；相机断供、VIO 故障和用户停止时同样回收检测子进程，再关闭 VIO 与串口。
