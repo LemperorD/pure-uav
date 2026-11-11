@@ -1,12 +1,19 @@
 # app 用法（CLI / YAML / 跑法）
 
 - 状态：现行
-- 相关代码：`src/app/main.cpp`（并发机载主流程）、`src/app/startup/guidance_example.cpp`（制导示例入口）、`src/app/startup/guidance_application.{hpp,cpp}`
+- 相关代码：`src/app/main.cpp`（机载组合根）、`src/app/startup/app_options.cpp`（参数解析）、`src/app/runtime/vio_pose_publisher.cpp`（位姿发布）、`src/app/startup/guidance_example.cpp`（制导示例入口）、`src/app/startup/guidance_application.{hpp,cpp}`
 - 相关文档：[README.md](README.md)、[csv-format.md](csv-format.md)、[blackbox.md](blackbox.md)
 
 ---
 
 ## 1 机载入口与线程
+
+`main.cpp` 保留信号处理、模块启动顺序、固定节拍公共循环和退出清理，
+便于直接阅读通信、VIO、检测和任务之间的调用关系。
+命令行解析与帮助移到 `startup/app_options.cpp`，
+配置合成、飞控检查和任务/检测启动细节移到 `startup/app_startup.cpp`；
+VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`。
+`main()` 直接调用这些函数并持有模块对象，公共循环也在 `main()` 内。
 
 `./bin/main` 连接 PX4，运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
 主入口和任务适配器统一接受 PX4；其他固件会在连接相机前被拒绝。
@@ -235,7 +242,8 @@ bin/guidance_example
 
 ## 10 机载接线
 
-`main.cpp` 中的 `InsSource` 使用飞控位置/姿态，`TargetSource` 消费检测最新结果并通过
-`FcuClock` 将采集单调时钟映射到飞控 boot 时钟，`CommandSink` 转成通信模块的 `GuidanceCmd`。
+`main.cpp` 组合通信、VIO、检测监督与 `MissionService`。
+`glue/mission_ports.cpp` 读取飞控位置/姿态，`glue/mission_service.cpp` 接收检测结果并通过
+`FcuClock` 将采集单调时钟映射到飞控 boot 时钟，任务运行层统一发送 `GuidanceCmd`。
 VIO 的 LOCAL_FRD 位姿只发给飞控；制导读取飞控融合后的 LOCAL_POSITION_NED 与姿态，避免混用坐标系。
 独立 `GuidanceApplication` 仍负责仿真/回放。
