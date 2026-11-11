@@ -200,10 +200,10 @@ python prepare_openvins.py \
 
 ## 9. 参考与源码定位
 
-- Kalibr 官方 YAML 方向与时间定义：https://github.com/ethz-asl/kalibr/wiki/yaml-formats
-- Kalibr 官方 AprilGrid 点序：https://github.com/ethz-asl/kalibr/blob/master/aslam_cv/aslam_cameras_april/src/GridCalibrationTargetAprilgrid.cpp
-- OpenVINS 配置解析：https://github.com/rpng/open_vins/blob/master/ov_core/src/utils/opencv_yaml_parse.h
-- OpenVINS 外参与时间参数加载：https://github.com/rpng/open_vins/blob/master/ov_msckf/src/core/VioManagerOptions.h
+- Kalibr 官方 YAML 方向与时间定义：<https://github.com/ethz-asl/kalibr/wiki/yaml-formats>
+- Kalibr 官方 AprilGrid 点序：<https://github.com/ethz-asl/kalibr/blob/master/aslam_cv/aslam_cameras_april/src/GridCalibrationTargetAprilgrid.cpp>
+- OpenVINS 配置解析：<https://github.com/rpng/open_vins/blob/master/ov_core/src/utils/opencv_yaml_parse.h>
+- OpenVINS 外参与时间参数加载：<https://github.com/rpng/open_vins/blob/master/ov_msckf/src/core/VioManagerOptions.h>
 
 `calib/spline.py` 是数学模型，`calib/solver.py` 是联合优化与导出，`calib/data.py` 是输入/检测/PnP。主入口、合成验证、时钟映射和 OpenVINS 配置导出均位于项目根目录。交付目录及压缩包不包含第三方仓库或 `.git` 文件夹。
 
