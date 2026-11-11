@@ -129,4 +129,16 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
         )
     )
     run(["--mission", "--no-send", "--camera-calibration", str(camera_true), "--check-config"], contains="mission_guidance_ready: true")
+
+    camera_bad_r = tmp / "camera-bad-r.yaml"
+    camera_bad_r.write_text(
+        re.sub(
+            r"R_body_cam:\s*\[[^\]]*\]",
+            "R_body_cam: [0, 0, 0, 0, 0, 0, 0, 0, 0]",
+            camera_text.replace("calibrated: false", "calibrated: true", 1),
+            flags=re.S,
+        )
+    )
+    run(["--mission", "--no-send", "--camera-calibration", str(camera_bad_r), "--check-config"], 2, "Configuration error")
+    run(["--mission", "--no-send", "--camera-calibration", str(tmp / "missing-camera.yaml"), "--check-config"], 2, "Configuration error")
 print(f"PASS: {checks} application/VIO config checks; no hardware opened")

@@ -11,59 +11,10 @@
 #include <memory>
 #include <string>
 
-#include "communicator.hpp"
-#include "guidance_loop.hpp"
-#include "runtime/guidance_ports.hpp"
 #include "startup/guidance_application.hpp"
 
 namespace pure_uav::app {
 namespace {
-
-namespace flight = guidance::flight;
-
-class CommInsSource final : public flight::GuidanceInsSource {
-  public:
-    CommInsSource(Communicator& comm, double max_skew_s) : comm_(comm), max_skew_s_(max_skew_s) {
-    }
-
-    bool poll(flight::GuidanceInsSample& out) override {
-        if (!comm_.isConnected()) {
-            return false;
-        }
-        Attitude attitude;
-        LocalPosition position;
-        if (!comm_.getAttitude(attitude) || !comm_.getLocalPosition(position)) {
-            return false;
-        }
-        flight::GuidanceInsSample sample;
-        if (!makeGuidanceIns(attitude, position, max_skew_s_, sample) || sample.boot_us <= last_) {
-            return false;
-        }
-        last_ = sample.boot_us;
-        out = sample;
-        return true;
-    }
-
-    bool alive() const override {
-        return comm_.isConnected();
-    }
-
-  private:
-    Communicator& comm_;
-    double max_skew_s_ = 0.2;
-    std::uint64_t last_ = 0;
-};
-
-// 本阶段没有检测目标；占位源只保证 GuidanceLoop 能构造和 init。
-class NullTargetSource final : public flight::GuidanceTargetSource {
-  public:
-    bool poll(flight::GuidanceTargetSample& /*out*/) override {
-        return false;
-    }
-    bool alive() const override {
-        return true;
-    }
-};
 
 struct CameraCalibration {
     int width = 0;
@@ -168,29 +119,18 @@ bool rotationValid(const double R[9], std::string& error) {
 
 struct GuidanceSession::Impl {
     GuidanceAppParams params;
-    std::unique_ptr<CommInsSource> ins;
-    std::unique_ptr<NullTargetSource> target;
-    std::unique_ptr<flight::GuidanceNullSink> sink;
-    std::unique_ptr<flight::GuidanceLoop> loop;
 
     bool params_ok = false;
     bool camera_ok = false;
     bool camera_fatal = false;
-    bool ready = false;
     std::string camera_reason;
     CameraCalibration camera;
 
     bool initParams(const std::string& path, std::string& error);
     CameraLoadResult initCamera(const std::string& path, std::string& error);
-    bool attach(Communicator& comm, std::string& error);
 };
 
 bool GuidanceSession::Impl::initParams(const std::string& path, std::string& error) {
-    loop.reset();
-    ins.reset();
-    target.reset();
-    sink.reset();
-    ready = false;
     params_ok = false;
 
     params = guidance_default_params();
@@ -217,7 +157,7 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
     camera_fatal = false;
     camera_reason.clear();
     camera = CameraCalibration{};
-    params.loop.cam = flight::GuidanceCameraModel{};
+    params.loop.cam = guidance::flight::GuidanceCameraModel{};
 
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) {
@@ -364,39 +304,17 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
     }
 }
 
-bool GuidanceSession::Impl::attach(Communicator& comm, std::string& error) {
-    loop.reset();
-    sink.reset();
-    target.reset();
-    ins.reset();
-    ready = false;
-    if (!params_ok) {
-        error = "guidance 参数尚未初始化";
-        return false;
-    }
-    if (!camera_ok) {
-        error = camera_reason.empty() ? "相机标定未就绪" : camera_reason;
-        return false;
-    }
-
-    ins = std::make_unique<CommInsSource>(comm, params.loop.max_sample_age_s);
-    target = std::make_unique<NullTargetSource>();
-    sink = std::make_unique<flight::GuidanceNullSink>();
-    loop = std::make_unique<flight::GuidanceLoop>(params.guidance, params.loop, *ins, *target, *sink);
-    if (!loop->init()) {
-        error = "GuidanceLoop::init 失败（参数或相机模型无效）";
-        camera_fatal = true;
-        loop.reset();
-        return false;
-    }
-    ready = true;
-    return true;
-}
-
 GuidanceSession::GuidanceSession() : impl_(std::make_unique<Impl>()) {
 }
 
 GuidanceSession::~GuidanceSession() = default;
+
+bool GuidanceSession::init(const std::string& guidance_path, const std::string& camera_path, std::string& error) {
+    if (!impl_->initParams(guidance_path, error)) {
+        return false;
+    }
+    return impl_->initCamera(camera_path, error) != CameraLoadResult::kError;
+}
 
 bool GuidanceSession::initParams(const std::string& path, std::string& error) {
     return impl_->initParams(path, error);
@@ -404,10 +322,6 @@ bool GuidanceSession::initParams(const std::string& path, std::string& error) {
 
 CameraLoadResult GuidanceSession::initCamera(const std::string& path, std::string& error) {
     return impl_->initCamera(path, error);
-}
-
-bool GuidanceSession::attach(Communicator& comm, std::string& error) {
-    return impl_->attach(comm, error);
 }
 
 bool GuidanceSession::paramsOk() const {
@@ -423,7 +337,7 @@ bool GuidanceSession::cameraFatal() const {
 }
 
 bool GuidanceSession::readyForGuidance() const {
-    return impl_->ready;
+    return impl_->params_ok && impl_->camera_ok;
 }
 
 const std::string& GuidanceSession::cameraReason() const {

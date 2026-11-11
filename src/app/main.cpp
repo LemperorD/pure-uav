@@ -340,16 +340,11 @@ int runVio(const Options& options) {
         }
         mission_config.send_enabled = !options.no_send;
         GuidanceSession guidance;
-        if (!guidance.initParams(resolve(options.guidance), config_error)) {
+        if (!guidance.init(resolve(options.guidance), resolve(options.camera_calibration), config_error)) {
             std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
             return 2;
         }
-        const CameraLoadResult camera = guidance.initCamera(resolve(options.camera_calibration), config_error);
-        if (camera == CameraLoadResult::kError) {
-            std::fprintf(stderr, "Configuration error: %s\n", config_error.c_str());
-            return 2;
-        }
-        if (camera == CameraLoadResult::kNotCalibrated) {
+        if (!guidance.cameraOk()) {
             std::fprintf(stderr, "[MAIN] 彩色相机未标定：%s；任务只搜索，不进入撞板\n", guidance.cameraReason().c_str());
         }
         mission_guidance = guidance.params();
