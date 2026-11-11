@@ -1,3 +1,5 @@
+add_subdirectory(mission)
+
 add_library(guidance_sim_tools STATIC sim/guidance_sim_tools.cpp)
 target_include_directories(guidance_sim_tools
                            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -9,20 +11,18 @@ target_include_directories(guidance_application
 target_link_libraries(guidance_application PUBLIC guidance_sim_tools
                                                   guidance_flight)
 
-add_executable(main main.cpp
-                    startup/main_config.cpp
-                    startup/logging.cpp
-                    startup/flight_flow.cpp
-                    startup/flight_safety.cpp
-                    glue/guidance_session.cpp)
-target_link_libraries(main PRIVATE communicate guidance_application)
+add_executable(main main.cpp)
+target_link_libraries(main PRIVATE communicate guidance_application
+                                  mission_ports)
 if(TARGET pure_vio_runtime)
-  add_library(vio_app_support STATIC app_config.cpp pose_gate.cpp
-                                  glue/comm_imu_source.cpp)
+  add_library(
+    vio_app_support STATIC app_config.cpp pose_gate.cpp glue/comm_imu_source.cpp
+                           glue/mission_service.cpp)
   target_include_directories(
     vio_app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
                            ${CMAKE_SOURCE_DIR}/src/vio/estimator/src)
-  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime)
+  target_link_libraries(vio_app_support PUBLIC communicate pure_vio_runtime
+                                             mission_ports)
   target_link_libraries(main PRIVATE vio_app_support)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
 endif()
@@ -57,5 +57,16 @@ target_link_libraries(test_drone PRIVATE communicate)
 set_target_properties(main guidance_example test_drone PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
-# VIO 分支的 app_config 测试针对其 app.yaml/vio.yaml 版 main；
-# 当前 main 仍是 guidance 飞行流程，待 VIO 启动接入后再恢复该测试。
+if(TARGET vio_app_support)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  add_test(NAME app_config
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/src/test/test_app/test_app_config.py
+                   $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(app_config PROPERTIES TIMEOUT 30)
+  add_test(NAME main_firmware
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/src/test/test_app/test_main_firmware.py
+                   $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(main_firmware PROPERTIES TIMEOUT 40)
+endif()

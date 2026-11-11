@@ -19,6 +19,9 @@ src/guidance/flight/（飞行外壳，pure_uav::guidance::flight）
 
 src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
   main.cpp                         通信 + VIO + 检测子进程监督（相机由 camera_server 提供）
+  mission/                         主任务状态机、运行桥接、参数和无硬件回归
+  glue/mission_service.{hpp,cpp}    main 任务门面：VIO 门控、目标 IPC 和运行调度
+  glue/mission_ports.{hpp,cpp}      飞控反馈/指令与制导计算适配
   runtime/                         有界图像队列、飞控数据/指令换算
   startup/guidance_example.cpp     制导调用示例入口（独立可执行文件）
   startup/guidance_app_params.hpp       宿主侧整机配置 GuidanceAppParams
@@ -34,6 +37,10 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 `guidance_flight_types.hpp` 保持零外部协议依赖。
 
 ---
+
+任务框架与后续接线说明见 [mission/README.md](../../../src/app/mission/README.md)。
+`mission_example` 可独立演示全流程；`main --mission` 显式启用主任务，
+`--no-send` 同时禁止任务/制导控制和飞控动作请求。
 
 ## 2 三种跑法（`guidance_example`）
 
@@ -51,7 +58,8 @@ src/app/（宿主应用与入口，pure_uav::app；main.cpp 加功能目录）
 ./bin/guidance_example --config=guidance.yaml --print-params
 ```
 
-> `./bin/main` 运行通信、VIO 和检测子进程监督；制导控制仍未接入该入口。相机服务独立运行，接口与启动顺序见 [camera-ipc.md](camera-ipc.md)，参数见 [usage.md](usage.md)。上述仿真与回放由独立 `guidance_example` 运行。
+> `./bin/main` 运行通信、VIO 和检测子进程监督；`--mission` 接入任务运行层和制导仲裁，
+实机撞板还需有效测距及彩色相机标定。相机服务独立运行，接口与启动顺序见 [camera-ipc.md](camera-ipc.md)，参数见 [usage.md](usage.md)。上述仿真与回放由独立 `guidance_example` 运行。
 
 参数：`--hz=N --law=0|1|2 --n=X --a-max=X --ticks=N --realtime --quiet --record=F --out=F --replay=F --config=F --print-params`。
 

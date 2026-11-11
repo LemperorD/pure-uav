@@ -2,6 +2,7 @@
 // 检测子进程生命周期管理（header-only）。
 // bin/main 与无硬件单测共用同一实现：main 只负责启动、监督、重启与停止
 // bin/detect_rt；检测监督部分不解析算法配置、不打开帧通道、不参与推理。
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -27,6 +28,7 @@ struct DetectionProcessOptions {
     int stop_timeout_ms = 3000;
     int poll_interval_ms = 500;
     int stop_signal = SIGTERM;
+    int target_publish_fd = -1;  // 父进程持有；仅此 fd 在检测 exec 时保留。
 };
 
 enum class SuperviseStatus {
@@ -192,6 +194,9 @@ class DetectionProcess {
         if (child == 0) {
             // 自成进程组，避免终端信号同时投递给父子进程造成重复处理。
             setpgid(0, 0);
+            if (options_.target_publish_fd >= 0 && fcntl(options_.target_publish_fd, F_SETFD, 0) < 0) {
+                _exit(127);
+            }
             execv(options_.executable.c_str(), argv.data());
             std::fprintf(stderr, "[main] 启动检测子进程失败: %s: %s\n", options_.executable.c_str(), std::strerror(errno));
             _exit(127);
