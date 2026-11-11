@@ -132,10 +132,8 @@ bool GuidanceSession::Impl::initParams(const std::string& path, std::string& err
         error = valid.error;
         return false;
     }
-    if (params.guidance.law != GuidanceLaw::PPN || params.guidance.los_rate_source != LosRateSource::FROM_LOS_DIFFERENCE || params.guidance.t_go_freeze != 0.0) {
-        error = "当前无测距机载路径只支持 PPN + FROM_LOS_DIFFERENCE + t_go_freeze=0";
-        return false;
-    }
+    // 制导律不再在配置期锁死：相机启动后由 main 按测距能力决定是否降级；
+    // 无测距时 GuidanceLoop 还会逐帧把 TPN/APN 退回 PPN + LOS 差分。
     params_ok = true;
     return true;
 }

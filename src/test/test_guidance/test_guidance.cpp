@@ -1015,9 +1015,19 @@ static void test_missing_guidance_inputs() {
             ins.pending = true;
             tgt.next = loop_tgt(2000000ULL, 0.2);
             tgt.next.has_range = false;
+            tgt.next.range_m = 0.0;
             tgt.pending = true;
             needs_range.run_once(&out);
-            ok(!out.valid && out.health == flight::GuidanceInputHealth::kNoRange, "TPN/APN without range is invalid under every freeze criterion");
+            ins.next = loop_ins(2020000ULL);
+            ins.pending = true;
+            tgt.next = loop_tgt(2020000ULL, 0.3);
+            tgt.next.has_range = false;
+            tgt.next.range_m = 0.0;
+            tgt.pending = true;
+            needs_range.run_once(&out);
+            ok(out.valid && out.health == flight::GuidanceInputHealth::kOk && out.mode == PureGuidanceMode::PN, "TPN/APN without range falls back to PPN + LOS difference");
+            ok(out.a_cmd_norm > 0, "TPN/APN fallback still yields nonzero acceleration");
+            ok(needs_range.stats().law_fallback == 2, "fallback counter counts every degraded frame");
         }
     }
     for (int invalid_input = 0; invalid_input < 5; ++invalid_input) {
@@ -1854,6 +1864,18 @@ cam:
     v.loop.cam.fx = 400.0;  // 只配 fx、不配 fy
     ok(!app::guidance_validate_params(v).ok, "相机只配 fx 校验失败");
     ok(app::guidance_validate_params(app::guidance_default_params()).ok, "默认参数校验通过");
+
+    // ---- 测距能力降级：无测距时 TPN/APN -> PPN + LOS 差分 ----
+    app::GuidanceAppParams rc = app::guidance_default_params();
+    rc.guidance.law = GuidanceLaw::TPN;
+    rc.guidance.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+    std::string downgrade_note;
+    ok(app::guidance_apply_range_capability(rc, false, downgrade_note), "无测距触发降级");
+    ok(rc.guidance.law == GuidanceLaw::PPN && rc.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE, "降级为 PPN + LOS 差分");
+    ok(!downgrade_note.empty() && downgrade_note.find("PPN") != std::string::npos, "降级提示包含 PPN");
+    app::GuidanceAppParams keep = app::guidance_default_params();
+    keep.guidance.law = GuidanceLaw::APN;
+    ok(!app::guidance_apply_range_capability(keep, true, downgrade_note) && keep.guidance.law == GuidanceLaw::APN && downgrade_note.empty(), "有测距保留用户选择的制导律");
 
     // ---- 打印（便于 --print-params / 两次配置 diff）----
     const std::string s = app::guidance_params_to_string(app::guidance_default_params());

@@ -90,6 +90,9 @@ main / MissionService
 - `guidanceCameraMatchesStream()` 在制导未标定或 `range_calibration_valid != 1` 时提前返回成功：
   这两种情况 `StreamMeta.color_fx` 等字段不可信，无法核对彩色内参，而测距本来也不可用；
   制导未标定时 `guidance_ready=false`，任务不会进入 Strike。
+- 测距不可用且 `onboard-guidance.yaml` 配置了 TPN/APN 时，main 在相机启动后自动把
+  `law` 降级为 PPN + LOS 差分，并打印 `[GUIDANCE] 测距不可用：...`；
+  运行中单帧丢测距由 `GuidanceLoop` 逐帧退回 PPN，不会因此中止任务。
 
 ---
 
@@ -133,9 +136,9 @@ ctest --test-dir build --output-on-failure \
    连接相机后 main 会再核对一次，不一致则启动失败。
 3. `StreamMeta.color_fx` 等字段与 `range_calibration_valid` 绑定，没有独立的“彩色标定有效位”。
    如果以后要单独校验证制导彩色内参，需要扩展 IPC 协议（当前不做）。
-4. **TPN/APN 仍被启动参数限制**：`guidance_session.cpp` 只允许
-   `PPN + FROM_LOS_DIFFERENCE + t_go_freeze=0`。现在有测距了，放宽是制导策略决定，
-   需要单独评估，不在本阶段改动。
+4. **TPN/APN 已放开**：静止装甲板 `v_T=0`，TPN/APN 的 `Vc` 由自身速度投影得到；
+   测距不可用时 main 启动期自动降级 PPN，运行中单帧丢测距由 `GuidanceLoop` 退回 PPN。
+   APN 的 `a_T⊥` 仍为 0（没有目标加速度估计），当前等价于 TPN；接入目标加速度后才会体现增广项。
 
 ---
 

@@ -704,6 +704,23 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams& p) {
     return GuidanceParamResult::success();
 }
 
+bool guidance_apply_range_capability(GuidanceAppParams& params, bool range_available, std::string& note) {
+    note.clear();
+    if (range_available) {
+        return false;
+    }
+    const bool law_changed = params.guidance.law != GuidanceLaw::PPN;
+    const bool source_changed = params.guidance.los_rate_source != LosRateSource::FROM_LOS_DIFFERENCE;
+    if (!law_changed && !source_changed) {
+        return false;
+    }
+    const char* previous_law = law_name(params.guidance.law);
+    params.guidance.law = GuidanceLaw::PPN;
+    params.guidance.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
+    note = law_changed ? std::string("测距不可用：制导律由 ") + previous_law + " 自动降级为 PPN + LOS 差分" : "测距不可用：los_rate_source 改为 FROM_LOS_DIFFERENCE";
+    return true;
+}
+
 std::string guidance_params_to_string(const GuidanceAppParams& p) {
     std::ostringstream os;
     os << "guidance.law: " << law_name(p.guidance.law) << "\n";

@@ -1,4 +1,5 @@
-# 任务制导配置：PPN 视线差分；目标距离来自同帧原生深度投影。
+# 任务制导配置：law 可配 PPN / TPN / APN；装甲板静止（v_T=0），TPN/APN 的 Vc 由自身速度投影得到。
+# 测距不可用时 main 启动期自动降级 PPN；运行中单帧无测距由 GuidanceLoop 退回 PPN + LOS 差分。
 # 彩色相机内外参单独读取 guidance-camera.yaml，安装标定未确认时保持 calibrated=false。
 guidance:
   law: PPN

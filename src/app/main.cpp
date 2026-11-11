@@ -13,6 +13,7 @@
 #include "runtime/landing_failsafe.hpp"
 #include "runtime/vio_pose_publisher.hpp"
 #include "startup/app_startup.hpp"
+#include "startup/guidance_application.hpp"
 #endif
 
 namespace {
@@ -89,12 +90,17 @@ int main(int argc, char** argv) {
                 }
                 std::fprintf(stderr, "[CAM] 目标测距不可用：%s（--no-send：继续运行，但不会撞板）\n", range_error.c_str());
             }
-        }
-        if (options.mission && !guidanceCameraMatchesStream(settings.guidance.loop.cam, camera.streamMeta(), error)) {
-            std::fprintf(stderr, "[CAM] %s\n", error.c_str());
-            camera.stop();
-            comm.stop();
-            return 1;
+            if (!guidanceCameraMatchesStream(settings.guidance.loop.cam, camera.streamMeta(), error)) {
+                std::fprintf(stderr, "[CAM] %s\n", error.c_str());
+                camera.stop();
+                comm.stop();
+                return 1;
+            }
+            // 测距不可用时把 TPN/APN 自动降级为 PPN；有测距时保留用户配置。
+            std::string guidance_note;
+            if (guidance_apply_range_capability(settings.guidance, range_error.empty(), guidance_note)) {
+                std::fprintf(stderr, "[GUIDANCE] %s\n", guidance_note.c_str());
+            }
         }
         VioRuntime vio(config.vio, imu, camera, config.publication);
         if (interrupted.load()) {

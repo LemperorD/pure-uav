@@ -492,15 +492,16 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
                 }
             }
 
-            // TPN / APN 需要 Vc（进而需要距离）；无测距时不要进入核心。
-            if (health == GuidanceInputHealth::kOk && tgt_now_.present && !tgt_now_.has_range && (params_.law == GuidanceLaw::TPN || params_.law == GuidanceLaw::APN)) {
-                health = GuidanceInputHealth::kNoRange;
-                hard_invalid = true;
-            }
-
+            // TPN / APN 需要 Vc（进而需要距离）；测距临时不可用时逐帧退化为 PPN + LOS 差分，
+            // 不把整拍判成硬失效（任务层仍会按 target_lost_timeout_s 决定是否退段）。
             if (health == GuidanceInputHealth::kOk) {
-                // PPN 不依赖距离；没有距离/目标速度时，ω 只能来自视线差分。
                 GuidanceParams effective = params_;
+                if (effective.law != GuidanceLaw::PPN && !tgt_now_.has_range) {
+                    effective.law = GuidanceLaw::PPN;
+                    effective.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
+                    ++stats_.law_fallback;
+                }
+                // PPN 不依赖距离；没有距离/目标速度时，ω 只能来自视线差分。
                 if (effective.law == GuidanceLaw::PPN && effective.los_rate_source == LosRateSource::FROM_RELATIVE_VELOCITY && (!tgt_now_.has_range || !tgt_now_.has_v_T)) {
                     effective.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
                 }

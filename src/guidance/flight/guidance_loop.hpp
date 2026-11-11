@@ -76,6 +76,7 @@ struct GuidanceLoopStats {
     std::uint64_t saturated = 0;
     std::uint64_t hold = 0;
     std::uint64_t search = 0;
+    std::uint64_t law_fallback = 0;  // TPN/APN 因临时无测距退化为 PPN 的拍数
     std::uint64_t unhealthy = 0;
     std::uint64_t safe_hover = 0;
     std::uint64_t sink_errors = 0;
