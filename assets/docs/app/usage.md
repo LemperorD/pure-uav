@@ -8,7 +8,10 @@
 
 ## 1 机载入口与线程
 
-`./bin/main` 运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+`./bin/main` 连接 PX4，运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+主入口和任务适配器统一接受 PX4；其他固件会在连接相机前被拒绝。
+`--check-config` 会打印 `flight_stack: PX4`。外部定位融合验收见
+[uav-vio-bench-checklist.md](uav-vio-bench-checklist.md)。
 `--mission` 显式启用主任务，通过 MissionService / MissionRuntime 调度 Offboard、
 解锁、起飞、目标搜索、制导和返航；接线及当前能力边界见
 [任务文档](../../../src/app/mission/README.md)。

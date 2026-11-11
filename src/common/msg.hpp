@@ -4,6 +4,11 @@
 
 namespace pure_uav {
 
+// HEARTBEAT.autopilot 对应的 MAV_AUTOPILOT 值；入口与任务适配器共用。
+namespace autopilot {
+constexpr uint8_t PX4 = 12;
+}  // namespace autopilot
+
 // ---------- 飞控回传数据 ----------
 // 机体姿态（rad）
 struct Attitude {

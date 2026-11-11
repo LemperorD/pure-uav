@@ -60,4 +60,9 @@ if(TARGET vio_app_support)
                    ${CMAKE_SOURCE_DIR}/src/test/test_app/test_app_config.py
                    $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
   set_tests_properties(app_config PROPERTIES TIMEOUT 30)
+  add_test(NAME main_firmware
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/src/test/test_app/test_main_firmware.py
+                   $<TARGET_FILE:main> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(main_firmware PROPERTIES TIMEOUT 40)
 endif()

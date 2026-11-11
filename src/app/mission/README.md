@@ -71,7 +71,8 @@ ctest --test-dir build -R '^mission(_example|_runtime|_wire)?$' --output-on-fail
 
 默认连续确认 3 个新目标帧、起飞高度 1.5 m、搜索超时 30 s、撞板超时 5 s。
 Offboard 预热默认要求连续成功发送 1.5 s，中间超过 0.2 s 没发送则重新起算。
-当前只支持 PX4 任务控制；其他固件不能通过任务自检。
+主入口与任务适配器统一支持 PX4；其他固件在连接相机前即被主入口拒绝。
+`--check-config` 会打印 `flight_stack: PX4`，飞控参数不会被程序自动修改。
 
 运行中向 `main` 的 PID 发送 `SIGUSR1` 可请求返航；Ctrl-C / SIGTERM 停止程序并释放输出。
 任务完成或中止会结束本次 `main`，关闭检测、VIO 和通信。

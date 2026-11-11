@@ -83,7 +83,7 @@ struct Options {
 void usage(const char* name) {
     std::printf(
         "用法: %s [选项]\n"
-        "启动通信、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
+        "连接 PX4、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
         "飞控心跳就绪后启动检测子进程；--mission 显式启用主任务。\n"
         "  --config FILE         应用调度配置（默认 config/app.yaml）\n"
         "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
@@ -229,8 +229,6 @@ class Workers {
 
 using namespace pure_uav::app;
 
-constexpr uint8_t kArduPilotAutopilot = 3;  // MAV_AUTOPILOT_ARDUPILOTMEGA
-
 // 位姿发布去重状态：重连或时间基变化时整体归零后重新起算。
 struct PosePublisher {
     uint64_t last_sent_us = 0;
@@ -351,7 +349,7 @@ int runVio(const Options& options) {
         mission_guidance.loop.loop_hz = config.main_loop_hz;
     }
     if (options.check_config) {
-        std::printf("Configuration OK\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
+        std::printf("Configuration OK\nflight_stack: PX4\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
         std::printf("mission_enabled: %s\nmission_send_enabled: %s\nmission_guidance_ready: %s\n", options.mission ? "true" : "false", options.mission && !options.no_send ? "true" : "false", options.mission && mission_guidance.loop.cam.valid() ? "true" : "false");
         return 0;
     }
@@ -374,8 +372,8 @@ int runVio(const Options& options) {
         comm.stop();
         return 1;
     }
-    if (comm.getAutopilot() != kArduPilotAutopilot) {
-        std::fprintf(stderr, "[MAIN] 当前入口只接受 ArduPilot；检测到：%s。\n", comm.getAutopilotNameCn());
+    if (comm.getAutopilot() != autopilot::PX4) {
+        std::fprintf(stderr, "[MAIN] 当前入口只接受 PX4；检测到：%s。\n", comm.getAutopilotNameCn());
         comm.stop();
         return 1;
     }

@@ -24,7 +24,7 @@ MavlinkMissionPort::MavlinkMissionPort(Communicator& comm, double pose_max_age_s
 mission::FlightFeedback MavlinkMissionPort::feedback(double now_s) {
     mission::FlightFeedback result;
     result.session = comm_.reconnectCount();
-    result.supported = comm_.getAutopilot() == 12;  // MAV_AUTOPILOT_PX4
+    result.supported = comm_.getAutopilot() == autopilot::PX4;
     if (session_ != result.session) {
         session_ = result.session;
         pose_boot_us_ = 0;

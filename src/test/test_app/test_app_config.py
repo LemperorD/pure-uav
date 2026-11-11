@@ -25,6 +25,8 @@ def run(args, expected=0, contains=None):
 
 
 run(["--help"], contains="--vio-config")
+run(["--help"], contains="PX4")
+run(["--check-config"], contains="flight_stack: PX4")
 run(["--help"], contains="--check-config")
 run(["--help"], contains="--no-detection")
 run(["--help"], contains="--mission-config")
