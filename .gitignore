@@ -1,6 +1,7 @@
 .vscode/
 .cache/
 .codebuddy/
+.trae/
 
 bin/*
 !bin/.gitkeep
