@@ -6,13 +6,19 @@ namespace pure_uav::app {
 HeartbeatWaitResult waitForHeartbeat(const Communicator& comm, const std::atomic<bool>& stop, double timeout_s) {
     using Clock = std::chrono::steady_clock;
     const auto deadline = Clock::now() + std::chrono::duration<double>(timeout_s);
-    while (!stop.load() && !comm.isConnected() && Clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    if (stop.load()) return HeartbeatWaitResult::stopped;
+    while (!stop.load() && !comm.isConnected() && Clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (stop.load()) {
+        return HeartbeatWaitResult::stopped;
+    }
     return comm.isConnected() ? HeartbeatWaitResult::connected : HeartbeatWaitResult::timeout;
 }
 bool CommImuSource::pop(TimedImu& out) {
     Communicator::TimedImu item;
-    if (!comm_.popImu(item)) return false;
+    if (!comm_.popImu(item)) {
+        return false;
+    }
     out.imu.timestamp_us = item.imu.timestamp_us;
     out.imu.gx = item.imu.gx;
     out.imu.gy = item.imu.gy;

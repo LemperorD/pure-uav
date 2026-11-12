@@ -8,7 +8,9 @@
 using namespace pure_uav;
 using namespace pure_uav::app;
 void check(bool value, const char* reason) {
-    if (!value) throw std::runtime_error(reason);
+    if (!value) {
+        throw std::runtime_error(reason);
+    }
 }
 int main() {
     try {

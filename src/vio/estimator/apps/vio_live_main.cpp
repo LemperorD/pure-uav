@@ -190,7 +190,9 @@ int main(int argc, char** argv) {
             try {
                 size_t used = 0;
                 shm_timeout_ms = std::stoi(value, &used);
-                if (used != value.size() || shm_timeout_ms < 0 || shm_timeout_ms > 60000) throw std::invalid_argument("timeout");
+                if (used != value.size() || shm_timeout_ms < 0 || shm_timeout_ms > 60000) {
+                    throw std::invalid_argument("timeout");
+                }
             } catch (const std::exception&) {
                 std::fprintf(stderr, "--shm-timeout-ms 只接受 0..60000\n");
                 return 2;

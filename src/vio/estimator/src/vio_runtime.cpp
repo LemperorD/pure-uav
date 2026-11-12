@@ -97,7 +97,9 @@ void VioRuntime::Impl::run() noexcept {
             throw std::runtime_error("VIO estimator configuration file does not exist");
         }
         VioEstimator estimator(options);
-        if (!estimator.ok()) throw std::runtime_error(estimator.error());
+        if (!estimator.ok()) {
+            throw std::runtime_error(estimator.error());
+        }
         clock.reset();
         ImuTimestampFilter filter;
         std::optional<VioFrame> pending;

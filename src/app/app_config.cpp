@@ -15,42 +15,63 @@ namespace pure_uav::app {
 namespace {
 namespace fs = std::filesystem;
 void require(bool condition, const std::string& reason) {
-    if (!condition) throw std::runtime_error(reason);
+    if (!condition) {
+        throw std::runtime_error(reason);
+    }
 }
 fs::path findRoot(fs::path start) {
-    if (!fs::is_directory(start)) start = start.parent_path();
+    if (!fs::is_directory(start)) {
+        start = start.parent_path();
+    }
     while (!start.empty()) {
-        if (fs::exists(start / "src/vio/estimator/CMakeLists.txt") && fs::exists(start / "config/driver.yaml")) return fs::canonical(start);
+        if (fs::exists(start / "src/vio/estimator/CMakeLists.txt") && fs::exists(start / "config/driver.yaml")) {
+            return fs::canonical(start);
+        }
         auto next = start.parent_path();
-        if (next == start) break;
+        if (next == start) {
+            break;
+        }
         start = next;
     }
     return {};
 }
 void keys(const YAML::Node& node, std::initializer_list<const char*> allowed, const std::string& name) {
-    if (!node) return;
+    if (!node) {
+        return;
+    }
     require(node.IsMap(), name + " must be a mapping");
     for (const auto& entry : node) {
         const auto key = entry.first.as<std::string>();
         bool known = false;
-        for (const char* candidate : allowed)
-            if (key == candidate) known = true;
+        for (const char* candidate : allowed) {
+            if (key == candidate) {
+                known = true;
+            }
+        }
         require(known, "Unknown setting " + name + "." + key);
     }
 }
 template <class T>
 void read(const YAML::Node& node, const char* key, T& value) {
-    if (node && node[key]) value = node[key].as<T>();
+    if (node && node[key]) {
+        value = node[key].as<T>();
+    }
 }
 void range(double value, double lo, double hi, const char* name) {
     require(std::isfinite(value) && value >= lo && value <= hi, std::string(name) + " must be in [" + std::to_string(lo) + ", " + std::to_string(hi) + "]");
 }
 bool cvBool(const cv::FileNode& node) {
-    if (node.empty()) return false;
+    if (node.empty()) {
+        return false;
+    }
     if (node.isString()) {
         const auto text = static_cast<std::string>(node);
-        if (text == "false" || text == "0") return false;
-        if (text == "true" || text == "1") return true;
+        if (text == "false" || text == "0") {
+            return false;
+        }
+        if (text == "true" || text == "1") {
+            return true;
+        }
         throw std::runtime_error("Invalid boolean in VIO configuration: " + node.name());
     }
     require(node.isInt(), "Invalid boolean in VIO configuration: " + node.name());
@@ -70,8 +91,12 @@ bool loadAppConfig(const std::string& app_name, const ConfigOverrides& overrides
     try {
         AppConfig c;
         fs::path root = findRoot(fs::read_symlink("/proc/self/exe"));
-        if (root.empty()) root = findRoot(fs::absolute(app_name));
-        if (root.empty()) root = findRoot(fs::current_path());
+        if (root.empty()) {
+            root = findRoot(fs::absolute(app_name));
+        }
+        if (root.empty()) {
+            root = findRoot(fs::current_path());
+        }
         require(!root.empty(), "Cannot locate repository root from executable or config path");
         const auto resolve = [&](const fs::path& p) { return fs::weakly_canonical(p.is_absolute() ? p : root / p); };
         c.repository_root = root.string();
@@ -90,8 +115,12 @@ bool loadAppConfig(const std::string& app_name, const ConfigOverrides& overrides
         c.vio_path = "config/vio.yaml";
         read(app, "driver_config", c.driver_path);
         read(app, "vio_config", c.vio_path);
-        if (!overrides.driver_path.empty()) c.driver_path = overrides.driver_path;
-        if (!overrides.vio_path.empty()) c.vio_path = overrides.vio_path;
+        if (!overrides.driver_path.empty()) {
+            c.driver_path = overrides.driver_path;
+        }
+        if (!overrides.vio_path.empty()) {
+            c.vio_path = overrides.vio_path;
+        }
         require(!c.driver_path.empty() && !c.vio_path.empty(), "driver_config and vio_config must not be empty");
         c.driver_path = resolve(c.driver_path).string();
         c.vio_path = resolve(c.vio_path).string();
@@ -113,15 +142,21 @@ bool loadAppConfig(const std::string& app_name, const ConfigOverrides& overrides
         read(vio, "init_vel_zero", c.vio.init_vel_zero);
         read(vio, "static_init", c.vio.static_init);
         read(vio, "online_timeoffset", c.vio.estimate_camera_timeoffset);
-        if (!overrides.config_dir.empty()) c.vio.config_dir = overrides.config_dir;
+        if (!overrides.config_dir.empty()) {
+            c.vio.config_dir = overrides.config_dir;
+        }
         require(!c.vio.config_dir.empty(), "vio.config_dir must not be empty");
         c.vio.config_dir = resolve(c.vio.config_dir).string();
         const auto input = vio["input"];
         keys(input, {"shm_vio", "timeout_ms"}, "vio.input");
         read(input, "shm_vio", c.camera.channel);
         read(input, "timeout_ms", c.camera.timeout_ms);
-        if (!overrides.shm_vio.empty()) c.camera.channel = overrides.shm_vio;
-        if (overrides.shm_timeout_ms >= 0) c.camera.timeout_ms = overrides.shm_timeout_ms;
+        if (!overrides.shm_vio.empty()) {
+            c.camera.channel = overrides.shm_vio;
+        }
+        if (overrides.shm_timeout_ms >= 0) {
+            c.camera.timeout_ms = overrides.shm_timeout_ms;
+        }
         require(c.camera.channel.size() > 1 && c.camera.channel.front() == '/' && c.camera.channel.find('/', 1) == std::string::npos, "vio.input.shm_vio must be a POSIX shared memory name such as /pure_uav_camera_vio");
         range(c.camera.timeout_ms, 0, 60000, "vio.input.timeout_ms");
         const auto pose = vio["pose"];

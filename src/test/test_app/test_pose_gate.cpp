@@ -11,7 +11,9 @@ namespace {
 int checks = 0;
 void expect(bool value, const char* reason) {
     ++checks;
-    if (!value) throw std::runtime_error(reason);
+    if (!value) {
+        throw std::runtime_error(reason);
+    }
 }
 VioPoseSnapshot snapshot() {
     VioPoseSnapshot s;

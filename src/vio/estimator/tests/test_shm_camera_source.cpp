@@ -186,13 +186,16 @@ void discardStopAndRestart() {
     m = f.meta(2);
     f.publish(m);
     CHECK(f.source.pop(out, 20));
-    std::atomic<bool> waiting{false}, returned{false};
+    std::atomic<bool> waiting{false};
+    std::atomic<bool> returned{false};
     std::thread reader([&] {
         waiting = true;
         VioFrame empty;
         returned = !f.source.pop(empty, 5000);
     });
-    while (!waiting.load()) std::this_thread::yield();
+    while (!waiting.load()) {
+        std::this_thread::yield();
+    }
     f.source.stop();
     reader.join();
     CHECK(returned.load());
@@ -232,11 +235,21 @@ void changedSessionsAndMalformedFrames() {
         f.create();
         CHECK(f.source.start(f.config, &f.error));
         auto m = f.meta(1);
-        if (mode == 0) f.writer.setSession(2, 0);
-        if (mode == 1) f.writer.setSession(1, 1);
-        if (mode == 2) --m.gray_bytes;
-        if (mode == 3) m.depth_bytes -= 2;
-        if (mode == 4) m.width = 5;
+        if (mode == 0) {
+            f.writer.setSession(2, 0);
+        }
+        if (mode == 1) {
+            f.writer.setSession(1, 1);
+        }
+        if (mode == 2) {
+            --m.gray_bytes;
+        }
+        if (mode == 3) {
+            m.depth_bytes -= 2;
+        }
+        if (mode == 4) {
+            m.width = 5;
+        }
         f.publish(m);
         VioFrame out;
         CHECK(!f.source.pop(out, 0));
