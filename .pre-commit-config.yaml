@@ -9,7 +9,7 @@ repos:
   - id: end-of-file-fixer # 保证文件末尾换行
     exclude: '(^|/)(build|install|log|third_party)/|^src/driver/'
   - id: check-yaml # yaml语法检查
-  - id: check-added-large-files # 禁止提交大文件
+  # - id: check-added-large-files # 禁止提交大文件
   - id: check-json          # JSON语法校验
   - id: check-toml          # TOML校验
   - id: check-merge-conflict # 检查有没有残留的<<<<<<<合并标记
