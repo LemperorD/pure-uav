@@ -53,6 +53,10 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
             std::fprintf(stderr, "[MAIN] 彩色相机未标定：%s；任务只搜索，不进入撞板\n", guidance.cameraReason().c_str());
         }
         mission_guidance = guidance.params();
+        // 日志文件相对路径按仓库根目录解析，和 config/*.yaml 同一规则。
+        if (!mission_guidance.log.file.empty() && std::filesystem::path(mission_guidance.log.file).is_relative()) {
+            mission_guidance.log.file = resolve(mission_guidance.log.file);
+        }
         // 配置期先按 VIO 期望分辨率挡住明显不匹配的标定；实际彩色内参/畸变在相机连接后再核对。
         if (guidance.cameraOk() && (mission_guidance.loop.cam.width != config.camera.width || mission_guidance.loop.cam.height != config.camera.height)) {
             error = "guidance 彩色标定分辨率与 camera_server/VIO 期望不一致";
@@ -73,6 +77,7 @@ void printAppStartupConfig(const AppOptions& options, const AppStartupConfig& se
     const auto& mission_guidance = settings.guidance;
     std::printf("Configuration OK\nflight_stack: PX4\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
     std::printf("mission_enabled: %s\nmission_send_enabled: %s\nmission_guidance_ready: %s\n", options.mission ? "true" : "false", options.mission && !options.no_send ? "true" : "false", options.mission && mission_guidance.loop.cam.valid() ? "true" : "false");
+    std::printf("guidance_log: %s %.1f Hz %s\n", mission_guidance.log.enabled ? "enabled" : "disabled", mission_guidance.log.rate_hz, mission_guidance.log.file.empty() ? "stdout" : mission_guidance.log.file.c_str());
 }
 
 FlightConnectionResult connectFlightController(Communicator& comm, const AppConfig& config, const std::atomic<bool>& interrupted) {
@@ -112,6 +117,8 @@ std::unique_ptr<MissionService> createMissionService(const AppOptions& options, 
     if (options.mission) {
         mission_service = std::make_unique<MissionService>(vio, comm, settings.mission, settings.guidance, settings.camera, settings.preflight, settings.app.comm.heartbeat_timeout_ms, settings.app.max_age_ms, !options.no_detection);
         std::printf("[MISSION] enabled send=%s guidance=%s; waiting for navigation\n", options.no_send ? "false" : "true", mission_service->guidanceReady() ? "ready" : "unconfigured");
+        const auto& guidance_log = settings.guidance.log;
+        std::printf("[GUIDANCE] 中间量日志：%s，%.0f Hz，输出=%s\n", guidance_log.enabled ? "开" : "关", guidance_log.rate_hz, guidance_log.file.empty() ? "stdout" : guidance_log.file.c_str());
     }
     return mission_service;
 }

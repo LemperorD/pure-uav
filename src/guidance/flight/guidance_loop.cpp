@@ -527,6 +527,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
                 o.Vc = cmd.Vc;
                 o.R = cmd.R;
                 o.lam_dot = cmd.lam_dot;
+                o.los_hat_ned = adapter::convert_vec(cmd.r_hat, adapter::GuidanceFrame::kEnu, adapter::GuidanceFrame::kNed);
                 o.health = health;
 
                 if (cmd.sat) {

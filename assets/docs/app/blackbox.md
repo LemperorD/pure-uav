@@ -95,3 +95,20 @@ a_n,a_e,a_d,v_n,v_e,v_d,anorm,t_go,Vc,R,lam_dot
 - 信号处理/看门狗里自动 dump；
 - 和 `flight_logger` 分工：GuidanceRingLog 负责“最后一口气”，logger 负责全程；
 - 增加 `seq` 支持增量落盘。
+
+---
+
+## 7 与实时中间量日志的分工
+
+机载还有一条**实时日志**（YAML `log.*`，见 [usage.md §11](usage.md#11-制导中间量日志机载)）：
+
+| | 实时日志 `GuidanceFlightLog` | 本文件 `GuidanceRingLog` |
+|---|---|---|
+| 位置 | stdout / CSV 文件 | 内存 |
+| 频率 | `log.rate_hz`（按计算拍抽稀） | 每拍 |
+| 内容 | a_cmd、t_go、Vc、R、û、Δû、ω、w_raw | 同量 + v_cmd、flags |
+| 用途 | 调参、滤波前后对比 | 崩溃现场 |
+
+- 实时日志在 `GuidanceLoop` **之外**由 `MissionGuidanceRunner` 调用，循环内仍然零 I/O；
+- `log.file` 非空时行缓冲追加写、不 `fsync`，阻塞风险见 [csv-format.md §6](csv-format.md)；
+- 两者**互不替代**：实时日志给地面分析，环形缓冲给“最后一口气”。

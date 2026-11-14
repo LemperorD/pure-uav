@@ -7,6 +7,7 @@
 //  pure_uav::guidance::flight::GuidanceLoopConfig。
 // =============================================================================
 
+#include "guidance_flight_log.hpp"  // GuidanceLogConfig（机载中间量日志）
 #include "guidance_flight_types.hpp"
 #include "guidance_types.hpp"
 
@@ -15,10 +16,11 @@ namespace pure_uav::app {
 // 短别名：宿主侧代码用 flight:: 前缀引用制导飞行外壳的类型。
 namespace flight = pure_uav::guidance::flight;
 
-/// 整机启动配置：制导参数 + 飞行外壳配置。
+/// 整机启动配置：制导参数 + 飞行外壳配置 + 中间量日志。
 struct GuidanceAppParams {
     GuidanceParams guidance;
     flight::GuidanceLoopConfig loop;
+    flight::GuidanceLogConfig log;
 };
 
 }  // namespace pure_uav::app

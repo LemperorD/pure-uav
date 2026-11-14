@@ -125,7 +125,11 @@ bool MavlinkMissionPort::request(mission::FlightRequest request, std::uint64_t s
     return false;
 }
 
-MissionGuidanceRunner::MissionGuidanceRunner(GuidanceAppParams params) : params_(std::move(params)) {
+MissionGuidanceRunner::MissionGuidanceRunner(GuidanceAppParams params) : params_(std::move(params)), log_(params_.log, params_.loop.loop_hz) {
+    std::string log_error;
+    if (!log_.init(log_error)) {
+        std::fprintf(stderr, "[GUIDANCE] %s；本次只输出到 stdout\n", log_error.c_str());
+    }
     reset();
 }
 
@@ -144,6 +148,7 @@ bool MissionGuidanceRunner::reset() {
         loop_.reset();
         return false;
     }
+    log_.event("strike-reset");
     return true;
 }
 
@@ -155,6 +160,8 @@ std::optional<GuidanceCmd> MissionGuidanceRunner::step(const mission::MissionInp
     target_.value = input.target;
     flight::GuidanceOutput output;
     const auto status = loop_->run_once(&output);
+    // 先把这一拍交给日志（内部自检开关、重复帧、抽稀），再做接受/拒绝判断。
+    log_.record(output, params_.guidance, loop_->stats());
     if (status != flight::GuidanceLoopStatus::kOk || !output.valid || output.health != flight::GuidanceInputHealth::kOk) {
         return std::nullopt;
     }

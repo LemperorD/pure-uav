@@ -5,6 +5,7 @@
 
 #include "communicator.hpp"
 #include "glue/preflight_evaluator.hpp"
+#include "guidance_flight_log.hpp"
 #include "guidance_loop.hpp"
 #include "mission/mission_runtime.hpp"
 #include "startup/guidance_app_params.hpp"
@@ -56,6 +57,7 @@ class MissionGuidanceRunner final : public mission::MissionGuidancePort {
     } target_;
     flight::GuidanceNullSink sink_;
     GuidanceAppParams params_;
+    flight::GuidanceFlightLog log_;  // 中间量日志（YAML: log.*）；不参与制导
     std::optional<flight::GuidanceLoop> loop_;
 };
 

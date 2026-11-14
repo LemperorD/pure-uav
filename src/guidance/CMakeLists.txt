@@ -80,7 +80,9 @@ install(
 # guidance_shell：飞行外壳（主循环 + 内存黑匣子） 只依赖 core + guidance_state_adapter；由
 # guidance_flight 聚合给机载使用。 ⚠ 不含仿真；test_state_adapter 仍只链 core + adapter。
 # ------------------------------------------------------------
-add_library(guidance_shell STATIC flight/guidance_loop.cpp)
+add_library(
+  guidance_shell STATIC flight/guidance_loop.cpp flight/guidance_flight_log.cpp
+)
 target_include_directories(
   guidance_shell PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/flight
 )

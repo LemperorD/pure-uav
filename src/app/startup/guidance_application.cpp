@@ -332,6 +332,16 @@ bool apply_key(const std::string& key, const std::string& raw, GuidanceAppParams
         }
         return true;
     }
+    if (key == "log.enabled") {
+        return flag(&p->log.enabled);
+    }
+    if (key == "log.rate_hz") {
+        return dbl(&p->log.rate_hz, "浮点数 (Hz)");
+    }
+    if (key == "log.file") {
+        p->log.file = val;  // 空串 = 只输出到 stdout
+        return true;
+    }
 
     *why = "未知参数键：'" + key + "'";
     return false;
@@ -501,6 +511,11 @@ GuidanceAppParams guidance_default_params() {
 
     p.loop.loop_hz = 50;
     p.loop.max_sample_age_s = 0.2;
+
+    // 中间量日志：默认关闭，由 onboard-guidance.yaml 显式打开。
+    p.log.enabled = false;
+    p.log.rate_hz = 10.0;
+    p.log.file.clear();
     return p;
 }
 
@@ -583,11 +598,13 @@ GuidanceParamResult guidance_load_yaml_text(const std::string& text, GuidanceApp
             }
         }
 
-        if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'') && val.back() == val.front()) {
+        // 引号内的空串是合法值（例如 log.file: ""）；只有**不带引号**的空值才是分组。
+        const bool quoted = val.size() >= 2 && (val.front() == '"' || val.front() == '\'') && val.back() == val.front();
+        if (quoted) {
             val = val.substr(1, val.size() - 2);
         }
 
-        if (val.empty()) {
+        if (val.empty() && !quoted) {
             stack.emplace_back(indent, key);
             continue;
         }
@@ -701,6 +718,19 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams& p) {
         }
     }
 
+    // 中间量日志：只在开启时要求 rate 有效；关闭时留任意值不阻塞启动。
+    if (p.log.enabled) {
+        if (!(p.log.rate_hz > 0.0) || !std::isfinite(p.log.rate_hz)) {
+            return GuidanceParamResult::fail("log.rate_hz 开启日志时必须 > 0");
+        }
+        if (p.log.rate_hz > static_cast<double>(p.loop.loop_hz)) {
+            return GuidanceParamResult::fail("log.rate_hz 不能大于 loop.loop_hz（日志只能按计算拍抽稀，不能凭空插值）");
+        }
+    }
+    if (p.log.file.size() > 512) {
+        return GuidanceParamResult::fail("log.file 路径过长（>512 字节）");
+    }
+
     return GuidanceParamResult::success();
 }
 
@@ -749,6 +779,9 @@ std::string guidance_params_to_string(const GuidanceAppParams& p) {
         os << p.loop.cam.R_body_cam[i];
     }
     os << "\n";
+    os << "log.enabled: " << (p.log.enabled ? "true" : "false") << "\n";
+    os << "log.rate_hz: " << p.log.rate_hz << "\n";
+    os << "log.file: " << (p.log.file.empty() ? "<stdout>" : p.log.file) << "\n";
     return os.str();
 }
 

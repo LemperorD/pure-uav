@@ -14,3 +14,12 @@ loop:
   sensor_timeout_s: 0.5
   on_unhealthy: HOLD_LAST_COMMAND
   hold_last_max_s: 0.2
+
+# 制导中间量日志（撞板阶段每次“重算”输出一行；重复重发帧不记录）。
+# rate_hz 按计算拍计数（检测 10 Hz ⇒ 计算拍本来就是 10 Hz），不是按 main 的 50 Hz 节拍。
+# 字段：a_cmd / |a| / t_go / Vc / R / û / Δû / ω / w_raw / dt_los，用于调参与滤波对比。
+# file 为空 = 只打 stdout；非空 = 同时写 CSV（追加，相对路径按仓库根目录解析）。
+log:
+  enabled: true
+  rate_hz: 10
+  file: ""

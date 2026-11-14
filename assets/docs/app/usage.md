@@ -186,6 +186,9 @@ bin/guidance_example
 | `cam.` | `fx` / `fy` | 0（未配） |
 | | `cx` / `cy` | 0 |
 | | `R_body_cam` | 单位阵 |
+| `log.` | `enabled` | false |
+| | `rate_hz` | 10.0 |
+| | `file` | 空（只打 stdout） |
 
 枚举名大小写不敏感，也接受数字（如 `law: 2`）。
 
@@ -199,7 +202,9 @@ bin/guidance_example
 - `sensor_timeout_s ≥ max_sample_age_s`；
 - `hold_last_max_s ≤ sensor_timeout_s`；
 - `cam.fx / cam.fy` 必须同时配、不能为负；
-- `R_body_cam` 必须 9 个有限数。
+- `R_body_cam` 必须 9 个有限数；
+- `log.rate_hz ∈ (0, loop.loop_hz]`（仅当 `log.enabled=true`）；
+- `log.file` 长度 ≤ 512 字节。
 
 失败返回码 **2**。
 
@@ -251,3 +256,63 @@ bin/guidance_example
 `FcuClock` 将采集单调时钟映射到飞控 boot 时钟，任务运行层统一发送 `GuidanceCmd`。
 VIO 的 LOCAL_FRD 位姿只发给飞控；制导读取飞控融合后的 LOCAL_POSITION_NED 与姿态，避免混用坐标系。
 独立 `GuidanceApplication` 仍负责仿真/回放。
+
+---
+
+## 11 制导中间量日志（机载）
+
+撞板阶段每次“重算”输出一行，用于调参、以及以后加滤波时前后对比。开关与频率都在
+`config/onboard-guidance.yaml`：
+
+```yaml
+log:
+  enabled: true      # false = 不输出、不建文件
+  rate_hz: 10        # 按“计算拍”计数；0 也视为关闭
+  file: ""           # 空 = 只打 stdout；非空 = 同时追加写 CSV
+```
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | false | 总开关；关闭时连文件都不打开 |
+| `rate_hz` | 10.0 | 抽稀频率；上限 = `loop.loop_hz`（不能用它插值出更多样本） |
+| `file` | 空 | 相对路径按仓库根目录解析；首次写入自动补表头；`--check-config` 不创建文件 |
+
+- `rate_hz` 按**计算拍**计数（同一目标帧的零阶保持重发不计数），检测 10 Hz ⇒ 计算拍本来就只有 10 Hz；
+- 输出由 `MissionGuidanceRunner` 在 `GuidanceLoop` **之外**调用，循环内仍然零 I/O；
+- `file` 非空时用行缓冲追加写、不做 `fsync`；高频/低延迟飞行建议保持 `file: ""`，参见
+  [csv-format.md §6](csv-format.md)。
+
+行格式（stdout）：
+
+```text
+[GD] seq=42 fr=731 t=2.400 PN a=(1.230,-0.470,0.000)|1.32| tgo=0.870 Vc=4.12 R=3.58
+     los=(0.710,0.700,-0.130) dlos=(1.2e-03,-8.0e-04,3.0e-04) om=(0.183,0.010,0.000) w=0.183 dt=100.0ms fb=0 law=PPN
+```
+
+CSV 列（30 列，顺序固定）：
+
+```text
+seq,frame,boot_us,mode,valid,sat,health,law,N,a_max,
+a_n,a_e,a_d,anorm,t_go,Vc,R,
+los_n,los_e,los_d,dlos_n,dlos_e,dlos_d,omega_n,omega_e,omega_d,w_raw,dt_los_ms,
+lam_dot,law_fallback
+```
+
+- `mode` / `health` 是枚举整数值，映射见 [csv-format.md §2](csv-format.md) 与
+  `src/guidance/flight/guidance_flight_types.hpp`；
+- `w_raw` 是**未滤波**视线角速率，`lam_dot` 是实际送入导引律的值（当前两者相等）。
+
+推导口径（与内核一致）：
+
+```text
+dlos  = û_k − û_{k−1}
+dt    = boot_us_k − boot_us_{k−1}
+w_raw = ‖dlos‖ / dt
+omega = û_k × (dlos / dt)      # 叉乘对旋转不变，NED 与内核 ENU 数值相同
+```
+
+- 无效拍（`valid=false` 或 `health!=kOk`）会清空差分历史，下一拍从零开始（与内核清 `memory` 对齐）；
+- 重复重发帧不记录、也不参与差分；
+- 因此 `dt_los_ms` 反映的是**目标帧间隔**（约 100 ms），不是 50 Hz 主循环的 20 ms；
+- 日志侧按**原始差分**还原 ω，所以加滤波后 `omega_*` / `w_raw` 仍是未滤波量，`lam_dot` 才是实际使用值——
+  两者并排就是滤波前后的对比。

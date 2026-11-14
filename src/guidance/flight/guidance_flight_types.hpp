@@ -83,6 +83,9 @@ struct GuidanceOutput {
     double Vc = 0.0;
     double R = 0.0;
     double lam_dot = 0.0;
+    // 本拍视线单位矢量（NED）。无效拍为零矢量；只给日志/诊断用，不参与制导。
+    // 有了它，日志器可以用相邻两拍的 û 差分还原 ω 矢量与未滤波模长（见 guidance_flight_log.hpp）。
+    Vec3 los_hat_ned;
     GuidanceInputHealth health = GuidanceInputHealth::kOk;
 };
 
