@@ -125,7 +125,7 @@ bool MavlinkMissionPort::request(mission::FlightRequest request, std::uint64_t s
     return false;
 }
 
-MissionGuidanceRunner::MissionGuidanceRunner(GuidanceAppParams params) : params_(std::move(params)), log_(params_.log, params_.loop.loop_hz) {
+MissionGuidanceRunner::MissionGuidanceRunner(GuidanceAppParams params) : params_(std::move(params)), log_(params_.log) {
     std::string log_error;
     if (!log_.init(log_error)) {
         std::fprintf(stderr, "[GUIDANCE] %s；本次只输出到 stdout\n", log_error.c_str());

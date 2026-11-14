@@ -21,8 +21,10 @@
 //    2) 无效拍（valid=false 或 health!=kOk）清空差分历史，与内核 SEARCH 分支清 memory 对齐；
 //    3) dt 用目标帧 boot_us 之差，和内核 tracker 累加出来的 Δt 同源。
 //
-//  抽稀规则：rate_hz 按“计算拍”计数（检测 10 Hz ⇒ 计算拍本来就只有 10 Hz），
-//    不是按 50 Hz 主循环节拍，否则重复帧会算出 dt=20 ms、dlos=0 的假 ω。
+//  抽稀规则：按**目标帧时戳**（boot_us）做时间抽稀，相邻两行至少间隔 1/rate_hz 秒。
+//    不按“计算拍计数”抽稀，是因为计算拍频率随检测帧率变化（10/30 Hz），
+//    计数抽稀会让 rate_hz 的实际频率随配置漂移。
+//    重复重发帧（boot_us 相同）直接跳过，否则会算出 dt=20 ms、dlos=0 的假 ω。
 //
 //  唯一的 I/O 入口是本类的 record/event；GuidanceLoop 内仍然零 I/O。
 // =============================================================================
@@ -41,7 +43,7 @@ namespace pure_uav::guidance::flight {
 // YAML 键：log.enabled / log.rate_hz / log.file（见 assets/docs/app/usage.md §5）。
 struct GuidanceLogConfig {
     bool enabled = false;   // 总开关；false = 不输出、不建文件
-    double rate_hz = 10.0;  // 输出频率（按计算拍计）；<=0 也视为关闭
+    double rate_hz = 10.0;  // 每秒最多输出行数（按目标帧时戳抽稀）；<=0 也视为关闭
     std::string file;       // 空 = 只打 stdout；非空 = 同时写 CSV（追加、自动补表头）
 };
 
@@ -74,9 +76,12 @@ struct GuidanceLogDerived {
 // 制导中间量日志。
 // 每次 record() 前应检查 enabled()（record 内部也会自检）；close() 可重复调用。
 // 单线程使用：只在主循环线程里调用，与 GuidanceLoop 同线程。
+//
+// 抽稀按**目标帧时戳**（boot_us）做时间抽稀：相邻两行至少间隔 1/rate_hz 秒。
+// 这样与“计算拍频率”无关——检测 10 Hz 或 30 Hz 时，rate_hz 的语义都是“每秒最多几行”。
 class GuidanceFlightLog {
   public:
-    GuidanceFlightLog(const GuidanceLogConfig& config, int loop_hz);
+    explicit GuidanceFlightLog(const GuidanceLogConfig& config);
     ~GuidanceFlightLog();
 
     GuidanceFlightLog(const GuidanceFlightLog&) = delete;
@@ -90,8 +95,9 @@ class GuidanceFlightLog {
     void event(const char* what);
 
     // 记录一拍。
-    // @note 只有“真的重算了”的拍才会进入抽稀计数：boot_us 与上一拍相同（零阶保持重发）直接跳过；
-    //       无效拍（valid=false 或 health!=kOk）会清空差分历史（与内核清 memory 对齐）。
+    // @note 重复帧（boot_us 与上一拍相同，即零阶保持重发）直接跳过，不参与差分也不输出；
+    //       无效拍（valid=false 或 health!=kOk）会清空差分历史（与内核清 memory 对齐）；
+    //       输出按 boot_us 时间抽稀，语义见类注释。
     void record(const GuidanceOutput& out, const GuidanceParams& params, const GuidanceLoopStats& stats);
 
     void close();
@@ -109,13 +115,14 @@ class GuidanceFlightLog {
   private:
     GuidanceLogConfig config_;
     bool enabled_ = false;
-    int stride_ = 1;  // 每 stride 个计算拍输出一行
+    std::uint64_t period_us_ = 100000;  // 两行之间的最小间隔（µs），由 rate_hz 换算
     std::FILE* file_ = nullptr;
-    std::uint64_t frame_ = 0;  // 计算拍计数（抽稀基准）
+    std::uint64_t frame_ = 0;  // 计算拍计数（CSV 的 frame 列）
     std::uint64_t seq_ = 0;    // 已输出的行号
     bool have_prev_ = false;   // 上一拍是否可用于差分
     GuidanceOutput prev_{};
     std::uint64_t last_boot_us_ = 0;  // 上一拍的 boot_us（判重复帧 / 时间倒退）
+    std::uint64_t last_log_us_ = 0;   // 上一行输出的目标帧时戳（0 = 还没输出过）
 };
 
 }  // namespace pure_uav::guidance::flight

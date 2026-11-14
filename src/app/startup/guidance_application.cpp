@@ -719,12 +719,13 @@ GuidanceParamResult guidance_validate_params(const GuidanceAppParams& p) {
     }
 
     // 中间量日志：只在开启时要求 rate 有效；关闭时留任意值不阻塞启动。
+    // 实际输出频率受计算拍频率限制（日志只能抽稀，不能插值出更多样本）。
     if (p.log.enabled) {
         if (!(p.log.rate_hz > 0.0) || !std::isfinite(p.log.rate_hz)) {
             return GuidanceParamResult::fail("log.rate_hz 开启日志时必须 > 0");
         }
-        if (p.log.rate_hz > static_cast<double>(p.loop.loop_hz)) {
-            return GuidanceParamResult::fail("log.rate_hz 不能大于 loop.loop_hz（日志只能按计算拍抽稀，不能凭空插值）");
+        if (p.log.rate_hz > 1000.0) {
+            return GuidanceParamResult::fail("log.rate_hz 上限 1000 Hz");
         }
     }
     if (p.log.file.size() > 512) {

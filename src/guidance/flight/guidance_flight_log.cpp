@@ -145,17 +145,14 @@ std::string guidance_log_csv_row(const GuidanceOutput& out, const GuidanceLogDer
     return std::string(buf);
 }
 
-GuidanceFlightLog::GuidanceFlightLog(const GuidanceLogConfig& config, int loop_hz) : config_(config) {
+GuidanceFlightLog::GuidanceFlightLog(const GuidanceLogConfig& config) : config_(config) {
     enabled_ = config_.enabled && config_.rate_hz > 0.0;
     if (!enabled_) {
         return;
     }
-    const double hz = (loop_hz > 0) ? static_cast<double>(loop_hz) : 50.0;
-    long stride = std::lround(hz / config_.rate_hz);
-    if (stride < 1) {
-        stride = 1;  // rate_hz > loop_hz 时按每拍输出
-    }
-    stride_ = static_cast<int>(stride);
+    const double period_us = 1e6 / config_.rate_hz;
+    const long long rounded = std::llround(period_us);
+    period_us_ = (rounded < 1) ? 1 : static_cast<std::uint64_t>(rounded);
 }
 
 GuidanceFlightLog::~GuidanceFlightLog() {
@@ -211,9 +208,16 @@ void GuidanceFlightLog::record(const GuidanceOutput& out, const GuidanceParams& 
     have_prev_ = computed;
 
     ++frame_;
-    if ((frame_ % static_cast<std::uint64_t>(stride_)) != 0) {
-        return;
+
+    // 时间抽稀：按目标帧时戳控制每秒行数（与计算拍频率无关）。
+    if (last_log_us_ != 0) {
+        if (out.boot_us < last_log_us_) {
+            last_log_us_ = 0;  // 时间倒退：重新开始计时
+        } else if (out.boot_us - last_log_us_ < period_us_) {
+            return;
+        }
     }
+    last_log_us_ = out.boot_us;
     ++seq_;
 
     const std::string line = guidance_log_line(out, d, seq_, frame_, params, stats);

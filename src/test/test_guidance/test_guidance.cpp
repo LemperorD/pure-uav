@@ -2059,8 +2059,8 @@ static void test_flight_log() {
     ok(!app::guidance_validate_params(v).ok, "开启日志但 rate=0 校验失败");
     v = app::guidance_default_params();
     v.log.enabled = true;
-    v.log.rate_hz = 100.0;  // > loop_hz(50)
-    ok(!app::guidance_validate_params(v).ok, "log.rate_hz > loop_hz 校验失败");
+    v.log.rate_hz = 5000.0;  // 上限 1000
+    ok(!app::guidance_validate_params(v).ok, "log.rate_hz > 1000 校验失败");
     v = app::guidance_default_params();
     v.log.enabled = true;
     v.log.rate_hz = 10.0;
@@ -2087,60 +2087,64 @@ static void test_flight_log() {
     const flight::GuidanceLogDerived none = flight::guidance_log_derive(b, a, false);
     ok(!none.have_prev && none.dt_s == 0.0 && none.w_raw == 0.0, "无历史时推导为零");
 
-    // ---- ④ 抽稀 + 重复帧跳过 + CSV 表头 ----
-    const std::string path = (std::filesystem::temp_directory_path() / "guidance_flight_log_test.csv").string();
-    std::remove(path.c_str());
+    // ---- ④ 时间抽稀 + 重复帧跳过 + CSV 表头 ----
+    // 目标帧间隔 100 ms：rate=10 ⇒ 每帧一行（10 行）；rate=5 ⇒ 每 200 ms 一行（5 行）。
+    const auto run_logger = [&](const char* name, double rate, std::size_t expect_rows) {
+        const std::string path = (std::filesystem::temp_directory_path() / name).string();
+        std::remove(path.c_str());
+        flight::GuidanceLogConfig cfg;
+        cfg.enabled = true;
+        cfg.rate_hz = rate;
+        cfg.file = path;
+        flight::GuidanceFlightLog logger(cfg);
+        ok(logger.enabled(), "日志器 enabled");
+        std::string err;
+        ok(logger.init(err), err.empty() ? "日志器 init" : err.c_str());
 
-    flight::GuidanceLogConfig cfg;
-    cfg.enabled = true;
-    cfg.rate_hz = 10.0;
-    cfg.file = path;
-    flight::GuidanceFlightLog logger(cfg, 50);
-    ok(logger.enabled(), "日志器 enabled");
-    std::string err;
-    ok(logger.init(err), err.empty() ? "日志器 init" : err.c_str());
-
-    const GuidanceParams gp = loop_params();
-    const flight::GuidanceLoopStats stats{};
-    for (int k = 0; k < 10; ++k) {
-        flight::GuidanceOutput o{};
-        o.boot_us = 2000000ULL + (100000ULL * static_cast<std::uint64_t>(k));
-        o.valid = true;
-        o.health = flight::GuidanceInputHealth::kOk;
-        o.mode = PureGuidanceMode::PN;
-        o.los_hat_ned = Vec3{1.0, 0.0, 0.0};
-        logger.record(o, gp, stats);
-        logger.record(o, gp, stats);  // 同一帧重发：必须被跳过
-    }
-    logger.close();
-
-    std::ifstream in(path);
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(in, line)) {
-        if (!line.empty()) {
-            lines.push_back(line);
+        const GuidanceParams gp = loop_params();
+        const flight::GuidanceLoopStats stats{};
+        for (int k = 0; k < 10; ++k) {
+            flight::GuidanceOutput o{};
+            o.boot_us = 2000000ULL + (100000ULL * static_cast<std::uint64_t>(k));
+            o.valid = true;
+            o.health = flight::GuidanceInputHealth::kOk;
+            o.mode = PureGuidanceMode::PN;
+            o.los_hat_ned = Vec3{1.0, 0.0, 0.0};
+            logger.record(o, gp, stats);
+            logger.record(o, gp, stats);  // 同一帧重发：必须被跳过
         }
-    }
-    ok(!lines.empty() && lines[0] == flight::guidance_log_csv_header(), "CSV 表头一致");
-    ok(lines.size() == 3, "抽稀后 = 表头 + 2 行（50 Hz / 10 Hz = 每 5 个计算拍）");
-    const auto commas = [](const std::string& s) {
-        int n = 0;
-        for (char c : s) {
-            if (c == ',') {
-                ++n;
+        logger.close();
+
+        std::ifstream in(path);
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty()) {
+                lines.push_back(line);
             }
         }
-        return n;
-    };
-    bool columns_ok = lines.size() == 3;
-    for (const auto& l : lines) {
-        if (commas(l) + 1 != 30) {
-            columns_ok = false;
+        ok(!lines.empty() && lines[0] == flight::guidance_log_csv_header(), "CSV 表头一致");
+        ok(lines.size() == expect_rows + 1, "时间抽稀行数正确");
+        const auto commas = [](const std::string& s) {
+            int n = 0;
+            for (char c : s) {
+                if (c == ',') {
+                    ++n;
+                }
+            }
+            return n;
+        };
+        bool columns_ok = !lines.empty();
+        for (const auto& l : lines) {
+            if (commas(l) + 1 != 30) {
+                columns_ok = false;
+            }
         }
-    }
-    ok(columns_ok, "CSV 每行 30 列");
-    std::remove(path.c_str());
+        ok(columns_ok, "CSV 每行 30 列");
+        std::remove(path.c_str());
+    };
+    run_logger("guidance_flight_log_10hz.csv", 10.0, 10);  // 100 ms 间隔 ⇒ 每帧一行
+    run_logger("guidance_flight_log_5hz.csv", 5.0, 5);     // 200 ms 间隔 ⇒ 隔一帧一行
 
     // ---- ⑤ 关闭时不建文件 ----
     const std::string off_path = (std::filesystem::temp_directory_path() / "guidance_flight_log_off.csv").string();
@@ -2148,7 +2152,7 @@ static void test_flight_log() {
     flight::GuidanceLogConfig off;
     off.enabled = false;
     off.file = off_path;
-    flight::GuidanceFlightLog off_logger(off, 50);
+    flight::GuidanceFlightLog off_logger(off);
     std::string off_err;
     ok(!off_logger.enabled() && off_logger.init(off_err), "关闭时 init 直接成功");
     ok(!std::filesystem::exists(off_path), "关闭时不创建文件");

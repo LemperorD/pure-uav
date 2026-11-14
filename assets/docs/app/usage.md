@@ -203,7 +203,7 @@ bin/guidance_example
 - `hold_last_max_s ≤ sensor_timeout_s`；
 - `cam.fx / cam.fy` 必须同时配、不能为负；
 - `R_body_cam` 必须 9 个有限数；
-- `log.rate_hz ∈ (0, loop.loop_hz]`（仅当 `log.enabled=true`）；
+- `log.rate_hz ∈ (0, 1000]`（仅当 `log.enabled=true`；实际行数受计算拍频率限制）；
 - `log.file` 长度 ≤ 512 字节。
 
 失败返回码 **2**。
@@ -274,10 +274,10 @@ log:
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | false | 总开关；关闭时连文件都不打开 |
-| `rate_hz` | 10.0 | 抽稀频率；上限 = `loop.loop_hz`（不能用它插值出更多样本） |
+| `rate_hz` | 10.0 | 每秒最多输出行数；按**目标帧时戳**抽稀，与检测帧率（10/30 Hz）无关；实际行数受计算拍频率限制 |
 | `file` | 空 | 相对路径按仓库根目录解析；首次写入自动补表头；`--check-config` 不创建文件 |
 
-- `rate_hz` 按**计算拍**计数（同一目标帧的零阶保持重发不计数），检测 10 Hz ⇒ 计算拍本来就只有 10 Hz；
+- 只有“真的重算”的拍才可能输出：同一目标帧的零阶保持重发会被跳过；
 - 输出由 `MissionGuidanceRunner` 在 `GuidanceLoop` **之外**调用，循环内仍然零 I/O；
 - `file` 非空时用行缓冲追加写、不做 `fsync`；高频/低延迟飞行建议保持 `file: ""`，参见
   [csv-format.md §6](csv-format.md)。

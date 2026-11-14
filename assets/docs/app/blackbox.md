@@ -105,7 +105,7 @@ a_n,a_e,a_d,v_n,v_e,v_d,anorm,t_go,Vc,R,lam_dot
 | | 实时日志 `GuidanceFlightLog` | 本文件 `GuidanceRingLog` |
 |---|---|---|
 | 位置 | stdout / CSV 文件 | 内存 |
-| 频率 | `log.rate_hz`（按计算拍抽稀） | 每拍 |
+| 频率 | `log.rate_hz`（按目标帧时戳抽稀） | 每拍 |
 | 内容 | a_cmd、t_go、Vc、R、û、Δû、ω、w_raw | 同量 + v_cmd、flags |
 | 用途 | 调参、滤波前后对比 | 崩溃现场 |
 
