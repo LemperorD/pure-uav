@@ -9,7 +9,7 @@
 #include "pure_uav/vio_runtime.hpp"
 
 namespace pure_uav {
-// camera_server V1 通道的只读 VIO 输入；相机配置由服务端管理。
+// camera_server V2 通道的只读 VIO 输入；相机配置由服务端管理。
 class ShmCameraSource final : public VioFrameSource {
   public:
     struct Config {
@@ -26,6 +26,7 @@ class ShmCameraSource final : public VioFrameSource {
     void stop();
     bool pop(VioFrame& out, int timeout_ms) override;
     VioDepthInfo depthInfo() const override;
+    camera::StreamMeta streamMeta() const;
     void discardBefore(int64_t host_ns) override;
     bool running() const;
     uint64_t dropped() const;

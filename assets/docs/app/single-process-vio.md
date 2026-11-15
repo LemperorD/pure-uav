@@ -137,6 +137,7 @@ ctest --test-dir build --output-on-failure -j2 \
 - 本次未在 ARM 板端构建或测量性能，未验证真实相机、串口、飞控融合和飞行。
 
 可复核记录：
+
 - `build/build-final.log`：最终构建日志。
 - `build/ctest-final.log`：14 项测试结果。
 - `build/verification.json`：原工程核对结果及新增/修改文件清单。

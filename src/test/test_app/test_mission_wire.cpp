@@ -130,7 +130,7 @@ void mavlinkWire() {
     writeMessage(master, message);
     mavlink_msg_local_position_ned_pack(1, 1, &message, 1000, 2, 3, -0.4F, 0, 0, 0);
     writeMessage(master, message);
-    MavlinkMissionPort port(comm, 0.2, 3000);
+    MavlinkMissionPort port(comm, 0.2, 3000, pure_uav::app::PreflightConfig{});
     mission::FlightFeedback feedback;
     deadline = Clock::now() + std::chrono::seconds(1);
     do {

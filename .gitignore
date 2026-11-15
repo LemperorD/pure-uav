@@ -1,6 +1,7 @@
 .vscode/
 .cache/
 .codebuddy/
+.trae/
 
 bin/*
 !bin/.gitkeep
@@ -39,3 +40,7 @@ sim_xtdrone2/viz_out/
 # Local integration runtime outputs
 out/
 build*/
+
+# Local markdownlint configuration
+.markdownlint.json
+.markdownlint-cli2.jsonc

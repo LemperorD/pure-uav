@@ -39,6 +39,13 @@ GuidanceParamResult guidance_load_yaml_file(const std::string& path, GuidanceApp
 /// @brief 范围/一致性校验；加载后、启动前必须调用。
 GuidanceParamResult guidance_validate_params(const GuidanceAppParams& p);
 
+/// @brief 按测距能力调整机载制导参数：测距不可用时把 TPN/APN 降级为 PPN + LOS 差分。
+/// @param[in,out] params 就地修改；有测距时保持用户选择不变。
+/// @param[in] range_available 相机启动后测距链路是否可用。
+/// @param[out] note 发生降级时的中文原因；未降级时为空。
+/// @return true 表示发生了降级。
+bool guidance_apply_range_capability(GuidanceAppParams& params, bool range_available, std::string& note);
+
 /// @brief 打印成 YAML 子集（--print-params 用，顺序固定）。
 std::string guidance_params_to_string(const GuidanceAppParams& p);
 

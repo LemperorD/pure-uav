@@ -55,22 +55,38 @@ Unix 偏移在映射就绪后首次换算时锁定，当前时间基内保持固
 
 ## 编译
 
-依赖：OpenCV、CMake ≥3.16、C++17、Orbbec SDK（`/usr/local/lib/libOrbbecSDK.so`）、MAVLink 头文件。
+依赖：C++17、Eigen3、OpenCV 4、Boost filesystem/date_time、Ceres 和系统线程库。
+OpenVINS 使用仓库内打过补丁的源码，是估计器的必需依赖。
+
+推荐从仓库根目录构建（CMake ≥3.22）：
 
 ```bash
-cd /home/kxy/桌面/pure-uav-vio/src/vio/estimator
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc) --target vio_live vio_offline
+cmake --build build -j2 --target camera_server vio_live vio_offline
 ```
 
-产物：`build/bin/vio_live`、`build/bin/vio_offline`。
+产物位于仓库的 `bin/`。实时 VIO 通过共享内存消费 `camera_server` 的图像，
+`vio_live` 本身不链接 Orbbec SDK；`camera_server` 仍需要 SDK。
+
+也支持在当前仓库内单独配置 estimator（CMake ≥3.16）：
+
+```bash
+cmake -S src/vio/estimator -B build/vio-estimator -DCMAKE_BUILD_TYPE=Release
+cmake --build build/vio-estimator -j2 --target vio_live vio_offline
+```
+
+独立构建产物位于 `build/vio-estimator/bin/`，不包含相机服务；
+实时运行前仍须从完整工程构建并启动 `camera_server`。
+`PURE_VIO_BUILD_LIVE=AUTO` 默认根据 SDK/MAVLink 头文件启用实时目标及相机驱动；
+`ON` 要求依赖齐备，`OFF` 只构建离线、核心和无硬件测试目标。
+独立构建可用 `PURE_UAV_DRIVER_DIR` / `PURE_UAV_MAVLINK_DIR` 指定依赖位置。
 
 ## 跑
 
 **1) 实时 + 录制**（默认跑 `config/gemini_1920x1080`）
 
 ```bash
-cd /home/kxy/桌面/pure-uav-vio/src/vio/estimator
+cd src/vio/estimator
 ./scripts/run_vio_live.sh --out out/run1 -- \
   --use-depth-init --init-vel-zero \
   --record datasets/run1

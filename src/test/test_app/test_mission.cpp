@@ -217,6 +217,27 @@ void targetConfirmationAndLoss() {
     check(wrong_class.mission.state() == MissionState::kSearch, "wrong target class accepted");
 }
 
+void rangeLossDuringStrike() {
+    Scenario s;
+    s.strike();
+    // 目标框还在，但同帧深度测距无效：不能继续制导，先定点保持，不立刻退段。
+    s.input.ins.p.x += 0.8;
+    s.input.target.present = true;
+    s.input.target.has_range = false;
+    s.input.target.range_m = 0.0;
+    auto out = s.tick();
+    check(!out.run_guidance && out.setpoint && std::abs(out.setpoint->x - 2.8F) < 1e-6F, "lost range did not hold position");
+    check(out.state == MissionState::kStrike, "single lost range left strike immediately");
+    // 超过 target_lost_timeout_s（默认 0.5 s）仍无有效测距才回搜索，目标框继续更新也不累计确认。
+    for (int i = 0; i < 40 && s.mission.state() == MissionState::kStrike; ++i) {
+        s.input.target.present = true;
+        s.input.target.has_range = false;
+        s.tick();
+    }
+    check(s.mission.state() == MissionState::kSearch, "range loss did not return to search after timeout");
+    check(!s.tick().strike_confirmed, "range loss fabricated strike success");
+}
+
 void timeoutsAndCancellation() {
     MissionConfig short_search;
     short_search.search_timeout_s = 0.1;
@@ -338,9 +359,10 @@ int main() {
         nominalMission();
         preflightAndRequests();
         targetConfirmationAndLoss();
+        rangeLossDuringStrike();
         timeoutsAndCancellation();
         faultsReleaseControl();
-        std::puts("PASS: mission flow, feedback gates, target freshness, timeouts and control release");
+        std::puts("PASS: mission flow, feedback gates, target freshness, range gating, timeouts and control release");
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what());

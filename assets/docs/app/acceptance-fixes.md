@@ -50,9 +50,9 @@ test_telemetry_freshness 通过真实 Communicator + PTY 验证初始无数据�
 ## P1：制导库输入正确性（未接入 main）
 
 - GuidanceState 增加 has_range，adapter 显式保留缺失测距语义，不再把缺失与真实零距离等同。
-  该字段默认 true 兼容原先手工填 range 的核心调用，外部原始输入必须由 adapter 填 has_range。
+  该字段默认 false；手工填 range 的核心调用必须显式置 has_range=true，外部原始输入由 adapter 填。
 - PPN 缺距离时使用 LOS 差分；三种冻结判据均不会因缺失测距而触发 HOLD。
-  t_go 使用有限最大值表示不可用，不凭空估计真实剩余时间。
+  t_go 在缺距离时保持 0（不可用），不凭空估计真实剩余时间。
 - TPN/APN 缺距离时 health=kNoRange、valid=false；核心函数也拒绝这类输入。
 - 像素反投影前检查 has_attitude，缺失时 health=kNoAttitude，不能以默认单位四元数冒充有效姿态。
 - INS/目标时间为 0 拒绝；目标领先 INS 超过 50 ms 拒绝；新目标时间倒退也拒绝。
@@ -64,7 +64,7 @@ test_telemetry_freshness 通过真实 Communicator + PTY 验证初始无数据�
 
 test_guidance 覆盖三类冻结判据、缺测距 PPN 非零输出、TPN/APN 拒绝、缺姿态、
 5 秒未来目标、零时间、时间倒退、50 ms 边界与 stop 不发送；原有正常、回放和闭环测试继续通过。
-主程序仍不链接 guidance，未新增任何飞行控制命令。
+主程序目前只加载并校验 guidance 配置，尚未启动 GuidanceLoop，也未新增飞行控制命令。
 
 ## P1：NPU 清理与量化
 

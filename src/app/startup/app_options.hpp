@@ -18,6 +18,8 @@ struct AppOptions {
     std::string driver_config_path, vio_config_path, shm_vio, vio_calibration_dir;
     int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";
+    std::string camera_calibration = "config/guidance-camera.yaml";
+    std::string preflight_config = "config/preflight.yaml";
     std::string blackbox;  // 预留：黑匣子尚未接入
 };
 

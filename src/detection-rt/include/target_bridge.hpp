@@ -6,6 +6,7 @@
 
 #include "detection_types.hpp"
 #include "guidance_flight_types.hpp"
+#include "mission_target_channel.hpp"
 
 namespace pure_uav::detection {
 
@@ -15,5 +16,8 @@ namespace pure_uav::detection {
 /// @param[out] out 无目标时也写入 present=false 的降级内容
 /// @return 有目标为 true。
 bool to_target_sample(const FrameResult& r, uint64_t boot_us, pure_uav::guidance::flight::GuidanceTargetSample& out);
+
+// 同机父子进程传输仍使用采集时的 CLOCK_MONOTONIC，不提前换算飞控时间。
+app::MissionTargetPacket to_mission_target_packet(const FrameResult& result, int64_t captured_ns);
 
 }  // namespace pure_uav::detection

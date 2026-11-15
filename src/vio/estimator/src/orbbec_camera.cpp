@@ -119,15 +119,16 @@ struct OrbbecCamera::Impl {
         int white_balance = 0;
     } snapshot;
 
-    // 【2026-10-21】深度：对齐到彩色的深度图（毫米）
+    // 深度保持原生像素域，由消费者通过标定投影到彩色。
     bool depth_enabled = false;
-    std::unique_ptr<ob::Align> align;
     long long laser_tick = 0;  // 激光重开节流计数器
     // 深度相机内参 + 到彩色的外参（给"彩色像素 → 深度"投影用）
     double depth_fx = 0, depth_fy = 0, depth_cx = 0, depth_cy = 0;
     int depth_w = 0, depth_h = 0;
     double color_fx = 0, color_fy = 0, color_cx = 0, color_cy = 0;
-    OBExtrinsic T_color_to_depth{};
+    OBExtrinsic T_color_to_depth{};  // SDK 实际返回 D2C；depthInfo() 再求逆。
+    DepthRangeCalibration range_calibration;
+    bool range_extrinsics_valid = false;
 
     //=============================================================
     // 【2026-10-23】运行中自动重测光（重要）
@@ -303,15 +304,37 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                     } catch (const ob::Error& e) {
                         std::printf("[Orbbec] ⚠️ 取彩色内参失败：%s\n", e.getMessage());
                     }
-                    // 深度→彩色的外参：SDK 在这台设备上可能查不到（实测报
-                    // "Can not find matched camera param"），失败就用默认单位阵，
-                    // 反正两相机实测只差 10 毫米，先把主项（内参投影）做对。
+                    try {
+                        auto& range = impl->range_calibration;
+                        const auto di = dprofile->getIntrinsic();
+                        const auto ci = profile->getIntrinsic();
+                        auto model = [](const OBCameraIntrinsic& k, const OBCameraDistortion& d) {
+                            RangeCameraModel m;
+                            m.width = k.width;
+                            m.height = k.height;
+                            m.fx = k.fx;
+                            m.fy = k.fy;
+                            m.cx = k.cx;
+                            m.cy = k.cy;
+                            m.distortion = {d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6};
+                            return m;
+                        };
+                        range.depth = model(di, dprofile->getDistortion());
+                        range.color = model(ci, profile->getDistortion());
+                    } catch (const ob::Error& e) {
+                        std::printf("[Orbbec] 测距畸变/内参不可用：%s\n", e.getMessage());
+                    }
+                    // 必须读取真实 D2C 外参；失败时测距保持不可用，不假定两相机重合。
                     try {
                         impl->T_color_to_depth = dprofile->getExtrinsicTo(profile);
-                        std::printf("[Orbbec] 彩色→深度 平移: [%.2f %.2f %.2f] mm\n", impl->T_color_to_depth.trans[0], impl->T_color_to_depth.trans[1], impl->T_color_to_depth.trans[2]);
+                        auto& range = impl->range_calibration;
+                        for (int i = 0; i < 9; ++i) range.R_depth_to_color.val[i] = impl->T_color_to_depth.rot[i];
+                        for (int i = 0; i < 3; ++i) range.t_depth_to_color_m[i] = impl->T_color_to_depth.trans[i] * 1e-3;
+                        impl->range_extrinsics_valid = true;
+                        std::printf("[Orbbec] 深度→彩色 平移: [%.2f %.2f %.2f] mm\n", impl->T_color_to_depth.trans[0], impl->T_color_to_depth.trans[1], impl->T_color_to_depth.trans[2]);
                     } catch (const ob::Error&) {
                         impl->T_color_to_depth = OBExtrinsic{};
-                        std::printf("[Orbbec] 深度外参查不到，按两相机重合处理（实测差 10 mm）\n");
+                        std::printf("[Orbbec] 深度外参查不到，目标测距不可用；VIO 深度消费者将校验标定\n");
                     }
                     std::printf("[Orbbec] 深度流已开启：%dx%d @ %d fps\n", dprofile->width(), dprofile->height(), dprofile->fps());
                 }
@@ -319,12 +342,15 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                 std::printf("[Orbbec] ⚠️ 深度流开启失败：%s（继续只用彩色）\n", e.getMessage());
             }
         }
-        impl->depth_enabled = depth_ok;
-        if (depth_ok) {
-            // 把深度对齐到彩色：这样 (u,v) 在两个图上指同一个物理点，
-            // 特征可以"看彩色、取深度"，不需要再算外参插值。
-            impl->align = std::make_unique<ob::Align>(OB_STREAM_COLOR);
+        if (!cfg.range_color_calibration_path.empty()) {
+            RangeCameraModel color;
+            std::string reason;
+            if (!loadRangeColorCalibration(cfg.range_color_calibration_path, cfg.width, cfg.height, color, &reason)) {
+                throw std::runtime_error(reason);
+            }
+            impl->range_calibration.color = color;
         }
+        impl->depth_enabled = depth_ok;
 
         // 让每个 FrameSet 同时包含彩色和深度：默认的 ANY_SITUATION 会让两路分开到达，
         // 结果大部分帧只有彩色、拿不到深度（实测"深度 0x0 有效 0%"）。
@@ -747,11 +773,7 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                             const size_t need = static_cast<size_t>(w) * static_cast<size_t>(h) * 2U;
                             if (bytes >= need) {
                                 cv::Mat raw(h, w, CV_16UC1, df->data());
-                                if (scale > 0.0F && scale != 1.0F) {
-                                    raw.convertTo(depth_mm, CV_16UC1, static_cast<double>(scale));
-                                } else {
-                                    depth_mm = raw.clone();
-                                }
+                                depth_mm = depthMillimeters(raw, scale);
                             }
                         }
                     } catch (...) {
@@ -999,6 +1021,11 @@ OrbbecCamera::DepthInfo OrbbecCamera::depthInfo() const {
         d.t_mm[r] = -((Rc[r][0] * td[0]) + (Rc[r][1] * td[1]) + (Rc[r][2] * td[2]));
     }
     return d;
+}
+
+DepthRangeCalibration OrbbecCamera::rangeCalibration() const {
+    if (!impl_ || !impl_->range_extrinsics_valid || !impl_->range_calibration.valid()) return {};
+    return impl_->range_calibration;
 }
 
 bool OrbbecCamera::running() const {

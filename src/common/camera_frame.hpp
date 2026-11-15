@@ -22,15 +22,15 @@ constexpr const char* kVioChannel = "/pure_uav_camera_vio";
 constexpr const char* kColorChannel = "/pure_uav_camera_color";
 
 constexpr uint32_t kShmMagic = 0x5055434DU;  // "PUCM"
-constexpr uint32_t kShmVersion = 1U;
+constexpr uint32_t kShmVersion = 2U;
 constexpr int kDefaultSlotCount = 3;
 constexpr size_t kDefaultVioPayloadBytes = 8U * 1024U * 1024U;    // 1920x1080 gray + CV_16U depth
-constexpr size_t kDefaultColorPayloadBytes = 4U * 1024U * 1024U;  // MJPG 单帧
+constexpr size_t kDefaultColorPayloadBytes = 8U * 1024U * 1024U;  // 原生深度 + MJPG 单帧
 constexpr uint64_t kHeartbeatTimeoutNs = 2000000000ULL;           // 2 s
 
 enum class ChannelType : uint32_t {
     vio = 0,    // 负载 = gray(CV_8UC1) + depth_mm(CV_16UC1，可为空)
-    color = 1,  // 负载 = 相机原始编码字节（MJPG / RGB / YUYV / BGR）
+    color = 1,  // 负载 = depth_mm（可为空）| 相机原始编码字节
 };
 
 constexpr size_t kCacheLine = 64U;
@@ -60,7 +60,13 @@ struct StreamMeta {
     uint32_t depth_width = 0;
     uint32_t depth_height = 0;
     uint32_t reserved1 = 0;
-    uint64_t reserved2[4] = {0, 0, 0, 0};
+    // V2：完整测距标定；仅在 SDK 的内参、畸变和 D2C 外参均可用时置 1。
+    uint32_t range_calibration_valid = 0;
+    uint32_t reserved2 = 0;
+    double depth_distortion[8] = {};  // OpenCV: k1,k2,p1,p2,k3,k4,k5,k6
+    double color_fx = 0, color_fy = 0, color_cx = 0, color_cy = 0;
+    double color_distortion[8] = {};
+    uint64_t reserved3[4] = {0, 0, 0, 0};
 };
 
 // 每帧元数据。三个 length 描述负载内连续排布的三段字节。

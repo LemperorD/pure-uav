@@ -72,7 +72,7 @@ src/guidance/
 > 真机必须改的参数：`GuidanceParams::los_rate_source` → `FROM_LOS_DIFFERENCE`
 > （真机拿不到 `v_T`；ω 由核内用 `û` 历史差分算出）。
 
-单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 304 条断言，产物 `bin/test/`）。
+单元测试在 `src/test/test_guidance/test_guidance.cpp`（当前基线 21 组 339 条断言，产物 `bin/test/`）。
 > ⚠ 这个测试**确实需要仿真**（用 `TruthState` / `Sensor` / `TargetModel` 做端到端），
 > 所以它链接 `guidance_core` + `guidance_sim`。而 `test_state_adapter`（真机路径）
 > 只链接 `guidance_state_adapter` + `mavlink_units` + `pure_vec3` + `guidance_core` —— 依旧**不碰仿真**。
@@ -246,7 +246,6 @@ v = 18 m/s 时  a_drag ≈ 0.70 m/s² ≈ 7% g
 > 仿真里这部分已由 `guidance_libs/src/sensor.cpp`（传感器墙，见下节）实现，
 > 可作为真机实现的参考；真机由 detection / vio 组替换同一接口。
 
-
 ## 三条铁律（写实现时务必遵守）
 
 1. `ω = (r × v_rel) / R²` —— 分母是 **R²** 不是 R。
@@ -286,6 +285,7 @@ CIRCLE / SNAKE / 查表连续性）· 末端冻结判据（**t_go 基准 ≡ R �
 ```
 
 参数：`pn_sim [csv] [N] [law] [fidelity] [target]`
+
 - `law ∈ {PPN, TPN, APN}`（也接受 0/1/2）
 - `fidelity ∈ {IDEAL, SEMI, FULL}`（默认 IDEAL；SEMI/FULL 见下节）
 - `target ∈ {dart, ballistic, straight, circle, snake}`（默认 dart）
