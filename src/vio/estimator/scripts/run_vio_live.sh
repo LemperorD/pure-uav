@@ -4,7 +4,7 @@
 #   ./scripts/run_vio_live.sh                  手持演示：动态初始化 + 开窗口 + 不发飞控
 #   ./scripts/run_vio_live.sh --static         同上，但静态初始化（先静止 ≥2 秒，再动一下触发）
 #   ./scripts/run_vio_live.sh --duration 60    60 秒后自动退出（默认一直跑到按 q）
-#   ./scripts/run_vio_live.sh --fly            正式飞行：按 100°/s 自动测光 + 真的发飞控
+#   ./scripts/run_vio_live.sh --fly            正式运行：向飞控发送位姿（相机服务需预先启动）
 #   ./scripts/run_vio_live.sh --out DIR        指定输出目录（默认 out/live_<时间戳>）
 #   ./scripts/run_vio_live.sh -- --no-send     "--" 之后的参数原样传给 vio_live
 #
@@ -75,14 +75,12 @@ ARGS=(
 )
 
 if [[ "$MODE" == "fly" ]]; then
-  # 正式飞行：按 100°/s 反推曝光上限（模糊预算 3 px），不加 --allow-blur —— 光不够就
-  # 直接拒绝启动，这是它该做的事。失效保护默认开，LOST 期间不发位姿。
-  ARGS+=( --tune-expected-rate 100 )
+  # 曝光和测光统一由 camera_server 配置；消费者只控制位姿发送。
+  # 失效保护默认开，LOST 期间不发位姿。
   echo "[run] 模式=飞行（会真的往飞控发 ODOMETRY）"
 else
-  # 手持演示：按 15°/s 估曝光；这个房间的光本来就不满足我们自己的"能飞"标准，
-  # 用 --allow-blur 显式放行那道检查（只是想看实时行为，不是结论）。
-  ARGS+=( --tune-expected-rate 15 --allow-blur --view --no-send )
+  # 手持演示：只读相机服务并显示，不发送位姿。
+  ARGS+=( --view --no-send )
   echo "[run] 模式=手持演示（不发飞控）"
 fi
 
@@ -95,6 +93,7 @@ fi
 
 [[ "$DURATION" != "0" ]] && ARGS+=( --duration "$DURATION" )
 
+echo "[run] 请先启动 camera_server；曝光、增益、测光和深度流由服务端管理"
 echo "[run] 输出目录: $OUTDIR"
 echo "[run] 命令: $BIN ${ARGS[*]} ${EXTRA[*]}"
 echo
@@ -140,7 +139,7 @@ set +e
   | grep -vE '^\[[0-9]{2}/[0-9]{2} [0-9:.]+\]'
 RC=${PIPESTATUS[0]}
 set -e
-# 跑完把实际锁定的曝光/增益/运动上限补进 run_meta.txt（这些只有跑起来才知道）
+# 记录退出状态；相机实际曝光/增益请查 camera_server 日志。
 {
   echo "ended: $(date -Is)"
   echo "rc: $RC"
@@ -156,6 +155,6 @@ if [[ -s "$OUTDIR/pose.csv" ]]; then
   echo "[run] 完事。分析这次的数据："
   echo "      python3 scripts/analyze_live.py $OUTDIR"
 else
-  echo "[run] 没生成位姿文件（没初始化成功？）检查上面的 [Orbbec]/[VIO] 日志" >&2
+  echo "[run] 没生成位姿文件（没初始化成功？）检查上面的 [CAM]/[VIO] 日志和 camera_server 状态" >&2
 fi
 exit "$RC"

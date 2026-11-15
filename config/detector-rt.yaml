@@ -1,6 +1,12 @@
 detection-rt:
-  model: "yolo26n"
-  confidence_threshold: 0.5
-  iou_threshold: 0.4
-  input_size: [640, 640]
-  device: "cuda"
+  # auto: 按编译后端自动选择 assets/models/yolo26n.onnx(CPU) 或 yolo26n.nb(NPU)；
+  # 也可写成显式的相对/绝对模型路径。
+  model_path: auto
+  imgsz: 640             # 当前后端只支持 640
+  num_classes: 2         # 模型类别数（现有约定 0=蓝装甲、1=红装甲）
+  conf_thr: 0.25         # 置信度阈值 (0,1]
+  iou_thr: 0.45          # 逐类 NMS IoU (0,1]
+  max_det: 100           # 单帧最大框数，上限 300
+  target_class: -1       # -1 接受所有类别；0/1 只保留指定类别
+  max_hz: 30             # 检测侧限频 1..60
+  max_age_ms: 200        # 输入帧与结果的最大帧龄 1..2000

@@ -1,6 +1,6 @@
 # ADR 0006：相机 / VIO 与制导的边界
 
-- 状态：现行（VIO 仍在分支上，未合并）
+- 状态：现行（VIO 已合并，2026-11-11 接入检测同帧深度测距）
 - 日期：2026-11-01（文档化）
 - 相关代码：`src/guidance/flight/guidance_loop.cpp`（像素反投影）、`GuidanceLoopConfig::cam`
 - 相关文档：[interfaces.md](../interfaces.md)
@@ -17,7 +17,7 @@
 像素 → 视线：
 
 ```text
-d_cam   = ((u−cx)/fx, (v−cy)/fy, 1)
+d_cam   = unproject_radtan(u, v, intrinsics, distortion)
 d_body  = R_body_cam · d_cam
 d_world = R(q) · d_body
 los_hat = normalize(d_world)
@@ -31,10 +31,11 @@ los_hat = normalize(d_world)
 
 - 内参：`src/vio/extrinsic/results/final/camchain-openvins-final.yaml`；
 - 外参：`src/vio/extrinsic/results/final/final_extrinsics.json`；
-- **这些结果目前只在 `origin/vio` 分支**，当前 `guidance` 分支没有；
+- 这些结果已在当前仓库；生产 RGB 内参另见 `src/vio/estimator/config/gemini_1920x1080/kalibr_imucam_chain.yaml`；
 - 演示用 `guidance_demo_camera()`（f=600、主点 320×240）只是占位，**真机不能直接用**。
 
-真机必须在 YAML 里给 `cam.*`；否则 `GuidanceApplication` 会回退 `guidance_demo_camera()`，反投影会用假内参。
+真机 `main --mission` 单独读取 `config/guidance-camera.yaml`；当前安装外参未确认，`calibrated=false` 时只搜索。
+独立仿真样例仍可回退 `guidance_demo_camera()`。深度测距与实际标定校验见 [depth-guidance.md](../app/depth-guidance.md)。
 
 ## 3 VIO 输出
 

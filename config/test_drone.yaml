@@ -1,0 +1,35 @@
+# test_drone 真机流程测试参数。
+# 只放可调参数；绝对安全上限仍由 src/app/test_drone.cpp 里的 constexpr 限制。
+test_drone:
+  takeoff_altitude_m: 1.0
+  hover_s: 10
+
+link:
+  timeout_s: 10
+  heartbeat_max_age_ms: 3000
+  attitude_max_age_ms: 200
+  local_position_max_age_ms: 200
+  system_time_max_age_ms: 2000
+
+command:
+  ack_timeout_ms: 2000
+  arm_timeout_s: 5
+  mode_timeout_s: 5
+
+preflight:
+  min_battery_percent: 30
+  max_tilt_deg: 10.0
+  max_vertical_speed_mps: 0.2
+
+takeoff:
+  timeout_s: 30
+  height_tolerance_m: 0.15
+  height_stable_s: 1.0
+
+offboard:
+  rate_hz: 20
+  prestream_s: 1.0
+  hover_altitude_tolerance_m: 0.3
+
+land:
+  timeout_s: 30

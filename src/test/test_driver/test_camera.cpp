@@ -1,11 +1,21 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #include "libobsensor/ObSensor.hpp"
 #include "libobsensor/hpp/Error.hpp"
 
 int main(int argc, char** argv) try {
+    // 本工具绕过所有封装直接打开 Orbbec 设备，与 camera_server 互斥。
+    // 必须显式确认相机服务已停，避免误开设备导致实时链路启动失败。
+    const char* allow = std::getenv("PURE_UAV_ALLOW_DIRECT_CAMERA");
+    if (allow == nullptr || std::string(allow) != "1") {
+        std::cerr << "[test_camera] 本工具会独占 Orbbec 设备，与 camera_server 冲突。\n"
+                     "仅在停用相机服务后手工执行：PURE_UAV_ALLOW_DIRECT_CAMERA=1 bin/test/test_camera\n";
+        return 2;
+    }
+
     int color_fps = 60;
     int depth_fps = 60;
 

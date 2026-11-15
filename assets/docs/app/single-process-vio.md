@@ -1,5 +1,9 @@
 # 单进程 VIO 主程序第一版
 
+> 2026-11-10：本次 VIO 图像源已适配外部 `camera_server`，接口与启动方式见
+> [VIO 接入 camera_server](camera-ipc.md)。本文其余模块集成说明及验收记录保留，
+> 相机直采相关步骤需结合该迁移说明使用。
+
 后续更新：可选检测已接入，默认配置仍关闭检测；详见 detection-integration.md。
 本周上机步骤见 uav-vio-bench-checklist.md。下方第一版 14 项测试记录保留为历史基线，
 检测接入后的最新结果以 build/verification-detection.json 为准。
@@ -133,6 +137,7 @@ ctest --test-dir build --output-on-failure -j2 \
 - 本次未在 ARM 板端构建或测量性能，未验证真实相机、串口、飞控融合和飞行。
 
 可复核记录：
+
 - `build/build-final.log`：最终构建日志。
 - `build/ctest-final.log`：14 项测试结果。
 - `build/verification.json`：原工程核对结果及新增/修改文件清单。

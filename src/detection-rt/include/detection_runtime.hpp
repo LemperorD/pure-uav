@@ -6,6 +6,7 @@
 
 #include "color_frame.hpp"
 #include "detection_types.hpp"
+#include "pure_uav/depth_range.hpp"
 
 namespace pure_uav::detection {
 
@@ -57,7 +58,7 @@ class DetectionRuntime {
         std::string last_error;
     };
 
-    DetectionRuntime(const RuntimeConfig& config, std::unique_ptr<InferenceBackend> backend);
+    DetectionRuntime(const RuntimeConfig& config, std::unique_ptr<InferenceBackend> backend, const DepthRangeCalibration& range_calibration = {});
     ~DetectionRuntime();
     DetectionRuntime(const DetectionRuntime&) = delete;
     DetectionRuntime& operator=(const DetectionRuntime&) = delete;

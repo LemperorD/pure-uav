@@ -40,7 +40,17 @@ EncodedColorFrame makeFrame(uint64_t seq, unsigned char value = 10) {
     frame.host_ns = nowNs();
     frame.seq = seq;
     frame.device_us = 7000;
+    frame.depth_device_us = 7000;
+    frame.depth_mm = cv::Mat(16, 16, CV_16UC1, cv::Scalar(2000));
     return frame;
+}
+DepthRangeCalibration rangeCalibration() {
+    DepthRangeCalibration c;
+    c.color.width = c.depth.width = c.color.height = c.depth.height = 16;
+    c.color.fx = c.depth.fx = c.color.fy = c.depth.fy = 10;
+    c.color.cx = c.depth.cx = 5;
+    c.color.cy = c.depth.cy = 6;
+    return c;
 }
 struct EngineState {
     std::mutex mutex;
@@ -138,7 +148,7 @@ int main() {
         DetectionRuntime unavailable(config, {});
         check(!unavailable.start(&error) && !error.empty(), "missing backend must not fabricate a detector");
         auto state = std::make_shared<EngineState>();
-        DetectionRuntime runtime(config, std::make_unique<TestBackend>(state));
+        DetectionRuntime runtime(config, std::make_unique<TestBackend>(state), rangeCalibration());
         check(runtime.start(&error), "worker start");
         check(!runtime.start(&error), "duplicate start");
         runtime.setEpoch(3, 4);
@@ -148,6 +158,7 @@ int main() {
         check(runtime.latest(target, nowNs()) && target.valid && target.result.present, "target snapshot");
         check(target.result.u_px == 5 && target.result.v_px == 6 && target.result.w_px == 6, "primary target not recomputed from validated boxes");
         check(target.session == 3 && target.generation == 4 && target.result.device_us == 7000, "frame identity or epoch lost");
+        check(target.result.has_range && std::abs(target.result.range_m - 2.0) < 1e-6, "worker did not use matching depth");
         check(target.result.host_us == 0, "monotonic timestamp must not masquerade as Unix time");
         check(runtime.latest(target, target.captured_host_ns + 500000000LL), "inclusive age boundary");
         const auto captured = target.captured_host_ns;
@@ -176,12 +187,15 @@ int main() {
         check(runtime.submit(makeFrame(4, 40)), "queued frame submission");
         pause();
         frame = makeFrame(5, 50);
+        frame.depth_mm.setTo(3000);
         check(runtime.submit(frame), "newest queued frame submission");
+        frame.depth_mm.setTo(9000);
         frame.bytes.setTo(cv::Scalar(99));
         check(!runtime.submit(makeFrame(6)), "rate limiter failed");
         release(state);
         waitFor([&] { return runtime.stats().processed >= 4; }, "latest replacement not processed");
         check(runtime.latest(target, nowNs()) && target.result.seq == 5 && state->pixel.load() == 50, "pending buffer was not owned, or old frames were not replaced");
+        check(target.result.has_range && std::abs(target.result.range_m - 3.0) < 1e-6, "queued depth was not owned or belonged to a different frame");
         check(runtime.stats().replaced >= 1 && runtime.stats().rate_limited >= 1, "drop counters");
 
         hold(state);
@@ -193,13 +207,13 @@ int main() {
         release(state);
         waitFor([&] { return runtime.stats().invalidated >= 1; }, "in-flight old epoch was published");
         pause();
-        check(runtime.submit(makeFrame(8)), "new epoch frame");
-        waitFor([&] { return runtime.latest(target, nowNs()) && target.result.seq == 8; }, "new epoch result");
+        check(runtime.submit(makeFrame(1)), "new epoch reset sequence");
+        waitFor([&] { return runtime.latest(target, nowNs()) && target.result.seq == 1; }, "new epoch result");
         check(target.session == 4 && target.generation == 9, "new epoch metadata");
 
         pause();
         state->fail.store(true);
-        check(runtime.submit(makeFrame(9)), "failure test frame");
+        check(runtime.submit(makeFrame(2)), "failure test frame");
         waitFor([&] { return !runtime.running(); }, "inference failure was swallowed");
         check(!runtime.latest(target, nowNs()) && runtime.stats().last_error.find("injected") != std::string::npos, "failed backend left valid targets");
         runtime.stop();
@@ -208,6 +222,24 @@ int main() {
         state->fail.store(false);
         check(runtime.start(&error), "restart after failure");
         check(!runtime.latest(target, nowNs()), "restart reused stale detection");
+        runtime.stop();
+        // 每种缺失/无效深度都必须清掉上一帧距离，保留正常检测框。
+        check(runtime.start(&error), "range failure worker start");
+        for (int scenario = 0; scenario < 8; ++scenario) {
+            pause();
+            auto rgbd = makeFrame(static_cast<uint64_t>(scenario + 1));
+            if (scenario == 0) rgbd.depth_mm.release();
+            if (scenario == 1) rgbd.depth_device_us = 0;
+            if (scenario == 2) rgbd.depth_device_us = rgbd.device_us + 60000;
+            if (scenario == 3) rgbd.depth_device_us = -1;
+            if (scenario == 4) rgbd.depth_mm = cv::Mat::zeros(16, 16, CV_16UC1);
+            if (scenario == 5) rgbd.depth_mm = cv::Mat(16, 16, CV_16UC1, cv::Scalar(65535));
+            if (scenario == 6) rgbd.depth_mm = cv::Mat(15, 16, CV_16UC1, cv::Scalar(2000));
+            if (scenario == 7) rgbd.depth_mm = cv::Mat(16, 16, CV_32FC1, cv::Scalar(2));
+            check(runtime.submit(rgbd), "invalid depth prevented color submission");
+            waitFor([&] { return runtime.latest(target, nowNs()) && target.result.seq == rgbd.seq; }, "invalid depth result missing");
+            check(target.result.present && !target.result.has_range && target.result.range_m == 0, "bad depth retained range or removed detection");
+        }
         runtime.stop();
         std::printf("PASS: %d detection checks (synthetic backend, real worker/decoding; no NPU or camera)\n", checks);
         return 0;

@@ -69,6 +69,12 @@ class Communicator {
     bool pushVisionPose(const VisionPose& p);  // 发视觉位姿（质量/重置/协方差取 p 里的字段）
     // Session-aware variant for asynchronous producers; the original API is preserved.
     bool pushVisionPoseForSession(const VisionPose& p, uint64_t expected_session);
+    bool pushGuidanceCmdForSession(const GuidanceCmd& c, uint64_t expected_session);
+    // 任务使用的非阻塞请求：只发送，不等 ACK；动作完成由飞控反馈确认。
+    bool requestOffboardForSession(uint64_t expected_session);
+    bool requestArmForSession(uint64_t expected_session);
+    bool requestLandForSession(uint64_t expected_session);
+    bool getLandedState(LandedState& out, int max_age_ms = 2000) const;
     bool pushGuidanceCmd(const GuidanceCmd& c);                                                // 发制导期望状态（Offboard）
     bool sendTakeoff(float altitude_m, int timeout_ms = 1000, uint8_t* result = nullptr);      // 起飞（NAV_TAKEOFF）  高度m
     bool sendLand(int timeout_ms = 1000, uint8_t* result = nullptr);                           // 降落（NAV_LAND）
@@ -108,9 +114,11 @@ class Communicator {
     // 各模块拿数据
     bool getAttitude(Attitude& out) const;  // 姿态
     bool getAttitude(Attitude& out, int max_age_ms) const;
+    bool getAttitude(Attitude& out, int max_age_ms, int64_t* received_ns) const;
     bool getBattery(Battery& out) const;              // 电量
     bool getLocalPosition(LocalPosition& out) const;  // 位置和速度
     bool getLocalPosition(LocalPosition& out, int max_age_ms) const;
+    bool getLocalPosition(LocalPosition& out, int max_age_ms, int64_t* received_ns) const;
     bool getImu(ImuData& out) const;            // IMU数据
     bool getSystemTime(SystemTime& out) const;  // 时间戳
     bool getSystemTime(SystemTime& out, int max_age_ms) const;
@@ -166,6 +174,8 @@ class Communicator {
 
   private:
     bool sendVisionPose(const VisionPose& p, std::optional<uint64_t> expected_session);
+    bool sendGuidanceCmd(const GuidanceCmd& c, std::optional<uint64_t> expected_session);
+    bool requestFlightCommand(uint16_t command, float p1, float p2, uint64_t expected_session);
     void recvLoop();  // 接收线程
     // 心跳是否来自目标飞控；首次匹配时锁定 sysid/compid
     bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
@@ -205,6 +215,8 @@ class Communicator {
     std::atomic<uint32_t> count_system_time_{0};
 
     // 每种数据一把锁
+    mutable std::mutex landed_mutex_;
+    LandedState landed_;
     mutable std::mutex attitude_mutex_;
     mutable std::mutex battery_mutex_;
     mutable std::mutex local_position_mutex_;

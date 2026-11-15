@@ -10,6 +10,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -97,6 +100,7 @@ static GuidanceState make_state(double t, double range, const Vec3& u, const Vec
     st.t = t;
     st.los_hat = u;
     st.range = range;
+    st.has_range = true;
     st.v_M = vM;
     st.v_T = vT;
     st.valid = true;
@@ -1014,9 +1018,19 @@ static void test_missing_guidance_inputs() {
             ins.pending = true;
             tgt.next = loop_tgt(2000000ULL, 0.2);
             tgt.next.has_range = false;
+            tgt.next.range_m = 0.0;
             tgt.pending = true;
             needs_range.run_once(&out);
-            ok(!out.valid && out.health == flight::GuidanceInputHealth::kNoRange, "TPN/APN without range is invalid under every freeze criterion");
+            ins.next = loop_ins(2020000ULL);
+            ins.pending = true;
+            tgt.next = loop_tgt(2020000ULL, 0.3);
+            tgt.next.has_range = false;
+            tgt.next.range_m = 0.0;
+            tgt.pending = true;
+            needs_range.run_once(&out);
+            ok(out.valid && out.health == flight::GuidanceInputHealth::kOk && out.mode == PureGuidanceMode::PN, "TPN/APN without range falls back to PPN + LOS difference");
+            ok(out.a_cmd_norm > 0, "TPN/APN fallback still yields nonzero acceleration");
+            ok(needs_range.stats().law_fallback == 2, "fallback counter counts every degraded frame");
         }
     }
     for (int invalid_input = 0; invalid_input < 5; ++invalid_input) {
@@ -1854,6 +1868,18 @@ cam:
     ok(!app::guidance_validate_params(v).ok, "相机只配 fx 校验失败");
     ok(app::guidance_validate_params(app::guidance_default_params()).ok, "默认参数校验通过");
 
+    // ---- 测距能力降级：无测距时 TPN/APN -> PPN + LOS 差分 ----
+    app::GuidanceAppParams rc = app::guidance_default_params();
+    rc.guidance.law = GuidanceLaw::TPN;
+    rc.guidance.los_rate_source = LosRateSource::FROM_RELATIVE_VELOCITY;
+    std::string downgrade_note;
+    ok(app::guidance_apply_range_capability(rc, false, downgrade_note), "无测距触发降级");
+    ok(rc.guidance.law == GuidanceLaw::PPN && rc.guidance.los_rate_source == LosRateSource::FROM_LOS_DIFFERENCE, "降级为 PPN + LOS 差分");
+    ok(!downgrade_note.empty() && downgrade_note.find("PPN") != std::string::npos, "降级提示包含 PPN");
+    app::GuidanceAppParams keep = app::guidance_default_params();
+    keep.guidance.law = GuidanceLaw::APN;
+    ok(!app::guidance_apply_range_capability(keep, true, downgrade_note) && keep.guidance.law == GuidanceLaw::APN && downgrade_note.empty(), "有测距保留用户选择的制导律");
+
     // ---- 打印（便于 --print-params / 两次配置 diff）----
     const std::string s = app::guidance_params_to_string(app::guidance_default_params());
     ok(s.find("guidance.N") != std::string::npos && s.find("loop.loop_hz") != std::string::npos && s.find("cam.R_body_cam") != std::string::npos, "guidance_params_to_string 含关键键");
@@ -2005,6 +2031,134 @@ static void test_ring_log() {
 }
 
 // ============================================================
+//  22. 制导中间量日志（YAML 开关 / 差分推导 / 抽稀 / CSV）
+// ============================================================
+static void test_flight_log() {
+    section("22. 制导中间量日志（YAML 开关 / 差分推导 / 抽稀 / CSV）");
+
+    // ---- ① YAML 键与默认值 ----
+    app::GuidanceAppParams p = app::guidance_default_params();
+    ok(!p.log.enabled, "默认日志关闭");
+    near(p.log.rate_hz, 10.0, 1e-12, "默认 log.rate_hz=10");
+    ok(p.log.file.empty(), "默认 log.file 为空（stdout）");
+
+    app::GuidanceParamResult r = app::guidance_load_yaml_text("log.enabled: false\nlog.rate_hz: 5\nlog.file: out/g.csv\n", &p);
+    ok(r.ok, r.ok ? "log.* 解析成功" : r.error.c_str());
+    ok(!p.log.enabled && std::fabs(p.log.rate_hz - 5.0) < 1e-12 && p.log.file == "out/g.csv", "log.* 取值正确");
+
+    // 引号空串是合法值（表示“只打 stdout”），不能被当成下一级分组。
+    app::GuidanceAppParams e = app::guidance_default_params();
+    e.log.file = "old.csv";
+    r = app::guidance_load_yaml_text("log.file: \"\"\nlog.rate_hz: 7\n", &e);
+    ok(r.ok && e.log.file.empty() && std::fabs(e.log.rate_hz - 7.0) < 1e-12, "log.file: \"\" 解析为空串且后续键正常");
+
+    // ---- ② 校验：只在开启时要求 rate 有效 ----
+    app::GuidanceAppParams v = app::guidance_default_params();
+    v.log.enabled = true;
+    v.log.rate_hz = 0.0;
+    ok(!app::guidance_validate_params(v).ok, "开启日志但 rate=0 校验失败");
+    v = app::guidance_default_params();
+    v.log.enabled = true;
+    v.log.rate_hz = 5000.0;  // 上限 1000
+    ok(!app::guidance_validate_params(v).ok, "log.rate_hz > 1000 校验失败");
+    v = app::guidance_default_params();
+    v.log.enabled = true;
+    v.log.rate_hz = 10.0;
+    ok(app::guidance_validate_params(v).ok, "开启日志且 rate 合法时校验通过");
+    ok(app::guidance_validate_params(app::guidance_default_params()).ok, "日志关闭时默认参数校验通过");
+
+    // ---- ③ 差分推导：û 绕 z 转 0.1 rad，dt = 100 ms ----
+    flight::GuidanceOutput a{};
+    a.boot_us = 1000000ULL;
+    a.valid = true;
+    a.health = flight::GuidanceInputHealth::kOk;
+    a.los_hat_ned = Vec3{1.0, 0.0, 0.0};
+    flight::GuidanceOutput b = a;
+    b.boot_us = 1100000ULL;
+    b.los_hat_ned = Vec3{0.9950041652780258, 0.09983341664682815, 0.0};  // (cos 0.1, sin 0.1)
+
+    const flight::GuidanceLogDerived d = flight::guidance_log_derive(b, a, true);
+    ok(d.have_prev, "差分：有上一拍");
+    near(d.dt_s, 0.1, 1e-12, "差分 dt=0.1 s");
+    near(d.w_raw, 0.99958, 2e-3, "差分 w_raw≈0.9996 rad/s");
+    near_vec(d.omega, Vec3{0.0, 0.0, 0.99833}, 2e-3, "差分 ω 沿 +z");
+    near_vec(d.dlos, b.los_hat_ned - a.los_hat_ned, 1e-12, "差分 dlos = û_k − û_{k−1}");
+
+    const flight::GuidanceLogDerived none = flight::guidance_log_derive(b, a, false);
+    ok(!none.have_prev && none.dt_s == 0.0 && none.w_raw == 0.0, "无历史时推导为零");
+
+    // ---- ④ 时间抽稀 + 重复帧跳过 + CSV 表头 ----
+    // 目标帧间隔 100 ms：rate=10 ⇒ 每帧一行（10 行）；rate=5 ⇒ 每 200 ms 一行（5 行）。
+    const auto run_logger = [&](const char* name, double rate, std::size_t expect_rows) {
+        const std::string path = (std::filesystem::temp_directory_path() / name).string();
+        std::remove(path.c_str());
+        flight::GuidanceLogConfig cfg;
+        cfg.enabled = true;
+        cfg.rate_hz = rate;
+        cfg.file = path;
+        flight::GuidanceFlightLog logger(cfg);
+        ok(logger.enabled(), "日志器 enabled");
+        std::string err;
+        ok(logger.init(err), err.empty() ? "日志器 init" : err.c_str());
+
+        const GuidanceParams gp = loop_params();
+        const flight::GuidanceLoopStats stats{};
+        for (int k = 0; k < 10; ++k) {
+            flight::GuidanceOutput o{};
+            o.boot_us = 2000000ULL + (100000ULL * static_cast<std::uint64_t>(k));
+            o.valid = true;
+            o.health = flight::GuidanceInputHealth::kOk;
+            o.mode = PureGuidanceMode::PN;
+            o.los_hat_ned = Vec3{1.0, 0.0, 0.0};
+            logger.record(o, gp, stats);
+            logger.record(o, gp, stats);  // 同一帧重发：必须被跳过
+        }
+        logger.close();
+
+        std::ifstream in(path);
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty()) {
+                lines.push_back(line);
+            }
+        }
+        ok(!lines.empty() && lines[0] == flight::guidance_log_csv_header(), "CSV 表头一致");
+        ok(lines.size() == expect_rows + 1, "时间抽稀行数正确");
+        const auto commas = [](const std::string& s) {
+            int n = 0;
+            for (char c : s) {
+                if (c == ',') {
+                    ++n;
+                }
+            }
+            return n;
+        };
+        bool columns_ok = !lines.empty();
+        for (const auto& l : lines) {
+            if (commas(l) + 1 != 30) {
+                columns_ok = false;
+            }
+        }
+        ok(columns_ok, "CSV 每行 30 列");
+        std::remove(path.c_str());
+    };
+    run_logger("guidance_flight_log_10hz.csv", 10.0, 10);  // 100 ms 间隔 ⇒ 每帧一行
+    run_logger("guidance_flight_log_5hz.csv", 5.0, 5);     // 200 ms 间隔 ⇒ 隔一帧一行
+
+    // ---- ⑤ 关闭时不建文件 ----
+    const std::string off_path = (std::filesystem::temp_directory_path() / "guidance_flight_log_off.csv").string();
+    std::remove(off_path.c_str());
+    flight::GuidanceLogConfig off;
+    off.enabled = false;
+    off.file = off_path;
+    flight::GuidanceFlightLog off_logger(off);
+    std::string off_err;
+    ok(!off_logger.enabled() && off_logger.init(off_err), "关闭时 init 直接成功");
+    ok(!std::filesystem::exists(off_path), "关闭时不创建文件");
+}
+
+// ============================================================
 int main() {
     std::printf("制导模块单元测试 test_guidance\n");
 
@@ -2029,6 +2183,7 @@ int main() {
     test_params();
     test_latency();
     test_ring_log();
+    test_flight_log();
 
     std::printf("\n----------------------------------------\n");
     std::printf("通过 %d, 失败 %d\n", g_pass, g_fail);

@@ -7,6 +7,7 @@
 //  命名空间：pure_uav::guidance::flight。
 // =============================================================================
 
+#include <cmath>
 #include <cstdint>
 
 #include "guidance_types.hpp"  // PureGuidanceMode / GuidanceParams
@@ -58,8 +59,9 @@ enum class GuidanceInputHealth : std::uint8_t {
     kRangeNegative,
     kStale,
     kTimeBackwards,
-    kNoRange,     // 无距离输入（未测量到相对距离）
-    kNoAttitude,  // 无姿态输入（未测量到当前姿态）
+    kTimeUnknown,  // 时间基不可用（boot_us == 0）
+    kNoRange,      // 无距离输入（未测量到相对距离）
+    kNoAttitude,   // 无姿态输入（未测量到当前姿态）
 };
 
 enum class GuidanceControlMode : std::uint8_t {
@@ -81,6 +83,9 @@ struct GuidanceOutput {
     double Vc = 0.0;
     double R = 0.0;
     double lam_dot = 0.0;
+    // 本拍视线单位矢量（NED）。无效拍为零矢量；只给日志/诊断用，不参与制导。
+    // 有了它，日志器可以用相邻两拍的 û 差分还原 ω 矢量与未滤波模长（见 guidance_flight_log.hpp）。
+    Vec3 los_hat_ned;
     GuidanceInputHealth health = GuidanceInputHealth::kOk;
 };
 
@@ -155,8 +160,33 @@ struct GuidanceCameraModel {
     double cx = 0.0, cy = 0.0;
     // 外参：相机系 → 机体系（行主序 9 个 double）
     double R_body_cam[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    int width = 0, height = 0;  // 0 表示旧仿真未指定图像边界
+    double distortion[5] = {};  // 原始彩色像素，radtan: k1,k2,p1,p2,k3
     [[nodiscard]] bool valid() const {
-        return fx > 0.0 && fy > 0.0;
+        if (!std::isfinite(fx) || !std::isfinite(fy) || fx <= 0 || fy <= 0 || !std::isfinite(cx) || !std::isfinite(cy)) return false;
+        for (double d : distortion)
+            if (!std::isfinite(d)) return false;
+        return width >= 0 && height >= 0;
+    }
+    // 逆 Brown 投影；固定迭代、零分配，不把 OpenCV 带入制导核心。
+    [[nodiscard]] bool ray(double u, double v, Vec3& out) const noexcept {
+        if (!valid() || !std::isfinite(u) || !std::isfinite(v) || (width > 0 && (u < 0 || u > width - 1)) || (height > 0 && (v < 0 || v > height - 1))) return false;
+        const double xd = (u - cx) / fx, yd = (v - cy) / fy;
+        double x = xd, y = yd;
+        for (int i = 0; i < 20; ++i) {
+            const double r2 = x * x + y * y;
+            const double radial = 1 + r2 * (distortion[0] + r2 * (distortion[1] + r2 * distortion[4]));
+            const double dx = 2 * distortion[2] * x * y + distortion[3] * (r2 + 2 * x * x);
+            const double dy = distortion[2] * (r2 + 2 * y * y) + 2 * distortion[3] * x * y;
+            if (!std::isfinite(radial) || radial <= 1e-12) return false;
+            if (std::abs(x * radial + dx - xd) + std::abs(y * radial + dy - yd) < 1e-10) {
+                out = Vec3{x, y, 1};
+                return true;
+            }
+            x = (xd - dx) / radial;
+            y = (yd - dy) / radial;
+        }
+        return false;
     }
 };
 

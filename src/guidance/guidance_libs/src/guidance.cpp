@@ -84,16 +84,20 @@ PureGuidanceCmd guidance_step(const GuidanceState& state, const GuidanceParams& 
     cmd.a_cmd = cmd.a_cmd_unsat;
 
     bool freeze = false;
-    switch (params.freeze_criterion) {
-        case FreezeCriterion::BY_TGO:
-            freeze = (cmd.t_go < params.t_go_freeze);
-            break;
-        case FreezeCriterion::BY_RANGE:
-            freeze = (state.range < params.R_freeze);
-            break;
-        case FreezeCriterion::BY_TGO_OR_RANGE:
-            freeze = (cmd.t_go < params.t_go_freeze) || (state.range < params.R_freeze);
-            break;
+    // 无测距时 range 字段没有物理意义，不能拿 0 去触发 BY_RANGE / BY_TGO 冻结。
+    // 此时 PPN 仍可依靠 LOS 差分正常输出；末端判定交给主循环（撞击/时间/目标消失）。
+    if (state.has_range) {
+        switch (params.freeze_criterion) {
+            case FreezeCriterion::BY_TGO:
+                freeze = (cmd.t_go < params.t_go_freeze);
+                break;
+            case FreezeCriterion::BY_RANGE:
+                freeze = (state.range < params.R_freeze);
+                break;
+            case FreezeCriterion::BY_TGO_OR_RANGE:
+                freeze = (cmd.t_go < params.t_go_freeze) || (state.range < params.R_freeze);
+                break;
+        }
     }
     if (freeze) {
         cmd.mode = PureGuidanceMode::HOLD;

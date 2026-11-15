@@ -1,194 +1,229 @@
-// 机载组合根：单串口、单相机，通信 / 检测 / VIO / 制导并发运行。
-// 生命周期和配置见 assets/docs/app/usage.md。
-#include <unistd.h>
-
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
-#include <functional>
 #include <memory>
-#include <optional>
-#include <stdexcept>
-#include <string>
 #include <thread>
-#include <vector>
 
-#include "communicator.hpp"
-#include "guidance_loop.hpp"
-#include "runtime/bounded_queue.hpp"
-#include "runtime/guidance_ports.hpp"
-#include "startup/guidance_application.hpp"
+#include "startup/app_options.hpp"
 
 #ifdef PURE_APP_HAS_VIO
-#include <opencv2/calib3d.hpp>
-#include <opencv2/core.hpp>
-
-#include "fcu_clock.hpp"
-#include "live_timing.hpp"
-#include "orbbec_camera.hpp"
-#include "pure_uav/vio_estimator.hpp"
-#endif
-#ifdef PURE_APP_HAS_DETECTION
-#include "detector.hpp"
-#include "target_bridge.hpp"
+#include "runtime/guidance_camera.hpp"
+#include "runtime/landing_failsafe.hpp"
+#include "runtime/vio_pose_publisher.hpp"
+#include "startup/app_startup.hpp"
+#include "startup/guidance_application.hpp"
 #endif
 
 namespace {
 using namespace pure_uav;
-namespace flight = guidance::flight;
+using namespace pure_uav::app;
 using Clock = std::chrono::steady_clock;
-volatile std::sig_atomic_t interrupted = 0;
+
+std::atomic<bool> interrupted{false};
+std::atomic<bool> return_requested{false};
+static_assert(std::atomic<bool>::is_always_lock_free, "Signal flag must be lock-free");
+
 void onSignal(int /*unused*/) {
-    interrupted = 1;
-}
-int64_t nowNs() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+    interrupted.store(true, std::memory_order_relaxed);
 }
 
-struct Options {
-    std::string driver = "config/driver.yaml";
-    std::string vio = "src/vio/estimator/config/gemini_1920x1080";
-    std::string guidance = "config/onboard-guidance.yaml";
-    std::string model;
-    std::string blackbox;
-    bool no_send = false;
-};
-
-void usage(const char* name) {
-    std::printf(
-        "用法: %s [选项]\n"
-        "同时运行通信、共享相机、检测、VIO、制导线程；Ctrl-C 停止。\n"
-        "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
-        "  --config-dir DIR      VIO 配置目录（默认 gemini_1920x1080）\n"
-        "  --guidance-config FILE 制导参数覆盖（相机默认读取 VIO 标定）\n"
-        "  --model FILE          检测模型（默认 yolo26n，按编译后端选择）\n"
-        "  --blackbox FILE       退出时保存制导黑匣子\n"
-        "  --no-send             运行计算但不发送位姿和制导指令\n"
-        "  -h, --help            查看帮助\n",
-        name);
+void onReturnSignal(int /*unused*/) {
+    return_requested.store(true, std::memory_order_relaxed);
 }
 
-Options parseOptions(int argc, char** argv) {
-    Options options;
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--no-send") {
-            options.no_send = true;
-            continue;
-        }
-        std::string* value = nullptr;
-        if (arg == "--driver-config") {
-            value = &options.driver;
-        } else if (arg == "--config-dir") {
-            value = &options.vio;
-        } else if (arg == "--guidance-config") {
-            value = &options.guidance;
-        } else if (arg == "--model") {
-            value = &options.model;
-        } else if (arg == "--blackbox") {
-            value = &options.blackbox;
-        } else {
-            throw std::invalid_argument("未知参数：" + arg);
-        }
-        if (++i == argc) {
-            throw std::invalid_argument(arg + " 缺少参数值");
-        }
-        *value = argv[i];
-    }
-    return options;
-}
 }  // namespace
 
-#ifdef PURE_APP_HAS_VIO
-struct Frame {
-    cv::Mat gray, depth;
-    int64_t host_ns = 0;
-    uint64_t session = 0;
-};
-
-// 线程异常统一回到监督线程；析构时先通知退出，再 join，禁止后台悬空访问资源。
-class Workers {
-  public:
-    std::atomic<bool> stop{false};
-    std::atomic<bool> failed{false};
-    template <typename F>
-    void launch(const char* name, F work) {
-        threads_.emplace_back([this, name, work] {
-            try {
-                work();
-            } catch (const std::exception& error) {
-                std::fprintf(stderr, "[%s] %s\n", name, error.what());
-                failed = true;
-                stop = true;
-            } catch (...) {
-                std::fprintf(stderr, "[%s] 未知异常\n", name);
-                failed = true;
-                stop = true;
-            }
-        });
+int main(int argc, char** argv) {
+    AppOptions options;
+    try {
+        options = parseAppOptions(argc, argv);
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "%s\n", error.what());
+        return 2;
     }
-    void join() {
-        stop = true;
-        for (auto& thread : threads_) {
-            if (thread.joinable()) {
-                thread.join();
+    if (options.help) {
+        printAppUsage(argv[0]);
+        return 0;
+    }
+    std::signal(SIGINT, onSignal);
+    std::signal(SIGTERM, onSignal);
+    std::signal(SIGUSR1, onReturnSignal);
+    std::signal(SIGPIPE, SIG_IGN);
+
+#ifdef PURE_APP_HAS_VIO
+    try {
+        AppStartupConfig settings;
+        std::string error;
+        if (!loadAppStartupConfig(options, settings, error)) {
+            std::fprintf(stderr, "Configuration error: %s\n", error.c_str());
+            return 2;
+        }
+        if (options.check_config) {
+            printAppStartupConfig(options, settings);
+            return 0;
+        }
+        const auto& config = settings.app;
+
+        // 启动：唯一飞控连接 → 相机输入 → VIO → 任务 → 检测。
+        Communicator comm;
+        const auto connected = connectFlightController(comm, config, interrupted);
+        if (connected != FlightConnectionResult::kReady) {
+            return connected == FlightConnectionResult::kStopped ? 0 : 1;
+        }
+        CommImuSource imu(comm);
+        CameraService camera;
+        if (!camera.start(config.camera, &error)) {
+            std::fprintf(stderr, "[CAM] 连接 camera_server 失败：%s\n", error.c_str());
+            comm.stop();
+            return 1;
+        }
+        if (options.mission) {
+            const auto range_error = rangeMeasurementError(camera.streamMeta());
+            if (!range_error.empty()) {
+                if (!options.no_send) {
+                    std::fprintf(stderr, "[CAM] 目标测距不可用：%s\n[CAM] 任务无法进入撞板；只做像素/状态机联调请加 --no-send。\n", range_error.c_str());
+                    camera.stop();
+                    comm.stop();
+                    return 1;
+                }
+                std::fprintf(stderr, "[CAM] 目标测距不可用：%s（--no-send：继续运行，但不会撞板）\n", range_error.c_str());
+            }
+            if (!guidanceCameraMatchesStream(settings.guidance.loop.cam, camera.streamMeta(), error)) {
+                std::fprintf(stderr, "[CAM] %s\n", error.c_str());
+                camera.stop();
+                comm.stop();
+                return 1;
+            }
+            // 测距不可用时把 TPN/APN 自动降级为 PPN；有测距时保留用户配置。
+            std::string guidance_note;
+            if (guidance_apply_range_capability(settings.guidance, range_error.empty(), guidance_note)) {
+                std::fprintf(stderr, "[GUIDANCE] %s\n", guidance_note.c_str());
             }
         }
-    }
-    std::vector<std::thread> threads_;
-};  // class Workers
+        VioRuntime vio(config.vio, imu, camera, config.publication);
+        if (interrupted.load()) {
+            camera.stop();
+            comm.stop();
+            return 0;
+        }
+        if (!vio.start(&error)) {
+            std::fprintf(stderr, "[VIO] 启动失败：%s\n", error.c_str());
+            camera.stop();
+            comm.stop();
+            return 1;
+        }
+        std::printf("[VIO] 已启动：IMU 来自通信模块逐帧队列，图像来自 camera_server 共享内存。\n");
+        auto mission_service = createMissionService(options, settings, vio, comm);
+        std::unique_ptr<DetectionSupervisor> detection;
+        if (!startDetectionProcess(options, mission_service.get(), detection)) {
+            vio.stop();
+            camera.stop();
+            comm.stop();
+            return 1;
+        }
 
-#endif  // PURE_APP_HAS_VIO
+        VioPosePublishState publish_state;
+        // 故障兜底：停止任务/检测后，由飞控执行降落；不在这里直接退出。
+        const auto failsafeLand = [&]() -> bool {
+            if (mission_service) {
+                mission_service->stop();
+            }
+            if (detection) {
+                detection->stop();
+            }
+            if (!comm.isArmed()) {
+                return true;
+            }
+            const auto keepalive = [&] { return publishVioPose(vio, comm, !options.no_send, config.max_age_ms, publish_state); };
+            return runLandingFailsafe(comm, settings.mission.mission.landing_timeout_s, settings.mission.mission.request_retry_s, interrupted, keepalive);
+        };
 
-int main(int argc, char** argv) {
-    Options options = parseOptions(argc, argv);
-    (void)options;  // 预留：后续可按配置加载
-    Communicator comm;
+        // 公共循环：监督相机/检测进程，发布 VIO 并调度任务。
+        uint64_t overruns = 0;
+        const auto period = std::chrono::nanoseconds(1000000000LL / config.main_loop_hz);
+        auto next_tick = Clock::now();
+        auto last_status = next_tick;
+        int result = 0;
+        while (!interrupted.load()) {
+            SuperviseResult detection_result;
+            if (detection && detection->finished(detection_result)) {
+                std::fprintf(stderr, "[MAIN] 检测监督结束：restarts=%llu error=%s\n", static_cast<unsigned long long>(detection_result.restarts), detection_result.error.empty() ? "-" : detection_result.error.c_str());
+                detection.reset();
+                if (mission_service) {
+                    return_requested.store(true, std::memory_order_relaxed);
+                    std::fprintf(stderr, "[FAILSAFE] 检测不可用，请求任务返航\n");
+                }
+            }
+            // 共享相机监督：相机停止 = 图像断供，不再把旧位姿当新结果发布。
+            if (!camera.running()) {
+                std::fprintf(stderr, "[MAIN] 共享相机已停止：%s\n", camera.lastError().empty() ? "原因未报告" : camera.lastError().c_str());
+                failsafeLand();
+                result = 1;
+                break;
+            }
+            // VIO 一拍：门控 + 发布。喂数在 VioRuntime 内部线程完成。
+            if (!publishVioPose(vio, comm, !options.no_send, config.max_age_ms, publish_state)) {
+                const auto stats = vio.stats();
+                std::fprintf(stderr, "[MAIN] VIO 工作线程已停止：%s\n", stats.last_error.empty() ? "原因未报告" : stats.last_error.c_str());
+                failsafeLand();
+                result = 1;
+                break;
+            }
 
-    std::printf("等待飞控心跳...\n");
-    while (!comm.isConnected()) {
-        usleep(100000);
-    }
-    std::printf("已连接，固件：%s，模式：%s\n", comm.getAutopilotNameCn(), comm.getFlightModeNameCn());
+            if (mission_service) {
+                const auto& status = mission_service->tick(return_requested.load(std::memory_order_relaxed));
+                if (status.mission.state_changed) {
+                    std::printf("[MISSION] state=%s reason=%s strike=%s\n", mission::toString(status.mission.state), mission::toString(status.mission.reason), status.mission.strike_confirmed ? "confirmed" : "unconfirmed");
+                }
+                if (status.mission.state == mission::MissionState::kCompleted) {
+                    result = 0;
+                    break;
+                }
+                if (status.mission.state == mission::MissionState::kAborted) {
+                    std::fprintf(stderr, "[FAILSAFE] 任务中止：%s\n", mission::toString(status.mission.reason));
+                    failsafeLand();
+                    result = 1;
+                    break;
+                }
+            }
 
-    // 读一次姿态示例
-    Attitude a;
-    if (comm.getAttitude(a)) {
-        std::printf("姿态 roll=%.3f pitch=%.3f yaw=%.3f\n", a.roll, a.pitch, a.yaw);
-    }
+            // 状态行限频输出（1 Hz），不逐帧打印。
+            const auto now = Clock::now();
+            if (now - last_status >= std::chrono::duration<double>(config.status_period_s)) {
+                last_status = now;
+                logAppStatus(comm, vio, camera, publish_state, overruns);
+            }
+            // 固定节拍：错过就跳过，不补发突发流。
+            next_tick += period;
+            const auto after_work = Clock::now();
+            if (next_tick <= after_work) {
+                ++overruns;
+                next_tick = after_work + period;
+            }
+            std::this_thread::sleep_until(next_tick);
+        }
 
-    detection::DetectorConfig det_cfg;
-#ifdef PURE_DETECTION_BACKEND_CPU
-    det_cfg.model_path = "assets/models/yolo26n.onnx";
-#else
-    det_cfg.model_path = findConfigFile("assets/models/yolo26n.nb");
-#endif
+        if (mission_service) {
+            mission_service->stop();
+        }
 
-    detection::Detector det;
-    std::string err;
-    if (!det.start(det_cfg, err)) {
-        std::printf("目标检测启动失败：%s\n", err.c_str());
+        // 停止：回收检测子进程，再停止 VIO 与通信；相机服务继续由外部托管。
+        if (detection) {
+            detection->stop();
+        }
+        vio.stop();
+        camera.stop();
+        comm.stop();
+        logAppStopped(vio, publish_state);
+        return result;
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "[MAIN] 异常退出：%s\n", error.what());
         return 1;
     }
-
-    detection::FrameResult r;
-    if (det.poll(r)) {  // 非阻塞；只返回最新结果
-        // boot_us：用通信模块 SystemTime 把 r.host_us 换算到飞控 boot 时钟
-        uint64_t boot_us = 0;
-        SystemTime st;
-        if (comm.getSystemTime(st) && st.time_unix_usec > 0) {
-            const int64_t offset_us = static_cast<int64_t>(st.time_unix_usec) - (static_cast<int64_t>(st.time_boot_ms) * 1000);
-            if (offset_us >= 0 && r.host_us > static_cast<uint64_t>(offset_us)) {
-                boot_us = r.host_us - static_cast<uint64_t>(offset_us);
-            }
-        }
-        guidance::flight::GuidanceTargetSample t;
-        detection::to_target_sample(r, boot_us, t);
-        // t.present=false ⇒ 主循环可进入 SEARCH
-    }
-    det.stop();  // 停线程、释放相机和推理后端
-    return 0;
+#else
+    std::fprintf(stderr, "[MAIN] 当前构建未启用 VIO：缺少实时 VIO 依赖（pure_vio_runtime 目标）。\n");
+    return 1;
+#endif
 }

@@ -1,2 +1,24 @@
+# main 的 VIO 运行参数；标定与 OpenVINS 参数保留在 config_dir 指定的目录中。
+# 相机采集、曝光、增益、聚合模式请在 camera_server 的 config/camera.yaml 中设置。
 vio:
-  - role: system
+  config_dir: src/vio/estimator/config/gemini_1920x1080
+  width: 1920
+  height: 1080
+  fps: 30
+  imu_hz: 200
+  use_depth: true
+  use_depth_init: true
+  init_vel_zero: true
+  static_init: false
+  online_timeoffset: true
+  input:
+    shm_vio: /pure_uav_camera_vio
+    timeout_ms: 5000
+  pose:
+    max_age_ms: 150
+    quality_ok: 90
+    quality_degraded: 50
+    pos_sigma_ok_m: 0.15
+    vel_sigma_ok_mps: 0.25
+    pos_sigma_degraded_m: 0.5
+    vel_sigma_degraded_mps: 0.8

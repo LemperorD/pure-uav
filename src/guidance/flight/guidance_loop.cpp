@@ -183,7 +183,7 @@ inline Vec3 mat3_mul(const double R[9], const Vec3& v) noexcept {
 
 // 像素 → 世界系单位视线
 //
-//   第 1 步：(u,v) → 相机系射线 d_cam = ((u−cx)/fx, (v−cy)/fy, 1)
+//   第 1 步：(u,v) → radtan 去畸变 → 相机系射线 d_cam
 //   第 2 步：d_body = R_body_cam · d_cam
 //   第 3 步：d_world = R(q) · d_body
 bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSample& t, const double q_frd_world[4], Vec3& los_world) noexcept {
@@ -194,13 +194,8 @@ bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSamp
         return false;
     }
 
-    const double xn = (t.u_px - cam.cx) / cam.fx;
-    const double yn = (t.v_px - cam.cy) / cam.fy;
-    if (!std::isfinite(xn) || !std::isfinite(yn)) {
-        return false;
-    }
-
-    const Vec3 d_cam(xn, yn, 1.0);
+    Vec3 d_cam;
+    if (!cam.ray(t.u_px, t.v_px, d_cam)) return false;
     const Vec3 d_body = mat3_mul(cam.R_body_cam, d_cam);
     const Vec3 d_world = quat_rotate_vec(q_frd_world, d_body);
 
@@ -211,6 +206,9 @@ bool pixel_to_world_los(const GuidanceCameraModel& cam, const GuidanceTargetSamp
     los_world = d_world / n;
     return true;
 }
+
+// 目标采样时间允许比 INS 略微超前（相机/检测链路抖动）；正好 50 ms 仍然接受。
+constexpr std::uint64_t kMaxFutureSkewUs = 50'000;
 
 // 把体检的 GuidanceCheckCode 映射成对外的 GuidanceInputHealth
 GuidanceInputHealth to_health(adapter::GuidanceCheckCode code) noexcept {
@@ -225,9 +223,28 @@ GuidanceInputHealth to_health(adapter::GuidanceCheckCode code) noexcept {
             return GuidanceInputHealth::kQuatNotUnit;
         case adapter::GuidanceCheckCode::kRangeNegative:
             return GuidanceInputHealth::kRangeNegative;
+        case adapter::GuidanceCheckCode::kTimeNegative:
+        case adapter::GuidanceCheckCode::kTimeBackwards:
+            return GuidanceInputHealth::kTimeBackwards;
         default:
             return GuidanceInputHealth::kNotFinite;
     }
+}
+
+// 无姿态时的输出：不发送，只把本拍状态写进黑匣子。
+inline GuidanceOutput make_invalid_output(std::uint64_t boot_us, GuidanceInputHealth health) noexcept {
+    GuidanceOutput o;
+    o.boot_us = boot_us;
+    o.ctrl = GuidanceControlMode::kVelocity;
+    o.a_cmd_ned = Vec3{};
+    o.v_cmd_ned = Vec3{};
+    o.hold_yaw = true;
+    o.a_cmd_norm = 0.0;
+    o.sat = false;
+    o.mode = PureGuidanceMode::SEARCH;
+    o.valid = false;
+    o.health = health;
+    return o;
 }
 
 // 安全悬停输出（零速度；走 PX4 速度环闭环）
@@ -300,6 +317,8 @@ bool GuidanceLoop::init() {
     have_tgt_ = false;
     computed_ = false;
     last_out_ = GuidanceOutput{};
+    last_health_s_ = 0.0;
+    last_tgt_boot_us_ = 0;
     last_ins_s_ = -1.0;
     last_tgt_s_ = -1.0;
     last_good_s_ = -1.0;
@@ -393,16 +412,45 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
         return GuidanceLoopStatus::kOk;
     }
 
-    // ---- ④ 新鲜度 ----
-    const std::uint64_t now_us = (ins_now_.boot_us != 0) ? ins_now_.boot_us : tgt_now_.boot_us;
-    const double age_s = (now_us >= tgt_now_.boot_us) ? static_cast<double>(now_us - tgt_now_.boot_us) * 1e-6 : 0.0;
-
-    GuidanceInputHealth health = GuidanceInputHealth::kOk;
-    if (age_s > cfg_.max_sample_age_s) {
-        health = GuidanceInputHealth::kStale;
+    // ---- ④ 硬输入门控：姿态 / 时间基 / 时间倒退 ----
+    // 缺姿态时像素无法转到世界系；即使上一拍有有效指令，也不能继续沿用。
+    if (!ins_now_.has_attitude) {
+        ++stats_.unhealthy;
+        const GuidanceOutput invalid = make_invalid_output(tgt_now_.boot_us, GuidanceInputHealth::kNoAttitude);
+        blackbox_.push(invalid);
+        if (out != nullptr) {
+            *out = invalid;
+        }
+        return GuidanceLoopStatus::kUnhealthyInput;
     }
 
-    // ---- ⑤ 有新的目标帧 && 数据新鲜 → 重算制导 ----
+    const std::uint64_t now_us = ins_now_.boot_us;
+    GuidanceInputHealth health = GuidanceInputHealth::kOk;
+    bool hard_invalid = false;
+
+    if (now_us == 0 || tgt_now_.boot_us == 0) {
+        health = GuidanceInputHealth::kTimeUnknown;
+        hard_invalid = true;
+    } else {
+        const bool backwards = new_tgt && last_tgt_boot_us_ != 0 && tgt_now_.boot_us < last_tgt_boot_us_;
+        const bool too_far_ahead = tgt_now_.boot_us > now_us && (tgt_now_.boot_us - now_us) > kMaxFutureSkewUs;
+        if (backwards || too_far_ahead) {
+            health = GuidanceInputHealth::kTimeBackwards;
+            hard_invalid = true;
+        } else if (new_tgt) {
+            last_tgt_boot_us_ = tgt_now_.boot_us;
+        }
+    }
+
+    // ---- ⑤ 新鲜度 ----
+    if (health == GuidanceInputHealth::kOk) {
+        const double age_s = (now_us >= tgt_now_.boot_us) ? static_cast<double>(now_us - tgt_now_.boot_us) * 1e-6 : 0.0;
+        if (age_s > cfg_.max_sample_age_s) {
+            health = GuidanceInputHealth::kStale;
+        }
+    }
+
+    // ---- ⑥ 有新的目标帧 && 数据新鲜 → 重算制导 ----
     if (health == GuidanceInputHealth::kOk && new_tgt) {
         Vec3 los_world;
         bool los_ok = false;
@@ -444,9 +492,22 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
                 }
             }
 
+            // TPN / APN 需要 Vc（进而需要距离）；测距临时不可用时逐帧退化为 PPN + LOS 差分，
+            // 不把整拍判成硬失效（任务层仍会按 target_lost_timeout_s 决定是否退段）。
             if (health == GuidanceInputHealth::kOk) {
+                GuidanceParams effective = params_;
+                if (effective.law != GuidanceLaw::PPN && !tgt_now_.has_range) {
+                    effective.law = GuidanceLaw::PPN;
+                    effective.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
+                    ++stats_.law_fallback;
+                }
+                // PPN 不依赖距离；没有距离/目标速度时，ω 只能来自视线差分。
+                if (effective.law == GuidanceLaw::PPN && effective.los_rate_source == LosRateSource::FROM_RELATIVE_VELOCITY && (!tgt_now_.has_range || !tgt_now_.has_v_T)) {
+                    effective.los_rate_source = LosRateSource::FROM_LOS_DIFFERENCE;
+                }
+
                 trace.t2 = std::chrono::steady_clock::now();
-                const PureGuidanceCmd cmd = guidance_step(st, params_, memory_);
+                const PureGuidanceCmd cmd = guidance_step(st, effective, memory_);
 
                 double ned[3];
                 adapter::cmd_accel_to_ned(cmd, ned);
@@ -466,7 +527,8 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
                 o.Vc = cmd.Vc;
                 o.R = cmd.R;
                 o.lam_dot = cmd.lam_dot;
-                o.health = GuidanceInputHealth::kOk;
+                o.los_hat_ned = adapter::convert_vec(cmd.r_hat, adapter::GuidanceFrame::kEnu, adapter::GuidanceFrame::kNed);
+                o.health = health;
 
                 if (cmd.sat) {
                     ++stats_.saturated;
@@ -486,7 +548,7 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
         }
     }
 
-    // ---- ⑥ 没有新的目标帧：重发上一拍 ----
+    // ---- ⑦ 没有新的目标帧：重发上一拍 ----
     if (health == GuidanceInputHealth::kOk && !new_tgt) {
         if (!computed_ || !cfg_.send_on_every_tick) {
             return GuidanceLoopStatus::kOk;
@@ -496,30 +558,49 @@ GuidanceLoopStatus GuidanceLoop::run_once(GuidanceOutput* out) {
         return emit(o, out);
     }
 
-    // ---- ⑦ 不健康：按策略降级（不停流）----
+    // ---- ⑧ 不健康：按策略降级（不停流）----
     ++stats_.unhealthy;
     const double stale_cmd_age_s = (last_good_s_ >= 0.0) ? (t_local - last_good_s_) : 1e9;
 
     GuidanceOutput o;
-    switch (cfg_.on_unhealthy) {
-        case GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand:
-            if (computed_ && stale_cmd_age_s <= cfg_.hold_last_max_s) {
-                o = last_out_;
-                o.health = health;
-            } else {
+    if (hard_invalid) {
+        // 缺时间基 / 时间倒退 / TPN/APN 无测距：不能保持上一拍有效指令。
+        if (cfg_.on_unhealthy == GuidanceLoopConfig::OnUnhealthy::kStop) {
+            const GuidanceOutput invalid = make_invalid_output(tgt_now_.boot_us, health);
+            blackbox_.push(invalid);
+            if (out != nullptr) {
+                *out = invalid;
+            }
+            return GuidanceLoopStatus::kUnhealthyInput;
+        }
+        o = make_safe_hover(tgt_now_.boot_us, health);
+        ++stats_.safe_hover;
+    } else {
+        switch (cfg_.on_unhealthy) {
+            case GuidanceLoopConfig::OnUnhealthy::kHoldLastCommand:
+                if (computed_ && stale_cmd_age_s <= cfg_.hold_last_max_s) {
+                    o = last_out_;
+                    o.health = health;
+                } else {
+                    o = make_safe_hover(tgt_now_.boot_us, health);
+                    ++stats_.safe_hover;
+                }
+                break;
+
+            case GuidanceLoopConfig::OnUnhealthy::kSafeHover:
                 o = make_safe_hover(tgt_now_.boot_us, health);
                 ++stats_.safe_hover;
+                break;
+
+            case GuidanceLoopConfig::OnUnhealthy::kStop: {
+                const GuidanceOutput invalid = make_invalid_output(tgt_now_.boot_us, health);
+                blackbox_.push(invalid);
+                if (out != nullptr) {
+                    *out = invalid;
+                }
+                return GuidanceLoopStatus::kUnhealthyInput;
             }
-            break;
-
-        case GuidanceLoopConfig::OnUnhealthy::kSafeHover:
-            o = make_safe_hover(tgt_now_.boot_us, health);
-            ++stats_.safe_hover;
-            break;
-
-        case GuidanceLoopConfig::OnUnhealthy::kStop:
-            blackbox_.push(o);
-            return GuidanceLoopStatus::kUnhealthyInput;
+        }
     }
 
     last_out_ = o;

@@ -71,3 +71,6 @@ a_n,a_e,a_d, anorm, t_go, Vc, R, lam_dot, health
 
 - `MavlinkAccelSink` + 独立线程环形缓冲；
 - 或 `GuidanceRingLog` 的内存黑匣子，出事再 dump。
+
+机载的制导中间量另有一条实时日志（YAML `log.*`，按 `rate_hz` 抽稀、可写 CSV），
+见 [usage.md §11](usage.md#11-制导中间量日志机载)。

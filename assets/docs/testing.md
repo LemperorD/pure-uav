@@ -9,8 +9,8 @@
 
 | 可执行文件 | 覆盖 | 当前基线 |
 |---|---|---|
-| `bin/test/test_guidance` | 制导算法 + adapter + 主循环 + CSV + 参数 + 打点 + 黑匣子 | **304 通过** |
-| `bin/test/test_state_adapter` | 坐标/时间/姿态换算 + 组装 + 体检 | **1212 通过** |
+| `bin/test/test_guidance` | 制导算法 + adapter + 主循环 + CSV + 参数 + 打点 + 黑匣子 | **339 通过** |
+| `bin/test/test_state_adapter` | 坐标/时间/姿态换算 + 组装 + 体检 | **1221 通过** |
 | `bin/test/test_mavlink_units` | MAVLink 单位换算 + 回绕/哨兵 | **120 通过** |
 | `bin/test/test_math` | `pure_math_tools` 冒烟 | 运行正常 |
 | `bin/test/test_camera` | Orbbec 取流 | 需要相机/SDK |
@@ -88,6 +88,6 @@ ALL PASS
 
 ## 6 基线维护
 
-- 当前基线：**304 / 1212 / 120**（2026-11-01，WSL GCC 13.3）；
+- 当前基线：**339 / 1221 / 120**（2026-11-09，WSL GCC 13.3）；
 - 改基线时在 `changelog.md` 记一笔；
 - CI 建议：只跑前三个（无硬件依赖），`test_camera`/通信测试单独在目标机跑。

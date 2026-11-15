@@ -24,13 +24,26 @@ class NpuBackend final : public InferenceBackend {
         params.conf_thr = config_.conf_thr;
         params.iou_thr = config_.iou_thr;
         params.max_det = config_.max_det;
-        params.target_class = config_.target_class;
         params.img_w = bgr.cols;
         params.img_h = bgr.rows;
         result.infer_ms = output.infer_ms;
         if (!postprocess(output, params, result)) {
             error = "Unsupported model output: expected decoded YOLO xywh + configured class probabilities";
             return false;
+        }
+        // 与 CPU 适配层一致：后处理无类别过滤，需在此满足 validResult() 约束。
+        if (config_.target_class >= 0) {
+            int kept = 0;
+            for (int index = 0; index < result.count; ++index) {
+                if (result.boxes[index].class_id == config_.target_class) {
+                    if (kept != index) {
+                        result.boxes[kept] = result.boxes[index];
+                    }
+                    ++kept;
+                }
+            }
+            result.count = kept;
+            result.present = kept > 0;
         }
         return true;
     }
