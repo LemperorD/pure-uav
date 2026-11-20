@@ -3,10 +3,10 @@
 #include <array>
 #include <cstdint>
 
+#include "abstract_factory.hpp"
 #include "camera_service.hpp"
 #include "communicator.hpp"
 #include "pose_gate.hpp"
-#include "pure_uav/vio_runtime.hpp"
 
 namespace pure_uav::app {
 
@@ -20,9 +20,9 @@ struct VioPosePublishState {
 };
 
 // VIO 在内部线程处理数据；这里仅门控并发布最新位姿，不等待新数据。
-bool publishVioPose(VioRuntime& vio, Communicator& comm, bool send, int max_age_ms, VioPosePublishState& publish_state);
-void logAppStatus(const Communicator& comm, const VioRuntime& vio, const CameraService& camera, const VioPosePublishState& publish_state, uint64_t overruns);
+bool publishVioPose(IVIO& vio, Communicator& comm, bool send, int max_age_ms, VioPosePublishState& publish_state);
+void logAppStatus(const Communicator& comm, const IVIO& vio, const CameraService& camera, const VioPosePublishState& publish_state, uint64_t overruns);
 
-void logAppStopped(const VioRuntime& vio, const VioPosePublishState& publish_state);
+void logAppStopped(const IVIO& vio, const VioPosePublishState& publish_state);
 
 }  // namespace pure_uav::app

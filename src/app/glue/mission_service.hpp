@@ -1,10 +1,10 @@
 #pragma once
 
+#include "abstract_factory.hpp"
 #include "glue/guidance_session.hpp"
 #include "glue/mission_ports.hpp"
 #include "glue/target_adapter.hpp"
 #include "mission_target_channel.hpp"
-#include "pure_uav/vio_runtime.hpp"
 #include "startup/preflight_config.hpp"
 
 namespace pure_uav::app {
@@ -13,7 +13,7 @@ namespace pure_uav::app {
 // 生命周期由 main 管理；必须先停止检测监督，再析构本对象的目标通道。
 class MissionService {
   public:
-    MissionService(VioRuntime& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, CameraCalibration camera, PreflightConfig preflight, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled);
+    MissionService(IVIO& vio, Communicator& comm, mission::RuntimeConfig config, GuidanceAppParams guidance, CameraCalibration camera, PreflightConfig preflight, int heartbeat_max_age_ms, int navigation_max_age_ms, bool detection_enabled);
     ~MissionService();
     int targetPublisherFd() const;
     const mission::RuntimeStatus& tick(bool return_requested, bool manual_takeover = false, bool strike_confirmed = false);
@@ -21,7 +21,7 @@ class MissionService {
     bool guidanceReady() const;
 
   private:
-    VioRuntime& vio_;
+    IVIO& vio_;
     Communicator& comm_;
     mission::RuntimeConfig config_;
     int navigation_max_age_ms_;

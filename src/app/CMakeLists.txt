@@ -35,18 +35,21 @@ if(TARGET pure_vio_runtime)
                        glue/mission_service.cpp
   )
   target_include_directories(
-    app_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-                       ${CMAKE_SOURCE_DIR}/src/vio/estimator/src
+    app_support
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+           ${CMAKE_SOURCE_DIR}/src/vio/estimator/src
+           ${CMAKE_SOURCE_DIR}/src/factory_core
   )
   target_link_libraries(
     app_support PUBLIC communicate pure_vio_runtime mission_ports
                        target_adapter
   )
+  add_subdirectory(../factory_core ${CMAKE_CURRENT_BINARY_DIR}/factory_core)
   target_sources(
-    main PRIVATE runtime/landing_failsafe.cpp runtime/vio_pose_publisher.cpp
-                 startup/app_startup.cpp startup/preflight_config.cpp
+    main PRIVATE runtime/uav_application.cpp runtime/landing_failsafe.cpp
+                 startup/app_startup.cpp
   )
-  target_link_libraries(main PRIVATE app_support)
+  target_link_libraries(main PRIVATE factory_core)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
 endif()
 
@@ -86,7 +89,6 @@ endif()
 if(TARGET detect_rt)
   # 检测通过 fork/exec 隔离；main 不链接推理库或 Orbbec 采集实现。
   add_dependencies(main detect_rt)
-  target_compile_definitions(main PRIVATE PURE_APP_HAS_DETECTION=1)
 endif()
 
 add_executable(guidance_example startup/guidance_example.cpp)

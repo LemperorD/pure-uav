@@ -17,7 +17,7 @@ int64_t nowNs() {
 // 公共主循环里 VIO 的一拍：取受保护快照 -> 门控 -> 填质量/重置计数 -> 经同一个
 // Communicator 发送。IMU/图像的喂数由 VioRuntime 内部线程按数据到达处理，这里不 feed。
 // 返回 false 表示 VIO 工作线程已停止，上层应结束本拍并退出。
-bool publishVioPose(VioRuntime& vio, Communicator& comm, bool send, int max_age_ms, VioPosePublishState& publish_state) {
+bool publishVioPose(IVIO& vio, Communicator& comm, bool send, int max_age_ms, VioPosePublishState& publish_state) {
     if (!vio.running()) {
         return false;
     }
@@ -66,10 +66,10 @@ bool publishVioPose(VioRuntime& vio, Communicator& comm, bool send, int max_age_
     return true;
 }
 
-void logAppStatus(const Communicator& comm, const VioRuntime& vio, const CameraService& camera, const VioPosePublishState& publish_state, uint64_t overruns) {
+void logAppStatus(const Communicator& comm, const IVIO& vio, const CameraService& camera, const VioPosePublishState& publish_state, uint64_t overruns) {
     const auto stats = vio.stats();
     VioPoseSnapshot snapshot;
-    vio.latestPose(snapshot);
+    vio.update(snapshot);
     const auto& blocked = publish_state.blocked;
     const double capture_age_ms = snapshot.sample_host_ns > 0 ? static_cast<double>(nowNs() - snapshot.sample_host_ns) * 1e-6 : -1.0;
     std::printf(
@@ -87,7 +87,7 @@ void logAppStatus(const Communicator& comm, const VioRuntime& vio, const CameraS
         static_cast<unsigned long long>(stats.timebase_resets), capture_age_ms, static_cast<unsigned long long>(overruns), stats.last_error.empty() ? "-" : stats.last_error.c_str());
 }
 
-void logAppStopped(const VioRuntime& vio, const VioPosePublishState& publish_state) {
+void logAppStopped(const IVIO& vio, const VioPosePublishState& publish_state) {
     const auto stats = vio.stats();
     std::printf("[MAIN] 已停止：sent=%llu send_errors=%llu would_send=%llu frames=%llu poses=%llu resets=%llu error=%s\n", static_cast<unsigned long long>(publish_state.sent), static_cast<unsigned long long>(publish_state.send_errors), static_cast<unsigned long long>(publish_state.would_send),
                 static_cast<unsigned long long>(stats.frames_fed), static_cast<unsigned long long>(stats.poses), static_cast<unsigned long long>(stats.timebase_resets), stats.last_error.empty() ? "-" : stats.last_error.c_str());
