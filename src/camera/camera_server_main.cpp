@@ -1,8 +1,14 @@
 // 唯一相机采集进程：Orbbec 设备只在这里被初始化一次。
 // main 内的 VIO（或独立 vio_live）与 detect_rt 从两条共享内存通道取帧。
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -190,6 +196,7 @@ int main(int argc, char** argv) {
     std::string vio_override;
     std::string color_override;
     int hz_override = 0;
+    int ready_fd = -1;
     for (int index = 1; index < argc; ++index) {
         const std::string arg = argv[index];
         if (arg == "-h" || arg == "--help") {
@@ -213,6 +220,13 @@ int main(int argc, char** argv) {
             color_override = value;
         } else if (arg == "--color-max-hz") {
             hz_override = std::atoi(value.c_str());
+        } else if (arg == "--ready-fd") {
+            const auto end = value.data() + value.size();
+            const auto parsed = std::from_chars(value.data(), end, ready_fd);
+            if (parsed.ec != std::errc{} || parsed.ptr != end || ready_fd <= STDERR_FILENO || fcntl(ready_fd, F_GETFD) == -1) {
+                std::fprintf(stderr, "[camera_server] 无效的就绪通知描述符\n");
+                return 2;
+            }
         } else {
             std::fprintf(stderr, "[camera_server] 未知参数: %s\n", arg.c_str());
             usage(argv[0]);
@@ -251,6 +265,17 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, onSignal);
     std::signal(SIGPIPE, SIG_IGN);
 
+    const int lock_fd = shm_open("/pure_uav_camera_server_lock", O_CREAT | O_RDONLY, 0644);
+    if (lock_fd < 0) {
+        std::fprintf(stderr, "[camera_server] 无法打开相机服务锁: %s\n", std::strerror(errno));
+        return 1;
+    }
+    if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+        std::fprintf(stderr, "[camera_server] 无法独占相机服务（已有服务运行时请使用 main --external-camera）: %s\n", std::strerror(errno));
+        close(lock_fd);
+        return 1;
+    }
+
     FramePublisher publisher;
     if (!publisher.create(cfg.publisher, &error)) {
         std::fprintf(stderr, "[camera_server] 创建共享内存通道失败: %s\n", error.c_str());
@@ -270,9 +295,22 @@ int main(int argc, char** argv) {
     publisher.activate(meta);
     std::fprintf(stderr, "[camera_server] 已就绪: %dx%d@%d 深度内参 %s (fx=%.1f)，两通道可连接\n", cfg.camera.width, cfg.camera.height, cfg.camera.fps, meta.fx > 0 ? "有效" : "不可用", meta.fx);
 
+    int exit_code = 0;
+    if (ready_fd >= 0) {
+        const char marker = 'R';
+        ssize_t written;
+        do {
+            written = write(ready_fd, &marker, sizeof(marker));
+        } while (written < 0 && errno == EINTR);
+        close(ready_fd);
+        if (written != sizeof(marker)) {
+            std::fprintf(stderr, "[camera_server] 无法通知 main 相机就绪\n");
+            interrupted = 1;
+            exit_code = 1;
+        }
+    }
     const auto period = std::chrono::milliseconds(static_cast<int>(cfg.status_period_s * 1000.0));
     auto last_status = std::chrono::steady_clock::now() - period;
-    int exit_code = 0;
     while (interrupted == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!camera.running()) {
@@ -292,6 +330,7 @@ int main(int argc, char** argv) {
     publisher.markClosing();
     camera.stop();  // join 采集线程，确保没有回调还在写共享内存
     publisher.stop();
+    close(lock_fd);
     std::fprintf(stderr, "[camera_server] 已停止，共享内存通道已清理\n");
     return exit_code;
 }

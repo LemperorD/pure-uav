@@ -7,7 +7,7 @@
 > 本树检测算法参数的唯一真源是 `config/detector-rt.yaml`（不是本文的 `app-detection.yaml`），
 > 加载接口见 `src/detection-rt/include/detector_config.hpp`；
 > 本树检测子进程由 `bin/main` 等飞控心跳后拉起并监督（最多自动重启 3 次），
-> 相机服务由外部托管启动，VIO 在 `main` 内运行；`main` 不解析检测算法配置。
+> 相机服务默认由 `main` 启动，VIO 在 `main` 内运行；`main` 不解析检测算法配置。
 > `./bin/main --check-config` 校验应用/VIO 配置；检测配置用 `./bin/detect_rt --check-config` 校验。
 > 本文其余单进程检测设计作为历史记录保留。
 

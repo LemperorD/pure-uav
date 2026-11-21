@@ -16,7 +16,7 @@ SerialPort::~SerialPort() {
 bool SerialPort::open(const std::string& device, int baud) { //打开串口
     std::lock_guard<std::mutex> lk(fd_mutex_);
     closeUnlocked();
-    fd_ = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);  //可读可写，非阻塞
+    fd_ = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);  //可读可写，非阻塞
     if (fd_ < 0) {
         std::cout << "open failed: "
               << std::strerror(errno)

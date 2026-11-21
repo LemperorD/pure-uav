@@ -63,6 +63,7 @@ void printAppStartupConfig(const AppOptions& options, const AppStartupConfig& se
     const auto& config = settings.app;
     const auto& mission_guidance = settings.guidance;
     std::printf("Configuration OK\nflight_stack: PX4\n%sodometry_send_enabled: %s\ndetection_enabled: %s\n", describeConfig(config).c_str(), options.no_send ? "false" : "true", options.no_detection ? "false" : "true");
+    std::printf("camera_mode: %s\n", options.external_camera ? "external" : "managed");
     std::printf("mission_enabled: %s\nmission_send_enabled: %s\nmission_guidance_ready: %s\n", options.mission ? "true" : "false", options.mission && !options.no_send ? "true" : "false", options.mission && mission_guidance.loop.cam.valid() ? "true" : "false");
     std::printf("guidance_log: %s %.1f Hz %s\n", mission_guidance.log.enabled ? "enabled" : "disabled", mission_guidance.log.rate_hz, mission_guidance.log.file.empty() ? "stdout" : mission_guidance.log.file.c_str());
 }

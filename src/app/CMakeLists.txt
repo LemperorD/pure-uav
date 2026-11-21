@@ -47,10 +47,13 @@ if(TARGET pure_vio_runtime)
   add_subdirectory(../factory_core ${CMAKE_CURRENT_BINARY_DIR}/factory_core)
   target_sources(
     main PRIVATE runtime/uav_application.cpp runtime/landing_failsafe.cpp
-                 startup/app_startup.cpp
+                 runtime/camera_server_process.cpp startup/app_startup.cpp
   )
   target_link_libraries(main PRIVATE factory_core)
   target_compile_definitions(main PRIVATE PURE_APP_HAS_VIO=1)
+  if(TARGET camera_server)
+    add_dependencies(main camera_server)
+  endif()
 endif()
 
 # VIO 接入的无硬件回归；不打开串口或相机。

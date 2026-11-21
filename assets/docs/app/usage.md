@@ -15,7 +15,8 @@
 VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`。
 `main()` 直接调用这些函数并持有模块对象，公共循环也在 `main()` 内。
 
-`./bin/main` 连接 PX4，运行通信、VIO 与检测子进程监督；相机由先行启动的 `camera_server` 独占。
+`./bin/main` 连接 PX4 后自动启动 `camera_server`，相机就绪后运行 VIO，默认也启动检测子进程。
+已有外部相机服务时用 `--external-camera`，仅连接该服务。
 主入口和任务适配器统一接受 PX4；其他固件会在连接相机前被拒绝。
 `--check-config` 会打印 `flight_stack: PX4`。外部定位融合验收见
 [uav-vio-bench-checklist.md](uav-vio-bench-checklist.md)。
@@ -33,9 +34,7 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 | main | 位姿发布门控、输入监督、任务服务调用、统一退出 | Ctrl-C / SIGTERM / 故障处理；SIGUSR1 请求返航 |
 
 ```bash
-# 从仓库根目录执行；相机独立终端启动：
-./bin/camera_server --config config/camera.yaml
-# 另一个终端：运行通信、VIO 与检测
+# 从仓库根目录运行相机服务、通信、VIO 与检测
 ./bin/main --no-send
 # 仅 VIO 台架验收
 ./bin/main --no-send --no-detection
@@ -62,7 +61,7 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 检测异常退出最多自动重启 3 次；监督循环不阻塞 VIO。检测最终停止后不直接退出主程序：
 任务模式会请求返航，VIO 继续运行；相机断供、VIO 故障或任务中止时，main 停止任务与检测，
 按 `mission.landing_timeout_s` / `request_retry_s` 反复请求 NAV_LAND，等待飞控确认 landed 且未上锁后，
-再关闭 VIO 与串口。用户 Ctrl-C 仍按停止流程退出。相机服务由外部托管，不随 `main` 关闭。
+再关闭 VIO 与串口。用户 Ctrl-C 按停止流程退出；`main` 同时回收自己启动的相机服务，不关闭外部服务。
 
 `main` 与 `vio_live` 是替代入口，不可同时占用同一飞控串口。
 相机默认 1920×1080@30，必须匹配 VIO 标定；采集、曝光和增益在 `config/camera.yaml` 中设置。

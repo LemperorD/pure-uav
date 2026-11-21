@@ -1,6 +1,6 @@
 # VIO 接入 camera_server
 
-更新：2026-11-11。本文描述合并 detect 与 VIO 分支后的相机接口和进程分工。
+本文描述相机接口和进程分工。
 整机模块分工见 [usage.md](usage.md)；无硬件测试不替代整机实机联调。
 `camera_server` 独占相机，当前仓库的 `main` 和 `vio_live` 均通过 POSIX 共享内存读图，
 不再创建 Orbbec 采集管线。
@@ -16,7 +16,7 @@ Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
 `main` 与 `vio_live` 是两种替代入口，各自占用飞控串口，应选择其中一种运行。
 `main` 内运行通信与 VIO，并在心跳、相机通道和 VIO 就绪后启动独立 `detect_rt` 子进程。
 检测通过彩色通道读图，独立监督线程负责重启与回收，不阻塞 VIO 主循环。
-使用 `--no-detection` 可仅运行通信和 VIO；检测参数见 `config/detector-rt.yaml`。
+使用 `--no-detection` 可跳过检测；相机服务仍会自动启动。检测参数见 `config/detector-rt.yaml`。
 
 协议头和通道实现位于 `src/common/camera_frame.hpp`、`camera_shm.hpp/.cpp`，
 使用 `kShmVersion = 2`，完整测距标定随通道传递；旧版进程不兼容，需要统一重建和重启。
@@ -25,20 +25,22 @@ Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
 
 ## 启动
 
-三个程序均从本仓库构建。先运行配置校验，再启动相机服务，等待报告“两通道可连接”后
-在另一个终端启动 `main`：
+`main` 收到有效的 PX4 心跳后自动启动同目录的 `camera_server`，等待两条相机通道就绪再启动 VIO：
 
 ```bash
-cmake --build build --target camera_server main vio_live detect_rt -j2
+cmake --build build --target main -j2
 ./bin/camera_server --check-config
 ./bin/detect_rt --check-config
 ./bin/main --check-config
-# 终端 A：
-./bin/camera_server --config config/camera.yaml
-# 终端 B：VIO 和检测一起运行，但不发送位姿
+# VIO 和检测一起运行，但不发送位姿
 ./bin/main --no-send
 # 仅检查 VIO 时改用：./bin/main --no-send --no-detection
 ```
+
+默认使用 `config/camera.yaml`，可通过 `main --camera-config FILE` 覆盖。托管模式下
+相机服务的 VIO 通道跟随 `config/vio.yaml`（或 `main --shm-vio NAME`）。如果手动或由系统服务启动了
+`camera_server`，请给 `main` 加 `--external-camera`，它只连接、不启动或停止该进程。
+单独运行 `vio_live` 仍需先启动 `camera_server`。
 
 `main` 使用现有 `config/driver.yaml` 和生产标定 `gemini_1920x1080`，
 期望服务端提供 1920×1080@30。也可传入 `--config-dir` 选择标定，分辨率从标定读取。
@@ -73,7 +75,8 @@ cmake --build build --target camera_server main vio_live detect_rt -j2
 `--detection-config FILE` 把配置路径传给检测进程；`--detect-arg ARG` 可重复传递运行参数。
 检测算法配置由子进程自行读取，`main` 不加载推理模型。异常退出最多重启 3 次；
 正常退出或重启超限时主程序结束，并停止 VIO。Ctrl-C、相机/VIO 故障或异常退出均先回收检测进程。
-相机服务由外部托管，停止 `main` 不停止服务。独立使用 `vio_live` 时，检测也可单独启动。
+`main` 随退出流程停止自己启动的相机服务；`--external-camera` 模式下相机服务继续运行。
+独立使用 `vio_live` 时，检测也可单独启动。
 
 ## 帧与时间
 
@@ -88,8 +91,8 @@ cmake --build build --target camera_server main vio_live detect_rt -j2
 - 飞控时钟映射、IMU 覆盖检查和最终 Unix 微秒输出继续沿用现有 VIO 逻辑。
 
 服务关闭、超过 2 秒无发布心跳、帧结构非法、相机会话或代数变化时，输入停止并报错。
-恢复顺序为先启动相机服务，再重启 VIO 消费者，使滤波器与时间基重新初始化。
-停止消费者不会关闭相机服务。直采标定工具或 `depth_range_probe` 应在相机服务停止后使用。
+托管模式下重启 `main` 即可重新启动相机服务并初始化 VIO；外部模式下先恢复相机服务，再启动消费者。
+直采标定工具或 `depth_range_probe` 应在相机服务停止后使用。
 
 ## 无硬件验证
 

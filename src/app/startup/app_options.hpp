@@ -10,11 +10,13 @@ struct AppOptions {
     bool no_send = false;
     bool check_config = false;
     bool no_detection = false;
+    bool external_camera = false;
     bool mission = false;
     std::string mission_config = "config/mission.yaml";
     std::string detect_bin, detection_config;
     std::vector<std::string> detect_args;
     std::string config = "config/app.yaml";
+    std::string camera_config = "config/camera.yaml";
     std::string driver_config_path, vio_config_path, shm_vio, vio_calibration_dir;
     int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";

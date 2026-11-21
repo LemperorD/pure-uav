@@ -9,12 +9,14 @@ namespace pure_uav::app {
 void printAppUsage(const char* name) {
     std::printf(
         "用法: %s [选项]\n"
-        "连接 PX4、连接 camera_server 和运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
+        "连接 PX4、启动 camera_server 并运行 VIO，按固定节拍发布位姿；Ctrl-C 停止。\n"
         "飞控心跳就绪后启动检测子进程；--mission 显式启用主任务。\n"
         "  --config FILE         应用调度配置（默认 config/app.yaml）\n"
         "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
         "  --check-config        校验并打印实际配置后退出，不打开设备\n"
         "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
+        "  --camera-config FILE  自启动相机服务的配置（默认 config/camera.yaml）\n"
+        "  --external-camera    只连接已运行的 camera_server，不启动或停止它\n"
         "  --config-dir DIR      覆盖 VIO 标定目录（默认由 vio.yaml 指定）\n"
         "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
         "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
@@ -27,7 +29,7 @@ void printAppUsage(const char* name) {
         "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
         "  --detection-config FILE  传给检测子进程的 --config 路径\n"
         "  --detect-arg ARG      可重复，原样传给检测子进程的运行参数\n"
-        "  --no-detection        仅运行通信和 VIO，不拉起检测子进程\n"
+        "  --no-detection        不拉起检测子进程，保留相机服务和 VIO\n"
         "  -h, --help            查看帮助\n"
         "  --blackbox 为后续黑匣子预留；SIGUSR1 请求任务返航。\n",
         name);
@@ -51,6 +53,10 @@ AppOptions parseAppOptions(int argc, char** argv) {
         }
         if (arg == "--no-detection") {
             options.no_detection = true;
+            continue;
+        }
+        if (arg == "--external-camera") {
+            options.external_camera = true;
             continue;
         }
         if (arg == "--detect-arg") {
@@ -84,6 +90,8 @@ AppOptions parseAppOptions(int argc, char** argv) {
             value = &options.vio_config_path;
         } else if (arg == "--driver-config") {
             value = &options.driver_config_path;
+        } else if (arg == "--camera-config") {
+            value = &options.camera_config;
         } else if (arg == "--shm-vio") {
             value = &options.shm_vio;
         } else if (arg == "--config-dir") {

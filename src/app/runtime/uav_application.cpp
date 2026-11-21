@@ -4,11 +4,13 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <filesystem>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 
 #include "pure_uav_factory.hpp"
+#include "runtime/camera_server_process.hpp"
 #include "runtime/guidance_camera.hpp"
 #include "runtime/landing_failsafe.hpp"
 #include "runtime/vio_pose_publisher.hpp"
@@ -56,6 +58,7 @@ struct UavApplication::Impl {
             vio->stop();
         }
         camera.stop();
+        camera_server.stop();
         comm.stop();
     }
     std::unique_ptr<IPureUavFactory> prepare() {
@@ -80,7 +83,25 @@ struct UavApplication::Impl {
             result = connected == FlightConnectionResult::kStopped ? 0 : 1;
             return {};
         }
-        if (!camera.start(config.camera, &error)) {
+        if (interrupted.load()) {
+            return {};
+        }
+        auto camera_input = config.camera;
+        if (!options.external_camera) {
+            const auto camera_config = std::filesystem::path(config.repository_root) / options.camera_config;
+            if (!camera_server.start(camera_config.string(), camera_input.channel, camera_input.timeout_ms, interrupted, error)) {
+                if (!interrupted.load()) {
+                    std::fprintf(stderr, "[CAM] 启动 camera_server 失败：%s\n", error.c_str());
+                    result = 1;
+                }
+                return {};
+            }
+            camera_input.timeout_ms = 0;
+        }
+        if (interrupted.load()) {
+            return {};
+        }
+        if (!camera.start(camera_input, &error)) {
             std::fprintf(stderr, "[CAM] 连接 camera_server 失败：%s\n", error.c_str());
             result = 1;
             return {};
@@ -235,6 +256,7 @@ struct UavApplication::Impl {
     AppStartupConfig settings;
     Communicator comm;
     CommImuSource imu;
+    CameraServerProcess camera_server;
     CameraService camera;
     std::shared_ptr<IVIO> vio;
     std::shared_ptr<IGuidance> guidance;

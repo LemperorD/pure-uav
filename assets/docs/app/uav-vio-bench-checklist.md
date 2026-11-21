@@ -28,7 +28,7 @@ cmake --build build-uav --target camera_server main vio_live detect_rt -j2
 
 - 确认真实 MAVLink 设备名，按实际情况修改 driver.yaml，不能认定一定是 ttyACM0。
 - USB 连接与 UART 连接分开确认。走 TELEM 时，按实际端口设置 MAVLink2、匹配波特率，核对接线和电气兼容性。
-- 相机由 `camera_server` 独占；相机服务先行启动，VIO 在 main 内运行，检测由 `bin/main` 拉起并监督；
+- 相机由 `camera_server` 独占；`bin/main` 会自动启动相机服务，单独运行 `vio_live` 时才需预先启动服务；
   不同时运行任何直采工具（互斥清单见 `assets/docs/app/camera-ipc.md`）。
 - 选择 main 或 vio_live 中的一个入口独占串口，不同时运行串口探针或争用同一设备的地面站。
 - main 只接受 PX4 心跳，任务适配器同样按 PX4 Offboard 工作；不匹配的固件会在连接相机前拒绝启动。
@@ -88,8 +88,8 @@ ODOMETRY 的 q 为 wxyz，位置单位米、速度单位米/秒。初始 FRD 朝
 
 地面分别测试遮挡、低纹理、光照变化、相机掉线、飞控链路断开、飞控重启与软件重启。
 检查失效后不再发送旧定位，恢复后重新建立时钟/估计器，新 reset_counter 能在飞控端解释位姿变化。
-相机服务故障会让 `vio_live` / `detect_rt` 消费者退出；检测子进程异常时由 `bin/main`
-最多自动重启 3 次，超限 `main` 退出并停止其内部 VIO，交由外部托管方处置；相机服务继续运行。
+相机服务故障会让图像消费者退出；检测子进程异常时由 `bin/main`
+最多自动重启 3 次；超过上限时检测停止。退出 `main` 时，它会停止自己启动的相机服务。
 确认实际操作人员理解这两种不同故障策略。
 
 “上位机停发”不保证飞机会自动安全悬停、切源或降落。
