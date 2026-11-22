@@ -20,6 +20,7 @@ struct Options {
     std::string driver_config = "config/driver.yaml";
     std::string shm_vio = camera::kVioChannel;
     int shm_timeout_ms = -1;
+    bool external_camera = false;
 
     // 位姿日志、原始 IMU 日志和离线数据集。
     std::string csv_out = "out/live_pose.csv";
@@ -72,6 +73,7 @@ inline void printUsage(const char* argv0) {
         "  --imu-ts MODE       IMU 时间戳处理：uniform(默认，去抖) | raw(原样喂)\n"
         "  --shm-vio NAME      camera_server VIO 通道（默认 /pure_uav_camera_vio）\n"
         "  --shm-timeout-ms N  临时覆盖 camera.yaml 的就绪超时\n"
+        "  --external-camera   连接已运行的外部 camera_server（默认自动启停同目录的 camera_server）\n"
         "  --cam-ts MODE      相机时间：host(默认，服务端采集时刻) | device(SDK 系统时间平滑)\n"
         "  --init-threads N    动态初始化 MLE 线程数（默认用配置文件）\n"
         "  --use-depth-init    用深度直接初始化特征位置（纯旋转也能出测量；A/B 用）\n"
@@ -129,6 +131,8 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
             opt.check_config = true;
         } else if (a == "--shm-vio") {
             opt.shm_vio = need("--shm-vio");
+        } else if (a == "--external-camera") {
+            opt.external_camera = true;
         } else if (a == "--shm-timeout-ms") {
             const auto value = need("--shm-timeout-ms");
             try {

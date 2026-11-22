@@ -18,16 +18,15 @@ import select
 import sys
 import termios
 import time
-from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "camera_imu_calibration" / "capture"))
-sys.path.insert(0, str(HERE.parent / "camera_imu_calibration" / "capture" / "vendor"))
+from calibration_capture import require_capture_dir
+
+sys.path.insert(0, str(require_capture_dir()))
 try:
     from mavlink_min import MavlinkParser  # noqa: E402
 except Exception as exc:  # noqa: BLE001
     print(f"导入 mavlink_min 失败：{exc}")
-    print("（应该从 ~/calib 这个位置运行，或者仓库被挪过）")
+    print("（请确保同级存在 calibration_for_vio，或通过 VIO_CALIBRATION_REPO 指定其路径）")
     raise SystemExit(2)
 
 

@@ -5,7 +5,7 @@
 #include <atomic>
 #include <string>
 
-namespace pure_uav::app {
+namespace pure_uav::camera {
 
 class CameraServerProcess {
   public:
@@ -21,4 +21,4 @@ class CameraServerProcess {
     pid_t pid_ = -1;
 };
 
-}  // namespace pure_uav::app
+}  // namespace pure_uav::camera

@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "camera_server_process.hpp"
 #include "comm_config.hpp"
 #include "fcu_clock.hpp"
 #include "live_options.hpp"
@@ -129,11 +130,12 @@ int main(int argc, char** argv) {
     const int ready_timeout_ms = opt.shm_timeout_ms >= 0 ? opt.shm_timeout_ms : capture.ready_timeout_ms;
     opt.use_depth_init = capture.use_depth && opt.use_depth_init;
     if (opt.check_config) {
-        std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, driver.highres_imu_interval_us);
+        std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d external_camera=%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, opt.external_camera ? 1 : 0, driver.highres_imu_interval_us);
         return 0;
     }
     std::signal(SIGINT, onSigint);
     std::signal(SIGTERM, onSigint);
+    std::signal(SIGPIPE, SIG_IGN);
 
     // 启动顺序：估计器 → 飞控链路 → 相机输入 → 输出文件 → 工作线程。
     // 1. VIO 估计器
@@ -364,8 +366,27 @@ int main(int argc, char** argv) {
         }
     };
 
+    if (g_stop.load()) {
+        link.stop();
+        return 0;
+    }
+
+    pure_uav::camera::CameraServerProcess camera_server;
+    if (!opt.external_camera) {
+        const auto resolved_camera_config = pure_uav::camera::locateCameraConfig(opt.camera_config);
+        if (!camera_server.start(resolved_camera_config, opt.shm_vio, ready_timeout_ms, g_stop, err)) {
+            if (!g_stop.load()) {
+                std::fprintf(stderr, "启动 camera_server 失败: %s\n", err.c_str());
+            }
+            link.stop();
+            return g_stop.load() ? 0 : 1;
+        }
+        cam_cfg.timeout_ms = 0;
+    }
+
     if (!camera.start(cam_cfg, &err)) {
         std::fprintf(stderr, "连接 camera_server 失败: %s\n", err.c_str());
+        camera_server.stop();
         link.stop();
         return 1;
     }
@@ -384,6 +405,7 @@ int main(int argc, char** argv) {
     if (!logger.open(opt.csv_out, opt.tum_out)) {
         std::fprintf(stderr, "无法打开输出文件\n");
         camera.stop();
+        camera_server.stop();
         link.stop();
         return 1;
     }
@@ -432,6 +454,9 @@ int main(int argc, char** argv) {
                          "[rec] 目标目录里已经有录制：%s\n"
                          "      不覆盖。换一个 --record 名字再跑（例如 %s_2）。\n",
                          opt.rec_dir.c_str(), opt.rec_dir.c_str());
+            camera.stop();
+            camera_server.stop();
+            link.stop();
             return 2;
         }
         std::error_code ec;
@@ -1090,6 +1115,7 @@ int main(int argc, char** argv) {
     capture_thread.join();
     vio_thread.join();
     camera.stop();
+    camera_server.stop();
     link.stop();
     logger.close();
     safe_logger.close();

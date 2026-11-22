@@ -32,14 +32,16 @@ CONFIG_DIR = "config/gemini_1920x1080"  # 唯一生产配置：60Hz（一帧不�
 AUTO_BUILD = True                     # 找不到 vio_offline 就自动编译
 # └──────────────────────────────────────────────────────────┘
 
-# 代码在仓库里，数据仍在采集工作区（~/calib）；可用环境变量 CALIB_WORKSPACE 换。
-DATA_WS = Path(os.environ.get("CALIB_WORKSPACE", str(Path.home() / "calib")))
 VIO_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = VIO_ROOT.parents[1]
 REPO_DATA = VIO_ROOT / "data"
-DATA_ROOT = DATA_WS / "camera_imu_calibration" / "data"
-DS_ROOT = DATA_WS / "datasets"
 OUT_DIR = VIO_ROOT / "out"
+# 原始采集目录默认依次查仓库 data/vio/ 和同级 calibration_for_vio/extrinsic/data；
+# 可用环境变量 VIO_CALIBRATION_REPO（或旧名 CALIB_WORKSPACE）覆盖标定仓库路径。
+_CALIB_ENV = os.environ.get("VIO_CALIBRATION_REPO") or os.environ.get("CALIB_WORKSPACE")
+CALIB_REPO = Path(_CALIB_ENV).expanduser() if _CALIB_ENV else (REPO_ROOT.parent / "calibration_for_vio")
+DATA_ROOT = CALIB_REPO / "extrinsic" / "data"
+DS_ROOT = OUT_DIR / "datasets"
 LOCAL_BIN = VIO_ROOT / "build" / "bin" / "vio_offline"
 TUM_TOOL = VIO_ROOT / "tools" / "session_to_dataset.py"
 DRIFT_TOOL = VIO_ROOT / "tools" / "drift_report.py"
@@ -320,19 +322,19 @@ def main():
     # ---- 解析会话目录 ----
     cand = Path(session_arg).expanduser()
     if not cand.is_absolute() and not cand.exists():
-        # 按名字找：先查仓库 data/vio/（新录制），再查旧数据工作区（历史数据，原地不动）
+        # 按名字找：先查仓库 data/vio/，再查标定仓库 extrinsic/data/
         for base in (REPO_DATA / "vio", DATA_ROOT):
             if (base / session_arg).is_dir():
                 cand = base / session_arg
                 break
         else:
-            cand = DATA_ROOT / session_arg
+            cand = REPO_DATA / "vio" / session_arg
     session_dir = cand.resolve()
     name = session_dir.name
 
     hr("0/3  预检")
     print(f"  代码        {VIO_ROOT}")
-    print(f"  数据工作区  {DATA_WS}")
+    print(f"  标定仓库    {CALIB_REPO}")
     print(f"  会话        {session_dir}")
     print(f"  会话名      {name}")
 

@@ -1,4 +1,4 @@
-#include "runtime/camera_server_process.hpp"
+#include "camera_server_process.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -16,7 +16,7 @@
 #include <filesystem>
 #include <thread>
 
-namespace pure_uav::app {
+namespace pure_uav::camera {
 namespace {
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
@@ -54,6 +54,7 @@ CameraServerProcess::~CameraServerProcess() {
 }
 
 bool CameraServerProcess::start(const std::string& config, const std::string& channel, int timeout_ms, const std::atomic<bool>& interrupted, std::string& error) {
+    stop();
     constexpr int child_ready_fd = STDERR_FILENO + 1;
     const auto executable = (std::filesystem::read_symlink("/proc/self/exe").parent_path() / "camera_server").string();
     std::array<std::string, 7> args{executable, "--config", config, "--vio-channel", channel, "--ready-fd", std::to_string(child_ready_fd)};
@@ -84,6 +85,9 @@ bool CameraServerProcess::start(const std::string& config, const std::string& ch
     }
     const bool ready = waitForReady(ready_pipe[0], timeout_ms, interrupted, error);
     close(ready_pipe[0]);
+    if (!ready) {
+        stop();
+    }
     return ready;
 }
 
@@ -109,4 +113,4 @@ void CameraServerProcess::stop() noexcept {
     pid_ = -1;
 }
 
-}  // namespace pure_uav::app
+}  // namespace pure_uav::camera

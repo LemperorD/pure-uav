@@ -23,7 +23,7 @@ import numpy as np
 
 from calibration_capture import require_capture_dir
 
-sys.path.insert(0, str(require_capture_dir() / "vendor"))
+sys.path.insert(0, str(require_capture_dir()))
 
 import capture_calibration as cc  # noqa: E402
 
@@ -154,7 +154,8 @@ def check_auto_expose() -> int:
                                  auto_expose_target=100.0, auto_expose_min_mean=45.0,
                                  auto_expose_expected_rate_dps=0.0, focal_px=1367.5,
                                  auto_expose_blur_budget_px=3.0, auto_expose_max_gain=255,
-                                 allow_blur=True, allow_dark=False, exposure=100, gain=30)
+                                 allow_blur=True, allow_dark=False,
+                                 allow_below_exposure_target=False, exposure=100, gain=30)
     cases = [
         # (说明, scale, 期望可用?, 期望状态)
         ("正常室内光", 0.2, True, "ok"),

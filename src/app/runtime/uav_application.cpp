@@ -8,8 +8,8 @@
 #include <thread>
 #include <utility>
 
+#include "camera_server_process.hpp"
 #include "pure_uav_factory.hpp"
-#include "runtime/camera_server_process.hpp"
 #include "runtime/guidance_camera.hpp"
 #include "runtime/landing_failsafe.hpp"
 #include "runtime/vio_pose_publisher.hpp"
@@ -255,7 +255,7 @@ struct UavApplication::Impl {
     AppStartupConfig settings;
     Communicator comm;
     CommImuSource imu;
-    CameraServerProcess camera_server;
+    pure_uav::camera::CameraServerProcess camera_server;
     CameraService camera;
     std::shared_ptr<IVIO> vio;
     std::shared_ptr<IGuidance> guidance;

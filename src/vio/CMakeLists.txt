@@ -132,6 +132,16 @@ if(EXISTS "${_pure_uav_repo_root}/src/camera/camera_config.cpp")
   target_link_libraries(pure_camera_config PUBLIC pure_depth_range yaml-cpp)
 endif()
 
+if(EXISTS "${_pure_uav_repo_root}/src/camera/camera_server_process.cpp")
+  add_library(
+    pure_camera_process STATIC
+    "${_pure_uav_repo_root}/src/camera/camera_server_process.cpp"
+  )
+  target_include_directories(
+    pure_camera_process PUBLIC "${_pure_uav_repo_root}/src/camera"
+  )
+endif()
+
 add_library(
   pure_vio_core STATIC src/vio_estimator.cpp src/vio_health.cpp
                        src/vision_pose_convert.cpp src/pose_logger.cpp
@@ -279,7 +289,9 @@ if(_build_live)
     target_sources(vio_live PRIVATE "${PURE_UAV_DRIVER_DIR}/communicate/src/comm_config.cpp")
     target_include_directories(vio_live PRIVATE "${PURE_UAV_DRIVER_DIR}/communicate/include")
   endif()
-  target_link_libraries(vio_live PRIVATE pure_vio_runtime pure_camera_config)
+  target_link_libraries(
+    vio_live PRIVATE pure_vio_runtime pure_camera_config pure_camera_process
+  )
 elseif(PURE_VIO_BUILD_LIVE STREQUAL "OFF")
   message(STATUS "实时程序: 已禁用（PURE_VIO_BUILD_LIVE=OFF）")
 else()

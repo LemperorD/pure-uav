@@ -4,7 +4,7 @@
 #   ./scripts/run_vio_live.sh                  手持演示：动态初始化 + 开窗口 + 不发飞控
 #   ./scripts/run_vio_live.sh --static         同上，但静态初始化（先静止 ≥2 秒，再动一下触发）
 #   ./scripts/run_vio_live.sh --duration 60    60 秒后自动退出（默认一直跑到按 q）
-#   ./scripts/run_vio_live.sh --fly            正式运行：向飞控发送位姿（相机服务需预先启动）
+#   ./scripts/run_vio_live.sh --fly            正式运行：向飞控发送位姿（默认自动启停 camera_server）
 #   ./scripts/run_vio_live.sh --out DIR        指定输出目录（默认 out/live_<时间戳>）
 #   ./scripts/run_vio_live.sh -- --no-send     "--" 之后的参数原样传给 vio_live
 #
@@ -88,7 +88,7 @@ fi
 
 [[ "$DURATION" != "0" ]] && ARGS+=( --duration "$DURATION" )
 
-echo "[run] 请先启动 camera_server；曝光、增益、测光和深度流由服务端管理"
+echo "[run] 默认自动启停 camera_server（复用外部服务请加 -- --external-camera）；曝光、增益、测光和深度流由 config/camera.yaml 管理"
 echo "[run] 输出目录: $OUTDIR"
 echo "[run] 命令: $BIN ${ARGS[*]} ${EXTRA[*]}"
 echo

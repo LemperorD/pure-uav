@@ -29,3 +29,6 @@ set_target_properties(
              BUILD_RPATH "${_orbbec_rpath}"
              INSTALL_RPATH "${_orbbec_rpath}"
 )
+if(TARGET vio_live)
+  add_dependencies(vio_live camera_server)
+endif()
