@@ -9,3 +9,8 @@ datasets/
 # 根 .gitignore 的 `core`（本意是 core dump）会误伤 OpenVINS 的 ov_msckf/src/core/ 目录，
 # 那里是 VioManager 等核心文件，必须提交。
 !/third_party/open_vins/ov_msckf/src/core/
+
+# 本地调试与离线分析脚本（仅保留在本地，不上传到 GitHub）
+/scripts/*.py
+/tools/*.py
+
