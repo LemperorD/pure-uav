@@ -45,7 +45,7 @@ cmake --build build -j2 --target camera_server vio_live
 
 ### 第 2 步：启动 VIO（终端 2）
 
-**使用一键脚本**（自动保存日志、轨迹和 IMU 数据到 `src/vio/out/live_<时间戳>/`）：
+**推荐：使用一键脚本**（自动保存日志、轨迹和 IMU 数据到 `src/vio/out/live_<时间戳>/`）：
 
 ```bash
 # 本地测试（不向飞控发送位姿，开实时窗口）
@@ -64,18 +64,6 @@ bash src/vio/scripts/run_vio_live.sh --fly
 | `--duration S` | 运行 `S` 秒后自动退出，默认一直运行到手动停止 |
 | `--out DIR` | 指定日志输出目录（相对 `src/vio/`），默认 `out/live_<时间戳>` |
 | `-- <参数>` | `--` 之后的参数原样透传给 `vio_live`，如 `-- --record datasets/run1`（录制离线数据集）或 `-- --serial /dev/ttyUSB0 --baud 921600`（指定串口） |
-
-常用参数（完整列表见 `./bin/vio_live --help`）：
-
-| 参数 | 说明 |
-|---|---|
-| `--serial DEV` / `--baud N` | 飞控串口和波特率（默认 `/dev/ttyACM0`、`921600`） |
-| `--no-send` | 不向飞控发送 `ODOMETRY`，仅本地调试/记录 |
-| `--view` | 打开 OpenCV 实时预览窗口（无桌面环境时自动降级跳过） |
-| `--static-init` | 改为静态初始化（默认动态初始化） |
-| `--use-depth-init` | 使用深度初始化特征点（需 `camera.yaml` 中 `use_depth: true`） |
-| `--init-vel-zero` | 静止起步时将初始速度置零 |
-| `--record DIR` | 录制离线数据集供 `bin/vio_offline` 回放 |
 
 ---
 
