@@ -1,7 +1,7 @@
 # main 的 VIO 运行参数；标定与 OpenVINS 参数保留在 config_dir 指定的目录中。
 # 相机采集、曝光、增益、聚合模式请在 camera_server 的 config/camera.yaml 中设置。
 vio:
-  config_dir: src/vio/estimator/config/gemini_1920x1080
+  config_dir: src/vio/config/gemini_1920x1080
   width: 1920
   height: 1080
   fps: 30

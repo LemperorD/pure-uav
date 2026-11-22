@@ -21,7 +21,7 @@ Orbbec → camera_server → /pure_uav_camera_vio → main 或 vio_live
 协议头和通道实现位于 `src/common/camera_frame.hpp`、`camera_shm.hpp/.cpp`，
 使用 `kShmVersion = 2`，完整测距标定随通道传递；旧版进程不兼容，需要统一重建和重启。
 读者只读映射、不删除服务端通道。检测与制导接线见 [depth-guidance.md](depth-guidance.md)。
-`ShmCameraSource` 位于 `src/vio/estimator/src/shm_camera_source.*`，供两个入口共用。
+`ShmCameraSource` 位于 `src/vio/src/shm_camera_source.*`，供两个入口共用。
 
 ## 启动
 
@@ -52,7 +52,7 @@ cmake --build build --target main -j2
 
 ```bash
 ./bin/vio_live --serial /dev/ttyACM0 --baud 921600 \
-  --config-dir src/vio/estimator/config/gemini_1920x1080 \
+  --config-dir src/vio/config/gemini_1920x1080 \
   --width 1920 --height 1080 --fps 30 \
   --use-depth-init --init-vel-zero --no-send
 ```

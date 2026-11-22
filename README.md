@@ -7,6 +7,7 @@
 - 文档入口：[assets/docs/README.md](assets/docs/README.md)
 - 制导：[assets/docs/guidance/README.md](assets/docs/guidance/README.md)
 - 机载主循环：[assets/docs/app/README.md](assets/docs/app/README.md)
+- 视觉惯性里程计（VIO）：[src/vio/README.md](src/vio/README.md)
 
 ```bash
 sudo apt install build-essential

@@ -20,7 +20,7 @@ void require(bool condition, const std::string& reason) {
 fs::path findRoot(fs::path start) {
     if (!fs::is_directory(start)) start = start.parent_path();
     while (!start.empty()) {
-        if (fs::exists(start / "src/vio/estimator/CMakeLists.txt") && fs::exists(start / "config/driver.yaml")) return fs::canonical(start);
+        if (fs::exists(start / "src/vio/CMakeLists.txt") && fs::exists(start / "config/driver.yaml")) return fs::canonical(start);
         auto next = start.parent_path();
         if (next == start) break;
         start = next;
@@ -100,7 +100,7 @@ bool loadAppConfig(const std::string& app_name, const ConfigOverrides& overrides
         const auto vio = vio_top["vio"];
         require(vio && vio.IsMap(), "Missing vio mapping in " + c.vio_path);
         keys(vio, {"config_dir", "width", "height", "fps", "imu_hz", "use_depth", "use_depth_init", "init_vel_zero", "static_init", "online_timeoffset", "input", "pose"}, "vio");
-        c.vio.config_dir = "src/vio/estimator/config/gemini_1920x1080";
+        c.vio.config_dir = "src/vio/config/gemini_1920x1080";
         c.vio.verbose = false;
         c.vio.quiet_runtime = true;
         read(vio, "config_dir", c.vio.config_dir);

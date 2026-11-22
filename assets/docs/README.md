@@ -49,7 +49,7 @@
 | `src/driver/` | [src/driver/README.md](../../src/driver/README.md) | Orbbec 相机；通信见 `communication.md` |
 | `src/detection-rt/` | [src/detection-rt/README.md](../../src/detection-rt/README.md) | NPU/CPU 目标检测（相机 → YOLO → GuidanceTargetSample） |
 | `sim_xtdrone2/` | [sim_xtdrone2/README.md](../../sim_xtdrone2/README.md) | 系统仿真接入（留原地） |
-| `src/vio/` | [src/vio/README.md](../../src/vio/README.md) | 标定工具 |
+| `src/vio/` | [src/vio/README.md](../../src/vio/README.md) | VIO 运行时、标定配置与离线回放 |
 | `src/common/` | 代码注释 | `vec3` / `mavlink_units` / `pure_math_tools` |
 
 ---

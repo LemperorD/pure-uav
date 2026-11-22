@@ -221,7 +221,7 @@ add_executable(
   ../detection-rt/src/shm_color_frame.cpp ../detection-rt/src/target_bridge.cpp
 )
 target_include_directories(
-  test_rgbd_pipeline PRIVATE ../camera ../vio/estimator/src
+  test_rgbd_pipeline PRIVATE ../camera ../vio/src
                              ../detection-rt/include
 )
 target_link_libraries(

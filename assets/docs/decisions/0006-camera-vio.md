@@ -29,9 +29,8 @@ los_hat = normalize(d_world)
 
 ## 2 标定
 
-- 内参：`src/vio/extrinsic/results/final/camchain-openvins-final.yaml`；
-- 外参：`src/vio/extrinsic/results/final/final_extrinsics.json`；
-- 这些结果已在当前仓库；生产 RGB 内参另见 `src/vio/estimator/config/gemini_1920x1080/kalibr_imucam_chain.yaml`；
+- 标定流程和原始结果在 `calibration_for_vio` 仓库的 `extrinsic/`；
+- 上机使用本仓库的 [相机标定链](../../../src/vio/config/gemini_1920x1080/kalibr_imucam_chain.yaml) 和 [IMU 标定链](../../../src/vio/config/gemini_1920x1080/kalibr_imu_chain.yaml)；
 - 演示用 `guidance_demo_camera()`（f=600、主点 320×240）只是占位，**真机不能直接用**。
 
 真机 `main --mission` 单独读取 `config/guidance-camera.yaml`；当前安装外参未确认，`calibrated=false` 时只搜索。
@@ -76,6 +75,6 @@ VIO → MAVLink ODOMETRY → PX4 EKF2 EV → vehicle_local_position → Guidance
 ## 6 维护
 
 - 换相机/重标定 → 更新 YAML + 本文；
-- VIO 合并后 → 把 `results/final` 带进主分支，或在文档中明确“本地生成”；
+- 标定求解和原始结果留在 `calibration_for_vio`；本仓库只更新上机使用的配置；
 - 改 `R_body_cam` 约定 → 同步 `interfaces.md` §3 和 §7；
 - 改 VIO 接入方式 → 更新本文和 `architecture.md`。

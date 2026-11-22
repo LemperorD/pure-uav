@@ -12,8 +12,8 @@
 | 文件 | 处理方式 |
 |---|---|
 | `src/app/main.cpp` | 保留 VIO 配置、通信、时基与发布门控，接入检测子进程启动和独立监督线程 |
-| `src/vio/estimator/apps/vio_live_main.cpp` | 保留经过校验的 ShmCameraSource 输入，避免重复启动两个共享内存读取线程 |
-| `src/vio/estimator/CMakeLists.txt` | 保留 pure_vio_runtime 与输入测试；相机服务复用 vio_camera 驱动 |
+| `src/vio/apps/vio_live_main.cpp` | 保留经过校验的 ShmCameraSource 输入，避免重复启动两个共享内存读取线程 |
+| `src/vio/CMakeLists.txt` | 保留 pure_vio_runtime 与输入测试；相机服务复用 vio_camera 驱动 |
 | `src/test/CMakeLists.txt` | 保留 VIO/共享内存测试，并加入检测配置、进程管理和异步监督测试 |
 | `assets/docs/app/camera-ipc.md` | 统一相机服务、VIO 和检测进程的实际分工、启动和停止顺序 |
 | `assets/docs/app/usage.md` | 保留 app.yaml/vio.yaml 分工，补充检测进程参数与退出行为 |

@@ -52,8 +52,8 @@ main / MissionService
 | 失败 | 逐帧清零：`has_range=false, range_m=0`；目标框仍可继续发布 |
 | 撞击确认 | **距离小不算撞击成功**，`strike_confirmed` 仍需外部信号（传感器/裁判/仿真事件） |
 
-实现位置：[depth_range.cpp](../../../src/vio/estimator/src/depth_range.cpp)、
-[target_depth_range.hpp](../../../src/vio/estimator/include/pure_uav/target_depth_range.hpp)。
+实现位置：[depth_range.cpp](../../../src/vio/src/depth_range.cpp)、
+[target_depth_range.hpp](../../../src/vio/include/pure_uav/target_depth_range.hpp)。
 
 ---
 

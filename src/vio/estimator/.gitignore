@@ -1,8 +1,0 @@
-build/
-build_*/
-out/
-datasets/
-__pycache__/
-*.log
-*.pyc
-docs/

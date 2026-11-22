@@ -60,7 +60,7 @@ boot_us   = 视觉时间戳 − offset_us
 
 ## VIO / PX4
 
-- 在线 VIO 的 `timestamp_us` 和 `ODOMETRY.time_usec` 自 2026-11-09 起使用主机 Unix µs；IMU、图像和深度在 VIO 入口统一换算，详见 `src/vio/estimator/README.md` 的时间戳说明；
+- 在线 VIO 的 `timestamp_us` 和 `ODOMETRY.time_usec` 自 2026-11-09 起使用主机 Unix µs；IMU、图像和深度在 VIO 入口统一换算，详见 [VIO 时间戳说明](../../../src/vio/README.md#时间戳)；
 - PX4 EKF2 融合 EV 时用 `EKF2_EV_DELAY` 补偿链路延迟；
 - 制导只消费 PX4 `vehicle_local_position`，不直接消费 VIO。
 

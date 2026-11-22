@@ -155,14 +155,14 @@ src/driver/communicate/include/communicator.hpp
 src/driver/communicate/src/communicator.cpp
 src/test/CMakeLists.txt
 src/test/test_driver/test_vision_pose_wire.cpp
-src/vio/estimator/CMakeLists.txt
-src/vio/estimator/apps/live_view.hpp
-src/vio/estimator/include/pure_uav/vio_estimator.hpp
-src/vio/estimator/src/orbbec_camera.cpp
-src/vio/estimator/src/orbbec_camera.hpp
-src/vio/estimator/src/vio_estimator.cpp
-src/vio/estimator/third_party/open_vins/ov_core/src/track/TrackKLT.cpp
-src/vio/estimator/third_party/open_vins/ov_msckf/src/core/VioManager.cpp
+src/vio/CMakeLists.txt
+src/vio/apps/live_view.hpp
+src/vio/include/pure_uav/vio_estimator.hpp
+src/vio/src/orbbec_camera.cpp
+src/vio/src/orbbec_camera.hpp
+src/vio/src/vio_estimator.cpp
+src/vio/third_party/open_vins/ov_core/src/track/TrackKLT.cpp
+src/vio/third_party/open_vins/ov_msckf/src/core/VioManager.cpp
 ```
 
 本轮新增文件：
@@ -182,6 +182,6 @@ src/test/test_app/test_app_config.py
 src/test/test_app/test_heartbeat_wait.cpp
 src/test/test_app/test_pose_gate.cpp
 src/test/test_app/test_vio_runtime.cpp
-src/vio/estimator/include/pure_uav/vio_runtime.hpp
-src/vio/estimator/src/vio_runtime.cpp
+src/vio/include/pure_uav/vio_runtime.hpp
+src/vio/src/vio_runtime.cpp
 ```

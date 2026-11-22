@@ -1,100 +1,47 @@
-# vio —— 相机内参 / IMU 噪声 / 相机–IMU 外参标定
+# VIO
 
-## 目录结构
+基于仓库内的 OpenVINS，用单目图像、飞控 IMU 和可选深度估计位姿；运行不依赖 ROS。
+机载 `main` 集成 VIO，`vio_live` 用于实时调试和录制，`vio_offline` 用于回放。
 
-```
-vio/
-├── intrinsic/                      ① 相机内参（棋盘格 → cv2.calibrateCamera）
-│   ├── capture_calibration.py            采图：V4L2 直采，锁曝光/白平衡，棋盘格预览
-│   ├── calibrate_intrinsics.py           求解：角点检测 + 标定 + 逐轮剔除 + RMS 门槛
-│   └── calibration_config.py             配置：板子内角点数 / 格长 / 分辨率 / 曝光
-│
-├── imu_noise/                      ② IMU 噪声（Allan 方差，静置数小时）
-│   ├── record_static_imu.py              录制：MAVLink HIGHRES_IMU @200 Hz → CSV
-│   ├── analyze_static_noise.py           分析：Allan → 噪声密度 + 随机游走
-│   ├── serial_port.py                    串口抽象（Linux 用 termios，Windows 用 pyserial）
-│   └── vendor/                           最小 MAVLink 解析 + Allan 核心 + DataFlash 日志解析
-│
-└── extrinsic/                      ③ 相机–IMU 外参与时间偏移
-    ├── calibrate_extrinsics.py           主入口：连续时间 B 样条联合优化
-    ├── extrinsics_config.py              配置：输入路径 / 求解参数 / 残差门槛
-    ├── prepare_openvins.py               把结果导出成 OpenVINS 配置
-    ├── remap_imu_clock.py                飞控时钟 ↔ 宿主时钟映射
-    ├── calib/                            数学模型与求解
-    │   ├── spline.py                         连续时间 B 样条
-    │   ├── solver.py                         联合优化与导出
-    │   ├── data.py                           输入读取 / 板检测 / PnP
-    │   └── acquisition.py                    采集数据解析
-    ├── configs/                          相机内参、标定板、动作模板
-    └── capture/                          采集链
-        ├── record_session.py                 录一次完整会话（图像 + IMU）
-        ├── imu_recorder.py                   MAVLink IMU 录制
-        ├── run_calibration.py                一键：自动挑连续窗口 → 标定
-        ├── image_health.py                   画面体检（亮度 / 清晰度 / 检出率）
-        ├── framing_check.py                  取景试拍
-        ├── make_images_csv.py                manifest → images.csv
-        ├── make_rosbag.py                    images.csv + imu.csv → ROS1 bag
-        ├── capture_config.py                 采集参数（会话名 / 分辨率 / 曝光）
-        └── vendor/                           内参采集器的本地副本（保证本目录自包含）
-```
+- `apps/`：实时、离线入口；`src/` 和 `include/`：估计器与运行时。
+- `config/`：运行参数和相机／IMU 标定链，生产配置为 `gemini_1920x1080/`。
+- `scripts/`、`tools/`、`tests/`：启动、分析和测试；`third_party/open_vins/` 为构建依赖。
 
-## 环境
+相机内参、相机–IMU 外参、IMU 噪声和加速度标定工具已迁至 `calibration_for_vio`。
+本仓库保留运行所需的标定 YAML，构建和部署不需要标定工具或额外应用补丁。
 
-**Python 3.11**，conda 环境vins：
+## 编译
+
+依赖 C++17、Eigen3、OpenCV 4、Boost filesystem/date_time、Ceres；实时构建使用仓库内的 Orbbec SDK 和 MAVLink。
+从仓库根目录运行：
 
 ```bash
-conda create -n vins python=3.11 -y
-conda activate vins
-pip install -r requirements.txt
-conda install -c conda-forge tk        # 采集预览窗口需要（标准库 tkinter）
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j2 --target main camera_server vio_live vio_offline
 ```
 
-| 包 | 本机实测版本 | 谁在用 |
-|---|---|---|
-| numpy | 1.26.4 | 全部 |
-| scipy | 1.17.1 | 外参联合优化的最小二乘 |
-| **opencv-contrib-python** | 4.10.0 | 角点检测 / PnP / AprilGrid（**必须 contrib 版**，要有 `cv2.aruco`） |
-| PyYAML | 6.0.3 | 配置与结果读写 |
-| matplotlib | 3.4.3 | IMU 的 Allan 曲线 |
-| rosbags | 0.11.5 | 读写 ROS1 bag（纯 Python，**不需要 ROS**） |
-| Pillow | 12.3.0 | 采集预览 |
-| tkinter（Tk 8.6.13） | 标准库 | 采集预览窗口 |
-
-### 设备权限
-
-```bash
-sudo usermod -aG video,dialout $USER     # 相机 /dev/video*，飞控 /dev/ttyACM*
-# 重新登录生效
-```
+产物位于 `bin/`。只构建 VIO 时也可用 `cmake -S src/vio -B build/vio`，产物位于 `build/vio/bin/`。
+独立构建可用 `-DPURE_VIO_BUILD_LIVE=OFF` 跳过实时目标；实时运行仍需要整仓构建的 `camera_server`。
+若独立构建以前使用了旧源码路径，请换一个构建目录，不能复用旧 CMake 缓存。
 
 ## 运行
 
-**内参**
+机载启动与相机参数见 [相机服务接入](../../assets/docs/app/camera-ipc.md)。单独调试时，先启动相机服务，再从仓库根目录运行：
 
 ```bash
-cd intrinsic
-python capture_calibration.py --output data/session01
-python calibrate_intrinsics.py --images data/session01/cam0 --output data/session01/intrinsics
+bash src/vio/scripts/run_vio_live.sh --out out/run1 -- --record datasets/run1
+./bin/vio_offline --dataset src/vio/datasets/run1 \
+  --config-dir src/vio/config/gemini_1920x1080 --init-threads 1 \
+  --tum-out src/vio/out/run1/replay.tum
 ```
 
-板子参数在 `calibration_config.py` 的 `COLS` / `ROWS` / `SQUARE_SIZE_M`（**内角点数，不是格子数**）。
+实时脚本默认不向飞控发送位姿，输出和录制路径相对 `src/vio/`。
+切换分辨率时，相机服务、`vio_live` 和标定链须匹配，详见 `vio_live --help`。
+分析工具的 Python 依赖见 [requirements.txt](requirements.txt)；RViz 另需 ROS 2。
+使用直采曝光诊断时，将 `VIO_CALIBRATION_REPO` 指向 `calibration_for_vio` 的仓库根目录，并先停止相机服务。
 
-**IMU 噪声**
+## 时间戳
 
-```bash
-cd imu_noise
-python record_static_imu.py       # 时长改 DURATION_H（单位：小时）
-python analyze_static_noise.py    # 自动取 ../data/static_*.csv，或把 CSV 路径当参数传
-```
-
-噪声密度 10 分钟够；随机游走要 4~8 小时。
-
-**外参**
-
-```bash
-cd extrinsic
-python capture/record_session.py                         # 采集
-python capture/run_calibration.py --session session01    # 标定
-```
-
-输入路径与求解参数在 `extrinsics_config.py` 的 `PATHS` / `SETTINGS`。
+在线估计器输入、`VisionPose.timestamp_us`、`ODOMETRY.time_usec` 和录制数据统一使用主机 Unix 微秒。
+相机和 IMU 先对齐飞控采样时基，再转换；超时和心跳仍使用单调时钟。离线回放沿用数据集的时间戳。
+参见 [系统时间基](../../assets/docs/decisions/0005-time-base.md) 和 [实时调试笔记](LIVE_DEBUG_NOTES.md)。

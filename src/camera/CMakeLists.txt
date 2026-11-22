@@ -1,5 +1,5 @@
 # camera_server：唯一 Orbbec 采集进程。 vio_camera 只在 PURE_VIO_BUILD_LIVE 启用（且能找到
-# OrbbecSDK/MAVLink）时存在， 因此本目录必须放在 add_subdirectory(vio/estimator) 之后。
+# OrbbecSDK/MAVLink）时存在， 因此本目录必须放在 add_subdirectory(vio) 之后。
 if(NOT TARGET vio_camera)
   message(STATUS "camera_server: skipped (vio_camera target unavailable)")
   return()
@@ -12,7 +12,7 @@ add_executable(camera_server camera_server_main.cpp frame_publisher.cpp)
 target_include_directories(
   camera_server
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/common
-          ${CMAKE_SOURCE_DIR}/src/vio/estimator/src ${OpenCV_INCLUDE_DIRS}
+          ${CMAKE_SOURCE_DIR}/src/vio/src ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(
   camera_server PRIVATE pure_camera_ipc vio_camera ${OpenCV_LIBS} yaml-cpp

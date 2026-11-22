@@ -37,7 +37,7 @@ if(TARGET pure_vio_runtime)
   target_include_directories(
     app_support
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-           ${CMAKE_SOURCE_DIR}/src/vio/estimator/src
+           ${CMAKE_SOURCE_DIR}/src/vio/src
            ${CMAKE_SOURCE_DIR}/src/factory_core
   )
   target_link_libraries(
