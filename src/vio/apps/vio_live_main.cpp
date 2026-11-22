@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "comm_config.hpp"
 #include "fcu_clock.hpp"
 #include "live_options.hpp"
 #include "live_timing.hpp"
@@ -113,6 +114,24 @@ int main(int argc, char** argv) {
     if (parsed != pure_uav::live::ParseResult::kRun) {
         return parsed == pure_uav::live::ParseResult::kHelp ? 0 : 2;
     }
+    pure_uav::camera::CaptureConfig capture;
+    std::string err;
+    if (!pure_uav::camera::loadCaptureConfig(opt.camera_config, capture, err)) {
+        std::fprintf(stderr, "%s\n", err.c_str());
+        return 2;
+    }
+    pure_uav::CommConfig driver;
+    if (!pure_uav::loadCommConfig(pure_uav::findConfigFile(opt.driver_config), driver) || !pure_uav::validHighresImuInterval(driver.highres_imu_interval_us)) {
+        std::fprintf(stderr, "无效的 driver 配置或 highres_imu_us（IMU 请求须为 21..1000 Hz）：%s\n", opt.driver_config.c_str());
+        return 2;
+    }
+    const double imu_req_hz = 1e6 / driver.highres_imu_interval_us;
+    const int ready_timeout_ms = opt.shm_timeout_ms >= 0 ? opt.shm_timeout_ms : capture.ready_timeout_ms;
+    opt.use_depth_init = capture.use_depth && opt.use_depth_init;
+    if (opt.check_config) {
+        std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, driver.highres_imu_interval_us);
+        return 0;
+    }
     std::signal(SIGINT, onSigint);
     std::signal(SIGTERM, onSigint);
 
@@ -123,7 +142,7 @@ int main(int argc, char** argv) {
     vio_opt.health.min_features = opt.health_min_features;
     vio_opt.health.lost_after_s = opt.health_lost_after;
     vio_opt.health.reinit_on_recover = opt.reinit_on_recover;
-    vio_opt.config_dir = opt.config_dir;
+    vio_opt.config_dir = capture.vio_config_dir;
     vio_opt.verbose = !opt.quiet;
     vio_opt.estimate_camera_timeoffset = opt.online_timeoffset;
     vio_opt.init_threads = opt.init_threads;
@@ -155,9 +174,8 @@ int main(int argc, char** argv) {
     pure_uav::MavlinkLink::Config link_cfg;
     link_cfg.device = opt.serial;
     link_cfg.baudrate = opt.baud;
-    link_cfg.highres_imu_interval_us = static_cast<int>((1e6 / opt.imu_req_hz) + 0.5);
+    link_cfg.highres_imu_interval_us = driver.highres_imu_interval_us;
     pure_uav::MavlinkLink link;
-    std::string err;
     if (!link.start(link_cfg, &err)) {
         std::fprintf(stderr, "MAVLink 链路启动失败: %s\n", err.c_str());
         return 1;
@@ -192,12 +210,12 @@ int main(int argc, char** argv) {
     pure_uav::ShmCameraSource camera;
     pure_uav::ShmCameraSource::Config cam_cfg;
     cam_cfg.channel = opt.shm_vio;
-    cam_cfg.timeout_ms = opt.shm_timeout_ms;
-    cam_cfg.config_dir = opt.config_dir;
-    cam_cfg.width = opt.width;
-    cam_cfg.height = opt.height;
-    cam_cfg.fps = opt.fps;
-    cam_cfg.use_depth = opt.enable_depth;
+    cam_cfg.timeout_ms = ready_timeout_ms;
+    cam_cfg.config_dir = capture.vio_config_dir;
+    cam_cfg.width = capture.width;
+    cam_cfg.height = capture.height;
+    cam_cfg.fps = capture.fps;
+    cam_cfg.use_depth = capture.use_depth;
 
     // 图像诊断：每秒打一行亮度和 FAST 特征数。
     // VIO 出问题时，"场景太暗/没纹理" 和 "滤波器不更新" 从日志上分不出来，这两个数能分开。
@@ -645,15 +663,15 @@ int main(int argc, char** argv) {
                 pure_uav::ImuSample imu_feed = imu_item.imu;
                 if (opt.imu_ts_uniform) {
                     // 有实测速率时按实测值重建网格，否则使用请求值；保留原有更新时机。
-                    auto eff_hz = static_cast<double>(opt.imu_req_hz);
+                    auto eff_hz = imu_req_hz;
                     if (imu_hz > 20.0) {
                         eff_hz = imu_hz;
-                        if (!imu_rate_warned && std::abs(imu_hz - static_cast<double>(opt.imu_req_hz)) > 0.15 * opt.imu_req_hz) {
+                        if (!imu_rate_warned && std::abs(imu_hz - imu_req_hz) > 0.15 * imu_req_hz) {
                             imu_rate_warned = true;
                             std::printf(
-                                "[WARN] 请求 IMU %d Hz，实测只有 %.0f Hz —— 已自动按实测值"
+                                "[WARN] 请求 IMU %.1f Hz，实测只有 %.0f Hz —— 已自动按实测值"
                                 "重建时间戳网格。要用别的速率请改 --imu-hz %.0f\n",
-                                opt.imu_req_hz, imu_hz, imu_hz);
+                                imu_req_hz, imu_hz, imu_hz);
                             std::fflush(stdout);
                         }
                     }

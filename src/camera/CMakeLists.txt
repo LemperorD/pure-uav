@@ -15,7 +15,7 @@ target_include_directories(
           ${CMAKE_SOURCE_DIR}/src/vio/src ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(
-  camera_server PRIVATE pure_camera_ipc vio_camera ${OpenCV_LIBS} yaml-cpp
+  camera_server PRIVATE pure_camera_config pure_camera_ipc vio_camera ${OpenCV_LIBS}
 )
 
 # 相机服务直接链接 OrbbecSDK，把 SDK 目录写进 RPATH，运行时无需 LD_LIBRARY_PATH。

@@ -16,7 +16,7 @@ target_link_libraries(
 
 add_executable(main main.cpp startup/app_options.cpp glue/guidance_session.cpp)
 target_link_libraries(
-  main PRIVATE communicate guidance_application mission_ports
+  main PRIVATE communicate guidance_application mission_ports pure_depth_range
 )
 if(TARGET pure_vio_runtime)
   find_package(OpenCV 4 REQUIRED)
@@ -41,7 +41,7 @@ if(TARGET pure_vio_runtime)
            ${CMAKE_SOURCE_DIR}/src/factory_core
   )
   target_link_libraries(
-    app_support PUBLIC communicate pure_vio_runtime mission_ports
+    app_support PUBLIC communicate pure_camera_config pure_vio_runtime mission_ports
                        target_adapter
   )
   add_subdirectory(../factory_core ${CMAKE_CURRENT_BINARY_DIR}/factory_core)

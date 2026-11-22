@@ -33,7 +33,7 @@ Configuration OK
 ## 1 上板前置检查
 
 - [ ] `config/camera.yaml`：`camera.use_depth: true`
-- [ ] `camera.range_color_calibration_path` 指向真实彩色 Kalibr cam0，分辨率 1920×1080
+- [ ] `camera.vio_config_dir` 所选的 `relative_config_imucam` 指向真实彩色 Kalibr cam0，分辨率与相机配置一致
 - [ ] `/dev/shm` 剩余 ≥ 64 MiB
 - [ ] 旧版进程已全部停止（V2 共享内存协议不兼容旧进程）
 - [ ] `bin/camera_server`、`bin/detect_rt`、`bin/main` 为同一提交构建
@@ -142,8 +142,8 @@ pkill -f camera_server; pkill -f detect_rt; pkill -f 'bin/main'
 | --- | --- | --- |
 | `目标测距不可用：camera.yaml 的 use_depth=false 或深度流未开启` | 深度未开 | 改 `config/camera.yaml` 的 `use_depth: true` 后重启服务 |
 | `目标测距不可用：相机服务未提供完整的深度内参/D2C 外参/彩色标定` | SDK 缺 D2C 或标定文件 | 看 `camera_server` 日志；换相机固件或补标定 |
-| `guidance 彩色标定分辨率与 camera_server/VIO 期望不一致` | `guidance-camera.yaml` 分辨率错 | 与 `config/vio.yaml` 的 1920×1080 对齐 |
-| `guidance-camera.yaml 与 camera_server 的彩色内参/畸变/分辨率不一致` | 两份彩色标定不同源 | 统一用同一份 Kalibr cam0 |
+| `彩色标定分辨率与实际彩色流不一致` | 相机宽高与所选标定不匹配 | 在 `config/camera.yaml` 选择匹配的宽高和标定 |
+| `制导与 camera_server 的彩色内参/畸变/分辨率不一致` | 外部相机服务使用了不同标定 | 在线入口与相机服务指定同一份相机配置 |
 | `detect_rt` 一直 `has_range=false` | 深度稀疏/超量程/时间差 > 50 ms | 拉近距离、避免纯色/反光面，检查两路时间戳 |
 | 旧进程连不上共享内存 | V2 协议不兼容 | 停掉所有旧进程后一起重启 |
 

@@ -17,7 +17,7 @@ struct AppOptions {
     std::vector<std::string> detect_args;
     std::string config = "config/app.yaml";
     std::string camera_config = "config/camera.yaml";
-    std::string driver_config_path, vio_config_path, shm_vio, vio_calibration_dir;
+    std::string driver_config_path, vio_config_path, shm_vio;
     int shm_timeout_ms = -1;
     std::string guidance = "config/onboard-guidance.yaml";
     std::string camera_calibration = "config/guidance-camera.yaml";

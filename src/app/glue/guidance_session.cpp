@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <string>
 
+#include "pure_uav/depth_range.hpp"
 #include "startup/guidance_application.hpp"
 
 namespace pure_uav::app {
@@ -63,14 +65,6 @@ bool readString(const YAML::Node& node, const char* key, std::string& out, std::
     return readValue<std::string>(node, key, out, error, "字符串");
 }
 
-bool readInt(const YAML::Node& node, const char* key, int& out, std::string& error) {
-    return readValue<int>(node, key, out, error, "整数");
-}
-
-bool readDouble(const YAML::Node& node, const char* key, double& out, std::string& error) {
-    return readValue<double>(node, key, out, error, "浮点数");
-}
-
 bool readBool(const YAML::Node& node, const char* key, bool& out, std::string& error) {
     return readValue<bool>(node, key, out, error, "布尔值");
 }
@@ -115,7 +109,7 @@ struct GuidanceSession::Impl {
     CameraCalibration camera;
 
     bool initParams(const std::string& path, std::string& error);
-    CameraLoadResult initCamera(const std::string& path, std::string& error);
+    CameraLoadResult initCamera(const std::string& path, const RangeCameraModel& color, std::string& error);
 };
 
 bool GuidanceSession::Impl::initParams(const std::string& path, std::string& error) {
@@ -138,7 +132,7 @@ bool GuidanceSession::Impl::initParams(const std::string& path, std::string& err
     return true;
 }
 
-CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std::string& error) {
+CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, const RangeCameraModel& color, std::string& error) {
     camera_ok = false;
     camera_fatal = false;
     camera_reason.clear();
@@ -161,7 +155,7 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
             error = camera_reason;
             return CameraLoadResult::kError;
         }
-        if (!checkKeys(root, {"calibrated", "source", "width", "height", "camera_model", "distortion_model", "fx", "fy", "cx", "cy", "distortion", "R_body_cam"}, "camera", error)) {
+        if (!checkKeys(root, {"calibrated", "source", "R_body_cam"}, "camera", error)) {
             camera_reason = error;
             camera_fatal = true;
             return CameraLoadResult::kError;
@@ -193,50 +187,19 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
             return CameraLoadResult::kNotCalibrated;
         }
 
-        if (!readInt(root, "width", camera.width, error) || !readInt(root, "height", camera.height, error) || !readDouble(root, "fx", camera.fx, error) || !readDouble(root, "fy", camera.fy, error) || !readDouble(root, "cx", camera.cx, error) || !readDouble(root, "cy", camera.cy, error)) {
-            camera_reason = error;
-            camera_fatal = true;
-            return CameraLoadResult::kError;
-        }
-
-        std::string camera_model;
-        std::string distortion_model;
-        if (!readString(root, "camera_model", camera_model, error) || !readString(root, "distortion_model", distortion_model, error)) {
-            camera_reason = error;
-            camera_fatal = true;
-            return CameraLoadResult::kError;
-        }
-        if (camera_model != "pinhole" || distortion_model != "radtan") {
-            camera_reason = "当前只支持 pinhole + radtan 相机模型";
+        if (!color.valid()) {
+            camera_reason = "camera.yaml 的彩色标定无效";
             camera_fatal = true;
             error = camera_reason;
             return CameraLoadResult::kError;
         }
-
-        const YAML::Node distortion = root["distortion"];
-        if (!distortion || !distortion.IsSequence() || (distortion.size() != 4 && distortion.size() != 5)) {
-            camera_reason = "distortion 必须是 4 或 5 个系数";
-            camera_fatal = true;
-            error = camera_reason;
-            return CameraLoadResult::kError;
-        }
-        for (std::size_t i = 0; i < distortion.size(); ++i) {
-            try {
-                camera.distortion[i] = distortion[i].as<double>();
-            } catch (const YAML::Exception&) {
-                camera_reason = "distortion 含非数字";
-                camera_fatal = true;
-                error = camera_reason;
-                return CameraLoadResult::kError;
-            }
-            if (!std::isfinite(camera.distortion[i])) {
-                camera_reason = "distortion 含非有限数";
-                camera_fatal = true;
-                error = camera_reason;
-                return CameraLoadResult::kError;
-            }
-        }
-
+        camera.width = color.width;
+        camera.height = color.height;
+        camera.fx = color.fx;
+        camera.fy = color.fy;
+        camera.cx = color.cx;
+        camera.cy = color.cy;
+        std::copy_n(color.distortion.begin(), 5, camera.distortion);
         const YAML::Node rotation = root["R_body_cam"];
         if (!rotation || !rotation.IsSequence() || rotation.size() != 9) {
             camera_reason = "R_body_cam 必须是 9 个数";
@@ -255,12 +218,6 @@ CameraLoadResult GuidanceSession::Impl::initCamera(const std::string& path, std:
             }
         }
 
-        if (camera.width <= 0 || camera.height <= 0 || !std::isfinite(camera.fx) || !std::isfinite(camera.fy) || !(camera.fx > 0.0) || !(camera.fy > 0.0) || !std::isfinite(camera.cx) || !std::isfinite(camera.cy)) {
-            camera_reason = "相机内参/分辨率非法";
-            camera_fatal = true;
-            error = camera_reason;
-            return CameraLoadResult::kError;
-        }
         if (!rotationValid(camera.R_body_cam, error)) {
             camera_reason = error;
             camera_fatal = true;
@@ -299,19 +256,19 @@ GuidanceSession::GuidanceSession() : impl_(std::make_unique<Impl>()) {
 
 GuidanceSession::~GuidanceSession() = default;
 
-bool GuidanceSession::init(const std::string& guidance_path, const std::string& camera_path, std::string& error) {
+bool GuidanceSession::init(const std::string& guidance_path, const std::string& camera_path, const RangeCameraModel& color, std::string& error) {
     if (!impl_->initParams(guidance_path, error)) {
         return false;
     }
-    return impl_->initCamera(camera_path, error) != CameraLoadResult::kError;
+    return impl_->initCamera(camera_path, color, error) != CameraLoadResult::kError;
 }
 
 bool GuidanceSession::initParams(const std::string& path, std::string& error) {
     return impl_->initParams(path, error);
 }
 
-CameraLoadResult GuidanceSession::initCamera(const std::string& path, std::string& error) {
-    return impl_->initCamera(path, error);
+CameraLoadResult GuidanceSession::initCamera(const std::string& path, const RangeCameraModel& color, std::string& error) {
+    return impl_->initCamera(path, color, error);
 }
 
 bool GuidanceSession::paramsOk() const {

@@ -5,6 +5,7 @@ find_package(Threads REQUIRED)
 add_library(communicate SHARED
     src/serial_port.cpp
     src/communicator.cpp
+    src/comm_config.cpp
 )
 
 target_include_directories(communicate PUBLIC

@@ -27,7 +27,7 @@ inline bool guidanceCameraMatchesStream(const guidance::flight::GuidanceCameraMo
     const auto equal = [](double a, double b) { return std::isfinite(a) && std::isfinite(b) && std::abs(a - b) <= 1e-9 * std::max({1.0, std::abs(a), std::abs(b)}); };
     bool matches = cam.width == static_cast<int>(stream.width) && cam.height == static_cast<int>(stream.height) && equal(cam.fx, stream.color_fx) && equal(cam.fy, stream.color_fy) && equal(cam.cx, stream.color_cx) && equal(cam.cy, stream.color_cy);
     for (int i = 0; i < 8; ++i) matches = matches && equal(i < 5 ? cam.distortion[i] : 0.0, stream.color_distortion[i]);
-    if (!matches) error = "guidance-camera.yaml 与 camera_server 的彩色内参/畸变/分辨率不一致；请统一原始彩色标定";
+    if (!matches) error = "制导与 camera_server 的彩色内参/畸变/分辨率不一致；请使用同一份相机配置";
     return matches;
 }
 }  // namespace pure_uav::app

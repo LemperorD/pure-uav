@@ -2,22 +2,24 @@
 
 #include <string>
 
+#include "camera_config.hpp"
 #include "communicator.hpp"
 #include "pure_uav/vio_runtime.hpp"
 #include "shm_camera_source.hpp"
 
 namespace pure_uav::app {
 struct ConfigOverrides {
-    std::string driver_path, vio_path, config_dir, shm_vio;
+    std::string driver_path, vio_path, camera_path, shm_vio;
     int shm_timeout_ms = -1;
 };
 struct AppConfig {
-    std::string repository_root, app_path, driver_path, vio_path;
+    std::string repository_root, app_path, driver_path, vio_path, camera_path;
     int main_loop_hz = 50;
     double heartbeat_wait_s = 5, status_period_s = 1;
-    int max_age_ms = 150, imu_hz = 200;
+    int max_age_ms = 150;
     bool guidance_enabled = false;
     CommConfig comm;
+    RangeCameraModel color;
     ShmCameraSource::Config camera;
     VioEstimator::Options vio;
     VioPublicationPolicy publication;

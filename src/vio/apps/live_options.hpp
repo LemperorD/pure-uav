@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "camera_config.hpp"
 #include "camera_frame.hpp"
 
 namespace pure_uav::live {
@@ -15,12 +16,10 @@ struct Options {
     // 飞控、相机服务和标定。
     std::string serial = "/dev/ttyACM0";
     int baud = 921600;
-    std::string config_dir = "config/gemini_1920x1080";
-    int width = 1920;
-    int height = 1080;
-    int fps = 30;
+    std::string camera_config = camera::kDefaultCameraConfig;
+    std::string driver_config = "config/driver.yaml";
     std::string shm_vio = camera::kVioChannel;
-    int shm_timeout_ms = 5000;
+    int shm_timeout_ms = -1;
 
     // 位姿日志、原始 IMU 日志和离线数据集。
     std::string csv_out = "out/live_pose.csv";
@@ -31,8 +30,6 @@ struct Options {
 
     // 时间戳处理与深度输入。
     bool imu_ts_uniform = true;
-    int imu_req_hz = 200;
-    bool enable_depth = true;
     bool cam_ts_device = false;  // device 模式仍平滑 SDK systemTimeStampUs。
     double duration = 0.0;
     bool send = true;
@@ -46,6 +43,7 @@ struct Options {
     bool static_init = false;
     bool dump_params = false;
     bool view = false;
+    bool check_config = false;
     std::string view_shot_prefix;
 
     // 健康门限与 IMU 到机体的外参。
@@ -64,21 +62,17 @@ inline void printUsage(const char* argv0) {
         "\n"
         "  --serial DEV        飞控串口（默认 /dev/ttyACM0）\n"
         "  --baud N            波特率（默认 921600）\n"
-        "  --config-dir DIR    OpenVINS 配置目录（默认 config/gemini_1920x1080）\n"
-        "  --width N           彩色图宽（默认 1920）\n"
-        "  --height N          彩色图高（默认 1080）\n"
-        "  --fps N             彩色帧率（默认 30）\n"
+        "  --camera-config FILE 相机规格与标定（默认 config/camera.yaml）\n"
+        "  --driver-config FILE 飞控 IMU 请求间隔（默认 config/driver.yaml）\n"
+        "  --check-config      只检查相机与 IMU 配置，不打开设备\n"
         "  --csv-out PATH      VisionPose CSV 输出（默认 out/live_pose.csv）\n"
         "  --tum-out PATH      TUM 轨迹输出（默认 out/live_traj.tum，含所有估计位姿）\n"
         "  --safe-tum-out PATH 只写串口发送成功的位姿（--no-send 时为空），给 RViz 看用\n"
         "  --imu-log PATH      把原始 IMU 存成 CSV（t_us,ax,ay,az,gx,gy,gz）\n"
         "  --imu-ts MODE       IMU 时间戳处理：uniform(默认，去抖) | raw(原样喂)\n"
         "  --shm-vio NAME      camera_server VIO 通道（默认 /pure_uav_camera_vio）\n"
-        "  --shm-timeout-ms N  等待相机服务的超时（默认 5000 ms）\n"
+        "  --shm-timeout-ms N  临时覆盖 camera.yaml 的就绪超时\n"
         "  --cam-ts MODE      相机时间：host(默认，服务端采集时刻) | device(SDK 系统时间平滑)\n"
-        "  --no-depth         消费端忽略深度图；服务端采集配置由 camera.yaml 管理\n"
-        "  --imu-hz N          向飞控请求的 HIGHRES_IMU 速率（默认 200；上限受\n"
-        "                      SCHED_LOOP_RATE 和串口带宽约束，921600 下 400 是稳妥值）\n"
         "  --init-threads N    动态初始化 MLE 线程数（默认用配置文件）\n"
         "  --use-depth-init    用深度直接初始化特征位置（纯旋转也能出测量；A/B 用）\n"
         "  --init-vel-zero     静止起步时把初始速度置 0（配 IMU 静止判定，防初始速度抽签）\n"
@@ -127,8 +121,12 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
             opt.serial = need("--serial");
         } else if (a == "--baud") {
             opt.baud = std::stoi(need("--baud"));
-        } else if (a == "--config-dir") {
-            opt.config_dir = need("--config-dir");
+        } else if (a == "--camera-config") {
+            opt.camera_config = need("--camera-config");
+        } else if (a == "--driver-config") {
+            opt.driver_config = need("--driver-config");
+        } else if (a == "--check-config") {
+            opt.check_config = true;
         } else if (a == "--shm-vio") {
             opt.shm_vio = need("--shm-vio");
         } else if (a == "--shm-timeout-ms") {
@@ -143,12 +141,6 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
                 std::fprintf(stderr, "--shm-timeout-ms 只接受 0..60000\n");
                 return ParseResult::kError;
             }
-        } else if (a == "--width") {
-            opt.width = std::stoi(need("--width"));
-        } else if (a == "--height") {
-            opt.height = std::stoi(need("--height"));
-        } else if (a == "--fps") {
-            opt.fps = std::stoi(need("--fps"));
         } else if (a == "--csv-out") {
             opt.csv_out = need("--csv-out");
         } else if (a == "--tum-out") {
@@ -167,14 +159,6 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
                 opt.cam_ts_device = true;
             } else {
                 std::fprintf(stderr, "--cam-ts 只接受 host|device\n");
-                return ParseResult::kError;
-            }
-        } else if (a == "--no-depth") {
-            opt.enable_depth = false;
-        } else if (a == "--imu-hz") {
-            opt.imu_req_hz = std::stoi(need("--imu-hz"));
-            if (opt.imu_req_hz < 50 || opt.imu_req_hz > 1000) {
-                std::fprintf(stderr, "--imu-hz 只接受 50..1000\n");
                 return ParseResult::kError;
             }
         } else if (a == "--imu-ts") {
@@ -237,10 +221,6 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
         }
     }
 
-    if (opt.use_depth_init && !opt.enable_depth) {
-        std::fprintf(stderr, "--use-depth-init 不能与 --no-depth 同时使用\n");
-        return ParseResult::kError;
-    }
     return ParseResult::kRun;
 }
 

@@ -24,6 +24,7 @@
 #include "camera_shm.hpp"
 #include "detection_runtime.hpp"
 #include "detection_types.hpp"
+#include "camera_config.hpp"
 #include "detector_config.hpp"
 #include "mission_target_channel.hpp"
 #include "shm_color_frame.hpp"
@@ -415,6 +416,7 @@ void usage() {
                  "\n检测算法参数（model_path/imgsz/阈值/类别/限频/帧龄）唯一真源为\n"
                  "config/detector-rt.yaml，不提供对应命令行选项。\n"
                  "  --config FILE     指定配置文件路径（默认 config/detector-rt.yaml）\n"
+                 "  --camera-config FILE 相机服务配置（默认 config/camera.yaml）\n"
                  "  --check-config    只校验配置，不加载模型、不连接相机服务\n"
                  "\n默认从 camera_server 的彩色共享内存通道取帧；相机只由 camera_server 打开。\n"
                  "--image 为离线单图模式，不连接相机服务。\n");
@@ -427,11 +429,13 @@ int main(int argc, char** argv) {
 
     RuntimeConfig cfg;
     std::string config_path = pure_uav::detection::kDefaultDetectorConfig;
+    std::string camera_config = pure_uav::camera::kDefaultCameraConfig;
     std::string image_path;
     std::string dump_dir;
     std::string stream_dir;
     std::string shm_name = pure_uav::camera::kColorChannel;
-    int shm_timeout_ms = 5000;
+    int shm_timeout_ms = 0;
+    bool override_timeout = false;
     int mission_target_fd = -1;
     long frames = 0;
     double stream_fps = 20.0;
@@ -474,10 +478,13 @@ int main(int argc, char** argv) {
             stream_dir = requireValue("--stream-dir");
         } else if (arg == "--stream-fps") {
             stream_fps = std::atof(requireValue("--stream-fps").c_str());
+        } else if (arg == "--camera-config") {
+            camera_config = requireValue("--camera-config");
         } else if (arg == "--shm") {
             shm_name = requireValue("--shm");
         } else if (arg == "--shm-timeout-ms") {
             shm_timeout_ms = std::atoi(requireValue("--shm-timeout-ms").c_str());
+            override_timeout = true;
         } else if (arg == "--verbose") {
             // 保留以兼容旧脚本；相机日志由 camera_server 统一输出。
         } else if (arg == "--camera") {
@@ -516,6 +523,15 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::fprintf(stderr, "[detect_rt] %s\n", pure_uav::detection::describeDetectorConfig(cfg).c_str());
+    if (image_path.empty()) {
+        pure_uav::camera::CaptureConfig capture;
+        if (!pure_uav::camera::loadCaptureConfig(camera_config, capture, config_error)) {
+            std::fprintf(stderr, "[error] %s\n", config_error.c_str());
+            return 2;
+        }
+        if (!override_timeout) shm_timeout_ms = capture.ready_timeout_ms;
+        std::fprintf(stderr, "[detect_rt] ready_timeout_ms=%d\n", shm_timeout_ms);
+    }
     if (check_config) {
         std::fprintf(stderr, "[detect_rt] 配置有效（未加载模型、未连接相机服务）\n");
         return 0;
@@ -525,7 +541,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[error] --stream-fps 必须在 [1,60] 内\n");
         return 2;
     }
-    if (shm_timeout_ms < 100 || shm_timeout_ms > 120000) {
+    if (override_timeout && (shm_timeout_ms < 100 || shm_timeout_ms > 120000)) {
         std::fprintf(stderr, "[error] --shm-timeout-ms 必须在 100..120000 内\n");
         return 2;
     }

@@ -51,7 +51,7 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 统一由 `config/detector-rt.yaml` 管理，不接受 `main --model` 覆盖。
 `--mission-config` 指向任务配置，默认 `config/mission.yaml`；
 `--guidance-config` 在任务启用时加载制导律/loop 参数，默认 `config/onboard-guidance.yaml`；
-`--camera-calibration` 单独加载彩色相机内参、畸变和 `R_body_cam`，默认 `config/guidance-camera.yaml`。
+`--camera-calibration` 单独加载安装外参 `R_body_cam` 和标定状态，默认 `config/guidance-camera.yaml`；彩色内参随 `--camera-config` 选择。
 `--preflight-config` 加载任务自检阈值，默认 `config/preflight.yaml`；检查心跳、目标锁定、姿态水平、位置、SYSTEM_TIME、电池和落地状态。
 彩色相机 `calibrated=false` 时任务仍可搜索/返航，但 `mission_guidance_ready=false`，不会进入撞板。
 `--mission --no-send --check-config` 可校验实际任务配置，不打开设备。
@@ -76,13 +76,12 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 | 文件 | VIO 侧的用途 |
 |---|---|
 | `config/app.yaml` | 保留应用调度设置，通过 `vio_config` 指向 VIO 参数文件 |
-| `config/vio.yaml` | 标定目录、期望分辨率/帧率、IMU 频率、初始化选项、共享内存连接和位姿发布门限 |
-| `config/driver.yaml` | 沿用原有通信配置；加载时校验 IMU 订阅周期与 VIO 的 `imu_hz` 一致 |
+| `config/camera.yaml` | 相机宽高、帧率、深度开关、标定目录和就绪超时 |
+| `config/vio.yaml` | 初始化选项、VIO 通道名和位姿发布门限 |
+| `config/driver.yaml` | 通信配置；`communicate.stream.highres_imu_us` 是 IMU 请求间隔的唯一配置 |
 
-`config/vio.yaml` 的 `config_dir` 指向原有 OpenVINS 参数和相机/IMU 标定链。
-`use_depth` 表示 VIO 是否使用深度图；相机采集与曝光等设置由 `camera_server` 管理。
-原 `app.yaml` 中的 `use_depth_init: true` 和 `init_vel_zero: true` 已迁入 `vio.yaml`，
-现在会用于 `main`。独立调试入口 `vio_live` 继续使用自身命令行参数。
+`camera.vio_config_dir` 指向 OpenVINS 配置目录。相机服务、在线 VIO 和制导共用该目录所选的彩色标定。
+`camera.use_depth=false` 同时关闭深度采集和在线 VIO 深度初始化，无需改 `vio.yaml`。
 
 应用配置及其中的相对路径均相对于仓库根目录解析。以下检查不打开串口或相机：
 
@@ -92,8 +91,8 @@ VIO 发布门控、计数和状态日志移到 `runtime/vio_pose_publisher.cpp`�
 ```
 
 `--config` 选择应用配置，`--vio-config` 选择 VIO 运行配置；
-`--config-dir` 覆盖 VIO 标定目录并读取其分辨率；
-`--shm-vio` 和 `--shm-timeout-ms` 覆盖 VIO 的共享内存连接参数。
+`--camera-config` 选择相机配置；`--driver-config` 选择通信配置。
+`--shm-vio` 保留通道覆盖；`--shm-timeout-ms` 临时覆盖 `camera.yaml` 的 `channels.ready_timeout_ms`。
 
 ## 1.1 独立制导仿真入口
 

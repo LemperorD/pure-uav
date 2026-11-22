@@ -136,7 +136,7 @@ target_link_libraries(
 
 add_executable(detect_rt src/detect_rt_main.cpp)
 # detect_rt 现在是 camera_server 彩色通道的只读消费者，不再打开 Orbbec 设备。
-target_link_libraries(detect_rt PRIVATE detection_rt pure_camera_ipc)
+target_link_libraries(detect_rt PRIVATE detection_rt pure_camera_ipc pure_camera_config)
 
 # 把 .so 目录写进可执行程序，运行时不必设置 LD_LIBRARY_PATH。
 set(_det_rpath "${_det_orb_lib}")

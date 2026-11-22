@@ -63,7 +63,7 @@ main / MissionService
 | --- | --- | --- |
 | 1 | [mission_target_channel.hpp](../../../src/common/mission_target_channel.hpp) | 收包；拒绝非有限、`range_m <= 0`、时间戳回退或过期 |
 | 2 | [mission_service.cpp](../../../src/app/glue/mission_service.cpp) | 取最新包；`hostToFcuUs` 把采集时刻映射到飞控 boot 时钟；组 `GuidanceTargetSample` |
-| 3 | [target_adapter.cpp](../../../src/app/glue/target_adapter.cpp) | 按 `guidance-camera.yaml` 对像素去畸变；**只透传**有效 range，不补算、不外推 |
+| 3 | [target_adapter.cpp](../../../src/app/glue/target_adapter.cpp) | 按 `camera.yaml` 选择的标定对像素去畸变；**只透传**有效 range，不补算、不外推 |
 | 4 | [mission_controller.cpp](../../../src/app/mission/mission_controller.cpp) | `targetUsable()` 要求 `has_range && range_m > 0`；Strike 中丢失则保持位置，`target_lost_timeout_s` 后回 Search |
 | 5 | [guidance_loop.cpp](../../../src/guidance/flight/guidance_loop.cpp) | `has_range/range_m` 写入 `GuidanceState`，PPN 用 LOS 差分算 ω |
 
@@ -130,10 +130,8 @@ ctest --test-dir build --output-on-failure \
 
 1. **真机 D2C 是否可用**：部分 Orbbec 型号/固件拿不到深度→彩色外参，此时测距恒不可用。
    启动日志出现 `深度外参查不到，目标测距不可用` 时要先解决标定，不能靠软件猜。
-2. **两份彩色标定必须同源**：测距用 `config/camera.yaml` 的
-   `camera.range_color_calibration_path`，制导用 `config/guidance-camera.yaml`。
-   当前两者数值一致（fx≈1367.4658、4 个 radtan 系数、1920×1080）；
-   连接相机后 main 会再核对一次，不一致则启动失败。
+2. **共用彩色标定**：测距、在线 VIO 和制导都用 `config/camera.yaml` 所选的标定。
+   连接外部相机服务时，main 仍会核对该服务实际发布的标定。
 3. `StreamMeta.color_fx` 等字段与 `range_calibration_valid` 绑定，没有独立的“彩色标定有效位”。
    如果以后要单独校验证制导彩色内参，需要扩展 IPC 协议（当前不做）。
 4. **TPN/APN 已放开**：静止装甲板 `v_T=0`，TPN/APN 的 `Vc` 由自身速度投影得到；

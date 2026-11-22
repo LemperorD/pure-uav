@@ -15,16 +15,15 @@ void printAppUsage(const char* name) {
         "  --vio-config FILE     VIO 运行配置（默认由 app.yaml 指向 config/vio.yaml）\n"
         "  --check-config        校验并打印实际配置后退出，不打开设备\n"
         "  --driver-config FILE  通信配置（默认 config/driver.yaml）\n"
-        "  --camera-config FILE  自启动相机服务的配置（默认 config/camera.yaml）\n"
+        "  --camera-config FILE  相机服务与在线 VIO 共用配置（默认 config/camera.yaml）\n"
         "  --external-camera    只连接已运行的 camera_server，不启动或停止它\n"
-        "  --config-dir DIR      覆盖 VIO 标定目录（默认由 vio.yaml 指定）\n"
         "  --shm-vio NAME        camera_server 的 VIO 通道（默认 /pure_uav_camera_vio）\n"
-        "  --shm-timeout-ms N    等待相机服务的超时（默认 5000 ms）\n"
+        "  --shm-timeout-ms N    临时覆盖 camera.yaml 的就绪超时\n"
         "  --no-send             检查照跑，禁止发送位姿、任务指令和飞控动作请求\n"
         "  --mission             启用任务：定位就绪后自检、起飞、搜索、撞板和返航\n"
         "  --mission-config FILE 任务参数（默认 config/mission.yaml）\n"
         "  --guidance-config FILE 制导律/loop 参数（默认 config/onboard-guidance.yaml）\n"
-        "  --camera-calibration FILE 彩色相机内参/畸变/外参（默认 config/guidance-camera.yaml）\n"
+        "  --camera-calibration FILE 相机安装外参（默认 config/guidance-camera.yaml）\n"
         "  --preflight-config FILE 任务自检阈值（默认 config/preflight.yaml）\n"
         "  --detect-bin FILE     检测子程序路径（默认与 main 同目录的 detect_rt）\n"
         "  --detection-config FILE  传给检测子进程的 --config 路径\n"
@@ -94,8 +93,6 @@ AppOptions parseAppOptions(int argc, char** argv) {
             value = &options.camera_config;
         } else if (arg == "--shm-vio") {
             value = &options.shm_vio;
-        } else if (arg == "--config-dir") {
-            value = &options.vio_calibration_dir;
         } else if (arg == "--guidance-config") {
             value = &options.guidance;
         } else if (arg == "--camera-calibration") {

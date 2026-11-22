@@ -123,6 +123,10 @@ void YoloProcessDetector::init() {
         process.arguments.emplace_back("--config");
         process.arguments.push_back(options_.detection_config);
     }
+    if (options_.camera_config != camera::kDefaultCameraConfig) {
+        process.arguments.emplace_back("--camera-config");
+        process.arguments.push_back(options_.camera_config);
+    }
     for (const auto& argument : options_.detect_args) {
         if (argument == "--mission-target-fd") {
             throw std::invalid_argument("--mission-target-fd is managed by main");

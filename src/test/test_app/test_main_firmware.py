@@ -68,7 +68,7 @@ def stop(*_):
     marker.write_text("stopped")
     raise SystemExit(0)
 
-mode = args.config.read_text()
+mode = args.config.with_name("camera-mode").read_text()
 signal.signal(signal.SIGTERM, stop)
 marker.write_text("started")
 if mode == "failed":
@@ -81,17 +81,18 @@ while True:
 ''')
                 camera.chmod(0o755)
                 camera_config = fixture / "camera.yaml"
-                camera_config.write_text(camera_mode)
+                camera_text = (root / "config/camera.yaml").read_text()
+                camera_config.write_text(camera_text.replace("ready_timeout_ms: 5000", "ready_timeout_ms: 1000"))
+                (fixture / "camera-mode").write_text(camera_mode)
             arguments = [
                 str(entrypoint), "--no-send", "--no-detection",
                 "--driver-config", str(driver),
                 "--shm-vio", f"/pure_uav_missing_camera_{os.getpid()}_{autopilot}",
-                "--shm-timeout-ms", "1000" if camera_mode else "0",
             ]
             if camera_mode:
                 arguments += ["--camera-config", str(camera_config.relative_to(root))]
             else:
-                arguments.append("--external-camera")
+                arguments += ["--external-camera", "--shm-timeout-ms", "0"]
             if mission:
                 arguments.append("--mission")
             process = subprocess.Popen(arguments, cwd="/tmp", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

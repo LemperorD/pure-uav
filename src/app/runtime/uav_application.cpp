@@ -4,7 +4,6 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
-#include <filesystem>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -88,8 +87,7 @@ struct UavApplication::Impl {
         }
         auto camera_input = config.camera;
         if (!options.external_camera) {
-            const auto camera_config = std::filesystem::path(config.repository_root) / options.camera_config;
-            if (!camera_server.start(camera_config.string(), camera_input.channel, camera_input.timeout_ms, interrupted, error)) {
+            if (!camera_server.start(config.camera_path, camera_input.channel, camera_input.timeout_ms, interrupted, error)) {
                 if (!interrupted.load()) {
                     std::fprintf(stderr, "[CAM] 启动 camera_server 失败：%s\n", error.c_str());
                     result = 1;
@@ -132,6 +130,7 @@ struct UavApplication::Impl {
         }
         prepared = true;
         DetectionProductConfig detection_config{options};
+        detection_config.options.camera_config = config.camera_path;
         VioProductConfig vio_config{config.vio, imu, camera, config.publication};
         GuidanceProductConfig guidance_config{options, settings, comm};
         return std::make_unique<PureUavFactory>(std::move(detection_config), std::move(vio_config), std::move(guidance_config));

@@ -42,28 +42,25 @@ cmake --build build --target main -j2
 `camera_server`，请给 `main` 加 `--external-camera`，它只连接、不启动或停止该进程。
 单独运行 `vio_live` 仍需先启动 `camera_server`。
 
-`main` 使用现有 `config/driver.yaml` 和生产标定 `gemini_1920x1080`，
-期望服务端提供 1920×1080@30。也可传入 `--config-dir` 选择标定，分辨率从标定读取。
-`main` 的运行参数来自 `config/vio.yaml`；当前文件启用深度初始化和静止起步速度约束。
-修改 `use_depth`、`use_depth_init`、`init_vel_zero` 等字段后，使用 `main --check-config`
-确认实际值。配置分工与路径解析见 [usage.md](usage.md#vio-配置)。
+`camera.yaml` 统一配置采集宽高、帧率、深度和 `camera.vio_config_dir`，宽高必须与标定匹配。
+`driver.yaml` 的 `communicate.stream.highres_imu_us` 统一配置 IMU 请求间隔。
+修改后用 `main --check-config` 或 `vio_live --check-config` 确认实际值。
+配置分工见 [usage.md](usage.md#vio-配置)。
 
 独立调试、录制和深度初始化使用 `vio_live`，例如：
 
 ```bash
 ./bin/vio_live --serial /dev/ttyACM0 --baud 921600 \
-  --config-dir src/vio/config/gemini_1920x1080 \
-  --width 1920 --height 1080 --fps 30 \
   --use-depth-init --init-vel-zero --no-send
 ```
 
 两种入口均支持 `--shm-vio NAME` 和 `--shm-timeout-ms N`，默认通道
-`/pure_uav_camera_vio`，默认等待 5000 ms，超时参数允许 0–60000 ms。
+`/pure_uav_camera_vio`；等待时间来自 `channels.ready_timeout_ms`（默认配置为 5000 ms，可临时覆盖）。
 自定义通道必须与服务端 `channels.vio_name` 或 `--vio-channel` 一致。
 
 曝光、增益、白平衡、测光、聚合和深度采集开关统一在服务端 `config/camera.yaml` 设置。
-`vio_live` 的旧采集参数（如 `--exposure`、`--aggregate`、`--tune-expected-rate`）
-会报出迁移提示；`--no-depth` 仅让该消费者忽略深度图，不会改变服务端采集。
+自定义相机文件请在服务端使用 `--config FILE`、在线消费者使用 `--camera-config FILE`，
+指定同一文件。关闭深度时只改 `camera.use_depth`；独立 `vio_live` 不再单独接收 `--no-depth`。
 
 ## 进程与通道
 

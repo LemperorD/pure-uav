@@ -36,7 +36,8 @@ bash src/vio/scripts/run_vio_live.sh --out out/run1 -- --record datasets/run1
 ```
 
 实时脚本默认不向飞控发送位姿，输出和录制路径相对 `src/vio/`。
-切换分辨率时，相机服务、`vio_live` 和标定链须匹配，详见 `vio_live --help`。
+切换分辨率、帧率、深度或在线标定时，统一改 `config/camera.yaml`；修改 IMU 请求间隔只改 `config/driver.yaml`。
+实时入口可分别用 `--camera-config` 和 `--driver-config` 指定其他配置文件；离线回放仍按数据集选择 `--config-dir`。
 分析工具的 Python 依赖见 [requirements.txt](requirements.txt)；RViz 另需 ROS 2。
 使用直采曝光诊断时，将 `VIO_CALIBRATION_REPO` 指向 `calibration_for_vio` 的仓库根目录，并先停止相机服务。
 

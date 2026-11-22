@@ -121,6 +121,17 @@ get_filename_component(
   _pure_uav_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE
 )
 
+if(EXISTS "${_pure_uav_repo_root}/src/camera/camera_config.cpp")
+  find_package(yaml-cpp REQUIRED)
+  add_library(
+    pure_camera_config STATIC "${_pure_uav_repo_root}/src/camera/camera_config.cpp"
+  )
+  target_include_directories(
+    pure_camera_config PUBLIC "${_pure_uav_repo_root}/src/camera"
+  )
+  target_link_libraries(pure_camera_config PUBLIC pure_depth_range yaml-cpp)
+endif()
+
 add_library(
   pure_vio_core STATIC src/vio_estimator.cpp src/vio_health.cpp
                        src/vision_pose_convert.cpp src/pose_logger.cpp
@@ -235,7 +246,7 @@ if(_build_live)
     vio_camera PUBLIC "${_pure_uav_repo_root}/src/common"
   )
   add_executable(depth_range_probe tools/depth_range_probe.cpp)
-  target_link_libraries(depth_range_probe PRIVATE vio_camera)
+  target_link_libraries(depth_range_probe PRIVATE vio_camera pure_camera_config)
 
   # VIO 独立构建时也使用仓库里的同一份 camera_server 协议。
   if(NOT TARGET pure_camera_ipc)
@@ -262,7 +273,13 @@ if(_build_live)
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
-  target_link_libraries(vio_live PRIVATE pure_vio_runtime)
+  if(TARGET communicate)
+    target_link_libraries(vio_live PRIVATE communicate)
+  else()
+    target_sources(vio_live PRIVATE "${PURE_UAV_DRIVER_DIR}/communicate/src/comm_config.cpp")
+    target_include_directories(vio_live PRIVATE "${PURE_UAV_DRIVER_DIR}/communicate/include")
+  endif()
+  target_link_libraries(vio_live PRIVATE pure_vio_runtime pure_camera_config)
 elseif(PURE_VIO_BUILD_LIVE STREQUAL "OFF")
   message(STATUS "实时程序: 已禁用（PURE_VIO_BUILD_LIVE=OFF）")
 else()

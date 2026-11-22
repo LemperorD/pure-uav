@@ -38,19 +38,18 @@ camera_server ── VIO 通道：gray | depth_mm ──→ main / vio_live → 
 
 ## 标定配置
 
-- `config/camera.yaml` 的 `camera.range_color_calibration_path` 指定原始彩色 Kalibr `cam0`
-  内参/畸变。默认指向 `gemini_1920x1080/kalibr_imucam_chain.yaml`；分辨率必须匹配。
-  空路径使用 SDK 彩色标定。
+- `config/camera.yaml` 的 `camera.vio_config_dir` 选择 OpenVINS 配置目录；其中
+  `relative_config_imucam` 指向共用的彩色 Kalibr `cam0` 内参和畸变。分辨率必须匹配。
 - 深度内参/畸变与 D2C 外参来自 SDK，通过共享内存传递；外参无法读取时不假定两相机重合，
   测距保持不可用。SDK 的畸变字段转换为 OpenCV 顺序 `k1,k2,p1,p2,k3,k4,k5,k6`。
-- `config/guidance-camera.yaml` 保存制导的彩色内参/畸变与光学系到机体 FRD 的旋转。
+- `config/guidance-camera.yaml` 只维护安装状态和光学系到机体 FRD 的旋转。
   guidance 会先对原始检测像素去畸变，再反投影为视线。
-- `main --mission` 在配置阶段校验制导标定分辨率，连接相机后再核对实际发布的彩色内参与畸变。
+- `main --mission` 在配置阶段校验共用标定分辨率，连接相机后再核对实际发布的彩色内参与畸变。
   测距与制导的彩色标定不一致时启动失败。
 - 当前相机安装旋转未确认，`guidance-camera.yaml` **保持 `calibrated: false`**；
   不自动填入假外参。测距可单独验收，制导须待真实安装标定完成后启用。
 
-VIO 继续由 `config/vio.yaml` 的 `use_depth / use_depth_init` 控制。
+`camera.use_depth` 控制实时深度采集与消费；`vio.use_depth_init` 仅在深度已启用时生效。
 驱动统一将 SDK 深度缩放为毫米，缩放前的 `0 / 65535` 无效码转换为 0，非法单位拒绝使用。
 VIO 的估计器投影与制导目标测距分别运行。
 

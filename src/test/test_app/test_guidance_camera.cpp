@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "glue/guidance_session.hpp"
+#include "pure_uav/depth_range.hpp"
 #include "runtime/guidance_camera.hpp"
 #include "startup/guidance_application.hpp"
 
@@ -23,9 +24,7 @@ struct Fixture {
         std::ofstream file(path);
         file << "calibrated: " << (calibrated ? "true" : "false")
              << "\n"
-                "source: synthetic\nwidth: 1920\nheight: 1080\ncamera_model: pinhole\ndistortion_model: radtan\n"
-                "fx: 1367\nfy: 1368\ncx: 971\ncy: 550\n"
-                "distortion: [0.09, -0.15, -0.001, 0.0008, 0.002]\nR_body_cam: [1,0,0,0,1,0,0,0,1]\n";
+                "source: synthetic\nR_body_cam: [1,0,0,0,1,0,0,0,1]\n";
     }
 };
 }  // namespace
@@ -35,7 +34,8 @@ int main() {
         fixture.write(true);
         pure_uav::app::GuidanceSession session;
         std::string error;
-        check(session.initCamera(fixture.path, error) == pure_uav::app::CameraLoadResult::kOk, error.c_str());
+        const pure_uav::RangeCameraModel color{1920, 1080, 1367, 1368, 971, 550, {0.09, -0.15, -0.001, 0.0008, 0.002}};
+        check(session.initCamera(fixture.path, color, error) == pure_uav::app::CameraLoadResult::kOk, error.c_str());
         const auto cam = session.params().loop.cam;
         check(cam.width == 1920 && cam.height == 1080 && cam.distortion[0] == 0.09 && cam.distortion[4] == 0.002, "loaded distortion/dimensions discarded");
         pure_uav::camera::StreamMeta stream;
@@ -76,7 +76,7 @@ int main() {
         bad.distortion[0] = NAN;
         check(!bad.ray(971, 550, ray), "invalid distortion accepted");
         fixture.write(false);
-        check(session.initCamera(fixture.path, error) == pure_uav::app::CameraLoadResult::kNotCalibrated && !session.params().loop.cam.valid(), "uninstalled camera became guidance-ready");
+        check(session.initCamera(fixture.path, color, error) == pure_uav::app::CameraLoadResult::kNotCalibrated && !session.params().loop.cam.valid(), "uninstalled camera became guidance-ready");
         std::puts("PASS: loaded guidance calibration, radtan rays, pixel bounds, uncalibrated gating and range availability");
         return 0;
     } catch (const std::exception& e) {

@@ -14,7 +14,7 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
     ConfigOverrides overrides;
     overrides.driver_path = options.driver_config_path;
     overrides.vio_path = options.vio_config_path;
-    overrides.config_dir = options.vio_calibration_dir;
+    overrides.camera_path = options.camera_config;
     overrides.shm_vio = options.shm_vio;
     overrides.shm_timeout_ms = options.shm_timeout_ms;
     if (!loadAppConfig(options.config, overrides, config, error)) {
@@ -33,7 +33,7 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
         }
         mission_config.send_enabled = !options.no_send;
         GuidanceSession guidance;
-        if (!guidance.init(resolve(options.guidance), resolve(options.camera_calibration), error)) {
+        if (!guidance.init(resolve(options.guidance), resolve(options.camera_calibration), config.color, error)) {
             return false;
         }
         if (!guidance.cameraOk()) {
@@ -43,11 +43,6 @@ bool loadAppStartupConfig(const AppOptions& options, AppStartupConfig& settings,
         // 日志文件相对路径按仓库根目录解析，和 config/*.yaml 同一规则。
         if (!mission_guidance.log.file.empty() && std::filesystem::path(mission_guidance.log.file).is_relative()) {
             mission_guidance.log.file = resolve(mission_guidance.log.file);
-        }
-        // 配置期先按 VIO 期望分辨率挡住明显不匹配的标定；实际彩色内参/畸变在相机连接后再核对。
-        if (guidance.cameraOk() && (mission_guidance.loop.cam.width != config.camera.width || mission_guidance.loop.cam.height != config.camera.height)) {
-            error = "guidance 彩色标定分辨率与 camera_server/VIO 期望不一致";
-            return false;
         }
         settings.camera = guidance.cameraCalibration();
         if (config.main_loop_hz < 10 || 1.0 / config.main_loop_hz >= mission_config.max_setpoint_gap_s) {

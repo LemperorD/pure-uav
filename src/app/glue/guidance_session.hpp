@@ -3,6 +3,10 @@
 #include <memory>
 #include <string>
 
+namespace pure_uav {
+struct RangeCameraModel;
+}
+
 namespace pure_uav::app {
 
 struct GuidanceAppParams;
@@ -39,9 +43,9 @@ class GuidanceSession {
 
     /// 一次加载制导律/loop 参数和彩色相机标定。
     /// calibrated=false 不是致命错误，返回 true 但 cameraOk()==false。
-    bool init(const std::string& guidance_path, const std::string& camera_path, std::string& error);
+    bool init(const std::string& guidance_path, const std::string& camera_path, const RangeCameraModel& color, std::string& error);
     bool initParams(const std::string& path, std::string& error);
-    CameraLoadResult initCamera(const std::string& path, std::string& error);
+    CameraLoadResult initCamera(const std::string& path, const RangeCameraModel& color, std::string& error);
 
     [[nodiscard]] bool paramsOk() const;
     [[nodiscard]] bool cameraOk() const;

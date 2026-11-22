@@ -10,6 +10,7 @@
 #include <mutex>
 #include <thread>
 
+#include "camera_config.hpp"
 #include "orbbec_camera.hpp"
 #include "pure_uav/depth_range.hpp"
 
@@ -19,9 +20,8 @@ void onSignal(int) {
     stop_requested.store(true);
 }
 void usage() {
-    std::cout << "depth_range_probe --pixel U V [--width 1920 --height 1080 --fps 30]\n"
+    std::cout << "depth_range_probe --pixel U V [--camera-config config/camera.yaml]\n"
                  "                  [--duration 10] [--out out/depth_range.csv]\n"
-                 "                  [--color-calib path/to/kalibr_imucam_chain.yaml]\n"
                  "只需相机；U/V 为原始彩色图像坐标。CSV 时间戳是相机设备时间，不是 FC boot 时间。\n";
 }
 }  // namespace
@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
     double u = 0, v = 0, duration_s = 10;
     bool pixel_given = false;
     std::string output = "out/depth_range.csv";
+    std::string camera_config = pure_uav::camera::kDefaultCameraConfig;
     try {
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
@@ -46,35 +47,29 @@ int main(int argc, char** argv) {
                 u = std::stod(need());
                 v = std::stod(need());
                 pixel_given = true;
-            } else if (arg == "--width")
-                cfg.width = std::stoi(need());
-            else if (arg == "--height")
-                cfg.height = std::stoi(need());
-            else if (arg == "--fps")
-                cfg.fps = std::stoi(need());
+            } else if (arg == "--camera-config")
+                camera_config = need();
             else if (arg == "--duration")
                 duration_s = std::stod(need());
             else if (arg == "--out")
                 output = need();
-            else if (arg == "--color-calib") {
-                cfg.range_color_calibration_path = need();
-                if (cfg.range_color_calibration_path.empty()) throw std::runtime_error("--color-calib 不能为空");
-            } else
+            else
                 throw std::runtime_error("未知参数：" + arg);
         }
-        if (!pixel_given || !std::isfinite(u) || !std::isfinite(v) || u < 0 || v < 0 || u > cfg.width - 1 || v > cfg.height - 1 || !std::isfinite(duration_s) || duration_s <= 0 || cfg.fps <= 0 || output.empty()) throw std::runtime_error("需要有效彩色像素、正时长/帧率和输出路径");
+        pure_uav::camera::CaptureConfig capture;
+        std::string error;
+        if (!pure_uav::camera::loadCaptureConfig(camera_config, capture, error)) throw std::runtime_error(error);
+        if (!capture.use_depth) throw std::runtime_error("depth_range_probe 需要 camera.use_depth=true");
+        cfg.width = capture.width;
+        cfg.height = capture.height;
+        cfg.fps = capture.fps;
+        cfg.use_depth = capture.use_depth;
+        cfg.range_color_calibration_path = capture.color_calibration_path;
+        if (!pixel_given || !std::isfinite(u) || !std::isfinite(v) || u < 0 || v < 0 || u > cfg.width - 1 || v > cfg.height - 1 || !std::isfinite(duration_s) || duration_s <= 0 || output.empty()) throw std::runtime_error("需要有效彩色像素、正时长和输出路径");
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         usage();
         return 2;
-    }
-    if (!cfg.range_color_calibration_path.empty()) {
-        pure_uav::RangeCameraModel checked;
-        std::string error;
-        if (!pure_uav::loadRangeColorCalibration(cfg.range_color_calibration_path, cfg.width, cfg.height, checked, &error)) {
-            std::cerr << error << '\n';
-            return 2;
-        }
     }
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);

@@ -15,10 +15,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <filesystem>
 #include <string>
 #include <thread>
 
+#include "camera_config.hpp"
 #include "camera_shm.hpp"
 #include "frame_publisher.hpp"
 #include "orbbec_camera.hpp"
@@ -38,7 +38,6 @@ struct ServerConfig {
     OrbbecCamera::Config camera;
     PublisherConfig publisher;
     double status_period_s = 1.0;
-    int ready_timeout_ms = 5000;
 };
 
 void usage(const char* name) {
@@ -61,37 +60,16 @@ void read(const YAML::Node& node, const char* key, T& out) {
     }
 }
 
-std::string locateConfig(const std::string& path) {
-    if (std::filesystem::exists(path)) {
-        return path;
-    }
-    std::error_code ec;
-    auto base = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (ec) {
-        return path;
-    }
-    for (int level = 0; level < 6 && base.has_parent_path(); ++level) {
-        base = base.parent_path();
-        const auto candidate = base / path;
-        if (std::filesystem::exists(candidate)) {
-            return candidate.string();
-        }
-    }
-    return path;
-}
-
 bool loadConfig(const YAML::Node& root, ServerConfig& out, std::string& error) {
     try {
+        pure_uav::camera::CaptureConfig capture;
+        if (!pure_uav::camera::loadCaptureConfig(root, capture, error)) return false;
         const YAML::Node cam = root["camera"];
-        if (!cam || !cam.IsMap()) {
-            error = "config/camera.yaml: missing 'camera' section";
-            return false;
-        }
-        read(cam, "width", out.camera.width);
-        read(cam, "height", out.camera.height);
-        read(cam, "fps", out.camera.fps);
-        read(cam, "use_depth", out.camera.use_depth);
-        read(cam, "range_color_calibration_path", out.camera.range_color_calibration_path);
+        out.camera.width = capture.width;
+        out.camera.height = capture.height;
+        out.camera.fps = capture.fps;
+        out.camera.use_depth = capture.use_depth;
+        out.camera.range_color_calibration_path = capture.color_calibration_path;
         read(cam, "aggregate_mode", out.camera.aggregate_mode);
         read(cam, "auto_exposure", out.camera.auto_exposure);
         read(cam, "exposure", out.camera.exposure);
@@ -104,12 +82,6 @@ bool loadConfig(const YAML::Node& root, ServerConfig& out, std::string& error) {
         read(cam, "tune_max_exposure_ms", out.camera.tune_max_exposure_ms);
         read(cam, "tune_max_gain", out.camera.tune_max_gain);
         read(cam, "tune_allow_dark", out.camera.tune_allow_dark);
-
-        if (!out.camera.range_color_calibration_path.empty()) {
-            out.camera.range_color_calibration_path = locateConfig(out.camera.range_color_calibration_path);
-            pure_uav::RangeCameraModel checked;
-            if (!pure_uav::loadRangeColorCalibration(out.camera.range_color_calibration_path, out.camera.width, out.camera.height, checked, &error)) return false;
-        }
 
         const YAML::Node channels = root["channels"];
         read(channels, "vio_name", out.publisher.vio_name);
@@ -126,15 +98,10 @@ bool loadConfig(const YAML::Node& root, ServerConfig& out, std::string& error) {
             out.publisher.color_payload_bytes = static_cast<size_t>(color_bytes);
         }
         read(channels, "color_max_hz", out.publisher.color_max_hz);
-        read(channels, "ready_timeout_ms", out.ready_timeout_ms);
 
         const YAML::Node runtime = root["runtime"];
         read(runtime, "status_period_s", out.status_period_s);
 
-        if (out.camera.width < 320 || out.camera.width > 4096 || out.camera.height < 240 || out.camera.height > 2160 || out.camera.fps < 1 || out.camera.fps > 120) {
-            error = "config/camera.yaml: camera resolution/fps out of range";
-            return false;
-        }
         if (out.publisher.vio_name.empty() || out.publisher.vio_name.front() != '/' || out.publisher.color_name.empty() || out.publisher.color_name.front() != '/' || out.publisher.vio_name == out.publisher.color_name) {
             error = "config/camera.yaml: channel names must be distinct and start with '/'";
             return false;
@@ -238,7 +205,7 @@ int main(int argc, char** argv) {
     std::string error;
     YAML::Node root;
     try {
-        root = YAML::LoadFile(locateConfig(config_path));
+        root = YAML::LoadFile(pure_uav::camera::locateCameraConfig(config_path));
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[camera_server] 读取配置失败: %s\n", e.what());
         return 2;

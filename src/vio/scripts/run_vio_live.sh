@@ -99,18 +99,17 @@ echo
 # 现在把参数、二进制时间戳、配置指纹一起写进 run_meta.txt，
 # 并**强制** tee 到 $OUTDIR/console.log —— 不再依赖手打重定向。
 #=============================================================================
-CFG_DIR="config/gemini_1920x1080"
+CONFIG_YAML="$REPO_ROOT/config/camera.yaml"
 REC_DIR=""
 prev=""
 for tok in "${EXTRA[@]}"; do
-  # 【2026-10-23】--config-dir 也要跟：fast1 那次记录成 1920x1080，差点让我
-  # 误判它为"内参没生效导致 3 倍尺度"。meta 必须记真实用的那份配置。
   [[ "$prev" == "--record" ]] && REC_DIR="$tok"
-  [[ "$prev" == "--config-dir" ]] && CFG_DIR="$tok"
+  [[ "$prev" == "--camera-config" ]] && CONFIG_YAML="$tok"
   prev="$tok"
 done
-CONFIG_YAML="$ROOT/$CFG_DIR/estimator_config.yaml"
-[[ -f "$CONFIG_YAML" ]] || CONFIG_YAML="$ROOT/config/gemini_1920x1080/estimator_config.yaml"
+if [[ ! -f "$CONFIG_YAML" && "$CONFIG_YAML" != /* ]]; then
+  CONFIG_YAML="$REPO_ROOT/$CONFIG_YAML"
+fi
 META="$OUTDIR/run_meta.txt"
 {
   echo "started: $(date -Is)"
