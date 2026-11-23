@@ -61,7 +61,7 @@ class OrbbecCamera {
         // 所以「曝光时长」必须是「预期角速度」的函数，不能写死。
         double tune_blur_budget_px = 3.0;       // 允许的运动模糊上限（像素）
         double tune_expected_rate_dps = 100.0;  // 预期飞行最大角速度（度/秒）
-        double tune_focal_px = 1367.5;          // 与 kalibr_imucam_chain.yaml 的 fx 一致
+        double tune_focal_px = 1362.6;          // 与 kalibr_imucam_chain.yaml 的 fx 一致
         double tune_max_exposure_ms = 15.0;     // 绝对上限（帧周期以外再兜一层）
         int tune_max_gain = 40;                 // 增益上限：100 的噪声会把 KLT 拖死
         bool tune_allow_blur = false;

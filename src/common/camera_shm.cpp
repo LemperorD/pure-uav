@@ -189,6 +189,7 @@ void ShmChannelWriter::setSession(uint64_t session, uint64_t generation) noexcep
 
 void ShmChannelWriter::markReady() noexcept {
     if (header_ != nullptr) {
+        header_->heartbeat_ns.store(static_cast<uint64_t>(monotonicNs()), std::memory_order_relaxed);
         header_->ready.store(1, std::memory_order_release);
     }
 }

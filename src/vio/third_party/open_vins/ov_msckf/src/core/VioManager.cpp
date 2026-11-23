@@ -200,7 +200,7 @@ void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // Push back to the zero velocity updater if it is enabled
   // No need to push back if we are just doing the zv-update at the begining and we have moved
-  if (is_initialized_vio && updaterZUPT != nullptr && zupt_runtime_on_ && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
+  if (updaterZUPT != nullptr && zupt_runtime_on_ && (!params.zupt_only_at_beginning || !has_moved_since_zupt)) {
     updaterZUPT->feed_imu(message, oldest_time);
   }
 }
@@ -472,8 +472,9 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   // R_C1toC2 = R_ItoC * R_I1toI2 * R_ItoC^T
   // 默认关闭：实测 tri 率 +70%，但 3 个离线 session 里 2 个位移变差（3.78->6.41, 3.86->6.06）。
   // 想用/做对照就设 OV_GYRO_PREDICT=1。
-  static const bool gyro_predict_on = (std::getenv("OV_GYRO_PREDICT") != nullptr);
-  if (gyro_predict_on && gyro_pred_last_cam_t_ > 0.0 && !message.sensor_ids.empty()) {
+  static const bool gyro_predict_force = (std::getenv("OV_GYRO_PREDICT") != nullptr);
+  static const bool gyro_predict_off = (std::getenv("OV_NO_GYRO_PREDICT") != nullptr);
+  if (!gyro_predict_off && gyro_pred_last_cam_t_ > 0.0 && !message.sensor_ids.empty()) {
     const int cam_id0 = message.sensor_ids.at(0);
     auto it_calib = state->_calib_IMUtoCAM.find(cam_id0);
     if (it_calib != state->_calib_IMUtoCAM.end()) {
@@ -482,7 +483,8 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       const double tr = std::min(1.0, std::max(-1.0, (R_pred.trace() - 1.0) * 0.5));
       const double ang = std::acos(tr);
       auto klt = std::dynamic_pointer_cast<ov_core::TrackKLT>(trackFEATS);
-      if (klt && std::isfinite(ang) && ang < 0.35) // < 20°，超过就不敢信
+      // 1080p 下帧间旋转 > 1.4° (~43°/s，像素跳变 > 34 px) 时启用陀螺旋转预测辅助 KLT，慢速平移阶段保持原生 KLT
+      if (klt && std::isfinite(ang) && (gyro_predict_force || ang > 0.025) && ang < 0.35)
         klt->set_predicted_rotation(R_pred);
       else if (klt)
         klt->clear_predicted_rotation();
@@ -502,6 +504,10 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
   frame_health.features = static_cast<int>(
       trackFEATS->get_feature_database()->features_containing(message.timestamp, false, false).size());
   frame_health.msckf_updated = false;
+  frame_health.slam_updated = false;
+  frame_health.zupt = false;
+  frame_health.any_visual_update = false;
+  frame_health.msckf_rows = 0;
   frame_health.time = message.timestamp;
 
   // 【可视化】把当前帧跟踪到的像素点抄出来，供实时查看器画到图像上。
@@ -526,6 +532,17 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
         }
         tracked_points.push_back(tp);
       }
+    }
+  }
+
+  // If we do not have VIO initialization, then try to initialize
+  // TODO: Or if we are trying to reset the system, then do that here!
+  if (!is_initialized_vio) {
+    is_initialized_vio = try_to_initialize(message);
+    if (!is_initialized_vio) {
+      double time_track = (rT2 - rT1).total_microseconds() * 1e-6;
+      PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
+      return;
     }
   }
 
@@ -556,17 +573,6 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       propagator->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       updaterZUPT->clean_old_imu_measurements(message.timestamp + state->_calib_dt_CAMtoIMU->value()(0) - 0.10);
       propagator->invalidate_cache();
-      return;
-    }
-  }
-
-  // If we do not have VIO initialization, then try to initialize
-  // TODO: Or if we are trying to reset the system, then do that here!
-  if (!is_initialized_vio) {
-    is_initialized_vio = try_to_initialize(message);
-    if (!is_initialized_vio) {
-      double time_track = (rT2 - rT1).total_microseconds() * 1e-6;
-      PRINT_DEBUG(BLUE "[TIME]: %.4f seconds for tracking\n" RESET, time_track);
       return;
     }
   }

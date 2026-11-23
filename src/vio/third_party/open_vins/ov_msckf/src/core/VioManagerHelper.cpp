@@ -32,6 +32,7 @@
 #include "state/Propagator.h"
 #include "state/State.h"
 #include "state/StateHelper.h"
+#include "update/UpdaterZeroVelocity.h"
 
 using namespace ov_core;
 using namespace ov_type;
@@ -151,6 +152,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
       // If we are moving then don't do zero velocity update4
       if (state->_imu->vel().norm() > params.zupt_max_velocity) {
         has_moved_since_zupt = true;
+      } else if (updaterZUPT != nullptr && (init_still_ || state->_imu->vel().norm() < 1e-4)) {
+        updaterZUPT->seed_still_streak();
       }
 
       // Else we are good to go, print out our stats
@@ -203,6 +206,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
   // Otherwise detach this thread so it runs in the background!
   if (!params.use_multi_threading_subs) {
     thread.join();
+    return thread_init_success;
   } else {
     thread.detach();
   }

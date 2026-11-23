@@ -48,7 +48,7 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
 
   // Return if we don't have enough for two windows
   if (newesttime - oldesttime < params.init_window_time) {
-    PRINT_INFO(YELLOW "[init-s]: unable to select window of IMU readings, not enough readings\n" RESET);
+    PRINT_DEBUG(YELLOW "[init-s]: unable to select window of IMU readings, not enough readings\n" RESET);
     return false;
   }
 
@@ -65,16 +65,19 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
 
   // Return if both of these failed
   if (window_1to0.size() < 2 || window_2to1.size() < 2) {
-    PRINT_INFO(YELLOW "[init-s]: unable to select window of IMU readings, not enough readings\n" RESET);
+    PRINT_DEBUG(YELLOW "[init-s]: unable to select window of IMU readings, not enough readings\n" RESET);
     return false;
   }
 
   // Calculate the sample variance for the newest window from 1 to 0
   Eigen::Vector3d a_avg_1to0 = Eigen::Vector3d::Zero();
+  Eigen::Vector3d w_avg_1to0 = Eigen::Vector3d::Zero();
   for (const ImuData &data : window_1to0) {
     a_avg_1to0 += data.am;
+    w_avg_1to0 += data.wm;
   }
   a_avg_1to0 /= (int)window_1to0.size();
+  w_avg_1to0 /= (int)window_1to0.size();
   double a_var_1to0 = 0;
   for (const ImuData &data : window_1to0) {
     a_var_1to0 += (data.am - a_avg_1to0).dot(data.am - a_avg_1to0);
@@ -99,27 +102,31 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
 
   // If it is below the threshold and we want to wait till we detect a jerk
   if (a_var_1to0 < params.init_imu_thresh && wait_for_jerk) {
-    PRINT_INFO(YELLOW "[init-s]: no IMU excitation, below threshold %.3f < %.3f\n" RESET, a_var_1to0, params.init_imu_thresh);
+    PRINT_DEBUG(YELLOW "[init-s]: no IMU excitation, below threshold %.3f < %.3f\n" RESET, a_var_1to0, params.init_imu_thresh);
     return false;
   }
 
   // We should also check that the old state was below the threshold!
   // This is the case when we have started up moving, and thus we need to wait for a period of stationary motion
   if (a_var_2to1 > params.init_imu_thresh && wait_for_jerk) {
-    PRINT_INFO(YELLOW "[init-s]: to much IMU excitation, above threshold %.3f > %.3f\n" RESET, a_var_2to1, params.init_imu_thresh);
+    PRINT_DEBUG(YELLOW "[init-s]: to much IMU excitation, above threshold %.3f > %.3f\n" RESET, a_var_2to1, params.init_imu_thresh);
     return false;
   }
 
   // If it is above the threshold and we are not waiting for a jerk
   // Then we are not stationary (i.e. moving) so we should wait till we are
   if ((a_var_1to0 > params.init_imu_thresh || a_var_2to1 > params.init_imu_thresh) && !wait_for_jerk) {
-    PRINT_INFO(YELLOW "[init-s]: to much IMU excitation, above threshold %.3f,%.3f > %.3f\n" RESET, a_var_2to1, a_var_1to0,
-               params.init_imu_thresh);
+    PRINT_DEBUG(YELLOW "[init-s]: to much IMU excitation, above threshold %.3f,%.3f > %.3f\n" RESET, a_var_2to1, a_var_1to0,
+                params.init_imu_thresh);
     return false;
   }
 
+  // When not waiting for a jerk, both windows are stationary, so use the combined stationary average
+  const Eigen::Vector3d a_avg_init = wait_for_jerk ? a_avg_2to1 : 0.5 * (a_avg_2to1 + a_avg_1to0);
+  const Eigen::Vector3d w_avg_init = wait_for_jerk ? w_avg_2to1 : 0.5 * (w_avg_2to1 + w_avg_1to0);
+
   // Get rotation with z axis aligned with -g (z_in_G=0,0,1)
-  Eigen::Vector3d z_axis = a_avg_2to1 / a_avg_2to1.norm();
+  Eigen::Vector3d z_axis = a_avg_init / a_avg_init.norm();
   Eigen::Matrix3d Ro;
   InitializerHelper::gram_schmidt(z_axis, Ro);
   Eigen::Vector4d q_GtoI = rot_2_quat(Ro);
@@ -127,11 +134,12 @@ bool StaticInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarianc
   // Set our biases equal to our noise (subtract our gravity from accelerometer bias)
   Eigen::Vector3d gravity_inG;
   gravity_inG << 0.0, 0.0, params.gravity_mag;
-  Eigen::Vector3d bg = w_avg_2to1;
-  Eigen::Vector3d ba = a_avg_2to1 - quat_2_Rot(q_GtoI) * gravity_inG;
+  Eigen::Vector3d bg = w_avg_init;
+  Eigen::Vector3d ba = a_avg_init - quat_2_Rot(q_GtoI) * gravity_inG;
 
   // Set our state variables
-  timestamp = window_2to1.at(window_2to1.size() - 1).timestamp;
+  timestamp = wait_for_jerk ? window_2to1.at(window_2to1.size() - 1).timestamp
+                            : window_1to0.at(window_1to0.size() - 1).timestamp;
   Eigen::VectorXd imu_state = Eigen::VectorXd::Zero(16);
   imu_state.block(0, 0, 4, 1) = q_GtoI;
   imu_state.block(10, 0, 3, 1) = bg;

@@ -39,8 +39,8 @@ struct Options {
     // 估计器开关：保留调试时使用的所有对照组合。
     bool online_timeoffset = true;
     int init_threads = 0;  // 0 使用配置文件；1 用于可复现回放。
-    bool use_depth_init = false;
-    bool init_vel_zero = false;
+    bool use_depth_init = true;
+    bool init_vel_zero = true;
     bool static_init = false;
     bool dump_params = false;
     bool view = false;
@@ -183,8 +183,12 @@ inline ParseResult parseOptions(int argc, char** argv, Options& opt) {
             opt.online_timeoffset = true;
         } else if (a == "--init-vel-zero") {
             opt.init_vel_zero = true;
+        } else if (a == "--no-init-vel-zero") {
+            opt.init_vel_zero = false;
         } else if (a == "--use-depth-init") {
             opt.use_depth_init = true;
+        } else if (a == "--no-use-depth-init" || a == "--no-depth-init") {
+            opt.use_depth_init = false;
         } else if (a == "--init-threads") {
             opt.init_threads = std::stoi(need("--init-threads"));
         } else if (a == "--no-online-timeoffset") {

@@ -141,27 +141,64 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     int num_features = 0;
     FeatureHelper::compute_disparity(_db, state->_timestamp, timestamp, disp_avg, disp_var, num_features);
     last_disp_avg = disp_avg;
-    const bool vision_still = (disp_avg < _zupt_max_disparity && num_features > 20);
+    // 当 IMU 处于桌面级绝对静止（|w| < 1.2°/s 且 |‖a‖-g| < 0.08 m/s²）时，放宽光流像素抖动门限以容忍 1080p MJPG 高增益底噪
+    const bool imu_ultra_still = (mean_w_deg < 1.2) && (mean_acc_dev < 0.08);
+    const double eff_max_disp = imu_ultra_still ? (2.0 * _zupt_max_disparity) : _zupt_max_disparity;
+    const bool vision_still = (disp_avg >= 0.0 && disp_avg < eff_max_disp && num_features > 20);
     const double v_now0 = state->_imu->vel().norm();
 
-    // 去抖：IMU 判据必须连续成立 _zupt_min_still_frames 帧（15 Hz 以上才有意义）
-    _still_streak = (imu_still && v_now0 < _zupt_max_velocity) ? (_still_streak + 1) : 0;
+    // 去抖：当 IMU 与视觉光流同时确认静止时，不因滤波器自身已漂移的速度 v_now0 超阈值而拒止零速更新，
+    // 否则一旦快速机动后 |v| 漂到 >0.5 m/s，停下后 ZUPT 被自身锁死无法拉回 0。
+    _still_streak = (imu_still && (vision_still || v_now0 < _zupt_max_velocity)) ? (_still_streak + 1) : 0;
     if (!vision_still || _still_streak < _zupt_min_still_frames) {
       last_zupt_state_timestamp = 0.0;
       last_zupt_count = 0;
       return false;
     }
 
-    const double sg = (_zupt_sigma_v > 1e-4) ? _zupt_sigma_v : 0.05;
+    Eigen::Vector3d a_avg = Eigen::Vector3d::Zero();
+    Eigen::Vector3d w_avg = Eigen::Vector3d::Zero();
+    for (const auto &m : imu_recent) {
+      a_avg += m.am - state->_imu->bias_a();
+      w_avg += m.wm - state->_imu->bias_g();
+    }
+    a_avg /= static_cast<double>(imu_recent.size());
+    w_avg /= static_cast<double>(imu_recent.size());
+
+    // 同时约束 [q, bg, v]（绝不把 ba 放入 Hx_order，既可在静止时修正姿态倾角和陀螺零偏，又不会把重力残差塞进加速度计零偏 ba）
+    // 注意：长时间运行后滤波器自身 P_vv 已收敛到 ~(0.01 m/s)²，若 R_vv 用 0.1² 会导致卡尔曼增益 K≈0.01（日志打 |v|→0 但实际几乎没变）。
+    // 因此这里用紧噪声 sg = 0.005 m/s 更新协方差与交叉项，随后显式将速度状态钉死为 0。
+    const double sg = 0.005;
     std::vector<std::shared_ptr<Type>> Hx_order;
+    Hx_order.push_back(state->_imu->q());
+    Hx_order.push_back(state->_imu->bg());
     Hx_order.push_back(state->_imu->v());
-    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(3, 3);
-    Eigen::VectorXd res = -state->_imu->vel();
-    Eigen::MatrixXd R = (sg * sg) * Eigen::MatrixXd::Identity(3, 3);
+    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(9, 9);
+    Eigen::VectorXd res = Eigen::VectorXd::Zero(9);
+    Eigen::MatrixXd R = Eigen::MatrixXd::Zero(9, 9);
+
+    // 1) v = 0
+    res.block<3, 1>(0, 0) = -state->_imu->vel();
+    H.block<3, 3>(0, 6) = Eigen::Matrix3d::Identity();
+    R.block<3, 3>(0, 0) = (sg * sg) * Eigen::Matrix3d::Identity();
+
+    // 2) w_m - b_g = 0
+    res.block<3, 1>(3, 0) = -w_avg;
+    H.block<3, 3>(3, 3) = -Eigen::Matrix3d::Identity();
+    R.block<3, 3>(3, 3) = (0.005 * 0.005) * Eigen::Matrix3d::Identity();
+
+    // 3) a_m - b_a - R_GtoI * g = 0 (只更姿态 q，不碰 ba)
+    const Eigen::Matrix3d R_GtoI_j = (state->_options.do_fej) ? state->_imu->Rot_fej() : state->_imu->Rot();
+    res.block<3, 1>(6, 0) = -(a_avg - state->_imu->Rot() * _gravity);
+    H.block<3, 3>(6, 0) = -skew_x(R_GtoI_j * _gravity);
+    R.block<3, 3>(6, 6) = (0.10 * 0.10) * Eigen::Matrix3d::Identity();
+
     if (last_zupt_count >= 2) {
       _db->cleanup_measurements_exact(last_zupt_state_timestamp);
     }
     StateHelper::EKFUpdate(state, Hx_order, H, res, R);
+    state->_imu->v()->set_value(Eigen::Vector3d::Zero());
+    state->_imu->v()->set_fej(Eigen::Vector3d::Zero());
     state->_timestamp = timestamp;
     last_zupt_state_timestamp = timestamp;
     last_zupt_count++;

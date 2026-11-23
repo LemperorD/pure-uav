@@ -460,6 +460,19 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   // Eigen::MatrixXd D_lambdaI_inv = (D - lambda_min * I_dd).inverse();
   Eigen::MatrixXd D_lambdaI_inv = (D - lambda_min * I_dd).llt().solve(I_dd);
   Eigen::VectorXd state_grav = D_lambdaI_inv * d;
+  bool low_lin_accel_init = false;
+  auto it_cpi_end = map_camera_cpi_I0toIi.find(newest_cam_time);
+  if (it_cpi_end != map_camera_cpi_I0toIi.end() && it_cpi_end->second != nullptr && it_cpi_end->second->DT > 0.5) {
+    const Eigen::Vector3d g_cpi = it_cpi_end->second->beta_tau / it_cpi_end->second->DT;
+    if (std::abs(g_cpi.norm() - params.gravity_mag) < 0.45 && state_grav.norm() > 1e-3) {
+      low_lin_accel_init = true;
+      const double cos_ang = std::max(-1.0, std::min(1.0, state_grav.normalized().dot(g_cpi.normalized())));
+      const double ang_deg = std::acos(cos_ang) * 180.0 / M_PI;
+      if (ang_deg > 2.0) {
+        state_grav = g_cpi.normalized() * params.gravity_mag;
+      }
+    }
+  }
 
   // Overwrite our state: [features, velocity, gravity]
   Eigen::VectorXd state_feat_vel = -A1A1_inv * A1.transpose() * A2 * state_grav + A1A1_inv * A1.transpose() * b;
@@ -683,32 +696,58 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
     if (map_states.empty()) {
 
       // Construct state and prior
-      Eigen::MatrixXd x_lin = Eigen::MatrixXd::Zero(13, 1);
+      Eigen::MatrixXd x_lin = Eigen::MatrixXd::Zero(low_lin_accel_init ? 16 : 13, 1);
       for (int j = 0; j < 4; j++) {
         x_lin(0 + j) = var_ori[j];
       }
-      for (int j = 0; j < 3; j++) {
-        x_lin(4 + j) = var_pos[j];
-        x_lin(7 + j) = var_bias_g[j];
-        x_lin(10 + j) = var_bias_a[j];
+      if (low_lin_accel_init) {
+        for (int j = 0; j < 3; j++) {
+          x_lin(4 + j) = var_pos[j];
+          x_lin(7 + j) = 0.0; // 弱平移激励窗口内锚定初始速度为 0，防止 MLE 通过倾斜重力方向来换取虚假初速度
+          x_lin(10 + j) = var_bias_g[j];
+          x_lin(13 + j) = var_bias_a[j];
+        }
+      } else {
+        for (int j = 0; j < 3; j++) {
+          x_lin(4 + j) = var_pos[j];
+          x_lin(7 + j) = var_bias_g[j];
+          x_lin(10 + j) = var_bias_a[j];
+        }
       }
-      Eigen::MatrixXd prior_grad = Eigen::MatrixXd::Zero(10, 1);
-      Eigen::MatrixXd prior_Info = Eigen::MatrixXd::Identity(10, 10);
-      prior_Info.block(0, 0, 4, 4) *= 1.0 / std::pow(1e-5, 2); // 4dof unobservable yaw and position
-      prior_Info.block(4, 4, 3, 3) *= 1.0 / std::pow(0.05, 2); // bias_g prior
-      prior_Info.block(7, 7, 3, 3) *= 1.0 / std::pow(0.10, 2); // bias_a prior
-
-      // Construct state type and ceres parameter pointers
+      const int prior_dim = low_lin_accel_init ? 15 : 10;
+      Eigen::MatrixXd prior_grad = Eigen::MatrixXd::Zero(prior_dim, 1);
+      Eigen::MatrixXd prior_Info = Eigen::MatrixXd::Identity(prior_dim, prior_dim);
       std::vector<std::string> x_types;
       std::vector<double *> factor_params;
-      factor_params.push_back(var_ori);
-      x_types.emplace_back("quat_yaw");
-      factor_params.push_back(var_pos);
-      x_types.emplace_back("vec3");
-      factor_params.push_back(var_bias_g);
-      x_types.emplace_back("vec3");
-      factor_params.push_back(var_bias_a);
-      x_types.emplace_back("vec3");
+      if (low_lin_accel_init) {
+        prior_Info.block(0, 0, 2, 2) *= 1.0 / std::pow(0.005, 2);   // roll/pitch (~0.3 deg)
+        prior_Info.block(2, 2, 4, 4) *= 1.0 / std::pow(1e-5, 2);    // yaw and position
+        prior_Info.block(6, 6, 3, 3) *= 1.0 / std::pow(0.05, 2);    // v0 prior (5 cm/s)
+        prior_Info.block(9, 9, 3, 3) *= 1.0 / std::pow(0.05, 2);    // bias_g prior
+        prior_Info.block(12, 12, 3, 3) *= 1.0 / std::pow(0.10, 2);  // bias_a prior
+        factor_params.push_back(var_ori);
+        x_types.emplace_back("quat");
+        factor_params.push_back(var_pos);
+        x_types.emplace_back("vec3");
+        factor_params.push_back(var_vel);
+        x_types.emplace_back("vec3");
+        factor_params.push_back(var_bias_g);
+        x_types.emplace_back("vec3");
+        factor_params.push_back(var_bias_a);
+        x_types.emplace_back("vec3");
+      } else {
+        prior_Info.block(0, 0, 4, 4) *= 1.0 / std::pow(1e-5, 2); // 4dof unobservable yaw and position
+        prior_Info.block(4, 4, 3, 3) *= 1.0 / std::pow(0.05, 2); // bias_g prior
+        prior_Info.block(7, 7, 3, 3) *= 1.0 / std::pow(0.10, 2); // bias_a prior
+        factor_params.push_back(var_ori);
+        x_types.emplace_back("quat_yaw");
+        factor_params.push_back(var_pos);
+        x_types.emplace_back("vec3");
+        factor_params.push_back(var_bias_g);
+        x_types.emplace_back("vec3");
+        factor_params.push_back(var_bias_a);
+        x_types.emplace_back("vec3");
+      }
 
       // Append it to the problem
       auto *factor_prior = new Factor_GenericPrior(x_lin, x_types, prior_Info, prior_grad);
@@ -1005,7 +1044,7 @@ bool DynamicInitializer::initialize(double &timestamp, Eigen::MatrixXd &covarian
   ceres::Covariance::Options options_cov;
   options_cov.null_space_rank = (!params.init_dyn_mle_opt_calib) * ((int)map_calib_cam2imu.size() * (6 + 8));
   options_cov.min_reciprocal_condition_number = params.init_dyn_min_rec_cond;
-  // options_cov.algorithm_type = ceres::CovarianceAlgorithmType::DENSE_SVD;
+  options_cov.algorithm_type = ceres::CovarianceAlgorithmType::DENSE_SVD;
   options_cov.apply_loss_function = true; // Better consistency if we use this
   options_cov.num_threads = params.init_dyn_mle_max_threads;
   ceres::Covariance problem_cov(options_cov);

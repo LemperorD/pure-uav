@@ -91,6 +91,7 @@ public:
       disp_mean = -1;
       disp_var = -1;
       total_feats = 0;
+      return;
     }
 
     // Compute mean and standard deviation in respect to it
@@ -164,6 +165,7 @@ public:
       disp_mean = -1;
       disp_var = -1;
       total_feats = 0;
+      return;
     }
 
     // Compute mean and standard deviation in respect to it

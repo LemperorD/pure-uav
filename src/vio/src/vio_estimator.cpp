@@ -418,6 +418,9 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     // 初始化之前不评估：动态初始化那 1~3 秒本来就没有成熟特征、没有更新，
     // 拿它当"失效"会开门就误报。
     if (impl_->vio->initialized()) {
+        if (!impl_->latched) {
+            impl_->health.notify_recovered();
+        }
         const auto fh = impl_->vio->get_frame_health();
         // 【2026-10-25】近 2 s 的深度一致性——用**中位数**而不是均值。
         // 教训：均值被少数离群点（最大 296 px）拉到 17–23 px，而同一份数据的中位数只有
@@ -522,7 +525,6 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         impl_->init_time = impl_->vio->initialized_time();
         impl_->converter->reset(R_GtoI, p_IinG);
         impl_->latched = true;
-        impl_->health.notify_recovered();
         // 【2026-10-23】初始化瞬间的静止指标（只记录，不干预）：
         // 这两个数是"静止判定"的原始输入——将来用它决定要不要把初速度置 0。
         {

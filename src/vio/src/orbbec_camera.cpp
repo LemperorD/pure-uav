@@ -304,25 +304,26 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                     } catch (const ob::Error& e) {
                         std::printf("[Orbbec] ⚠️ 取彩色内参失败：%s\n", e.getMessage());
                     }
+                    auto model = [](const OBCameraIntrinsic& k, const OBCameraDistortion& d) {
+                        RangeCameraModel m;
+                        m.width = k.width;
+                        m.height = k.height;
+                        m.fx = k.fx;
+                        m.fy = k.fy;
+                        m.cx = k.cx;
+                        m.cy = k.cy;
+                        m.distortion = {d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6};
+                        return m;
+                    };
                     try {
-                        auto& range = impl->range_calibration;
-                        const auto di = dprofile->getIntrinsic();
-                        const auto ci = profile->getIntrinsic();
-                        auto model = [](const OBCameraIntrinsic& k, const OBCameraDistortion& d) {
-                            RangeCameraModel m;
-                            m.width = k.width;
-                            m.height = k.height;
-                            m.fx = k.fx;
-                            m.fy = k.fy;
-                            m.cx = k.cx;
-                            m.cy = k.cy;
-                            m.distortion = {d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6};
-                            return m;
-                        };
-                        range.depth = model(di, dprofile->getDistortion());
-                        range.color = model(ci, profile->getDistortion());
+                        impl->range_calibration.depth = model(dprofile->getIntrinsic(), dprofile->getDistortion());
                     } catch (const ob::Error& e) {
-                        std::printf("[Orbbec] 测距畸变/内参不可用：%s\n", e.getMessage());
+                        std::printf("[Orbbec] 深度测距畸变/内参不可用：%s\n", e.getMessage());
+                    }
+                    try {
+                        impl->range_calibration.color = model(profile->getIntrinsic(), profile->getDistortion());
+                    } catch (const ob::Error& e) {
+                        std::printf("[Orbbec] 测距彩色内参将由外部标定文件提供（SDK: %s）\n", e.getMessage());
                     }
                     // 必须读取真实 D2C 外参；失败时测距保持不可用，不假定两相机重合。
                     try {
@@ -349,6 +350,12 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                 throw std::runtime_error(reason);
             }
             impl->range_calibration.color = color;
+            if (impl->color_fx <= 0.0) {
+                impl->color_fx = color.fx;
+                impl->color_fy = color.fy;
+                impl->color_cx = color.cx;
+                impl->color_cy = color.cy;
+            }
         }
         impl->depth_enabled = depth_ok;
 
@@ -730,11 +737,16 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                 // 之后按内参/外参把特征投影到深度图上取值（每帧 300 个点，开销可忽略）。
                 cv::Mat depth_mm;
                 int64_t depth_dev_us = 0;  // 【2026-10-23】深度帧自己的设备时间戳
+                int64_t depth_sys_us = 0;
                 if (impl->depth_enabled) {
                     try {
                         std::shared_ptr<ob::DepthFrame> df = frameset->depthFrame();
                         if (df && df->data() != nullptr && df->width() > 0 && df->height() > 0) {
                             depth_dev_us = static_cast<int64_t>(df->timeStampUs());
+                            try {
+                                depth_sys_us = static_cast<int64_t>(df->systemTimeStampUs());
+                            } catch (...) {
+                            }
                             const int w = static_cast<int>(df->width());
                             const int h = static_cast<int>(df->height());
                             const uint32_t bytes = df->dataSize();
@@ -792,6 +804,14 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                     device_us = static_cast<int64_t>(color->timeStampUs());
                     sys_us = static_cast<int64_t>(color->systemTimeStampUs());
                 } catch (...) {
+                }
+                // SV1301S_U3 的彩色走 UVC（timeStampUs 每帧跳 ~4.998e8，非微秒），而深度走 OpenNI2
+                // （timeStampUs 由深度芯片晶振累加，相对主机时钟有 ~2200 ppm 漂移），两路硬件时钟不同源。
+                // 在 FULL_FRAME_REQUIRE 帧集聚合下，彩色与深度已在同一采集周期配对，当两者硬件时钟差值
+                // 超过 1 秒时，统一对齐到 SDK 主机系统微秒时基（sys_us），消除异源晶振漂移导致的深度年龄超限。
+                if (sys_us > 0 && depth_dev_us > 0 && (device_us <= 0 || std::llabs(device_us - depth_dev_us) >= 1000000LL)) {
+                    device_us = sys_us;
+                    depth_dev_us = sys_us;
                 }
                 // 灰度走 frameToGray（MJPG 直接解成 mono8，省一次 BGR 转换）；
                 // 彩色保留 SDK 原始编码字节，供检测进程自己解码，避免服务端重复 imdecode。

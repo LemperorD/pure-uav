@@ -1,10 +1,10 @@
 // 离线回放：dataset(images.csv + imu.csv) → OpenVINS → VisionPose (CSV/TUM)
 //
 // 用法示例：
-//   ./vio_offline --dataset ~/calib/datasets/session05 \
-//                 --config-dir config/session05_1920x1080 \
-//                 --csv-out ~/calib/vio_online/out/session05_pose.csv \
-//                 --tum-out ~/calib/vio_online/out/session05_traj.tum
+//   ./vio_offline --dataset ~/calib/datasets/run1 \
+//                 --config-dir src/vio/config/gemini_1920x1080 \
+//                 --csv-out src/vio/out/run1/pose.csv \
+//                 --tum-out src/vio/out/run1/traj.tum
 //
 // 说明：离线时时间戳沿用数据集（session05 是 Unix 微秒），只验证估计器和
 // 坐标系转换；在线运行时同样是这套转换，只是时间戳换成飞控 boot 微秒。
@@ -82,7 +82,7 @@ Eigen::Matrix3d rpyDegToMatrix(double roll_deg, double pitch_deg, double yaw_deg
 
 int main(int argc, char** argv) {
     std::string dataset_dir;
-    std::string config_dir = "config/session05_1920x1080";
+    std::string config_dir = "src/vio/config/gemini_1920x1080";
     std::string estimator = "estimator_config.yaml";
     std::string csv_out;
     std::string tum_out;

@@ -145,7 +145,7 @@ void HealthMonitor::update(double time_s, int features, bool visual_updated, dou
     const double bad_tilt_for = (bad_tilt_since_ < 0.0) ? 0.0 : (time_s - bad_tilt_since_);
     const bool tilt_degrade = (tilt_deg >= 0.0) && (tilt_deg > cfg_.tilt_degrade_deg);
 
-    const bool should_be_lost = low_rate || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s) || (bad_dep_for > cfg_.deperr_lost_s) || (bad_tilt_for > cfg_.tilt_lost_s);
+    const bool should_be_lost = (low_rate && since_update > cfg_.degrade_after_s) || (since_update > cfg_.lost_after_s) || (bad_for > cfg_.lost_after_s) || (bad_dep_for > cfg_.deperr_lost_s) || (bad_tilt_for > cfg_.tilt_lost_s);
     const bool should_be_degraded = few_features || low_rate || (since_update > cfg_.degrade_after_s) || bad_dep || tilt_degrade;
 
     switch (state_) {

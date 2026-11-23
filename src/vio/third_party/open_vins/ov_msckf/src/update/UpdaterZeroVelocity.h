@@ -119,6 +119,9 @@ public:
    */
   bool try_update(std::shared_ptr<State> state, double timestamp);
 
+  /// 静止初始化完成后预置连续静止计数，使首帧即可进入零速更新而不必额外空等去抖窗口
+  void seed_still_streak() { _still_streak = _zupt_min_still_frames; }
+
 protected:
   /// Options used during update (chi2 multiplier)
   UpdaterOptions _options;

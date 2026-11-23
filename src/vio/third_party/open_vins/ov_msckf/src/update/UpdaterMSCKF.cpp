@@ -146,7 +146,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
         const float u0 = uv_list.front()(0);
         const float v0 = uv_list.front()(1);
         const float z_meas = UpdaterMSCKF::DepthLookup::fn(t_anchor, u0, v0);
-        if (z_meas > 0.05f && z_meas < 20.0f) {
+        if (z_meas >= 0.20f && z_meas <= 5.0f) {
           auto it_cam = clones_cam.find(cam_id0);
           if (it_cam != clones_cam.end()) {
             auto it_clone = it_cam->second.find(t_anchor);
@@ -157,16 +157,34 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
               const Eigen::Matrix3d &R_GtoA = it_clone->second.Rot();
               const Eigen::Vector3d &p_AinG = it_clone->second.pos();
               // p_FinG = p_AinG + R_GtoA^T * (b * Z)
-              (*it1)->p_FinG = p_AinG + R_GtoA.transpose() * (b * static_cast<double>(z_meas));
-              ++diag_depth_used;
+              const Eigen::Vector3d p_FinA_depth = b * static_cast<double>(z_meas);
+              const Eigen::Vector3d p_depth = p_AinG + R_GtoA.transpose() * p_FinA_depth;
+              (*it1)->anchor_cam_id = cam_id0;
+              (*it1)->anchor_clone_timestamp = t_anchor;
+              (*it1)->p_FinA = p_FinA_depth;
+              (*it1)->p_FinG = p_depth;
+              if (initializer_feat->config().refine_features) {
+                if (!initializer_feat->single_gaussnewton(*it1, clones_cam)) {
+                  (*it1)->p_FinA = p_FinA_depth;
+                  (*it1)->p_FinG = p_depth;
+                } else {
+                  const Eigen::Vector3d p_FinA_ref = R_GtoA * ((*it1)->p_FinG - p_AinG);
+                  if (!p_FinA_ref.allFinite() || p_FinA_ref.z() < 0.15 || p_FinA_ref.z() > 15.0 ||
+                      std::abs(p_FinA_ref.z() - static_cast<double>(z_meas)) > 0.35 * static_cast<double>(z_meas)) {
+                    (*it1)->p_FinA = p_FinA_depth;
+                    (*it1)->p_FinG = p_depth;
+                  }
+                }
+              }
 
               //=================================================================
               // 【2026-10-21 诊断】深度一致性：把"由深度构造的三维点"重新投影回
-              // 它在窗口内的**所有**观测，看重投影误差。
-              //   误差 ~1-2 px  → 深度关联是对的
-              //   误差几十 px   → 深度采到了别的表面（深度不连续处的典型症状）
-              // 这正是"尺度爆炸"最可能的来源，所以必须量出来。
+              // 它在窗口内的**所有**观测，看重投影误差（折算至 640p 参考焦距 452.5 px，
+              // 使 1080p 与 480p 下的 deperr 像素阈值具有相同的角误差物理意义）。
+              //   误差 ~1-3 px  → 深度关联是对的
+              //   误差 >8 px    → 深度采到了别的表面，回退到多视图三角化或剔除
               //=================================================================
+              double med = -1.0;
               {
                 std::vector<double> errs;
                 for (const auto &pair : (*it1)->timestamps) {
@@ -175,6 +193,8 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
                   if (itc == clones_cam.end()) continue;
                   auto iti = state->_cam_intrinsics_cameras.find(cid);
                   if (iti == state->_cam_intrinsics_cameras.end()) continue;
+                  const double fx_cur = std::max(452.5, iti->second->get_K()(0, 0));
+                  const double scale_ref = 452.5 / fx_cur;
                   const auto &uvs_c = (*it1)->uvs.at(cid);
                   const auto &ts_c = pair.second;
                   for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
@@ -185,44 +205,32 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
                     if (P_C.z() < 0.1) continue;
                     const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
                     const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
-                    const double du = uv_projected(0) - uvs_c[k](0);
-                    const double dv = uv_projected(1) - uvs_c[k](1);
+                    const double du = (uv_projected(0) - uvs_c[k](0)) * scale_ref;
+                    const double dv = (uv_projected(1) - uvs_c[k](1)) * scale_ref;
                     errs.push_back(std::sqrt(du * du + dv * dv));
                   }
                 }
                 if (!errs.empty()) {
                   std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
-                  const double med = errs[errs.size() / 2];
-                  // 逐特征导出（时间 + 中位重投影误差），用来区分
-                  // "一开始就错（深度关联问题）" 和 "后来越来越错（滤波器先歪了）"
-                  static std::ofstream derr_of;
-                  static bool derr_checked = false;
-                  if (!derr_checked) {
-                    derr_checked = true;
-                    const char *dp = std::getenv("OV_DIAG_DEPTHERR");
-                    if (dp != nullptr && dp[0] != '\0') {
-                      derr_of.open(dp, std::ios::out | std::ios::trunc);
-                      derr_of << "t_anchor,errmodel_reproj_px,nobs\n";
-                      derr_of.flush();
-                    }
-                  }
-                  if (derr_of.is_open())
-                    derr_of << std::fixed << std::setprecision(6) << t_anchor << "," << med << ","
-                            << errs.size() << "\n";
-                  ++diag_deperr_n;
-                  diag_deperr_sum += med;
-                  if (med < 1.0) ++diag_deperr_hist[0];
-                  else if (med < 2.0) ++diag_deperr_hist[1];
-                  else if (med < 5.0) ++diag_deperr_hist[2];
-                  else if (med < 10.0) ++diag_deperr_hist[3];
-                  else if (med < 25.0) ++diag_deperr_hist[4];
-                  else ++diag_deperr_hist[5];
+                  med = errs[errs.size() / 2];
                 }
               }
 
-              ++diag_tri_ok;
-              it1++;
-              continue;   // 跳过三角化和精化
+              if (med >= 0.0 && med <= 8.0) {
+                ++diag_depth_used;
+                ++diag_deperr_n;
+                diag_deperr_sum += med;
+                if (med < 1.0) ++diag_deperr_hist[0];
+                else if (med < 2.0) ++diag_deperr_hist[1];
+                else if (med < 5.0) ++diag_deperr_hist[2];
+                else if (med < 10.0) ++diag_deperr_hist[3];
+                else if (med < 25.0) ++diag_deperr_hist[4];
+                else ++diag_deperr_hist[5];
+
+                ++diag_tri_ok;
+                it1++;
+                continue;
+              }
             }
           }
         }

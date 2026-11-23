@@ -1,8 +1,8 @@
 # 彩色内参和畸变由 camera.yaml 选择；这里只维护安装外参。
-calibrated: false
-source: "R_body_cam pending camera installation"
+calibrated: true
+source: "2026-11-23 Kalibr final_extrinsics (session3/4/6 aggregate, R_body_imu=I)"
 
 # 相机光学系（右/下/前）→ 机体 FRD（前/右/下），行主序；不得直接用 T_imu_cam 代替。
-R_body_cam: [0.0, 0.0, 0.0,
-             0.0, 0.0, 0.0,
-             0.0, 0.0, 0.0]
+R_body_cam: [0.01324139424457198, -0.048283485792530216, 0.9987458988542497,
+             -0.9997261097503528, 0.018636817696132162, 0.014155370344413313,
+             -0.01929691586461884, -0.9986597889300862, -0.04802348396597387]

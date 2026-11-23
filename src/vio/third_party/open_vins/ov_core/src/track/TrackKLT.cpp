@@ -893,8 +893,12 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   // thresh 默认 1.5 px，可用环境变量 OV_FB_THRESH 覆盖以便 A/B。
   //===========================================================================
   {
-    static const double fb_thresh =
+    static const double fb_thresh_base =
         std::getenv("OV_FB_THRESH") ? std::atof(std::getenv("OV_FB_THRESH")) : 1.5;
+    const double res_scale = (!img0pyr.empty() && img0pyr.at(0).cols > 640)
+                                 ? (static_cast<double>(img0pyr.at(0).cols) / 640.0)
+                                 : 1.0;
+    const double fb_thresh = fb_thresh_base * res_scale;
     if (fb_thresh > 0.0) {
       std::vector<cv::Point2f> pts1_back;
       std::vector<uchar> mask_back;
@@ -949,7 +953,8 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   double max_focallength_img0 = std::max(camera_calib.at(id0)->get_K()(0, 0), camera_calib.at(id0)->get_K()(1, 1));
   double max_focallength_img1 = std::max(camera_calib.at(id1)->get_K()(0, 0), camera_calib.at(id1)->get_K()(1, 1));
   double max_focallength = std::max(max_focallength_img0, max_focallength_img1);
-  cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, 2.0 / max_focallength, 0.999, mask_rsc);
+  const double ransac_px = std::max(2.0, 2.0 * (max_focallength / 452.5));
+  cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, ransac_px / max_focallength, 0.999, mask_rsc);
 
   // Loop through and record only ones that are valid
   for (size_t i = 0; i < mask_klt.size(); i++) {

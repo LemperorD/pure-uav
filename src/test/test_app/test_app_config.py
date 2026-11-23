@@ -111,7 +111,15 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     run(["--config", str(custom_app), "--vio-config", "config/vio.yaml", "--check-config"], contains="vio.resolution/fps: 1920x1080@30")
     custom_camera.write_text(camera_text.replace("use_depth: true", "use_depth: false"))
     run(["--camera-config", str(custom_camera), "--check-config"], contains="vio.use_depth/use_depth_init: false/false")
-    custom_camera.write_text(camera_text.replace("width: 1920", "width: 1280").replace("height: 1080", "height: 720").replace("gemini_1920x1080", "gemini_1280x720"))
+    synth_720 = tmp / "gemini_1280x720"
+    synth_720.mkdir()
+    prod_dir = root / "src/vio/config/gemini_1920x1080"
+    for fname in ("estimator_config.yaml", "kalibr_imu_chain.yaml"):
+        (synth_720 / fname).write_text((prod_dir / fname).read_text())
+    (synth_720 / "kalibr_imucam_chain.yaml").write_text(
+        (prod_dir / "kalibr_imucam_chain.yaml").read_text().replace("resolution: [1920, 1080]", "resolution: [1280, 720]")
+    )
+    custom_camera.write_text(camera_text.replace("width: 1920", "width: 1280").replace("height: 1080", "height: 720").replace("src/vio/config/gemini_1920x1080", str(synth_720)))
     run(["--camera-config", str(custom_camera), "--check-config"], contains="vio.resolution/fps: 1280x720@30")
     run(["--shm-vio", "/test_vio", "--shm-timeout-ms", "123", "--check-config"], contains="vio.input.shm_vio: /test_vio")
     run(["--shm-timeout-ms", "0", "--check-config"], contains="camera.ready_timeout_ms: 0")

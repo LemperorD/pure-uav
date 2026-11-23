@@ -81,10 +81,16 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
 
   // Get the newest and oldest timestamps we will try to initialize between!
   double newest_cam_time = -1;
+  double second_newest_cam_time = -1;
   for (auto const &feat : _db->get_internal_data()) {
     for (auto const &camtimepair : feat.second->timestamps) {
       for (auto const &time : camtimepair.second) {
-        newest_cam_time = std::max(newest_cam_time, time);
+        if (time > newest_cam_time) {
+          second_newest_cam_time = newest_cam_time;
+          newest_cam_time = time;
+        } else if (time < newest_cam_time && time > second_newest_cam_time) {
+          second_newest_cam_time = time;
+        }
       }
     }
   }
@@ -139,7 +145,13 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
   bool is_still = (!disparity_detected_moving_1to0 && !disparity_detected_moving_2to1);
   if (((has_jerk && wait_for_jerk) || (is_still && !wait_for_jerk)) && params.init_imu_thresh > 0.0) {
     PRINT_DEBUG(GREEN "[init]: USING STATIC INITIALIZER METHOD!\n" RESET);
-    return init_static->initialize(timestamp, covariance, order, t_imu, wait_for_jerk);
+    const bool ok = init_static->initialize(timestamp, covariance, order, t_imu, wait_for_jerk);
+    if (ok && !wait_for_jerk && second_newest_cam_time > 0.0 && !imu_data->empty() &&
+        second_newest_cam_time + params.calib_camimu_dt < imu_data->back().timestamp) {
+      // 对齐到紧邻当前帧的上一相机帧时间戳，使 state->_timestamp 为有效相机时基且立即可触发首帧 ZUPT
+      timestamp = second_newest_cam_time;
+    }
+    return ok;
   } else if (params.init_dyn_use && !is_still) {
 #ifndef __ANDROID__
     PRINT_DEBUG(GREEN "[init]: USING DYNAMIC INITIALIZER METHOD!\n" RESET);
