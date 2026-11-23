@@ -58,7 +58,7 @@ void TrackKLT::feed_new_camera(const CameraData &message) {
     if (histogram_method == HistogramMethod::HISTOGRAM) {
       cv::equalizeHist(message.images.at(msg_id), img);
     } else if (histogram_method == HistogramMethod::CLAHE) {
-      double eq_clip_limit = 10.0;
+      double eq_clip_limit = 3.0;
       cv::Size eq_win_size = cv::Size(8, 8);
       cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
       clahe->apply(message.images.at(msg_id), img);
@@ -894,9 +894,9 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   //===========================================================================
   {
     static const double fb_thresh_base =
-        std::getenv("OV_FB_THRESH") ? std::atof(std::getenv("OV_FB_THRESH")) : 1.5;
+        std::getenv("OV_FB_THRESH") ? std::atof(std::getenv("OV_FB_THRESH")) : 1.2;
     const double res_scale = (!img0pyr.empty() && img0pyr.at(0).cols > 640)
-                                 ? (static_cast<double>(img0pyr.at(0).cols) / 640.0)
+                                 ? std::sqrt(static_cast<double>(img0pyr.at(0).cols) / 640.0)
                                  : 1.0;
     const double fb_thresh = fb_thresh_base * res_scale;
     if (fb_thresh > 0.0) {
@@ -953,7 +953,7 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   double max_focallength_img0 = std::max(camera_calib.at(id0)->get_K()(0, 0), camera_calib.at(id0)->get_K()(1, 1));
   double max_focallength_img1 = std::max(camera_calib.at(id1)->get_K()(0, 0), camera_calib.at(id1)->get_K()(1, 1));
   double max_focallength = std::max(max_focallength_img0, max_focallength_img1);
-  const double ransac_px = std::max(2.0, 2.0 * (max_focallength / 452.5));
+  const double ransac_px = std::max(2.0, 2.0 * std::sqrt(std::max(1.0, max_focallength / 452.5)));
   cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, ransac_px / max_focallength, 0.999, mask_rsc);
 
   // Loop through and record only ones that are valid

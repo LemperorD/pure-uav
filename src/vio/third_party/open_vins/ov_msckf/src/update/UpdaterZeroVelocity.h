@@ -189,6 +189,9 @@ protected:
 
   /// Number of times we have called update
   int last_zupt_count = 0;
+
+  /// Accumulated dt across skipped converged-still frames (for Q_bias propagation)
+  double _zupt_skipped_dt = 0.0;
 };
 
 } // namespace ov_msckf

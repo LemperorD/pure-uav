@@ -77,7 +77,9 @@ class FcuClock {
     void clearLocked();
     bool hostToFcuUsLocked(int64_t host_ns, uint64_t& imu_us) const;
 
-    static constexpr size_t kMaxSamples = 600;  // 100Hz 下约 6 秒
+    // 实测飞控与主机晶振存在约 1250 ppm 频偏（1.25 ms/s），窗口缩至 200 样本（~1 s @192Hz）
+    // 兼顾 5% 分位抗串口抖动与把频偏滞后控制在 <1.2 ms。
+    static constexpr size_t kMaxSamples = 200;
     static constexpr size_t kMinSamples = 10;
     static constexpr int64_t kMaxAgeNs = 2000000000LL;  // 2 s
     // 时间戳回退超过它，才认为是"换了时间基"而不是乱序。

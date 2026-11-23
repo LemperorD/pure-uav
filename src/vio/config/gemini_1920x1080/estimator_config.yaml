@@ -23,7 +23,7 @@ use_fej: true
 integration: rk4
 use_stereo: false
 max_cameras: 1
-calib_cam_extrinsics: false
+calib_cam_extrinsics: true
 calib_cam_intrinsics: false
 calib_cam_timeoffset: false
 calib_imu_intrinsics: false
@@ -57,20 +57,18 @@ feat_rep_aruco: ANCHORED_MSCKF_INVERSE_DEPTH
 #=====================================================================================
 try_zupt: true
 zupt_chi2_multipler: 5          # 只用于日志打印，不再当门限
-zupt_max_velocity: 0.50         # 状态自己的速度都得 <0.3 m/s（旧值 0.1 太严，从未触发）
+zupt_max_velocity: 0.50
 zupt_noise_multiplier: 10
-zupt_max_disparity: 2.5         # 1920x1080 (fx=1362.6) 下相邻帧平均像素位移 <2.5 px 才算图像静止（覆盖高增益 MJPG 底噪 1.3~1.8 px）
+zupt_max_disparity: 1.8         # 1920x1080 下相邻帧平均像素位移 <1.8 px 才算图像静止（配合 CLAHE 降噪）
 zupt_only_at_beginning: false   # 全程生效：静止就锁，动了立刻放
-zupt_max_omega_deg: 8.0         # IMU 判据①：窗口内平均 |ω| < 8°/s（静止实测 0.5）
-zupt_max_acc_dev: 0.40          # IMU 判据②：平均 |‖a‖−g| < 0.40 m/s²（静止实测 0.02）
-zupt_sigma_v: 0.10              # 显式 "v=0" 残差，σ=5 cm/s
-# 去抖：IMU 静止条件需连续多少帧（8 帧 ≈ 0.27 s @30fps，须早于 health_lost_after 1.5s 触发）
-zupt_min_still_frames: 8        # 30fps 下连续 8 帧（0.27 s）即触发零速更新，避免静止阶段被健康监测误判 LOST
-# true = 只锁速度、不动 q/bg/ba（轻量安全版）；false = 上游那套 IMU 残差
+zupt_max_omega_deg: 2.0         # IMU 判据①：窗口平均 |ω| < 2.0°/s 且峰值 < 3.6°/s，避免手持慢晃误触发
+zupt_max_acc_dev: 0.15          # IMU 判据②：平均 |‖a‖−g| < 0.15 m/s²（桌面静止实测 0.02~0.05）
+zupt_sigma_v: 0.03              # 显式 "v=0" 残差，σ=3 cm/s（配合异常发散时对角 Q_v 阻尼 K_{p,v}）
+zupt_min_still_frames: 10       # 30fps 下连续 10 帧（0.33 s）IMU+视觉同时静止才触发
 zupt_v_only: true
-init_window_time: 2.0
-init_imu_thresh: 1.5
-init_max_disparity: 30.0
+init_window_time: 1.0
+init_imu_thresh: 0.6
+init_max_disparity: 10.0
 init_max_features: 50
 init_dyn_use: true
 init_dyn_mle_opt_calib: false
@@ -79,10 +77,10 @@ init_dyn_mle_max_time: 0.05
 init_dyn_mle_max_threads: 6
 init_dyn_num_pose: 6
 init_dyn_min_deg: 10.0
-init_dyn_inflation_ori: 10
-init_dyn_inflation_vel: 100
+init_dyn_inflation_ori: 5
+init_dyn_inflation_vel: 25
 init_dyn_inflation_bg: 10
-init_dyn_inflation_ba: 100
+init_dyn_inflation_ba: 15
 init_dyn_min_rec_cond: 1e-12
 init_dyn_bias_g: [0.0, 0.0, 0.0]
 init_dyn_bias_a: [0.0, 0.0, 0.0]
@@ -94,7 +92,7 @@ filepath_std: /tmp/ov_estimate_std.txt
 filepath_gt: /tmp/ov_groundtruth.txt
 use_klt: true
 num_pts: 300
-fast_threshold: 15
+fast_threshold: 20
 grid_x: 8
 grid_y: 5
 min_px_dist: 24
@@ -106,16 +104,16 @@ knn_ratio: 0.7
 track_frequency: 60.0
 downsample_cameras: false
 num_opencv_threads: 4
-histogram_method: HISTOGRAM
+histogram_method: CLAHE
 use_aruco: false
 num_aruco: 1024
 downsize_aruco: true
 up_msckf_sigma_px: 2.5
-up_msckf_chi2_multipler: 2
+up_msckf_chi2_multipler: 3
 up_slam_sigma_px: 2.5
-up_slam_chi2_multipler: 2
+up_slam_chi2_multipler: 3
 up_aruco_sigma_px: 2.5
-up_aruco_chi2_multipler: 2
+up_aruco_chi2_multipler: 3
 use_mask: false
 relative_config_imu: kalibr_imu_chain.yaml
 relative_config_imucam: kalibr_imucam_chain.yaml

@@ -151,7 +151,8 @@ State::State(StateOptions &options) {
   }
   if (_options.do_calib_camera_pose) {
     for (int i = 0; i < _options.num_cameras; i++) {
-      _Cov.block(_calib_IMUtoCAM.at(i)->id(), _calib_IMUtoCAM.at(i)->id(), 3, 3) = std::pow(0.005, 2) * Eigen::MatrixXd::Identity(3, 3);
+      // 【2026-11-23】0.005 rad (0.29°) 对安装/俯仰外参误差偏紧，适度放宽至 0.010 rad (0.57°，3σ≈1.7°) 兼顾俯仰收敛与平面稳定性
+      _Cov.block(_calib_IMUtoCAM.at(i)->id(), _calib_IMUtoCAM.at(i)->id(), 3, 3) = std::pow(0.010, 2) * Eigen::MatrixXd::Identity(3, 3);
       _Cov.block(_calib_IMUtoCAM.at(i)->id() + 3, _calib_IMUtoCAM.at(i)->id() + 3, 3, 3) =
           std::pow(0.015, 2) * Eigen::MatrixXd::Identity(3, 3);
     }

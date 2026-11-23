@@ -74,6 +74,7 @@ public:
    * @param params_ Parameters loaded from either ROS or CMDLINE
    */
   VioManager(VioManagerOptions &params_);
+  ~VioManager();
 
   /**
    * @brief Feed function for inertial data
@@ -169,7 +170,7 @@ public:
   void set_init_still(bool still) { init_still_ = still; }
 
   /// 打开/关闭"用深度初始化特征"（默认关，做 A/B 用）
-  void set_use_depth_init(bool enable) { use_depth_init_ = enable; }
+  void set_use_depth_init(bool enable);
 
   /// 【2026-10-21】当前滤波器内部的 cam-IMU 时延（秒）。只用于诊断记录。
   double get_camera_timeoffset() const;

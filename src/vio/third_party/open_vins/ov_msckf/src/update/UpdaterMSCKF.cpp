@@ -133,30 +133,117 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   while (it1 != feature_vec.end()) {
 
     //=================================================================================
-    // 【2026-10-21】有深度就直接构造三维位置，跳过三角化。
-    // 修的是单目的致命处："没有平移就没有视差 → 三角化失败 → 没有测量"。
-    // 实测原地转时三角化率只有 0.04；有深度后纯旋转也能出测量。
+    // 【2026-11-23】优先使用多视图三角化 + 高斯牛顿精化（视差充足时线性化点最精确，
+    // 不会因深度传感器 2~5% 噪声或前景/背景遮挡边缘外点引入虚假杠杆臂残差）。
+    // 仅在多视图三角化失败（纯旋转/弱视差）时回退至深度初值，并施加严格一致性门控
+    // （>=3 帧观测、深度 [0.30, 4.5]m、折算 640p 中位重投影误差 <= 1.2 px）。
     //=================================================================================
-    if (UpdaterMSCKF::DepthLookup::fn && !(*it1)->timestamps.empty()) {
+    bool success_tri = true;
+    if (initializer_feat->config().triangulate_1d) {
+      success_tri = initializer_feat->single_triangulation_1d(*it1, clones_cam);
+    } else {
+      success_tri = initializer_feat->single_triangulation(*it1, clones_cam);
+    }
+
+    // Gauss-newton refine the feature
+    bool success_refine = true;
+    if (success_tri && initializer_feat->config().refine_features) {
+      success_refine = initializer_feat->single_gaussnewton(*it1, clones_cam);
+    }
+
+    const auto &depth_fn = depth_lookup_ ? depth_lookup_ : UpdaterMSCKF::DepthLookup::fn;
+    auto eval_depth_med = [&](const Eigen::Vector3d &p_G, size_t &n_obs_out) -> double {
+      std::vector<double> errs;
+      for (const auto &pair : (*it1)->timestamps) {
+        const size_t cid = pair.first;
+        auto itc = clones_cam.find(cid);
+        if (itc == clones_cam.end()) continue;
+        auto iti = state->_cam_intrinsics_cameras.find(cid);
+        if (iti == state->_cam_intrinsics_cameras.end()) continue;
+        const double fx_cur = std::max(452.5, iti->second->get_K()(0, 0));
+        const double scale_ref = 452.5 / fx_cur;
+        const auto &uvs_c = (*it1)->uvs.at(cid);
+        const auto &ts_c = pair.second;
+        for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
+          auto itcl = itc->second.find(ts_c[k]);
+          if (itcl == itc->second.end()) continue;
+          const Eigen::Vector3d P_C = itcl->second.Rot() * (p_G - itcl->second.pos());
+          if (P_C.z() < 0.1) continue;
+          const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
+          const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
+          const double du = (uv_projected(0) - uvs_c[k](0)) * scale_ref;
+          const double dv = (uv_projected(1) - uvs_c[k](1)) * scale_ref;
+          errs.push_back(std::sqrt(du * du + dv * dv));
+        }
+      }
+      n_obs_out = errs.size();
+      if (errs.empty()) return -1.0;
+      std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
+      return errs[errs.size() / 2];
+    };
+    auto record_deperr = [&](double med) {
+      if (med < 0.0) return;
+      ++diag_deperr_n;
+      diag_deperr_sum += std::min(med, 30.0);
+      if (med < 1.0) ++diag_deperr_hist[0];
+      else if (med < 2.0) ++diag_deperr_hist[1];
+      else if (med < 5.0) ++diag_deperr_hist[2];
+      else if (med < 10.0) ++diag_deperr_hist[3];
+      else if (med < 25.0) ++diag_deperr_hist[4];
+      else ++diag_deperr_hist[5];
+    };
+
+    if (success_tri && success_refine) {
+      // 保留深度一致性诊断统计（供 HealthMonitor 识别特征跟踪崩塌），但不篡改已精化的三角化位置
+      if (depth_fn && !(*it1)->timestamps.empty()) {
+        const size_t cid0 = (*it1)->anchor_cam_id;
+        auto it_ts = (*it1)->timestamps.find(cid0);
+        auto it_uv = (*it1)->uvs.find(cid0);
+        if (it_ts != (*it1)->timestamps.end() && it_uv != (*it1)->uvs.end() && !it_ts->second.empty() && !it_uv->second.empty()) {
+          const double t_a = it_ts->second.back();
+          const float z_meas = depth_fn(t_a, it_uv->second.back()(0), it_uv->second.back()(1));
+          if (z_meas >= 0.30f && z_meas <= 4.5f) {
+            auto it_cam = clones_cam.find(cid0);
+            if (it_cam != clones_cam.end()) {
+              auto it_clone = it_cam->second.find(t_a);
+              if (it_clone != it_cam->second.end()) {
+                Eigen::Vector2d uv_n = state->_cam_intrinsics_cameras.at(cid0)->undistort_d(
+                    Eigen::Vector2d(it_uv->second.back()(0), it_uv->second.back()(1)));
+                Eigen::Vector3d b(uv_n(0), uv_n(1), 1.0);
+                const Eigen::Vector3d p_depth =
+                    it_clone->second.pos() + it_clone->second.Rot().transpose() * (b * static_cast<double>(z_meas));
+                size_t n_obs = 0;
+                record_deperr(eval_depth_med(p_depth, n_obs));
+              }
+            }
+          }
+        }
+      }
+      ++diag_tri_ok;
+      it1++;
+      continue;
+    }
+
+    // 三角化失败（弱视差/纯旋转）：尝试深度回退初始化
+    bool depth_ok = false;
+    if (depth_fn && !(*it1)->timestamps.empty()) {
       const size_t cam_id0 = (*it1)->timestamps.begin()->first;
       const auto &ts0 = (*it1)->timestamps.begin()->second;
       const auto &uv_list = (*it1)->uvs.at(cam_id0);
-      if (!ts0.empty() && !uv_list.empty()) {
-        const double t_anchor = ts0.front();
-        const float u0 = uv_list.front()(0);
-        const float v0 = uv_list.front()(1);
-        const float z_meas = UpdaterMSCKF::DepthLookup::fn(t_anchor, u0, v0);
-        if (z_meas >= 0.20f && z_meas <= 5.0f) {
+      if (ts0.size() >= 3 && ts0.size() == uv_list.size()) {
+        const double t_anchor = ts0.back();
+        const float u0 = uv_list.back()(0);
+        const float v0 = uv_list.back()(1);
+        const float z_meas = depth_fn(t_anchor, u0, v0);
+        if (z_meas >= 0.30f && z_meas <= 4.5f) {
           auto it_cam = clones_cam.find(cam_id0);
           if (it_cam != clones_cam.end()) {
             auto it_clone = it_cam->second.find(t_anchor);
             if (it_clone != it_cam->second.end()) {
-              Eigen::Vector2d uv_d(u0, v0);
-              Eigen::Vector2d uv_n = state->_cam_intrinsics_cameras.at(cam_id0)->undistort_d(uv_d);
+              Eigen::Vector2d uv_n = state->_cam_intrinsics_cameras.at(cam_id0)->undistort_d(Eigen::Vector2d(u0, v0));
               Eigen::Vector3d b(uv_n(0), uv_n(1), 1.0);
               const Eigen::Matrix3d &R_GtoA = it_clone->second.Rot();
               const Eigen::Vector3d &p_AinG = it_clone->second.pos();
-              // p_FinG = p_AinG + R_GtoA^T * (b * Z)
               const Eigen::Vector3d p_FinA_depth = b * static_cast<double>(z_meas);
               const Eigen::Vector3d p_depth = p_AinG + R_GtoA.transpose() * p_FinA_depth;
               (*it1)->anchor_cam_id = cam_id0;
@@ -169,67 +256,20 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
                   (*it1)->p_FinG = p_depth;
                 } else {
                   const Eigen::Vector3d p_FinA_ref = R_GtoA * ((*it1)->p_FinG - p_AinG);
-                  if (!p_FinA_ref.allFinite() || p_FinA_ref.z() < 0.15 || p_FinA_ref.z() > 15.0 ||
-                      std::abs(p_FinA_ref.z() - static_cast<double>(z_meas)) > 0.35 * static_cast<double>(z_meas)) {
+                  if (!p_FinA_ref.allFinite() || p_FinA_ref.z() < 0.25 || p_FinA_ref.z() > 15.0 ||
+                      std::abs(p_FinA_ref.z() - static_cast<double>(z_meas)) > 0.25 * static_cast<double>(z_meas)) {
                     (*it1)->p_FinA = p_FinA_depth;
                     (*it1)->p_FinG = p_depth;
                   }
                 }
               }
-
-              //=================================================================
-              // 【2026-10-21 诊断】深度一致性：把"由深度构造的三维点"重新投影回
-              // 它在窗口内的**所有**观测，看重投影误差（折算至 640p 参考焦距 452.5 px，
-              // 使 1080p 与 480p 下的 deperr 像素阈值具有相同的角误差物理意义）。
-              //   误差 ~1-3 px  → 深度关联是对的
-              //   误差 >8 px    → 深度采到了别的表面，回退到多视图三角化或剔除
-              //=================================================================
-              double med = -1.0;
-              {
-                std::vector<double> errs;
-                for (const auto &pair : (*it1)->timestamps) {
-                  const size_t cid = pair.first;
-                  auto itc = clones_cam.find(cid);
-                  if (itc == clones_cam.end()) continue;
-                  auto iti = state->_cam_intrinsics_cameras.find(cid);
-                  if (iti == state->_cam_intrinsics_cameras.end()) continue;
-                  const double fx_cur = std::max(452.5, iti->second->get_K()(0, 0));
-                  const double scale_ref = 452.5 / fx_cur;
-                  const auto &uvs_c = (*it1)->uvs.at(cid);
-                  const auto &ts_c = pair.second;
-                  for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
-                    auto itcl = itc->second.find(ts_c[k]);
-                    if (itcl == itc->second.end()) continue;
-                    const Eigen::Vector3d P_C =
-                        itcl->second.Rot() * ((*it1)->p_FinG - itcl->second.pos());
-                    if (P_C.z() < 0.1) continue;
-                    const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
-                    const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
-                    const double du = (uv_projected(0) - uvs_c[k](0)) * scale_ref;
-                    const double dv = (uv_projected(1) - uvs_c[k](1)) * scale_ref;
-                    errs.push_back(std::sqrt(du * du + dv * dv));
-                  }
-                }
-                if (!errs.empty()) {
-                  std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
-                  med = errs[errs.size() / 2];
-                }
-              }
-
-              if (med >= 0.0 && med <= 8.0) {
+              size_t n_obs = 0;
+              const double med = eval_depth_med((*it1)->p_FinG, n_obs);
+              record_deperr(med);
+              if (n_obs >= 3 && med >= 0.0 && med <= 2.0) {
                 ++diag_depth_used;
-                ++diag_deperr_n;
-                diag_deperr_sum += med;
-                if (med < 1.0) ++diag_deperr_hist[0];
-                else if (med < 2.0) ++diag_deperr_hist[1];
-                else if (med < 5.0) ++diag_deperr_hist[2];
-                else if (med < 10.0) ++diag_deperr_hist[3];
-                else if (med < 25.0) ++diag_deperr_hist[4];
-                else ++diag_deperr_hist[5];
-
                 ++diag_tri_ok;
-                it1++;
-                continue;
+                depth_ok = true;
               }
             }
           }
@@ -237,33 +277,19 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
       }
     }
 
-    // Triangulate the feature and remove if it fails
-    bool success_tri = true;
-    if (initializer_feat->config().triangulate_1d) {
-      success_tri = initializer_feat->single_triangulation_1d(*it1, clones_cam);
-    } else {
-      success_tri = initializer_feat->single_triangulation(*it1, clones_cam);
-    }
-
-    // Gauss-newton refine the feature
-    bool success_refine = true;
-    if (initializer_feat->config().refine_features) {
-      success_refine = initializer_feat->single_gaussnewton(*it1, clones_cam);
+    if (depth_ok) {
+      it1++;
+      continue;
     }
 
     // Remove the feature if not a success
-    if (!success_tri || !success_refine) {
-      ++diag_tri_drop;
-      if (!success_tri)
-        ++diag_tri_fail_tri;
-      else
-        ++diag_tri_fail_refine;
-      (*it1)->to_delete = true;
-      it1 = feature_vec.erase(it1);
-      continue;
-    }
-    ++diag_tri_ok;
-    it1++;
+    ++diag_tri_drop;
+    if (!success_tri)
+      ++diag_tri_fail_tri;
+    else
+      ++diag_tri_fail_refine;
+    (*it1)->to_delete = true;
+    it1 = feature_vec.erase(it1);
   }
   rT2 = boost::posix_time::microsec_clock::local_time();
 

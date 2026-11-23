@@ -596,10 +596,22 @@ int main(int argc, char** argv) {
         long long last_updates = 0;
         int64_t stats_win_start_ns = steadyNowNs();
         double update_rate = 0.0;
-        auto imu_count_prev = static_cast<long long>(link.receivedImu());
-        int64_t imu_hz_time_ns = steadyNowNs();
+        // 按飞控 IMU 原始时间戳 1 s 滑窗实测频率（与 --view 解耦，预热后半段即收敛，避免首 2 s 网格错频与无界面模式失效）
+        std::deque<uint64_t> imu_rate_window;
         double imu_hz = 0.0;
         bool imu_rate_warned = false;
+        auto updateImuRate = [&](uint64_t ts_us) {
+            if (!imu_rate_window.empty() && ts_us <= imu_rate_window.back()) {
+                imu_rate_window.clear();
+            }
+            imu_rate_window.push_back(ts_us);
+            while (imu_rate_window.size() > 2 && ts_us - imu_rate_window.front() > 1000000ULL) {
+                imu_rate_window.pop_front();
+            }
+            if (imu_rate_window.size() >= 20 && ts_us - imu_rate_window.front() >= 100000ULL) {
+                imu_hz = static_cast<double>(imu_rate_window.size() - 1) * 1e6 / static_cast<double>(ts_us - imu_rate_window.front());
+            }
+        };
 
         // 时间基变化必须整体恢复：暂停发送、清队列/映射/平滑状态，再重建估计器。
         // 只重置时钟会让旧滤波状态接到新时间基，造成错误传播。
@@ -622,6 +634,9 @@ int main(int argc, char** argv) {
             pose_age_ms.clear();
             vio_vs_ekf3_ms.clear();
             imu_timestamp_filter.reset();
+            imu_rate_window.clear();
+            imu_hz = 0.0;
+            imu_rate_warned = false;
             last_raw_imu_us = last_fed_imu_us = 0;
             was_blocked = true;  // 让恢复时打印"恢复发送"
             estimator.resetForNewTimebase(why);
@@ -660,12 +675,16 @@ int main(int argc, char** argv) {
                 if (!imu_stream_ok) {
                     // 保留既有预递减判据：计数从 150 减到 0 时，当前样本开始参与处理。
                     // 不用连续 dt 判稳：实测 2.5/7.5 ms 交替，严格间隔判据会一直拒收。
+                    // 预热后 100 个样本（约 0.5 s）同时喂给 updateImuRate，确保首帧即采用实测 IMU 频率。
+                    if (imu_warmup_left <= 100) {
+                        updateImuRate(imu_item.imu.timestamp_us);
+                    }
                     if (--imu_warmup_left > 0) {
                         ++imu_warmup_total;
                         continue;
                     }
                     imu_stream_ok = true;
-                    std::printf("[imu] 预热完成（丢弃 %lld 个样本），开始喂 IMU\n", imu_warmup_total);
+                    std::printf("[imu] 预热完成（丢弃 %lld 个样本，实测 %.1f Hz），开始喂 IMU\n", imu_warmup_total, imu_hz);
                     std::fflush(stdout);
                 }
                 // 串口重连也算一次时间基变化（新会话的 boot 时间很可能重新开始）
@@ -683,6 +702,7 @@ int main(int argc, char** argv) {
                     stats_imu_out_of_order.fetch_add(1);  // 乱序帧不喂 OpenVINS（会破坏时间递增）
                     continue;
                 }
+                updateImuRate(imu_item.imu.timestamp_us);
                 // 用均匀网格与慢速 PLL 去除调度抖动；raw 模式保留原始时间戳。
                 // 时间基检查仍基于原始 FCU 时间，送入估计器前再转为 Unix 微秒。
                 pure_uav::ImuSample imu_feed = imu_item.imu;
@@ -982,10 +1002,10 @@ int main(int argc, char** argv) {
                 std::printf(
                     "[VIO] init=%d img=%d pose=%lld sent=%lld blocked=%lld health=%s "
                     "qual=%d rc=%d feat=%d tilt=%s lin=%.2f tri=%.3f depthused=%lld deperr=%s v=%sm/s tsjit=%sms imu=%llu(+%llu/2s) q=%zu clock=%.1fms "
-                    "age=%.0f/%.0fms dvel=%+.0fmm/s\n",
+                    "age=%.0f/%.0fms dvel=%+.0fmm/s dt=%+.1fms\n",
                     estimator.initialized() ? 1 : 0, estimator.imageCount(), static_cast<long long>(stats_poses.load()), static_cast<long long>(stats_sent.load()), static_cast<long long>(stats_blocked.load()), pure_uav::toString(estimator.healthState()), qual_now, rc_now,
                     estimator.healthReport().features, tiltStr.c_str(), estimator.linAccelDev(), estimator.triangulationRate(), estimator.depthUsed(), depBuf, spdBuf, tsjBuf, static_cast<unsigned long long>(rx), static_cast<unsigned long long>(rx - last_received_imu), link.imuQueueSize(), off_ms,
-                    age_p50, age_p95, dvel_med);
+                    age_p50, age_p95, dvel_med, estimator.cameraTimeOffsetSec() * 1e3);
                 std::fflush(stdout);
                 last_received_imu = rx;
             }
@@ -1001,14 +1021,6 @@ int main(int argc, char** argv) {
                 double display_fps = 0.0;
                 if (frame_times.size() >= 2) {
                     display_fps = (frame_times.size() - 1) * 1e9 / static_cast<double>(frame_times.back() - frame_times.front());
-                }
-
-                // 保留原有行为：实测速率在查看器分支每 2 秒更新，也供上面的 IMU 去抖使用。
-                if (now - imu_hz_time_ns > 2000000000LL) {
-                    const auto cnt = static_cast<long long>(link.receivedImu());
-                    imu_hz = (cnt - imu_count_prev) * 1e9 / static_cast<double>(now - imu_hz_time_ns);
-                    imu_count_prev = cnt;
-                    imu_hz_time_ns = now;
                 }
 
                 // MSCKF 更新率（累计计数差分 / 2 秒）

@@ -21,6 +21,9 @@
 
 #include "UpdaterZeroVelocity.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "UpdaterHelper.h"
 
 #include "feat/FeatureDatabase.h"
@@ -121,84 +124,165 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // 实测（turn4/turn5 的安静段）：|ω| 0.4~0.6 °/s、| ‖a‖ − g | < 0.02 m/s²。
   //===================================================================================
   double mean_w_deg = 0.0, mean_acc_dev = 0.0;
+  double max_w_deg = 0.0, max_acc_dev = 0.0;
   {
     double sw = 0.0, sa = 0.0;
     for (const auto &m : imu_recent) {
-      sw += m.wm.norm();
-      sa += std::abs(m.am.norm() - _gravity.norm());
+      const double w_deg = m.wm.norm() * 180.0 / M_PI;
+      const double a_dev = std::abs(m.am.norm() - _gravity.norm());
+      sw += w_deg;
+      sa += a_dev;
+      max_w_deg = std::max(max_w_deg, w_deg);
+      max_acc_dev = std::max(max_acc_dev, a_dev);
     }
-    mean_w_deg = (sw / (double)imu_recent.size()) * 180.0 / M_PI;
-    mean_acc_dev = sa / (double)imu_recent.size();
+    mean_w_deg = sw / static_cast<double>(imu_recent.size());
+    mean_acc_dev = sa / static_cast<double>(imu_recent.size());
   }
-  const bool imu_still = (mean_w_deg < _zupt_max_omega_deg) && (mean_acc_dev < _zupt_max_acc_dev);
+  const bool imu_still = (mean_w_deg < _zupt_max_omega_deg) && (mean_acc_dev < _zupt_max_acc_dev) &&
+                         (max_w_deg < 1.8 * _zupt_max_omega_deg) && (max_acc_dev < 2.0 * _zupt_max_acc_dev);
 
   //===================================================================================
-  // 【2026-10-25】轻量路径：只把速度钉到零（不动 q/bg/ba）
-  // 见头文件 _zupt_v_only 的说明。这里是"停下来不许再加速"的最小充分实现。
+  // 【2026-10-25 / 2026-11-23 优化】轻量安全零速更新路径：
+  //   1) 严格双证据去抖：必须 IMU 与视觉同时静止才累计 _still_streak，避免手持慢晃误触发；
+  //   2) 常态仅更新 [bg, v] 并先传播 Q_bias：不再用 (a_m - b_a - R*g) 在不含 ba 的状态下强扭姿态，
+  //      避免残留 ba 零偏把 R 掰偏 1~2° 并在静止期通过交叉协方差拉偏位置/航向；
+  //   3) 仅在原始加速度计与估计重力夹角 > 2.5°（确认发生真实倾角发散而非 ba 残留）时，才用原始
+  //      a_raw 做保守重力救援；
+  //   4) 速度残差与 P_vv 不一致时先对 v 注入对角过程噪声 Q_v，既把 v 拉回 0 又阻尼 K_{p,v}，
+  //      彻底消除交叉协方差引起的位置瞬移，且不再硬写 set_value(0) 破坏 EKF/FEJ 一致性；
+  //   5) 静止收敛后降频（6 Hz）更新并累计 dt 传播 Q_bias，防止长时间停放时协方差塌缩与缓慢漂移。
   //===================================================================================
   if (_zupt_v_only) {
     double disp_avg = 0.0, disp_var = 0.0;
     int num_features = 0;
     FeatureHelper::compute_disparity(_db, state->_timestamp, timestamp, disp_avg, disp_var, num_features);
     last_disp_avg = disp_avg;
-    // 当 IMU 处于桌面级绝对静止（|w| < 1.2°/s 且 |‖a‖-g| < 0.08 m/s²）时，放宽光流像素抖动门限以容忍 1080p MJPG 高增益底噪
-    const bool imu_ultra_still = (mean_w_deg < 1.2) && (mean_acc_dev < 0.08);
-    const double eff_max_disp = imu_ultra_still ? (2.0 * _zupt_max_disparity) : _zupt_max_disparity;
+    // 仅在桌面级极静时适度放宽像素位移上限（最大 2.0 px）以容忍 1080p MJPG 底噪
+    const bool imu_ultra_still = (mean_w_deg < 0.8) && (max_w_deg < 1.5) && (mean_acc_dev < 0.08);
+    const double eff_max_disp = imu_ultra_still ? std::min(2.0, 1.35 * _zupt_max_disparity) : _zupt_max_disparity;
     const bool vision_still = (disp_avg >= 0.0 && disp_avg < eff_max_disp && num_features > 20);
     const double v_now0 = state->_imu->vel().norm();
 
-    // 去抖：当 IMU 与视觉光流同时确认静止时，不因滤波器自身已漂移的速度 v_now0 超阈值而拒止零速更新，
-    // 否则一旦快速机动后 |v| 漂到 >0.5 m/s，停下后 ZUPT 被自身锁死无法拉回 0。
-    _still_streak = (imu_still && (vision_still || v_now0 < _zupt_max_velocity)) ? (_still_streak + 1) : 0;
-    if (!vision_still || _still_streak < _zupt_min_still_frames) {
+    // 去抖：必须 IMU 与视觉同时满足静止条件才累计连续帧数，彻底杜绝慢速晃动/转身时误触发。
+    // 不因状态自身速度 v_now0 超阈值而拒止，以便真实停稳后仍能把飘飞的速度拉回 0。
+    const bool still_now = imu_still && vision_still;
+    _still_streak = still_now ? (_still_streak + 1) : 0;
+    if (!still_now || _still_streak < _zupt_min_still_frames) {
       last_zupt_state_timestamp = 0.0;
       last_zupt_count = 0;
+      _zupt_skipped_dt = 0.0;
       return false;
     }
 
-    Eigen::Vector3d a_avg = Eigen::Vector3d::Zero();
+    double dt_summed = 0.0;
+    for (size_t i = 0; i + 1 < imu_recent.size(); ++i) {
+      dt_summed += imu_recent.at(i + 1).timestamp - imu_recent.at(i).timestamp;
+    }
+    dt_summed = std::max(dt_summed, 1e-3);
+
+    Eigen::Vector3d a_raw_avg = Eigen::Vector3d::Zero();
     Eigen::Vector3d w_avg = Eigen::Vector3d::Zero();
     for (const auto &m : imu_recent) {
-      a_avg += m.am - state->_imu->bias_a();
+      a_raw_avg += m.am;
       w_avg += m.wm - state->_imu->bias_g();
     }
-    a_avg /= static_cast<double>(imu_recent.size());
+    a_raw_avg /= static_cast<double>(imu_recent.size());
     w_avg /= static_cast<double>(imu_recent.size());
 
-    // 同时约束 [q, bg, v]（绝不把 ba 放入 Hx_order，既可在静止时修正姿态倾角和陀螺零偏，又不会把重力残差塞进加速度计零偏 ba）
-    // 注意：长时间运行后滤波器自身 P_vv 已收敛到 ~(0.01 m/s)²，若 R_vv 用 0.1² 会导致卡尔曼增益 K≈0.01（日志打 |v|→0 但实际几乎没变）。
-    // 因此这里用紧噪声 sg = 0.005 m/s 更新协方差与交叉项，随后显式将速度状态钉死为 0。
-    const double sg = 0.005;
-    std::vector<std::shared_ptr<Type>> Hx_order;
-    Hx_order.push_back(state->_imu->q());
-    Hx_order.push_back(state->_imu->bg());
-    Hx_order.push_back(state->_imu->v());
-    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(9, 9);
-    Eigen::VectorXd res = Eigen::VectorXd::Zero(9);
-    Eigen::MatrixXd R = Eigen::MatrixXd::Zero(9, 9);
-
-    // 1) v = 0
-    res.block<3, 1>(0, 0) = -state->_imu->vel();
-    H.block<3, 3>(0, 6) = Eigen::Matrix3d::Identity();
-    R.block<3, 3>(0, 0) = (sg * sg) * Eigen::Matrix3d::Identity();
-
-    // 2) w_m - b_g = 0
-    res.block<3, 1>(3, 0) = -w_avg;
-    H.block<3, 3>(3, 3) = -Eigen::Matrix3d::Identity();
-    R.block<3, 3>(3, 3) = (0.005 * 0.005) * Eigen::Matrix3d::Identity();
-
-    // 3) a_m - b_a - R_GtoI * g = 0 (只更姿态 q，不碰 ba)
-    const Eigen::Matrix3d R_GtoI_j = (state->_options.do_fej) ? state->_imu->Rot_fej() : state->_imu->Rot();
-    res.block<3, 1>(6, 0) = -(a_avg - state->_imu->Rot() * _gravity);
-    H.block<3, 3>(6, 0) = -skew_x(R_GtoI_j * _gravity);
-    R.block<3, 3>(6, 6) = (0.10 * 0.10) * Eigen::Matrix3d::Identity();
+    double tilt_raw_deg = 0.0;
+    const Eigen::Vector3d g_est_I = state->_imu->Rot() * _gravity;
+    if (a_raw_avg.norm() > 1e-3 && g_est_I.norm() > 1e-3) {
+      const double c = std::max(-1.0, std::min(1.0, a_raw_avg.normalized().dot(g_est_I.normalized())));
+      tilt_raw_deg = std::acos(c) * 180.0 / M_PI;
+    }
+    const bool need_gravity_rescue = (tilt_raw_deg > 2.5);
 
     if (last_zupt_count >= 2) {
       _db->cleanup_measurements_exact(last_zupt_state_timestamp);
     }
+
+    // 静止收敛后降频到约 6 Hz 执行 EKF 更新，避免 30 Hz 反复收紧协方差造成状态僵化/慢漂
+    const bool converged_still = (last_zupt_count >= 15) && (v_now0 < 0.005) && (w_avg.norm() < 0.002) && !need_gravity_rescue;
+    if (converged_still && ((last_zupt_count % 5) != 0)) {
+      _zupt_skipped_dt += dt_summed;
+      state->_timestamp = timestamp;
+      last_zupt_state_timestamp = timestamp;
+      last_zupt_count++;
+      return true;
+    }
+
+    const double dt_bias = std::max(dt_summed + _zupt_skipped_dt, 1e-3);
+    _zupt_skipped_dt = 0.0;
+
+    // 1) 传播陀螺与加计零偏随机游走协方差，保持静止期零偏可跟踪温度漂移
+    {
+      Eigen::MatrixXd Phi_bias = Eigen::MatrixXd::Identity(6, 6);
+      Eigen::MatrixXd Q_bias = Eigen::MatrixXd::Zero(6, 6);
+      Q_bias.block<3, 3>(0, 0) = (dt_bias * _noises.sigma_wb_2) * Eigen::Matrix3d::Identity();
+      Q_bias.block<3, 3>(3, 3) = (dt_bias * _noises.sigma_ab_2) * Eigen::Matrix3d::Identity();
+      std::vector<std::shared_ptr<Type>> Phi_order;
+      Phi_order.push_back(state->_imu->bg());
+      Phi_order.push_back(state->_imu->ba());
+      StateHelper::EKFPropagation(state, Phi_order, Phi_order, Phi_bias, Q_bias);
+    }
+
+    // 2) 若当前速度估计与 P_vv 严重不一致（如异常发散后停机），先对 v 单独注入对角过程噪声 Q_v：
+    //    K_v ≈ I（顺利归零），同时 K_{p,v} = P_{p,v}(P_{vv}+Q_v+R_v)^{-1} 被大幅阻尼（避免瞬移位置），
+    //    且协方差严格保持半正定。
+    const double sigma_v = (_zupt_sigma_v > 1e-4) ? _zupt_sigma_v : 0.05;
+    {
+      std::vector<std::shared_ptr<Type>> v_order{state->_imu->v()};
+      const Eigen::Matrix3d P_vv = StateHelper::get_marginal_covariance(state, v_order);
+      const Eigen::Matrix3d S_v = P_vv + (sigma_v * sigma_v) * Eigen::Matrix3d::Identity();
+      const Eigen::Vector3d v_vec = state->_imu->vel();
+      const double chi2_v = v_vec.dot(S_v.llt().solve(v_vec));
+      if (chi2_v > 9.0 && v_now0 > 0.02) {
+        const double q_v = std::pow(0.5 * v_now0, 2);
+        Eigen::MatrixXd Phi_v = Eigen::MatrixXd::Identity(3, 3);
+        Eigen::MatrixXd Q_v = q_v * Eigen::Matrix3d::Identity();
+        StateHelper::EKFPropagation(state, v_order, v_order, Phi_v, Q_v);
+      }
+    }
+
+    // 3) 构造观测方程：常态仅 [bg, v]；仅当倾角发散 > 2.5° 时追加原始重力方向救援 [q]
+    const double mult = (_zupt_noise_multiplier > 1e-6) ? _zupt_noise_multiplier : 1.0;
+    const double var_w = std::max(mult * _noises.sigma_w_2 / dt_summed, 0.002 * 0.002);
+
+    std::vector<std::shared_ptr<Type>> Hx_order;
+    const int dim = need_gravity_rescue ? 9 : 6;
+    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(dim, dim);
+    Eigen::VectorXd res = Eigen::VectorXd::Zero(dim);
+    Eigen::MatrixXd R = Eigen::MatrixXd::Zero(dim, dim);
+
+    int col_bg = 0;
+    int col_v = 3;
+    if (need_gravity_rescue) {
+      Hx_order.push_back(state->_imu->q());
+      col_bg = 3;
+      col_v = 6;
+    }
+    Hx_order.push_back(state->_imu->bg());
+    Hx_order.push_back(state->_imu->v());
+
+    // (a) v = 0
+    res.block<3, 1>(0, 0) = -state->_imu->vel();
+    H.block<3, 3>(0, col_v) = Eigen::Matrix3d::Identity();
+    R.block<3, 3>(0, 0) = (sigma_v * sigma_v) * Eigen::Matrix3d::Identity();
+
+    // (b) w_m - b_g = 0
+    res.block<3, 1>(3, 0) = -w_avg;
+    H.block<3, 3>(3, col_bg) = -Eigen::Matrix3d::Identity();
+    R.block<3, 3>(3, 3) = var_w * Eigen::Matrix3d::Identity();
+
+    // (c) 严重倾角发散救援（原始 a_raw 对齐重力，不引入估计 ba 偏差）
+    if (need_gravity_rescue) {
+      const Eigen::Matrix3d R_GtoI_j = (state->_options.do_fej) ? state->_imu->Rot_fej() : state->_imu->Rot();
+      res.block<3, 1>(6, 0) = -(a_raw_avg - g_est_I);
+      H.block<3, 3>(6, 0) = -skew_x(R_GtoI_j * _gravity);
+      R.block<3, 3>(6, 6) = (0.35 * 0.35) * Eigen::Matrix3d::Identity();
+    }
+
     StateHelper::EKFUpdate(state, Hx_order, H, res, R);
-    state->_imu->v()->set_value(Eigen::Vector3d::Zero());
-    state->_imu->v()->set_fej(Eigen::Vector3d::Zero());
     state->_timestamp = timestamp;
     last_zupt_state_timestamp = timestamp;
     last_zupt_count++;
@@ -206,8 +290,8 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     static double last_print_t2 = -1e9;
     if (timestamp - last_print_t2 > 2.0) {
       last_print_t2 = timestamp;
-      PRINT_INFO(CYAN "[ZUPT] t=%.2f 判静止→锁速度 |v|=%.3f→0 |w|=%.2f°/s ‖a‖偏差=%.3f 位移=%.2fpx(%d特征)\n" RESET,
-                 timestamp, v_now0, mean_w_deg, mean_acc_dev, disp_avg, num_features);
+      PRINT_INFO(CYAN "[ZUPT] t=%.2f 判静止→零速更新 |v|=%.3f→%.3f |w|=%.2f°/s ‖a‖偏差=%.3f 位移=%.2fpx(%d特征) tilt=%.2f°\n" RESET,
+                 timestamp, v_now0, state->_imu->vel().norm(), mean_w_deg, mean_acc_dev, disp_avg, num_features, tilt_raw_deg);
     }
     return true;
   }

@@ -169,6 +169,18 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   }
 }
 
+VioManager::~VioManager() {
+  if (updaterMSCKF)
+    updaterMSCKF->set_depth_lookup({});
+}
+
+void VioManager::set_use_depth_init(bool enable) {
+  use_depth_init_ = enable;
+  if (!enable && updaterMSCKF) {
+    updaterMSCKF->set_depth_lookup({});
+  }
+}
+
 void VioManager::feed_measurement_imu(const ov_core::ImuData &message) {
 
   // The oldest time we need IMU with is the last clone
@@ -290,9 +302,9 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
                                  const double t_c2d_m[3]) {
   if (depth_mm.empty() || fx <= 0.0)
     return;
-  // 留 40 帧历史：特征的锚点观测可能是几帧之前的
+  // 留 60 帧历史（约 2 s @30fps）：覆盖更长的滑动窗口，保证锚点时刻可命中对应深度帧
   depth_hist_.push_back({timestamp, depth_mm});
-  while (depth_hist_.size() > 40)
+  while (depth_hist_.size() > 60)
     depth_hist_.pop_front();
   depth_fx_ = fx;
   depth_fy_ = fy;
@@ -317,8 +329,8 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     std::fflush(stdout);
   }
 
-  // 安装查询回调：彩色像素 (u,v) + 时刻 t → 米制深度
-  UpdaterMSCKF::DepthLookup::fn = [this](double t, float u, float v) -> float {
+  // 按实例安装查询回调：彩色像素 (u,v) + 时刻 t → 米制深度（避免静态全局悬空指针，同时供 MSCKF 与 SLAM 逆深度融合使用）
+  auto lookup_fn = [this](double t, float u, float v) -> float {
     // 1) 找时刻最接近的深度帧（30fps 下同一个锚点时刻能精确命中）
     const DepthFrameRec *best = nullptr;
     double best_dt = 1e9;
@@ -362,7 +374,7 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
       const int cy = static_cast<int>(std::lround(depth_fy_ * Pd.y() / Pd.z() + depth_cy_));
       if (cx < 2 || cy < 2 || cx >= best->depth_mm.cols - 2 || cy >= best->depth_mm.rows - 2)
         return -1.0f;
-      // 5x5 取有效值中位，抑制结构光空洞/噪声，也能挡掉部分深度不连续处的错值
+      // 5x5 邻域要求至少 12/25 个有效深度像素且中心像素有效，抑制结构光遮挡空洞与前景/背景跳变边
       std::vector<unsigned short> vals;
       vals.reserve(25);
       for (int dy = -2; dy <= 2; ++dy) {
@@ -372,25 +384,22 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
           if (z != 0 && z != 0xFFFF) vals.push_back(z);
         }
       }
-      if (vals.size() < 5) return -1.0f;
+      if (vals.size() < 12) return -1.0f;
+      const unsigned short z_center = best->depth_mm.ptr<unsigned short>(cy)[cx];
+      if (z_center == 0 || z_center == 0xFFFF) {
+        ++diag_depth_edge_rej;
+        return -1.0f;
+      }
       std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
       const double d_m = static_cast<double>(vals[vals.size() / 2]) * 1e-3;
-      //=================================================================
-      // 【2026-10-23】深度边缘门控（外审第 6 条的实测版）
-      //
-      // 实测（ver3/res1，各 800 万像素）：13.9% 的像素 5x5 窗内极差 >10 cm，
-      // 但只有 2.2% 的中值真的落在"另一个面"上。对那 2% 直接把深度点
-      // 当精确值塞进状态是有害的（一个错的三维锚会污染后续所有更新）。
-      // 判据：窗内极差 >15 cm 且 |中值-中心像素| >3 cm → 不用。
-      //=================================================================
       {
-        const unsigned short z_center = best->depth_mm.ptr<unsigned short>(cy)[cx];
         unsigned short vmin = vals[0], vmax = vals[0];
         for (auto v : vals) { vmin = std::min(vmin, v); vmax = std::max(vmax, v); }
         const double spread_m = static_cast<double>(vmax - vmin) * 1e-3;
         const double center_m = static_cast<double>(z_center) * 1e-3;
-        if (z_center != 0 && z_center != 0xFFFF && spread_m > 0.15 &&
-            std::fabs(d_m - center_m) > 0.03) {
+        const double max_spread = std::max(0.15, 0.10 * d_m);
+        const double max_center_diff = std::max(0.03, 0.025 * d_m);
+        if (spread_m > max_spread || std::fabs(d_m - center_m) > max_center_diff) {
           ++diag_depth_edge_rej;
           return -1.0f;
         }
@@ -408,6 +417,8 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     // 因为上层用 p_FinG = p_AinG + R_GtoAᵀ·(b·λ) 重建位置。
     return static_cast<float>(z_m);
   };
+  if (updaterMSCKF)
+    updaterMSCKF->set_depth_lookup(std::move(lookup_fn));
 }
 
 double VioManager::get_camera_timeoffset() const {
@@ -483,8 +494,8 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
       const double tr = std::min(1.0, std::max(-1.0, (R_pred.trace() - 1.0) * 0.5));
       const double ang = std::acos(tr);
       auto klt = std::dynamic_pointer_cast<ov_core::TrackKLT>(trackFEATS);
-      // 1080p 下帧间旋转 > 1.4° (~43°/s，像素跳变 > 34 px) 时启用陀螺旋转预测辅助 KLT，慢速平移阶段保持原生 KLT
-      if (klt && std::isfinite(ang) && (gyro_predict_force || ang > 0.025) && ang < 0.35)
+      // 1080p 下帧间旋转 > 0.86° (~26°/s，像素跳变 > 20 px) 时启用陀螺旋转预测辅助 KLT，慢速平移阶段保持原生 KLT
+      if (klt && std::isfinite(ang) && (gyro_predict_force || ang > 0.015) && ang < 0.35)
         klt->set_predicted_rotation(R_pred);
       else if (klt)
         klt->clear_predicted_rotation();
@@ -1067,8 +1078,8 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   if (state->_options.do_calib_camera_pose) {
     for (int i = 0; i < state->_options.num_cameras; i++) {
       std::shared_ptr<PoseJPL> calib = state->_calib_IMUtoCAM.at(i);
-      PRINT_INFO("cam%d extrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f\n", (int)i, calib->quat()(0), calib->quat()(1), calib->quat()(2),
-                 calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));
+      PRINT_DEBUG("cam%d extrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f\n", (int)i, calib->quat()(0), calib->quat()(1), calib->quat()(2),
+                  calib->quat()(3), calib->pos()(0), calib->pos()(1), calib->pos()(2));
     }
   }
 

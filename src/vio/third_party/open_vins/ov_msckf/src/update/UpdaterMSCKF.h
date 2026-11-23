@@ -65,6 +65,9 @@ public:
     static std::function<float(double t, float u, float v)> fn;
   };
 
+  /// Per-instance depth lookup callback (preferred over static DepthLookup::fn to prevent dangling captures)
+  void set_depth_lookup(std::function<float(double t, float u, float v)> fn) { depth_lookup_ = std::move(fn); }
+
   /**
    * @brief Default constructor for our MSCKF updater
    *
@@ -131,6 +134,9 @@ protected:
 
   /// Chi squared 95th percentile table (lookup would be size of residual)
   std::map<int, double> chi_squared_table;
+
+  /// Per-instance depth lookup callback (optional)
+  std::function<float(double t, float u, float v)> depth_lookup_;
 };
 
 } // namespace ov_msckf
