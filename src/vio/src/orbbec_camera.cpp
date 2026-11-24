@@ -560,33 +560,72 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                     "，不够亮最多放到 %.2f ms｜增益上限 %d｜曝光范围 %d..%d\n",
                     cfg.tune_target_mean, exp_cap * 0.1, cfg.tune_blur_budget_px, cfg.tune_expected_rate_dps, exp_cap_dark * 0.1, gain_cap, er.min, er.max);
 
-                // 给定曝光，跑一遍增益阶梯，返回 (最佳增益, 最佳灰度)
-                auto try_exposure = [&](int exp_units, int& out_gain) -> double {
-                    int bg = gr.min;
-                    double bm = -1.0;
-                    for (const double frac : {0.0, 0.03, 0.07, 0.12, 0.2, 0.3, 0.45, 0.65, 1.0}) {
-                        const int want = gr.min + static_cast<int>((frac * (gain_cap - gr.min)) + 0.5);
-                        try {
-                            dev->setIntProperty(OB_PROP_COLOR_EXPOSURE_INT, exp_units);
-                            dev->setIntProperty(OB_PROP_COLOR_GAIN_INT, want);
-                        } catch (const ob::Error&) {
-                            break;
-                        }
-                        const double mean = grab_mean(4, 5);
-                        if (mean < 0) {
-                            continue;
-                        }
+                // 构造去重递增的增益候选阶梯（与原 9 档一致）。
+                std::vector<int> gain_steps;
+                for (const double frac : {0.0, 0.03, 0.07, 0.12, 0.2, 0.3, 0.45, 0.65, 1.0}) {
+                    const int want = gr.min + static_cast<int>((frac * (gain_cap - gr.min)) + 0.5);
+                    if (gain_steps.empty() || want != gain_steps.back()) {
+                        gain_steps.push_back(want);
+                    }
+                }
+
+                // 测光阶段每档丢 3 帧过渡（覆盖 UVC 1..3 帧生效延迟），采 2 帧求平均。
+                constexpr int kTuneSettleFrames = 3;
+                constexpr int kTuneSampleFrames = 2;
+                int last_exp = -1;
+                int last_gain = -1;
+                auto probe_gain = [&](int exp_units, int want, bool& set_ok) -> double {
+                    set_ok = true;
+                    try {
+                        dev->setIntProperty(OB_PROP_COLOR_EXPOSURE_INT, exp_units);
+                        dev->setIntProperty(OB_PROP_COLOR_GAIN_INT, want);
+                    } catch (const ob::Error&) {
+                        set_ok = false;
+                        return -1.0;
+                    }
+                    last_exp = exp_units;
+                    last_gain = want;
+                    const double mean = grab_mean(kTuneSettleFrames, kTuneSampleFrames);
+                    if (mean >= 0) {
                         std::printf("[Orbbec]   曝光 %.1f ms 增益 %d → 灰度 %.1f\n", exp_units * 0.1, want, mean);
-                        if (mean > bm) {
-                            bm = mean;
-                            bg = want;
+                    }
+                    return mean;
+                };
+
+                // 给定曝光，先测满增益判上限，够亮再用二分找满足目标灰度的最小增益。
+                auto try_exposure = [&](int exp_units, int& out_gain) -> double {
+                    out_gain = gr.min;
+                    if (gain_steps.empty()) {
+                        return -1.0;
+                    }
+                    bool set_ok = true;
+                    const size_t last_idx = gain_steps.size() - 1;
+                    const double top_mean = probe_gain(exp_units, gain_steps[last_idx], set_ok);
+                    if (!set_ok || top_mean < 0) {
+                        return -1.0;
+                    }
+                    out_gain = gain_steps[last_idx];
+                    if (top_mean < cfg.tune_target_mean || last_idx == 0) {
+                        return top_mean;
+                    }
+                    size_t lo = 0;
+                    size_t hi = last_idx;
+                    double best_mean = top_mean;
+                    while (lo < hi) {
+                        const size_t mid = lo + (hi - lo) / 2;
+                        const double mean = probe_gain(exp_units, gain_steps[mid], set_ok);
+                        if (!set_ok || mean < 0) {
+                            break;
                         }
                         if (mean >= cfg.tune_target_mean) {
-                            break;
+                            out_gain = gain_steps[mid];
+                            best_mean = mean;
+                            hi = mid;
+                        } else {
+                            lo = mid + 1;
                         }
                     }
-                    out_gain = bg;
-                    return bm;
+                    return best_mean;
                 };
 
                 int best_gain = gr.min;
@@ -606,14 +645,17 @@ bool OrbbecCamera::startWithFrames(const Config& cfg, FramesCallback callback, s
                     }
                 }
                 const int exp_used = used_exp;
-                try {
-                    dev->setIntProperty(OB_PROP_COLOR_EXPOSURE_INT, exp_used);
-                    dev->setIntProperty(OB_PROP_COLOR_GAIN_INT, best_gain);
-                } catch (const ob::Error&) {
-                }
-                double final_mean = grab_mean(4, 5);
-                if (final_mean < 0) {
-                    final_mean = best_mean;
+                double final_mean = best_mean;
+                if (last_exp != exp_used || last_gain != best_gain) {
+                    try {
+                        dev->setIntProperty(OB_PROP_COLOR_EXPOSURE_INT, exp_used);
+                        dev->setIntProperty(OB_PROP_COLOR_GAIN_INT, best_gain);
+                    } catch (const ob::Error&) {
+                    }
+                    const double confirmed = grab_mean(kTuneSettleFrames, kTuneSampleFrames);
+                    if (confirmed >= 0) {
+                        final_mean = confirmed;
+                    }
                 }
                 std::printf("[Orbbec]   锁定：曝光 %.1f ms 增益 %d → 灰度 %.1f\n", exp_used * 0.1, best_gain, final_mean);
                 // 存进 Impl 的副本（start() 的 cfg 参数是 const，不能直接写）
