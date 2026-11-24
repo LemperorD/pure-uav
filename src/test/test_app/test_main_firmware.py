@@ -82,7 +82,7 @@ while True:
                 camera.chmod(0o755)
                 camera_config = fixture / "camera.yaml"
                 camera_text = (root / "config/camera.yaml").read_text()
-                camera_config.write_text(camera_text.replace("ready_timeout_ms: 5000", "ready_timeout_ms: 1000"))
+                camera_config.write_text(camera_text.replace("ready_timeout_ms: 15000", "ready_timeout_ms: 1000"))
                 (fixture / "camera-mode").write_text(camera_mode)
             arguments = [
                 str(entrypoint), "--no-send", "--no-detection",

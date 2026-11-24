@@ -14,8 +14,8 @@ namespace pure_uav::live {
 
 struct Options {
     // 飞控、相机服务和标定。
-    std::string serial = "/dev/ttyACM0";
-    int baud = 921600;
+    std::string serial;  // 空表示使用 driver.yaml 的 communicate.file
+    int baud = 0;        // <=0 表示使用 driver.yaml 的 communicate.baudrate
     std::string camera_config = camera::kDefaultCameraConfig;
     std::string driver_config = "config/driver.yaml";
     std::string shm_vio = camera::kVioChannel;
@@ -61,10 +61,10 @@ inline void printUsage(const char* argv0) {
     std::printf(
         "用法: %s [选项]\n"
         "\n"
-        "  --serial DEV        飞控串口（默认 /dev/ttyACM0）\n"
-        "  --baud N            波特率（默认 921600）\n"
+        "  --serial DEV        飞控串口（默认读 config/driver.yaml）\n"
+        "  --baud N            波特率（默认读 config/driver.yaml）\n"
         "  --camera-config FILE 相机规格与标定（默认 config/camera.yaml）\n"
-        "  --driver-config FILE 飞控 IMU 请求间隔（默认 config/driver.yaml）\n"
+        "  --driver-config FILE 飞控串口与 IMU 请求间隔（默认 config/driver.yaml）\n"
         "  --check-config      只检查相机与 IMU 配置，不打开设备\n"
         "  --csv-out PATH      VisionPose CSV 输出（默认 out/live_pose.csv）\n"
         "  --tum-out PATH      TUM 轨迹输出（默认 out/live_traj.tum，含所有估计位姿）\n"

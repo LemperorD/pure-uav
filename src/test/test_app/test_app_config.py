@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     vio_variant("quality", "quality_ok: 90", "quality_ok: 101", "quality_ok")
     vio_variant("old-imu-rate", "use_depth_init: true", "imu_hz: 100", "Unknown setting vio.imu_hz")
     vio_variant("old-timeout", "shm_vio: /pure_uav_camera_vio", "timeout_ms: 5000", "Unknown setting vio.input.timeout_ms")
-    camera_variant("bad-input", "ready_timeout_ms: 5000", "ready_timeout_ms: -1", "ready_timeout_ms")
+    camera_variant("bad-input", "ready_timeout_ms: 15000", "ready_timeout_ms: -1", "ready_timeout_ms")
     vio_variant("bad-channel", "shm_vio: /pure_uav_camera_vio", "shm_vio: no-leading-slash", "shm_vio")
     camera_variant("bad-fps", "fps: 30", "fps: 0", "resolution/fps")
     vio_variant("old-camera-vio", "use_depth_init: true", "fps: 30", "Unknown setting vio.fps")
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     custom_app = tmp / "custom-app.yaml"
     custom_app.write_text(json.dumps({"app": {"main_loop_hz": 25, "vio_config": str(custom)}}))
     custom_camera = tmp / "custom-camera.yaml"
-    custom_camera.write_text(camera_text.replace("fps: 30", "fps: 45").replace("ready_timeout_ms: 5000", "ready_timeout_ms: 750"))
+    custom_camera.write_text(camera_text.replace("fps: 30", "fps: 45").replace("ready_timeout_ms: 15000", "ready_timeout_ms: 750"))
     output = run(["--config", str(custom_app), "--camera-config", str(custom_camera), "--check-config"], contains="main_loop_hz: 25")
     assert "vio.resolution/fps: 1920x1080@45" in output
     assert "camera.ready_timeout_ms: 750" in output
@@ -133,9 +133,9 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     path = tmp / "driver.yaml"
     path.write_text("communicate:\n  file: /not-a-device\n  baudrate: 1\n")
     run(["--driver-config", str(path), "--check-config"], 2, "baudrate")
-    path.write_text(driver_text.replace("highres_imu_us: 5000", "highres_imu_us: 4000"))
+    path.write_text(driver_text.replace("highres_imu_us: 10000", "highres_imu_us: 4000"))
     run(["--driver-config", str(path), "--check-config"], contains="vio.imu_hz/request_interval_us: 250/4000")
-    variant("bad-driver-imu", driver_text, "highres_imu_us: 5000", "highres_imu_us: 0", "--driver-config", "highres_imu_us")
+    variant("bad-driver-imu", driver_text, "highres_imu_us: 10000", "highres_imu_us: 0", "--driver-config", "highres_imu_us")
     custom_app.write_text(json.dumps({"app": {"driver_config": "missing-driver", "vio_config": "missing-vio"}}))
     run(["--config", str(custom_app), "--driver-config", "config/driver.yaml", "--vio-config", "config/vio.yaml", "--check-config"], contains="Configuration OK")
 

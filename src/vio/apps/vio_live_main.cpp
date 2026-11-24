@@ -128,9 +128,11 @@ int main(int argc, char** argv) {
     }
     const double imu_req_hz = 1e6 / driver.highres_imu_interval_us;
     const int ready_timeout_ms = opt.shm_timeout_ms >= 0 ? opt.shm_timeout_ms : capture.ready_timeout_ms;
+    const std::string serial_dev = opt.serial.empty() ? driver.device : opt.serial;
+    const int serial_baud = opt.baud > 0 ? opt.baud : driver.baudrate;
     opt.use_depth_init = capture.use_depth && opt.use_depth_init;
     if (opt.check_config) {
-        std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d external_camera=%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, opt.external_camera ? 1 : 0, driver.highres_imu_interval_us);
+        std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d external_camera=%d serial=%s@%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, opt.external_camera ? 1 : 0, serial_dev.c_str(), serial_baud, driver.highres_imu_interval_us);
         return 0;
     }
     std::signal(SIGINT, onSigint);
@@ -174,15 +176,15 @@ int main(int argc, char** argv) {
 
     // 2. 飞控 MAVLink
     pure_uav::MavlinkLink::Config link_cfg;
-    link_cfg.device = opt.serial;
-    link_cfg.baudrate = opt.baud;
+    link_cfg.device = serial_dev;
+    link_cfg.baudrate = serial_baud;
     link_cfg.highres_imu_interval_us = driver.highres_imu_interval_us;
     pure_uav::MavlinkLink link;
     if (!link.start(link_cfg, &err)) {
         std::fprintf(stderr, "MAVLink 链路启动失败: %s\n", err.c_str());
         return 1;
     }
-    std::printf("等待飞控心跳（%s @ %d）…\n", opt.serial.c_str(), opt.baud);
+    std::printf("等待飞控心跳（%s @ %d）…\n", serial_dev.c_str(), serial_baud);
     for (int i = 0; i < 50 && !link.connected() && !g_stop.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

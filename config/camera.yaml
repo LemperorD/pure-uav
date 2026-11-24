@@ -27,7 +27,7 @@ channels:
   vio_slot_bytes: 8388608    # 8 MiB：1920x1080 gray(2 MB) + CV_16U depth(4 MB)
   color_slot_bytes: 8388608  # 8 MiB：原生深度 + 单帧 MJPG
   color_max_hz: 10
-  ready_timeout_ms: 5000
+  ready_timeout_ms: 15000
 
 runtime:
   status_period_s: 1.0
