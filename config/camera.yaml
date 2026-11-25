@@ -1,12 +1,12 @@
 # 相机服务、在线 VIO 和制导共用。分辨率须匹配所选标定。
 camera:
-  width: 640
-  height: 480
+  width: 1920
+  height: 1080
   fps: 30
   use_depth: true
   # 彩色标定由该目录的 estimator_config.yaml → relative_config_imucam 指定。
-  # 切回 1080p 时改为 width: 1920, height: 1080, vio_config_dir: src/vio/config/gemini_1920x1080
-  vio_config_dir: src/vio/config/gemini_640x480
+  # 切到 640x480 时改为 width: 640, height: 480, vio_config_dir: src/vio/config/gemini_640x480
+  vio_config_dir: src/vio/config/gemini_1920x1080
   aggregate_mode: 0
   auto_exposure: false
   exposure: 100
