@@ -155,7 +155,7 @@ bool loadAppConfig(const std::string& app_name, const ConfigOverrides& overrides
         c.camera.estimator_config = c.vio.estimator_config;
         require(loadCommConfig(c.driver_path, c.comm), "Failed to load driver configuration: " + c.driver_path);
         require(!c.comm.device.empty(), "communicate.file must not be empty");
-        require(c.comm.baudrate == 57600 || c.comm.baudrate == 115200 || c.comm.baudrate == 230400 || c.comm.baudrate == 460800 || c.comm.baudrate == 921600, "Unsupported communicate.baudrate");
+        require(c.comm.baudrate == 57600 || c.comm.baudrate == 115200 || c.comm.baudrate == 230400 || c.comm.baudrate == 460800 || c.comm.baudrate == 921600 || c.comm.baudrate == 1500000, "Unsupported communicate.baudrate");
         range(c.comm.heartbeat_timeout_ms, 100, 30000, "heartbeat_timeout_ms");
         require(validHighresImuInterval(c.comm.highres_imu_interval_us), "driver highres_imu_us must request an IMU rate of 21..1000 Hz");
         out = std::move(c);
