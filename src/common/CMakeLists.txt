@@ -54,6 +54,7 @@ target_include_directories(
 )
 
 add_library(pure_camera_ipc STATIC camera_shm.cpp)
+target_compile_options(pure_camera_ipc PRIVATE -O3)
 target_include_directories(pure_camera_ipc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pure_camera_ipc PUBLIC camera_frame_types)
 if(UNIX AND NOT APPLE)

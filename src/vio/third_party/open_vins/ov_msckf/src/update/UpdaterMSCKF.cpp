@@ -38,6 +38,7 @@
 #include "state/StateHelper.h"
 #include "types/LandmarkRepresentation.h"
 #include "utils/colors.h"
+#include "utils/opencv_lambda_body.h"
 #include "utils/print.h"
 #include "utils/quat_ops.h"
 
@@ -129,8 +130,68 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   }
 
   // 3. Try to triangulate all MSCKF or new SLAM features that have measurements
-  auto it1 = feature_vec.begin();
-  while (it1 != feature_vec.end()) {
+  // 特征数 >= 8 时分发到 OpenCV 线程池并行计算各特征三角化/高斯牛顿精化/深度回退，
+  // 再按原下标顺序归约统计与压缩向量，保证数值与单线程逐位一致（设 OV_MSCKF_SERIAL=1 可强制串行做 A/B）。
+  constexpr size_t kParallelMinFeatures = 8;
+  static const bool force_serial_msckf = (std::getenv("OV_MSCKF_SERIAL") != nullptr);
+  const auto &depth_fn = depth_lookup_ ? depth_lookup_ : UpdaterMSCKF::DepthLookup::fn;
+
+  auto eval_depth_med_feat = [&](const std::shared_ptr<Feature> &feat_ptr, const Eigen::Vector3d &p_G, size_t &n_obs_out) -> double {
+    std::vector<double> errs;
+    for (const auto &pair : feat_ptr->timestamps) {
+      const size_t cid = pair.first;
+      auto itc = clones_cam.find(cid);
+      if (itc == clones_cam.end()) continue;
+      auto iti = state->_cam_intrinsics_cameras.find(cid);
+      if (iti == state->_cam_intrinsics_cameras.end()) continue;
+      const double fx_cur = std::max(452.5, iti->second->get_K()(0, 0));
+      const double scale_ref = 452.5 / fx_cur;
+      const auto &uvs_c = feat_ptr->uvs.at(cid);
+      const auto &ts_c = pair.second;
+      for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
+        auto itcl = itc->second.find(ts_c[k]);
+        if (itcl == itc->second.end()) continue;
+        const Eigen::Vector3d P_C = itcl->second.Rot() * (p_G - itcl->second.pos());
+        if (P_C.z() < 0.1) continue;
+        const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
+        const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
+        const double du = (uv_projected(0) - uvs_c[k](0)) * scale_ref;
+        const double dv = (uv_projected(1) - uvs_c[k](1)) * scale_ref;
+        errs.push_back(std::sqrt(du * du + dv * dv));
+      }
+    }
+    n_obs_out = errs.size();
+    if (errs.empty()) return -1.0;
+    std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
+    return errs[errs.size() / 2];
+  };
+
+  auto record_deperr = [&](double med) {
+    if (med < 0.0) return;
+    ++diag_deperr_n;
+    diag_deperr_sum += std::min(med, 30.0);
+    if (med < 1.0) ++diag_deperr_hist[0];
+    else if (med < 2.0) ++diag_deperr_hist[1];
+    else if (med < 5.0) ++diag_deperr_hist[2];
+    else if (med < 10.0) ++diag_deperr_hist[3];
+    else if (med < 25.0) ++diag_deperr_hist[4];
+    else ++diag_deperr_hist[5];
+  };
+
+  struct TriSlot {
+    bool keep = false;
+    bool depth_used = false;
+    bool tri_ok = false;
+    bool fail_tri = false;
+    double deperr_med = -1.0;
+  };
+
+  const size_t n_tri = feature_vec.size();
+  std::vector<TriSlot> tri_slots(n_tri);
+
+  auto tri_worker = [&](size_t idx) {
+    auto &feat_ptr = feature_vec[idx];
+    TriSlot &slot = tri_slots[idx];
 
     //=================================================================================
     // 【2026-11-23】优先使用多视图三角化 + 高斯牛顿精化（视差充足时线性化点最精确，
@@ -140,66 +201,24 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
     //=================================================================================
     bool success_tri = true;
     if (initializer_feat->config().triangulate_1d) {
-      success_tri = initializer_feat->single_triangulation_1d(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation_1d(feat_ptr, clones_cam);
     } else {
-      success_tri = initializer_feat->single_triangulation(*it1, clones_cam);
+      success_tri = initializer_feat->single_triangulation(feat_ptr, clones_cam);
     }
 
     // Gauss-newton refine the feature
     bool success_refine = true;
     if (success_tri && initializer_feat->config().refine_features) {
-      success_refine = initializer_feat->single_gaussnewton(*it1, clones_cam);
+      success_refine = initializer_feat->single_gaussnewton(feat_ptr, clones_cam);
     }
-
-    const auto &depth_fn = depth_lookup_ ? depth_lookup_ : UpdaterMSCKF::DepthLookup::fn;
-    auto eval_depth_med = [&](const Eigen::Vector3d &p_G, size_t &n_obs_out) -> double {
-      std::vector<double> errs;
-      for (const auto &pair : (*it1)->timestamps) {
-        const size_t cid = pair.first;
-        auto itc = clones_cam.find(cid);
-        if (itc == clones_cam.end()) continue;
-        auto iti = state->_cam_intrinsics_cameras.find(cid);
-        if (iti == state->_cam_intrinsics_cameras.end()) continue;
-        const double fx_cur = std::max(452.5, iti->second->get_K()(0, 0));
-        const double scale_ref = 452.5 / fx_cur;
-        const auto &uvs_c = (*it1)->uvs.at(cid);
-        const auto &ts_c = pair.second;
-        for (size_t k = 0; k < ts_c.size() && k < uvs_c.size(); ++k) {
-          auto itcl = itc->second.find(ts_c[k]);
-          if (itcl == itc->second.end()) continue;
-          const Eigen::Vector3d P_C = itcl->second.Rot() * (p_G - itcl->second.pos());
-          if (P_C.z() < 0.1) continue;
-          const Eigen::Vector2d uv_norm = P_C.head<2>() / P_C.z();
-          const Eigen::Vector2d uv_projected = iti->second->distort_d(uv_norm);
-          const double du = (uv_projected(0) - uvs_c[k](0)) * scale_ref;
-          const double dv = (uv_projected(1) - uvs_c[k](1)) * scale_ref;
-          errs.push_back(std::sqrt(du * du + dv * dv));
-        }
-      }
-      n_obs_out = errs.size();
-      if (errs.empty()) return -1.0;
-      std::nth_element(errs.begin(), errs.begin() + errs.size() / 2, errs.end());
-      return errs[errs.size() / 2];
-    };
-    auto record_deperr = [&](double med) {
-      if (med < 0.0) return;
-      ++diag_deperr_n;
-      diag_deperr_sum += std::min(med, 30.0);
-      if (med < 1.0) ++diag_deperr_hist[0];
-      else if (med < 2.0) ++diag_deperr_hist[1];
-      else if (med < 5.0) ++diag_deperr_hist[2];
-      else if (med < 10.0) ++diag_deperr_hist[3];
-      else if (med < 25.0) ++diag_deperr_hist[4];
-      else ++diag_deperr_hist[5];
-    };
 
     if (success_tri && success_refine) {
       // 保留深度一致性诊断统计（供 HealthMonitor 识别特征跟踪崩塌），但不篡改已精化的三角化位置
-      if (depth_fn && !(*it1)->timestamps.empty()) {
-        const size_t cid0 = (*it1)->anchor_cam_id;
-        auto it_ts = (*it1)->timestamps.find(cid0);
-        auto it_uv = (*it1)->uvs.find(cid0);
-        if (it_ts != (*it1)->timestamps.end() && it_uv != (*it1)->uvs.end() && !it_ts->second.empty() && !it_uv->second.empty()) {
+      if (depth_fn && !feat_ptr->timestamps.empty()) {
+        const size_t cid0 = feat_ptr->anchor_cam_id;
+        auto it_ts = feat_ptr->timestamps.find(cid0);
+        auto it_uv = feat_ptr->uvs.find(cid0);
+        if (it_ts != feat_ptr->timestamps.end() && it_uv != feat_ptr->uvs.end() && !it_ts->second.empty() && !it_uv->second.empty()) {
           const double t_a = it_ts->second.back();
           const float z_meas = depth_fn(t_a, it_uv->second.back()(0), it_uv->second.back()(1));
           if (z_meas >= 0.30f && z_meas <= 4.5f) {
@@ -213,23 +232,22 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
                 const Eigen::Vector3d p_depth =
                     it_clone->second.pos() + it_clone->second.Rot().transpose() * (b * static_cast<double>(z_meas));
                 size_t n_obs = 0;
-                record_deperr(eval_depth_med(p_depth, n_obs));
+                slot.deperr_med = eval_depth_med_feat(feat_ptr, p_depth, n_obs);
               }
             }
           }
         }
       }
-      ++diag_tri_ok;
-      it1++;
-      continue;
+      slot.tri_ok = true;
+      slot.keep = true;
+      return;
     }
 
     // 三角化失败（弱视差/纯旋转）：尝试深度回退初始化
-    bool depth_ok = false;
-    if (depth_fn && !(*it1)->timestamps.empty()) {
-      const size_t cam_id0 = (*it1)->timestamps.begin()->first;
-      const auto &ts0 = (*it1)->timestamps.begin()->second;
-      const auto &uv_list = (*it1)->uvs.at(cam_id0);
+    if (depth_fn && !feat_ptr->timestamps.empty()) {
+      const size_t cam_id0 = feat_ptr->timestamps.begin()->first;
+      const auto &ts0 = feat_ptr->timestamps.begin()->second;
+      const auto &uv_list = feat_ptr->uvs.at(cam_id0);
       if (ts0.size() >= 3 && ts0.size() == uv_list.size()) {
         const double t_anchor = ts0.back();
         const float u0 = uv_list.back()(0);
@@ -246,30 +264,31 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
               const Eigen::Vector3d &p_AinG = it_clone->second.pos();
               const Eigen::Vector3d p_FinA_depth = b * static_cast<double>(z_meas);
               const Eigen::Vector3d p_depth = p_AinG + R_GtoA.transpose() * p_FinA_depth;
-              (*it1)->anchor_cam_id = cam_id0;
-              (*it1)->anchor_clone_timestamp = t_anchor;
-              (*it1)->p_FinA = p_FinA_depth;
-              (*it1)->p_FinG = p_depth;
+              feat_ptr->anchor_cam_id = cam_id0;
+              feat_ptr->anchor_clone_timestamp = t_anchor;
+              feat_ptr->p_FinA = p_FinA_depth;
+              feat_ptr->p_FinG = p_depth;
               if (initializer_feat->config().refine_features) {
-                if (!initializer_feat->single_gaussnewton(*it1, clones_cam)) {
-                  (*it1)->p_FinA = p_FinA_depth;
-                  (*it1)->p_FinG = p_depth;
+                if (!initializer_feat->single_gaussnewton(feat_ptr, clones_cam)) {
+                  feat_ptr->p_FinA = p_FinA_depth;
+                  feat_ptr->p_FinG = p_depth;
                 } else {
-                  const Eigen::Vector3d p_FinA_ref = R_GtoA * ((*it1)->p_FinG - p_AinG);
+                  const Eigen::Vector3d p_FinA_ref = R_GtoA * (feat_ptr->p_FinG - p_AinG);
                   if (!p_FinA_ref.allFinite() || p_FinA_ref.z() < 0.25 || p_FinA_ref.z() > 15.0 ||
                       std::abs(p_FinA_ref.z() - static_cast<double>(z_meas)) > 0.25 * static_cast<double>(z_meas)) {
-                    (*it1)->p_FinA = p_FinA_depth;
-                    (*it1)->p_FinG = p_depth;
+                    feat_ptr->p_FinA = p_FinA_depth;
+                    feat_ptr->p_FinG = p_depth;
                   }
                 }
               }
               size_t n_obs = 0;
-              const double med = eval_depth_med((*it1)->p_FinG, n_obs);
-              record_deperr(med);
+              const double med = eval_depth_med_feat(feat_ptr, feat_ptr->p_FinG, n_obs);
+              slot.deperr_med = med;
               if (n_obs >= 3 && med >= 0.0 && med <= 2.0) {
-                ++diag_depth_used;
-                ++diag_tri_ok;
-                depth_ok = true;
+                slot.depth_used = true;
+                slot.tri_ok = true;
+                slot.keep = true;
+                return;
               }
             }
           }
@@ -277,20 +296,46 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
       }
     }
 
-    if (depth_ok) {
-      it1++;
-      continue;
-    }
-
     // Remove the feature if not a success
-    ++diag_tri_drop;
-    if (!success_tri)
-      ++diag_tri_fail_tri;
-    else
-      ++diag_tri_fail_refine;
-    (*it1)->to_delete = true;
-    it1 = feature_vec.erase(it1);
+    slot.keep = false;
+    slot.fail_tri = !success_tri;
+    feat_ptr->to_delete = true;
+  };
+
+  if (!force_serial_msckf && n_tri >= kParallelMinFeatures) {
+    cv::parallel_for_(cv::Range(0, static_cast<int>(n_tri)), LambdaBody([&](const cv::Range &range) {
+                        for (int i = range.start; i < range.end; ++i) {
+                          tri_worker(static_cast<size_t>(i));
+                        }
+                      }));
+  } else {
+    for (size_t i = 0; i < n_tri; ++i) {
+      tri_worker(i);
+    }
   }
+
+  size_t write_tri = 0;
+  for (size_t i = 0; i < n_tri; ++i) {
+    const TriSlot &slot = tri_slots[i];
+    if (slot.deperr_med >= 0.0) {
+      record_deperr(slot.deperr_med);
+    }
+    if (slot.keep) {
+      if (slot.depth_used) ++diag_depth_used;
+      if (slot.tri_ok) ++diag_tri_ok;
+      if (write_tri != i) {
+        feature_vec[write_tri] = std::move(feature_vec[i]);
+      }
+      ++write_tri;
+    } else {
+      ++diag_tri_drop;
+      if (slot.fail_tri)
+        ++diag_tri_fail_tri;
+      else
+        ++diag_tri_fail_refine;
+    }
+  }
+  feature_vec.resize(write_tri);
   rT2 = boost::posix_time::microsec_clock::local_time();
 
   // Calculate the max possible measurement size
@@ -328,156 +373,169 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
   const long long ok_before = diag_chi2_ok;
 
   // 4. Compute linear system for each feature, nullspace project, and reject
-  auto it2 = feature_vec.begin();
-  while (it2 != feature_vec.end()) {
+  // 诊断文件在并行区外单线程初始化一次，避免静态初始化与文件流竞争
+  static std::ofstream feat_of;
+  static bool feat_checked = false;
+  if (!feat_checked) {
+    feat_checked = true;
+    const char *fp = std::getenv("OV_DIAG_FEATS");
+    if (fp != nullptr && fp[0] != '\0') {
+      feat_of.open(fp, std::ios::out | std::ios::trunc);
+      feat_of << "t,u,v,res_u,res_v\n";
+      feat_of.flush();
+    }
+  }
+  static std::ofstream dec_of;
+  static bool dec_checked = false;
+  if (!dec_checked) {
+    dec_checked = true;
+    const char *dp = std::getenv("OV_DIAG_FEATDEC");
+    if (dp != nullptr && dp[0] != '\0') {
+      dec_of.open(dp, std::ios::out | std::ios::trunc);
+      dec_of << "t,featid,nobs,tspan,chi2,chi2_check,rejected\n";
+      dec_of.flush();
+    }
+  }
 
-    // Convert our feature into our current format
+  struct JacSlot {
+    Eigen::MatrixXd H_x;
+    Eigen::VectorXd res;
+    Eigen::VectorXd res_raw;
+    std::vector<std::shared_ptr<Type>> Hx_order;
+    double chi2 = 0.0;
+    double chi2_check = 0.0;
+    double ratio = 0.0;
+    bool rejected = false;
+    bool over_limit_warn = false;
+    int over_limit_rows = 0;
+  };
+
+  const size_t n_jac = feature_vec.size();
+  std::vector<JacSlot> jac_slots(n_jac);
+  const bool save_raw_res = feat_of.is_open();
+
+  auto jac_worker = [&](size_t idx) {
+    const auto &src_feat = feature_vec[idx];
+    JacSlot &slot = jac_slots[idx];
+
     UpdaterHelper::UpdaterHelperFeature feat;
-    feat.featid = (*it2)->featid;
-    feat.uvs = (*it2)->uvs;
-    feat.uvs_norm = (*it2)->uvs_norm;
-    feat.timestamps = (*it2)->timestamps;
+    feat.featid = src_feat->featid;
+    feat.uvs = src_feat->uvs;
+    feat.uvs_norm = src_feat->uvs_norm;
+    feat.timestamps = src_feat->timestamps;
 
-    // If we are using single inverse depth, then it is equivalent to using the msckf inverse depth
     feat.feat_representation = state->_options.feat_rep_msckf;
     if (state->_options.feat_rep_msckf == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) {
       feat.feat_representation = LandmarkRepresentation::Representation::ANCHORED_MSCKF_INVERSE_DEPTH;
     }
 
-    // Save the position and its fej value
     if (LandmarkRepresentation::is_relative_representation(feat.feat_representation)) {
-      feat.anchor_cam_id = (*it2)->anchor_cam_id;
-      feat.anchor_clone_timestamp = (*it2)->anchor_clone_timestamp;
-      feat.p_FinA = (*it2)->p_FinA;
-      feat.p_FinA_fej = (*it2)->p_FinA;
+      feat.anchor_cam_id = src_feat->anchor_cam_id;
+      feat.anchor_clone_timestamp = src_feat->anchor_clone_timestamp;
+      feat.p_FinA = src_feat->p_FinA;
+      feat.p_FinA_fej = src_feat->p_FinA;
     } else {
-      feat.p_FinG = (*it2)->p_FinG;
-      feat.p_FinG_fej = (*it2)->p_FinG;
+      feat.p_FinG = src_feat->p_FinG;
+      feat.p_FinG_fej = src_feat->p_FinG;
     }
 
-    // Our return values (feature jacobian, state jacobian, residual, and order of state jacobian)
     Eigen::MatrixXd H_f;
-    Eigen::MatrixXd H_x;
-    Eigen::VectorXd res;
-    std::vector<std::shared_ptr<Type>> Hx_order;
-
-    // Get the Jacobian for this feature
-    UpdaterHelper::get_feature_jacobian_full(state, feat, H_f, H_x, res, Hx_order);
-
-    //=================================================================================
-    // 【2026-10-21 诊断】逐观测记录原始残差 (u, v, res_u, res_v)。
-    // 目的：区分"卷帘快门"和"相机-IMU 时延错位"——
-    //   卷帘：残差随图像行号 v 线性变化（每行曝光时刻不同 → 整帧倾斜）
-    //   时延：残差是整帧统一的一个平移（与 v 无关）
-    // 需要 OV_DIAG_FEATS=<路径>，默认零开销。
-    //=================================================================================
-    static std::ofstream feat_of;
-    static bool feat_checked = false;
-    if (!feat_checked) {
-      feat_checked = true;
-      const char *fp = std::getenv("OV_DIAG_FEATS");
-      if (fp != nullptr && fp[0] != '\0') {
-        feat_of.open(fp, std::ios::out | std::ios::trunc);
-        feat_of << "t,u,v,res_u,res_v\n";
-        feat_of.flush();
-      }
-    }
-    if (feat_of.is_open() && !feat.uvs.empty() && !feat.timestamps.empty()) {
-      const auto &uv_vec = feat.uvs.begin()->second;
-      const auto &ts_vec = feat.timestamps.begin()->second;
-      const int nobs = (int)std::min(uv_vec.size(), ts_vec.size());
-      for (int k = 0; k < nobs && 2 * k + 1 < res.rows(); k++) {
-        feat_of << std::fixed << std::setprecision(6) << ts_vec[k] << ',' << uv_vec[k](0) << ',' << uv_vec[k](1) << ','
-                << res(2 * k) << ',' << res(2 * k + 1) << '\n';
-      }
+    UpdaterHelper::get_feature_jacobian_full(state, feat, H_f, slot.H_x, slot.res, slot.Hx_order);
+    if (save_raw_res) {
+      slot.res_raw = slot.res;
     }
 
-    // Nullspace project
-    UpdaterHelper::nullspace_project_inplace(H_f, H_x, res);
+    UpdaterHelper::nullspace_project_inplace(H_f, slot.H_x, slot.res);
 
-    /// Chi2 distance check
-    Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, Hx_order);
-    Eigen::MatrixXd S = H_x * P_marg * H_x.transpose();
+    Eigen::MatrixXd P_marg = StateHelper::get_marginal_covariance(state, slot.Hx_order);
+    Eigen::MatrixXd S = slot.H_x * P_marg * slot.H_x.transpose();
     S.diagonal() += _options.sigma_pix_sq * Eigen::VectorXd::Ones(S.rows());
-    double chi2 = res.dot(S.llt().solve(res));
+    slot.chi2 = slot.res.dot(S.llt().solve(slot.res));
 
-    // Get our threshold (we precompute up to 500 but handle the case that it is more)
-    double chi2_check;
-    if (res.rows() < 500) {
-      chi2_check = chi_squared_table[res.rows()];
+    auto it_chi = (slot.res.rows() < 500) ? chi_squared_table.find(static_cast<int>(slot.res.rows())) : chi_squared_table.end();
+    if (it_chi != chi_squared_table.end()) {
+      slot.chi2_check = it_chi->second;
     } else {
-      boost::math::chi_squared chi_squared_dist(res.rows());
-      chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
-      PRINT_WARNING(YELLOW "chi2_check over the residual limit - %d\n" RESET, (int)res.rows());
+      boost::math::chi_squared chi_squared_dist(slot.res.rows());
+      slot.chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
+      slot.over_limit_warn = (slot.res.rows() >= 500);
+      slot.over_limit_rows = static_cast<int>(slot.res.rows());
     }
 
-    // Check if we should delete or not
-    //=================================================================================
-    // 【2026-10-21 诊断】逐特征记录卡方判定 + 跟踪历史长度。
-    // 目的：转弯锁死时，被拒的是"刚检出的短轨迹"还是"跟了很久的长轨迹"？
-    //   短轨迹被拒 = 三角化质量差（视差小）；
-    //   长轨迹被拒 = 滤波器状态/时序错，问题在模型侧。
-    // OV_DIAG_FEATDEC=<路径>，默认零开销。
-    //=================================================================================
-    static std::ofstream dec_of;
-    static bool dec_checked = false;
-    if (!dec_checked) {
-      dec_checked = true;
-      const char *dp = std::getenv("OV_DIAG_FEATDEC");
-      if (dp != nullptr && dp[0] != '\0') {
-        dec_of.open(dp, std::ios::out | std::ios::trunc);
-        dec_of << "t,featid,nobs,tspan,chi2,chi2_check,rejected\n";
-        dec_of.flush();
+    slot.ratio = slot.chi2 / std::max(cur_mult * slot.chi2_check, 1e-12);
+    slot.rejected = (slot.chi2 > cur_mult * slot.chi2_check);
+  };
+
+  if (!force_serial_msckf && n_jac >= kParallelMinFeatures) {
+    cv::parallel_for_(cv::Range(0, static_cast<int>(n_jac)), LambdaBody([&](const cv::Range &range) {
+                        for (int i = range.start; i < range.end; ++i) {
+                          jac_worker(static_cast<size_t>(i));
+                        }
+                      }));
+  } else {
+    for (size_t i = 0; i < n_jac; ++i) {
+      jac_worker(i);
+    }
+  }
+
+  size_t write_jac = 0;
+  for (size_t i = 0; i < n_jac; ++i) {
+    auto &src_feat = feature_vec[i];
+    const JacSlot &slot = jac_slots[i];
+
+    if (save_raw_res && !src_feat->uvs.empty() && !src_feat->timestamps.empty()) {
+      const auto &uv_vec = src_feat->uvs.begin()->second;
+      const auto &ts_vec = src_feat->timestamps.begin()->second;
+      const int nobs = static_cast<int>(std::min(uv_vec.size(), ts_vec.size()));
+      for (int k = 0; k < nobs && 2 * k + 1 < slot.res_raw.rows(); ++k) {
+        feat_of << std::fixed << std::setprecision(6) << ts_vec[k] << ',' << uv_vec[k](0) << ',' << uv_vec[k](1) << ','
+                << slot.res_raw(2 * k) << ',' << slot.res_raw(2 * k + 1) << '\n';
       }
     }
-    if (dec_of.is_open() && !feat.timestamps.empty()) {
-      const auto &tsv = feat.timestamps.begin()->second;
-      const int nobs = (int)tsv.size();
-      const double tspan = (nobs > 1) ? (tsv.back() - tsv.front()) : 0.0;
-      const bool rej = (chi2 > cur_mult * chi2_check);
-      dec_of << std::fixed << std::setprecision(6) << state->_timestamp << "," << feat.featid << "," << nobs << ","
-             << tspan << "," << chi2 << "," << chi2_check << "," << (rej ? 1 : 0) << '\n';
+
+    if (slot.over_limit_warn) {
+      PRINT_WARNING(YELLOW "chi2_check over the residual limit - %d\n" RESET, slot.over_limit_rows);
     }
 
-    const double ratio = chi2 / std::max(cur_mult * chi2_check, 1e-12);
-    if (chi2 > cur_mult * chi2_check) {
+    if (dec_of.is_open() && !src_feat->timestamps.empty()) {
+      const auto &tsv = src_feat->timestamps.begin()->second;
+      const int nobs = static_cast<int>(tsv.size());
+      const double tspan = (nobs > 1) ? (tsv.back() - tsv.front()) : 0.0;
+      dec_of << std::fixed << std::setprecision(6) << state->_timestamp << "," << src_feat->featid << "," << nobs << ","
+             << tspan << "," << slot.chi2 << "," << slot.chi2_check << "," << (slot.rejected ? 1 : 0) << '\n';
+    }
+
+    if (slot.rejected) {
       ++diag_feat_chi2_rej;
-      diag_chi2_rej_ratio_sum += ratio;
-      diag_chi2_rej_ratio_max = std::max(diag_chi2_rej_ratio_max, ratio);
-      ++diag_chi2_rej_hist[(ratio < 2.0) ? 0 : (ratio < 5.0) ? 1 : (ratio < 20.0) ? 2 : (ratio < 200.0) ? 3 : 4];
-      (*it2)->to_delete = true;
-      it2 = feature_vec.erase(it2);
-      // PRINT_DEBUG("featid = %d\n", feat.featid);
-      // PRINT_DEBUG("chi2 = %f > %f\n", chi2, _options.chi2_multipler*chi2_check);
-      // std::stringstream ss;
-      // ss << "res = " << std::endl << res.transpose() << std::endl;
-      // PRINT_DEBUG(ss.str().c_str());
+      diag_chi2_rej_ratio_sum += slot.ratio;
+      diag_chi2_rej_ratio_max = std::max(diag_chi2_rej_ratio_max, slot.ratio);
+      ++diag_chi2_rej_hist[(slot.ratio < 2.0) ? 0 : (slot.ratio < 5.0) ? 1 : (slot.ratio < 20.0) ? 2 : (slot.ratio < 200.0) ? 3 : 4];
+      src_feat->to_delete = true;
       continue;
     }
-    diag_chi2_ok_ratio_sum += ratio;
 
-    // We are good!!! Append to our large H vector
+    diag_chi2_ok_ratio_sum += slot.ratio;
+
     size_t ct_hx = 0;
-    for (const auto &var : Hx_order) {
-
-      // Ensure that this variable is in our Jacobian
+    for (const auto &var : slot.Hx_order) {
       if (Hx_mapping.find(var) == Hx_mapping.end()) {
         Hx_mapping.insert({var, ct_jacob});
         Hx_order_big.push_back(var);
         ct_jacob += var->size();
       }
-
-      // Append to our large Jacobian
-      Hx_big.block(ct_meas, Hx_mapping[var], H_x.rows(), var->size()) = H_x.block(0, ct_hx, H_x.rows(), var->size());
+      Hx_big.block(ct_meas, Hx_mapping[var], slot.H_x.rows(), var->size()) = slot.H_x.block(0, ct_hx, slot.H_x.rows(), var->size());
       ct_hx += var->size();
     }
 
-    // Append our residual and move forward
-    res_big.block(ct_meas, 0, res.rows(), 1) = res;
-    ct_meas += res.rows();
+    res_big.block(ct_meas, 0, slot.res.rows(), 1) = slot.res;
+    ct_meas += slot.res.rows();
     ++diag_chi2_ok;
-    it2++;
+    if (write_jac != i) {
+      feature_vec[write_jac] = std::move(src_feat);
+    }
+    ++write_jac;
   }
+  feature_vec.resize(write_jac);
   rT3 = boost::posix_time::microsec_clock::local_time();
 
   // We have appended all features to our Hx_big, res_big

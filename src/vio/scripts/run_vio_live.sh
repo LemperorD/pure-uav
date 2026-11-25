@@ -22,6 +22,7 @@ MODE=demo
 DURATION=0
 STATIC=0
 OUTDIR=""
+PIN_CPUS=1
 EXTRA=()
 
 usage() { sed -n '2,14p' "$ROOT/scripts/run_vio_live.sh" | sed 's/^# \{0,1\}//'; exit 0; }
@@ -31,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --static)   STATIC=1; shift ;;
     --fly)      MODE=fly; shift ;;
     --demo)     MODE=demo; shift ;;
+    --no-pin)   PIN_CPUS=0; shift ;;
     --duration) DURATION="${2:?--duration 需要一个秒数}"; shift 2 ;;
     --out)      OUTDIR="${2:?--out 需要一个目录}"; shift 2 ;;
     -h|--help)  usage ;;
@@ -90,6 +92,90 @@ fi
 
 echo "[run] 默认自动启停 camera_server（复用外部服务请加 -- --external-camera）；曝光、增益、测光和深度流由 config/camera.yaml 管理"
 echo "[run] 输出目录: $OUTDIR"
+
+# -----------------------------------------------------------------------------
+# 多核分簇绑核与定频（尤其针对 Orange Pi 等 8 核 ARM 大小簇/双簇板卡）：
+#   1) 非阻塞尝试把 scaling_governor 切到 performance（无免密权限则仅提示，绝不阻塞启动）；
+#   2) 自动按 cpuinfo_max_freq 识别高频簇给 PURE_VIO_CPUS、其余簇给 PURE_CAM_CPUS；
+#      对称多核 ARM（>=6 核）则将前 1/3~1/2 核给 camera_server，后半簇给 vio_live。
+#      外部显式传入 PURE_VIO_CPUS / PURE_CAM_CPUS 或加 --no-pin 时尊重外部设置。
+# -----------------------------------------------------------------------------
+if [[ "$PIN_CPUS" == "1" && "$(uname -s)" == "Linux" ]]; then
+  gov_files=(/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor)
+  if [[ -e "${gov_files[0]}" ]]; then
+    need_perf=0
+    for gf in "${gov_files[@]}"; do
+      [[ "$(cat "$gf" 2>/dev/null || true)" != "performance" ]] && need_perf=1 && break
+    done
+    if [[ "$need_perf" == "1" ]]; then
+      if [[ -w "${gov_files[0]}" ]]; then
+        for gf in "${gov_files[@]}"; do echo performance > "$gf" 2>/dev/null || true; done
+        echo "[run] CPU 调频: 已锁定 performance 定频模式"
+      elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        for gf in "${gov_files[@]}"; do echo performance | sudo -n tee "$gf" >/dev/null 2>&1 || true; done
+        echo "[run] CPU 调频: 已通过免密 sudo 锁定 performance 定频模式"
+      else
+        echo "[run] 提示: 当前 CPU 未锁定 performance（板端可执行: echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor）"
+      fi
+    fi
+  fi
+
+  if [[ -z "${PURE_VIO_CPUS:-}" && -z "${PURE_CAM_CPUS:-}" ]]; then
+    readarray -t cpu_dirs < <(printf '%s\n' /sys/devices/system/cpu/cpu[0-9]* | sort -V)
+    online_cpus=()
+    max_freq=0
+    min_freq=0
+    for cd in "${cpu_dirs[@]}"; do
+      [[ -d "$cd" ]] || continue
+      cid="${cd##*cpu}"
+      if [[ -f "$cd/online" && "$(cat "$cd/online" 2>/dev/null || echo 1)" != "1" ]]; then
+        continue
+      fi
+      online_cpus+=("$cid")
+      if [[ -f "$cd/cpufreq/cpuinfo_max_freq" ]]; then
+        f="$(cat "$cd/cpufreq/cpuinfo_max_freq" 2>/dev/null || echo 0)"
+        if [[ "$f" =~ ^[0-9]+$ ]] && (( f > 0 )); then
+          (( f > max_freq )) && max_freq=$f
+          (( min_freq == 0 || f < min_freq )) && min_freq=$f
+        fi
+      fi
+    done
+
+    n_online=${#online_cpus[@]}
+    if (( n_online >= 4 )); then
+      vio_list=()
+      cam_list=()
+      if (( max_freq > 0 && min_freq > 0 && min_freq * 100 < max_freq * 90 )); then
+        # 异构大小核/高低频双簇：>=90% 最高频的核心划给 VIO，低频簇划给 camera_server
+        thresh=$(( max_freq * 90 / 100 ))
+        for cid in "${online_cpus[@]}"; do
+          f="$(cat "/sys/devices/system/cpu/cpu${cid}/cpufreq/cpuinfo_max_freq" 2>/dev/null || echo 0)"
+          if [[ "$f" =~ ^[0-9]+$ ]] && (( f >= thresh )); then
+            vio_list+=("$cid")
+          else
+            cam_list+=("$cid")
+          fi
+        done
+      elif [[ "$(uname -m)" =~ ^(aarch64|arm64|armv.*)$ ]] && (( n_online >= 6 )); then
+        # 对称多核 ARM（例如双 4 核簇同频）：前半核簇给相机解码与系统中断，后半核簇专供 VIO
+        split=$(( n_online == 8 ? 4 : 2 ))
+        cam_list=("${online_cpus[@]:0:split}")
+        vio_list=("${online_cpus[@]:split}")
+      fi
+
+      if (( ${#vio_list[@]} >= 2 && ${#cam_list[@]} >= 1 )); then
+        export PURE_VIO_CPUS
+        export PURE_CAM_CPUS
+        PURE_VIO_CPUS="$(IFS=,; echo "${vio_list[*]}")"
+        PURE_CAM_CPUS="$(IFS=,; echo "${cam_list[*]}")"
+        echo "[run] 自动分簇绑核: VIO=${PURE_VIO_CPUS}  camera_server=${PURE_CAM_CPUS}（关闭请加 --no-pin）"
+      fi
+    fi
+  else
+    echo "[run] 使用外部指定绑核: PURE_VIO_CPUS=${PURE_VIO_CPUS:-未设}  PURE_CAM_CPUS=${PURE_CAM_CPUS:-未设}"
+  fi
+fi
+
 echo "[run] 命令: $BIN ${ARGS[*]} ${EXTRA[*]}"
 echo
 

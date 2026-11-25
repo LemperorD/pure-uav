@@ -65,9 +65,9 @@ class VioManager {
 public:
   // 【2026-10-23】深度年龄门限拒绝计数（诊断用）
   long long diag_depth_frames = 0;
-  long long diag_depth_edge_rej = 0;
-  long long diag_depth_no_frame = 0;
-  long long diag_depth_too_old = 0;
+  std::atomic<long long> diag_depth_edge_rej{0};
+  std::atomic<long long> diag_depth_no_frame{0};
+  std::atomic<long long> diag_depth_too_old{0};
 
   /**
    * @brief Default constructor, will load all configuration variables

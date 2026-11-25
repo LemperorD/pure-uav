@@ -325,7 +325,8 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
   // 每 300 张深度图打一次门控统计（不依赖宿主程序的诊断开关）
   if ((++diag_depth_frames % 300) == 0 && ov_core::Printer::current_print_level != ov_core::Printer::SILENT) {
     std::printf("[DEPTH] 深度帧 %lld：无最近帧 %lld，太旧(>35ms) %lld，边缘误配拒绝 %lld\n",
-                diag_depth_frames, diag_depth_no_frame, diag_depth_too_old, diag_depth_edge_rej);
+                diag_depth_frames, diag_depth_no_frame.load(std::memory_order_relaxed),
+                diag_depth_too_old.load(std::memory_order_relaxed), diag_depth_edge_rej.load(std::memory_order_relaxed));
     std::fflush(stdout);
   }
 
@@ -350,8 +351,8 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     // 35 ms 覆盖实测 p95，只切掉最老的那一小部分。
     //=====================================================================
     constexpr double kMaxDepthAgeS = 0.035;
-    if (best == nullptr) { ++diag_depth_no_frame; return -1.0f; }
-    if (best_dt > kMaxDepthAgeS) { ++diag_depth_too_old; return -1.0f; }
+    if (best == nullptr) { diag_depth_no_frame.fetch_add(1, std::memory_order_relaxed); return -1.0f; }
+    if (best_dt > kMaxDepthAgeS) { diag_depth_too_old.fetch_add(1, std::memory_order_relaxed); return -1.0f; }
     // 2) 彩色像素去畸变 → 归一化视线 → 用深度内参投到深度图上
     auto cam_it = state->_cam_intrinsics_cameras.find(0);
     if (cam_it == state->_cam_intrinsics_cameras.end())
@@ -387,7 +388,7 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
       if (vals.size() < 12) return -1.0f;
       const unsigned short z_center = best->depth_mm.ptr<unsigned short>(cy)[cx];
       if (z_center == 0 || z_center == 0xFFFF) {
-        ++diag_depth_edge_rej;
+        diag_depth_edge_rej.fetch_add(1, std::memory_order_relaxed);
         return -1.0f;
       }
       std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
@@ -400,7 +401,7 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
         const double max_spread = std::max(0.15, 0.10 * d_m);
         const double max_center_diff = std::max(0.03, 0.025 * d_m);
         if (spread_m > max_spread || std::fabs(d_m - center_m) > max_center_diff) {
-          ++diag_depth_edge_rej;
+          diag_depth_edge_rej.fetch_add(1, std::memory_order_relaxed);
           return -1.0f;
         }
       }
@@ -908,21 +909,19 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // Update our visualization feature set, and clean up the old features
   //===================================================================================
 
-  // Re-triangulate all current tracks in the current frame
-  if (message.sensor_ids.at(0) == 0) {
-
-    // Re-triangulate features
+  // 默认跳过 ROS 可视化专用的活跃特征彩图渲染与全量 QR/SVD 重三角化（pure-uav 无调用方，
+  // 1080p 下每帧省 ~18.6 MB 彩图分配拷贝与最多 300 次 QR/SVD；需调试时设 OV_ACTIVE_TRACK_VIZ=1）。
+  static const bool enable_active_viz = (std::getenv("OV_ACTIVE_TRACK_VIZ") != nullptr);
+  if (enable_active_viz && message.sensor_ids.at(0) == 0) {
     retriangulate_active_tracks(message);
-
-    // Clear the MSCKF features only on the base camera
-    // Thus we should be able to visualize the other unique camera stream
-    // MSCKF features as they will also be appended to the vector
     good_features_MSCKF.clear();
   }
 
-  // Save all the MSCKF features used in the update
+  // Mark all MSCKF features used in the update for deletion
   for (auto const &feat : featsup_MSCKF) {
-    good_features_MSCKF.push_back(feat->p_FinG);
+    if (enable_active_viz) {
+      good_features_MSCKF.push_back(feat->p_FinG);
+    }
     feat->to_delete = true;
   }
 

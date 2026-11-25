@@ -700,7 +700,7 @@ void TrackKLT::perform_detection_stereo(const std::vector<cv::Mat> &img0pyr, con
       std::vector<uchar> mask;
       // perform_matching(img0pyr, img1pyr, kpts0_new, kpts1_new, cam_id_left, cam_id_right, mask);
       std::vector<float> error;
-      cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, 0.01);
+      cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 15, 0.01);
       cv::calcOpticalFlowPyrLK(img0pyr, img1pyr, pts0_new, pts1_new, mask, error, win_size, pyr_levels, term_crit,
                                cv::OPTFLOW_USE_INITIAL_FLOW);
 
@@ -887,7 +887,7 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   // Now do KLT tracking to get the valid new points
   std::vector<uchar> mask_klt;
   std::vector<float> error;
-  cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, 0.01);
+  cv::TermCriteria term_crit = cv::TermCriteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 15, 0.01);
   cv::calcOpticalFlowPyrLK(img0pyr, img1pyr, pts0, pts1, mask_klt, error, win_size, pyr_levels, term_crit, cv::OPTFLOW_USE_INITIAL_FLOW);
 
   //===========================================================================
@@ -895,7 +895,10 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   //
   // 重复结构下 KLT 会把一根条错配到相邻那根，正向看不出来（残差照样很小），
   // 反向跟回来却回不到原点。判据：|p0 - FB(p1)| > thresh 就丢。
-  // thresh 默认 1.5 px，可用环境变量 OV_FB_THRESH 覆盖以便 A/B。
+  // thresh 默认 1.2*res_scale px，可用环境变量 OV_FB_THRESH 覆盖以便 A/B。
+  //
+  // 【性能优化】只对正向成功且未越界的点做反向校验，并复用已有金字塔搭配轻量窗口
+  // （11x11 <= win_size 15x15，免重建金字塔；最多 10 次迭代、0.03px 收敛阈值，远细于 ~1.5px 门限）。
   //===========================================================================
   {
     static const double fb_thresh_base =
@@ -905,28 +908,49 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
                                  : 1.0;
     const double fb_thresh = fb_thresh_base * res_scale;
     if (fb_thresh > 0.0) {
-      std::vector<cv::Point2f> pts1_back;
-      std::vector<uchar> mask_back;
-      std::vector<float> err_back;
-      cv::calcOpticalFlowPyrLK(img1pyr, img0pyr, pts1, pts1_back, mask_back, err_back,
-                               win_size, pyr_levels, term_crit);
-      int n_rej = 0;
-      // 阈值要**相对位移**，不能是绝对像素：高速时真光流大，KLT 金字塔来回收敛本来就有
-      // 几个像素的往返误差，用死 1.5 px 会把合法轨迹全砍掉（实测 dev2 高速那趟
-      // 从 0% LOST 变成 67%）。判据改成 thresh = max(fb_thresh, k·|flow|)。
-      static const double fb_k =
-          std::getenv("OV_FB_K") ? std::atof(std::getenv("OV_FB_K")) : 0.15;
-      for (size_t i = 0; i < mask_klt.size(); i++) {
+      const int img_cols = !img1pyr.empty() ? img1pyr.at(0).cols : 0;
+      const int img_rows = !img1pyr.empty() ? img1pyr.at(0).rows : 0;
+      std::vector<size_t> valid_idx;
+      std::vector<cv::Point2f> pts1_valid;
+      valid_idx.reserve(pts1.size());
+      pts1_valid.reserve(pts1.size());
+      for (size_t i = 0; i < mask_klt.size(); ++i) {
         if (!mask_klt[i]) continue;
-        const double dx = static_cast<double>(pts1_back[i].x) - static_cast<double>(pts0[i].x);
-        const double dy = static_cast<double>(pts1_back[i].y) - static_cast<double>(pts0[i].y);
-        const double fx = static_cast<double>(pts1[i].x) - static_cast<double>(pts0[i].x);
-        const double fy = static_cast<double>(pts1[i].y) - static_cast<double>(pts0[i].y);
-        const double flow = std::sqrt(fx * fx + fy * fy);
-        const double thr = std::max(fb_thresh, fb_k * flow);
-        if (!mask_back[i] || std::sqrt(dx * dx + dy * dy) > thr) {
+        if (img_cols > 0 && (pts1[i].x < 0.0f || pts1[i].y < 0.0f || pts1[i].x >= static_cast<float>(img_cols) ||
+                             pts1[i].y >= static_cast<float>(img_rows))) {
           mask_klt[i] = 0;
-          ++n_rej;
+          continue;
+        }
+        valid_idx.push_back(i);
+        pts1_valid.push_back(pts1[i]);
+      }
+
+      int n_rej = 0;
+      if (!pts1_valid.empty()) {
+        std::vector<cv::Point2f> pts1_back;
+        std::vector<uchar> mask_back;
+        std::vector<float> err_back;
+        const cv::Size fb_win_size(std::min(11, win_size.width), std::min(11, win_size.height));
+        const cv::TermCriteria fb_term_crit(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 10, 0.03);
+        cv::calcOpticalFlowPyrLK(img1pyr, img0pyr, pts1_valid, pts1_back, mask_back, err_back,
+                                 fb_win_size, pyr_levels, fb_term_crit);
+        // 阈值要**相对位移**，不能是绝对像素：高速时真光流大，KLT 金字塔来回收敛本来就有
+        // 几个像素的往返误差，用死 1.5 px 会把合法轨迹全砍掉（实测 dev2 高速那趟
+        // 从 0% LOST 变成 67%）。判据改成 thresh = max(fb_thresh, k·|flow|)。
+        static const double fb_k =
+            std::getenv("OV_FB_K") ? std::atof(std::getenv("OV_FB_K")) : 0.15;
+        for (size_t k = 0; k < valid_idx.size(); ++k) {
+          const size_t i = valid_idx[k];
+          const double dx = static_cast<double>(pts1_back[k].x) - static_cast<double>(pts0[i].x);
+          const double dy = static_cast<double>(pts1_back[k].y) - static_cast<double>(pts0[i].y);
+          const double fx = static_cast<double>(pts1[i].x) - static_cast<double>(pts0[i].x);
+          const double fy = static_cast<double>(pts1[i].y) - static_cast<double>(pts0[i].y);
+          const double flow = std::sqrt(fx * fx + fy * fy);
+          const double thr = std::max(fb_thresh, fb_k * flow);
+          if (!mask_back[k] || std::sqrt(dx * dx + dy * dy) > thr) {
+            mask_klt[i] = 0;
+            ++n_rej;
+          }
         }
       }
       static long long fb_total = 0, fb_rej = 0;

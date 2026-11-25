@@ -57,11 +57,46 @@ find_package(OpenCV 4 REQUIRED)
 find_package(Boost 1.65 REQUIRED COMPONENTS filesystem date_time)
 find_package(Ceres REQUIRED)
 find_package(Threads REQUIRED)
+include(CheckCXXCompilerFlag)
 
 message(STATUS "Eigen:  ${Eigen3_VERSION}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
 message(STATUS "Boost:  ${Boost_VERSION}")
 message(STATUS "Ceres:  ${Ceres_VERSION}")
+
+# ------------------------------------------------------------------------------
+# 优化编译参数（全链路统一开启 -O3 与本机原生指令集调度，避免非 OpenVINS 层退回 -O0）
+# ------------------------------------------------------------------------------
+set(_default_native_opt ON)
+if(CMAKE_CROSSCOMPILING)
+  set(_default_native_opt OFF)
+endif()
+option(PURE_VIO_NATIVE_OPT "Enable native CPU arch/tune flags (-mcpu=native / -march=native)" ${_default_native_opt})
+
+set(PURE_VIO_PERF_FLAGS
+    -O3
+    -fomit-frame-pointer
+    -fno-signed-zeros
+    -fno-math-errno
+    -funroll-loops
+)
+if(PURE_VIO_NATIVE_OPT)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64|arm.*|ARM.*)$")
+    check_cxx_compiler_flag("-mcpu=native" PURE_VIO_HAS_MCPU_NATIVE)
+    if(PURE_VIO_HAS_MCPU_NATIVE)
+      list(APPEND PURE_VIO_PERF_FLAGS -mcpu=native)
+    endif()
+  else()
+    # x86_64 下使用 -mtune=native 做原生微架构调度，避免 -march=native 开启 AVX(32B 对齐)
+    # 与 C++14 OpenVINS 堆分配或未开启 AVX 的上层调用目标产生 Eigen 对齐 ABI 冲突。
+    check_cxx_compiler_flag("-mtune=native" PURE_VIO_HAS_MTUNE_NATIVE)
+    if(PURE_VIO_HAS_MTUNE_NATIVE)
+      list(APPEND PURE_VIO_PERF_FLAGS -mtune=native)
+    endif()
+  endif()
+endif()
+set(PURE_VIO_PERF_FLAGS "${PURE_VIO_PERF_FLAGS}" CACHE INTERNAL "VIO & camera performance compiler flags")
+message(STATUS "VIO perf flags: ${PURE_VIO_PERF_FLAGS}")
 
 # ------------------------------------------------------------------------------
 # OpenVINS 核心库（ROS-free）
@@ -73,6 +108,7 @@ list(LENGTH OPENVINS_SOURCES OPENVINS_SOURCE_COUNT)
 
 # 相机与检测共用的投影/测距库，不链接 OpenVINS、IMU 或通信模块。
 add_library(pure_depth_range STATIC src/depth_range.cpp)
+target_compile_options(pure_depth_range PRIVATE ${PURE_VIO_PERF_FLAGS})
 target_include_directories(
   pure_depth_range PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -93,11 +129,7 @@ target_compile_definitions(
 )
 target_compile_options(
   openvins_core
-  PRIVATE -O3
-          -fomit-frame-pointer
-          -fno-signed-zeros
-          -fno-math-errno
-          -funroll-loops
+  PRIVATE ${PURE_VIO_PERF_FLAGS}
           -Wno-unused-parameter
           -Wno-unused-variable
           -Wno-sign-compare
@@ -146,6 +178,7 @@ add_library(
   pure_vio_core STATIC src/vio_estimator.cpp src/vio_health.cpp
                        src/vision_pose_convert.cpp src/pose_logger.cpp
 )
+target_compile_options(pure_vio_core PRIVATE ${PURE_VIO_PERF_FLAGS})
 target_include_directories(
   pure_vio_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -173,6 +206,7 @@ target_link_libraries(
 
 # 离线回放
 add_executable(vio_offline apps/vio_offline_main.cpp src/offline_dataset.cpp)
+target_compile_options(vio_offline PRIVATE ${PURE_VIO_PERF_FLAGS})
 target_include_directories(vio_offline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(vio_offline PRIVATE pure_vio_core)
 
@@ -250,6 +284,7 @@ if(_build_live)
   endif()
 
   add_library(vio_camera STATIC src/orbbec_camera.cpp)
+  target_compile_options(vio_camera PRIVATE ${PURE_VIO_PERF_FLAGS})
   target_include_directories(vio_camera PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(vio_camera PUBLIC pure_depth_range OrbbecSDK)
   target_include_directories(
@@ -263,6 +298,7 @@ if(_build_live)
     add_library(
       pure_camera_ipc STATIC "${_pure_uav_repo_root}/src/common/camera_shm.cpp"
     )
+    target_compile_options(pure_camera_ipc PRIVATE ${PURE_VIO_PERF_FLAGS})
     target_include_directories(
       pure_camera_ipc PUBLIC "${_pure_uav_repo_root}/src/common"
     )
@@ -274,6 +310,7 @@ if(_build_live)
     pure_vio_runtime STATIC src/vio_runtime.cpp src/fcu_clock.cpp
                             src/shm_camera_source.cpp
   )
+  target_compile_options(pure_vio_runtime PRIVATE ${PURE_VIO_PERF_FLAGS})
   target_include_directories(
     pure_vio_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
   )
@@ -282,6 +319,7 @@ if(_build_live)
   )
 
   add_executable(vio_live apps/vio_live_main.cpp src/mavlink_link.cpp)
+  target_compile_options(vio_live PRIVATE ${PURE_VIO_PERF_FLAGS})
   target_include_directories(vio_live SYSTEM PRIVATE ${PURE_UAV_MAVLINK_DIR})
   if(TARGET communicate)
     target_link_libraries(vio_live PRIVATE communicate)

@@ -20,6 +20,7 @@
 
 #include "camera_config.hpp"
 #include "camera_shm.hpp"
+#include "cpu_affinity.hpp"
 #include "frame_publisher.hpp"
 #include "orbbec_camera.hpp"
 
@@ -227,6 +228,9 @@ int main(int argc, char** argv) {
         std::printf("[camera_server] 配置有效: %dx%d@%d depth=%d vio=%s color=%s color_hz=%d\n", cfg.camera.width, cfg.camera.height, cfg.camera.fps, cfg.camera.use_depth ? 1 : 0, cfg.publisher.vio_name.c_str(), cfg.publisher.color_name.c_str(), cfg.publisher.color_max_hz);
         return 0;
     }
+
+    // 在启动 Orbbec SDK 内部采集/解码线程前绑定相机服务核簇，避免与 vio_live 争抢同一核心。
+    pure_uav::applyCpuAffinityFromEnv("PURE_CAM_CPUS", "camera_server");
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);

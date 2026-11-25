@@ -37,6 +37,7 @@
 
 #include "camera_server_process.hpp"
 #include "comm_config.hpp"
+#include "cpu_affinity.hpp"
 #include "fcu_clock.hpp"
 #include "live_options.hpp"
 #include "live_timing.hpp"
@@ -135,6 +136,9 @@ int main(int argc, char** argv) {
         std::printf("Configuration OK: %dx%d@%d depth=%d ready_timeout_ms=%d external_camera=%d serial=%s@%d highres_imu_us=%d\n", capture.width, capture.height, capture.fps, capture.use_depth, ready_timeout_ms, opt.external_camera ? 1 : 0, serial_dev.c_str(), serial_baud, driver.highres_imu_interval_us);
         return 0;
     }
+    // 在初始化 OpenVINS（OpenCV 线程池）与工作线程前绑定 VIO 核簇，避免与 camera_server 争抢核心。
+    pure_uav::applyCpuAffinityFromEnv("PURE_VIO_CPUS", "vio_live");
+
     std::signal(SIGINT, onSigint);
     std::signal(SIGTERM, onSigint);
     std::signal(SIGPIPE, SIG_IGN);
@@ -205,11 +209,11 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // 3. camera_server VIO 通道、相机诊断和有界帧队列
+    // 3. camera_server VIO 通道、相机诊断和有界帧队列（容量收敛为 2，消费端始终取最新帧防延迟堆积）
     std::mutex frame_mtx;
     std::deque<FrameItem> frame_q;
-    constexpr size_t kMaxFrameQueue = 5;
-    uint64_t dropped_frames = 0;
+    constexpr size_t kMaxFrameQueue = 2;
+    std::atomic<uint64_t> dropped_frames{0};
 
     pure_uav::ShmCameraSource camera;
     pure_uav::ShmCameraSource::Config cam_cfg;
@@ -386,7 +390,7 @@ int main(int argc, char** argv) {
             std::scoped_lock lk(frame_mtx);
             if (frame_q.size() >= kMaxFrameQueue) {
                 frame_q.pop_front();
-                dropped_frames++;
+                dropped_frames.fetch_add(1, std::memory_order_relaxed);
             }
             frame_q.push_back(std::move(item));
         }
@@ -770,12 +774,15 @@ int main(int argc, char** argv) {
                 did_work = true;
             }
 
-            // C. 只取一帧图像；pending 保留到 IMU 覆盖或等待超时。
+            // C. 只取最新一帧图像并丢弃队列中积压的过期帧，避免偶发慢帧把后续位姿 age 持续垫高。
             if (!pending) {
                 std::scoped_lock lk(frame_mtx);
                 if (!frame_q.empty()) {
-                    pending = std::move(frame_q.front());
-                    frame_q.pop_front();
+                    if (frame_q.size() > 1) {
+                        dropped_frames.fetch_add(frame_q.size() - 1, std::memory_order_relaxed);
+                    }
+                    pending = std::move(frame_q.back());
+                    frame_q.clear();
                     pending_since_ns = steadyNowNs();
                 }
             }
@@ -1201,7 +1208,7 @@ int main(int argc, char** argv) {
     std::printf("  丢帧(无时钟)  : %lld\n", static_cast<long long>(stats_drop_no_clock.load()));
     std::printf("  时间基重置    : %lld（飞控重启/串口重连后重新初始化）\n", static_cast<long long>(stats_timebase_resets.load()));
     std::printf("  IMU 乱序丢弃  : %lld\n", static_cast<long long>(stats_imu_out_of_order.load()));
-    std::printf("  相机队列丢帧  : %llu\n", static_cast<unsigned long long>(dropped_frames));
+    std::printf("  相机队列丢帧  : %llu\n", static_cast<unsigned long long>(dropped_frames.load(std::memory_order_relaxed)));
     std::printf("  IMU 丢帧      : %llu\n", static_cast<unsigned long long>(link.droppedImu()));
     std::printf("  CSV           : %s\n", opt.csv_out.c_str());
     std::printf("  TUM           : %s\n", opt.tum_out.c_str());

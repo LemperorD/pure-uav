@@ -9,6 +9,9 @@ find_package(OpenCV 4 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_executable(camera_server camera_server_main.cpp frame_publisher.cpp)
+if(PURE_VIO_PERF_FLAGS)
+  target_compile_options(camera_server PRIVATE ${PURE_VIO_PERF_FLAGS})
+endif()
 target_include_directories(
   camera_server
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/common
