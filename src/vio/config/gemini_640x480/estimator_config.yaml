@@ -1,0 +1,82 @@
+%YAML:1.0
+---
+# 640x480 配置：复用本相机 640x480 标定内参与 2026-11-23 最新飞控外参，像素域参数按 1/3 焦距折算。
+verbosity: INFO
+use_fej: true
+integration: rk4
+use_stereo: false
+max_cameras: 1
+calib_cam_extrinsics: true
+calib_cam_intrinsics: false
+calib_cam_timeoffset: false
+calib_imu_intrinsics: false
+calib_imu_g_sensitivity: false
+max_clones: 11
+max_slam: 50
+max_slam_in_update: 25
+max_msckf_in_update: 40
+dt_slam_delay: 1
+gravity_mag: 9.81
+feat_rep_msckf: GLOBAL_3D
+feat_rep_slam: ANCHORED_MSCKF_INVERSE_DEPTH
+feat_rep_aruco: ANCHORED_MSCKF_INVERSE_DEPTH
+try_zupt: true
+zupt_chi2_multipler: 5          # 只用于日志打印，不再当门限
+zupt_max_velocity: 0.50
+zupt_noise_multiplier: 10
+zupt_max_disparity: 0.7         # 640x480 (fx=452.4) 下相邻帧平均像素位移 <0.7 px 才算图像静止（对应 1080p 的 1.8~2.1 px）
+zupt_only_at_beginning: false   # 全程生效：静止就锁，动了立刻放
+zupt_max_omega_deg: 2.0         # IMU 判据①：窗口平均 |ω| < 2.0°/s 且峰值 < 3.6°/s，避免手持慢晃误触发
+zupt_max_acc_dev: 0.15          # IMU 判据②：平均 |‖a‖−g| < 0.15 m/s²（桌面静止实测 0.02~0.05）
+zupt_sigma_v: 0.03              # 显式 "v=0" 残差，σ=3 cm/s（配合异常发散时对角 Q_v 阻尼 K_{p,v}）
+zupt_min_still_frames: 10       # 30fps 下连续 10 帧（0.33 s）IMU+视觉同时静止才触发
+zupt_v_only: true
+init_window_time: 1.0
+init_imu_thresh: 0.6
+init_max_disparity: 10.0
+init_max_features: 50
+init_dyn_use: true
+init_dyn_mle_opt_calib: false
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.05
+init_dyn_mle_max_threads: 6
+init_dyn_num_pose: 6
+init_dyn_min_deg: 10.0
+init_dyn_inflation_ori: 5
+init_dyn_inflation_vel: 25
+init_dyn_inflation_bg: 10
+init_dyn_inflation_ba: 15
+init_dyn_min_rec_cond: 1e-12
+init_dyn_bias_g: [0.0, 0.0, 0.0]
+init_dyn_bias_a: [0.0, 0.0, 0.0]
+record_timing_information: false
+record_timing_filepath: /tmp/traj_timing.txt
+save_total_state: false
+filepath_est: /tmp/ov_estimate.txt
+filepath_std: /tmp/ov_estimate_std.txt
+filepath_gt: /tmp/ov_groundtruth.txt
+use_klt: true
+num_pts: 300
+fast_threshold: 20
+grid_x: 6
+grid_y: 5
+min_px_dist: 10
+knn_ratio: 0.7
+track_frequency: 120.0
+downsample_cameras: false
+num_opencv_threads: 4
+histogram_method: CLAHE
+use_aruco: false
+num_aruco: 1024
+downsize_aruco: true
+up_msckf_sigma_px: 1.2
+up_msckf_chi2_multipler: 3
+up_slam_sigma_px: 1.2
+up_slam_chi2_multipler: 3
+up_aruco_sigma_px: 1.2
+up_aruco_chi2_multipler: 3
+use_mask: false
+relative_config_imu: kalibr_imu_chain.yaml
+relative_config_imucam: kalibr_imucam_chain.yaml
+topic_imu: /imu0
+topic_camera0: /cam0/image_raw
