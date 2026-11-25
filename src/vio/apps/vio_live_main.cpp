@@ -247,12 +247,25 @@ int main(int argc, char** argv) {
     long long n_frame_total = 0;
     int64_t prev_host_ns = 0;
     int64_t prev_device_us = 0;
-    auto onCameraFrame = [&](const cv::Mat& gray, const cv::Mat& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_dev_us, int64_t system_us) {
+    auto onCameraFrame = [&](cv::Mat&& gray, cv::Mat&& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_dev_us, int64_t system_us) {
         // --- 图像诊断（只在相机线程调用，不需要加锁）---
         {
-            static cv::Ptr<cv::FastFeatureDetector> fast = cv::FastFeatureDetector::create(20, true);
             diag.frames++;
-            diag.mean_sum += cv::mean(gray)[0];
+            // 8x8 步长抽样计算灰度均值（1080p 下仅采样 1/64 像素，误差 <0.1 灰阶，避免每帧全图扫描）
+            if (!gray.empty()) {
+                uint64_t sum = 0;
+                size_t count = 0;
+                for (int r = 0; r < gray.rows; r += 8) {
+                    const auto* row = gray.ptr<uint8_t>(r);
+                    for (int c = 0; c < gray.cols; c += 8) {
+                        sum += row[c];
+                        ++count;
+                    }
+                }
+                if (count > 0) {
+                    diag.mean_sum += static_cast<double>(sum) / static_cast<double>(count);
+                }
+            }
             if (!depth_mm.empty()) {
                 ++n_frame_with_depth;
                 // 深度年龄 = 彩色设备时刻 − 深度设备时刻（同一台设备的时钟，可直接相减）
@@ -302,7 +315,9 @@ int main(int argc, char** argv) {
                 prev_host_ns = host_ns;
                 prev_device_us = device_us;
             }
-            if (diag.frames % 5 == 1) {  // 每 5 帧算一次特征数，省 CPU
+            // 全图 FAST 仅用于预览窗口诊断；无界面飞行模式下跳过，避免与 VIO 线程争抢 OpenCV 线程池
+            if (opt.view && diag.frames % 5 == 1) {
+                static cv::Ptr<cv::FastFeatureDetector> fast = cv::FastFeatureDetector::create(20, true);
                 std::vector<cv::KeyPoint> kp;
                 fast->detect(gray, kp);
                 diag.fast_sum += static_cast<double>(kp.size());
@@ -312,7 +327,7 @@ int main(int argc, char** argv) {
                 diag.last_log_ns = host_ns;
             } else if (host_ns - diag.last_log_ns >= 1000000000LL) {
                 const double mean = diag.mean_sum / (diag.frames > 0 ? diag.frames : 1);
-                const double fast_avg = diag.fast_sum / (diag.fast_samples > 0 ? diag.fast_samples : 1);
+                const double fast_avg = diag.fast_samples > 0 ? (diag.fast_sum / diag.fast_samples) : -1.0;
                 // 裁掉帧间隔离群点，避免停顿掩盖正常采集抖动。
                 double host_p50 = 0.0;
                 double host_p95 = 0.0;
@@ -329,10 +344,16 @@ int main(int argc, char** argv) {
                     // 稳健 σ ≈ (p84 - p16)/2
                     host_robust_std = 0.5 * (t[t.size() * 84 / 100] - t[t.size() * 16 / 100]);
                 }
+                char fast_buf[24];
+                if (fast_avg >= 0.0) {
+                    std::snprintf(fast_buf, sizeof(fast_buf), "%.0f", fast_avg);
+                } else {
+                    std::snprintf(fast_buf, sizeof(fast_buf), "-");
+                }
                 std::printf(
-                    "[cam] %lld 帧/秒  mean=%.1f  FAST≈%.0f  深度 %dx%d 有效%.0f%% 中位%.2fm  "
+                    "[cam] %lld 帧/秒  mean=%.1f  FAST≈%s  深度 %dx%d 有效%.0f%% 中位%.2fm  "
                     "\u5e27\u95f4\u9694 p50=%.2f p95=%.2f ms  \u65f6\u95f4\u6233\u6296\u52a8(\u7a33\u5065\u03c3)=%.2f ms\n",
-                    (long long)diag.frames, mean, fast_avg, depth_w, depth_h, 100.0 * depth_valid_ratio, depth_median_mm * 1e-3, host_p50, host_p95, host_robust_std);
+                    (long long)diag.frames, mean, fast_buf, depth_w, depth_h, 100.0 * depth_valid_ratio, depth_median_mm * 1e-3, host_p50, host_p95, host_robust_std);
                 if (!depth_age_ms.empty()) {
                     std::vector<double> v(depth_age_ms.begin(), depth_age_ms.end());
                     std::sort(v.begin(), v.end());
@@ -350,9 +371,10 @@ int main(int argc, char** argv) {
         }
 
         FrameItem item;
-        item.gray = gray.clone();  // 相机线程的 Mat 生命周期不可控，克隆一份
+        // ShmCameraSource::pop() 已经为每帧分配了独立 Mat，直接移动归属权，避免二次深拷贝
+        item.gray = std::move(gray);
         if (!depth_mm.empty()) {
-            item.depth = depth_mm.clone();
+            item.depth = std::move(depth_mm);
         }
         item.host_ns = host_ns;
         item.device_us = device_us;
@@ -552,7 +574,7 @@ int main(int argc, char** argv) {
             while (!g_stop.load()) {
                 pure_uav::VioFrame frame;
                 if (camera.pop(frame, 20)) {
-                    onCameraFrame(frame.gray, frame.depth_mm, frame.host_ns, frame.device_us, frame.depth_device_us, frame.system_us);
+                    onCameraFrame(std::move(frame.gray), std::move(frame.depth_mm), frame.host_ns, frame.device_us, frame.depth_device_us, frame.system_us);
                 } else if (!camera.running()) {
                     break;
                 }

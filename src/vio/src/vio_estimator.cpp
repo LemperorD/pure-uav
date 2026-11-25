@@ -98,6 +98,8 @@ struct VioEstimator::Impl {
 
     // 可视化：当前帧跟踪点（每次 feedImage 后刷新，只在 VIO 线程读）
     std::vector<VioEstimator::TrackedPoint> tracks;
+    // 复用全零掩膜，避免每帧重新分配并清零 1920x1080 (2MB) 内存
+    cv::Mat empty_mask;
 
     void createManager();
     void log(const char* fmt, ...) const;
@@ -347,7 +349,7 @@ double median_of(const std::deque<double>& q) {
         return 0.0;
     }
     std::vector<double> v(q.begin(), q.end());
-    std::sort(v.begin(), v.end());
+    std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
     return v[v.size() / 2];
 }
 
@@ -355,13 +357,12 @@ bool init_still_likely(const std::deque<double>& acc_hist, const std::deque<doub
     if (acc_hist.size() < 100 || gyr_hist.size() < 100) {
         return false;
     }
-    std::vector<double> a(acc_hist.begin(), acc_hist.end());
-    std::vector<double> w(gyr_hist.begin(), gyr_hist.end());
-    std::sort(a.begin(), a.end());
-    std::sort(w.begin(), w.end());
-    const double acc_dev = std::abs(a[a.size() / 2] - 9.81);
-    const double gyr_dps = w[w.size() / 2] * 180.0 / M_PI;
-    return acc_dev < acc_thresh && gyr_dps < gyro_dps_thresh;
+    const double acc_dev = std::abs(median_of(acc_hist) - 9.81);
+    if (acc_dev >= acc_thresh) {
+        return false;
+    }
+    const double gyr_dps = median_of(gyr_hist) * 180.0 / M_PI;
+    return gyr_dps < gyro_dps_thresh;
 }
 }  // namespace
 
@@ -378,8 +379,8 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         return true;  // 丢弃，不视为错误
     }
     impl_->last_cam_time = ts;
-    // 把"当前是否接近静止"告诉 VioManager：初始化成功时用它决定要不要清零初速度
-    if (impl_->vio) {
+    // 把"当前是否接近静止"告诉 VioManager：仅在尚未初始化时计算，初始化成功时用它决定要不要清零初速度
+    if (impl_->vio && !impl_->vio->initialized()) {
         impl_->vio->set_init_still(init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, impl_->opt.init_still_acc_thresh, impl_->opt.init_still_gyro_dps));
     }
 
@@ -395,9 +396,11 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
     cam.timestamp = ts;
     cam.sensor_ids = {0};
     cam.images = {img};
-    // OpenVINS 要求 masks 与 images 等长，且内部会对 mask 做 resize；
-    // 不启用掩膜时放一张全 0（不遮挡）的同尺寸 mask。
-    cam.masks = {cv::Mat::zeros(img.rows, img.cols, CV_8UC1)};
+    // OpenVINS 要求 masks 与 images 等长；复用同尺寸的全 0 掩膜避免每帧分配 2MB 内存。
+    if (impl_->empty_mask.rows != img.rows || impl_->empty_mask.cols != img.cols || impl_->empty_mask.type() != CV_8UC1) {
+        impl_->empty_mask = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
+    }
+    cam.masks = {impl_->empty_mask};
 
     const int before = impl_->images;
     impl_->vio->feed_measurement_camera(cam);
@@ -470,9 +473,10 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // IMU 统计量）。不满足就一直保持 LOST、不发位姿——这比"发一条看起来连续
         // 但其实是错的重锚定轨迹"安全得多。操作员停一下就能恢复。
         //=====================================================================
-        const bool rebuild_still = init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, 0.5, 10.0);
-        const bool can_rebuild = impl_->latched && rebuild_still && (impl_->last_rebuild_time < 0.0 || ts - impl_->last_rebuild_time > impl_->opt.health.min_rebuild_interval_s);
-        if (((soft || force) && impl_->latched && !rebuild_still) && (ts - impl_->last_still_remind > 2.0))
+        const bool need_rebuild_check = (soft || force) && impl_->latched;
+        const bool rebuild_still = need_rebuild_check && init_still_likely(impl_->acc_norm_hist, impl_->gyr_norm_hist, 0.5, 10.0);
+        const bool can_rebuild = need_rebuild_check && rebuild_still && (impl_->last_rebuild_time < 0.0 || ts - impl_->last_rebuild_time > impl_->opt.health.min_rebuild_interval_s);
+        if ((need_rebuild_check && !rebuild_still) && (ts - impl_->last_still_remind > 2.0))
         // 每 2 s 提示一次，别刷屏
         {
             impl_->last_still_remind = ts;
@@ -528,25 +532,12 @@ bool VioEstimator::feedImage(const cv::Mat& gray, uint64_t timestamp_us) {
         // 【2026-10-23】初始化瞬间的静止指标（只记录，不干预）：
         // 这两个数是"静止判定"的原始输入——将来用它决定要不要把初速度置 0。
         {
-            double gyr_med = -1.0;
-            if (impl_->gyr_norm_hist.size() > 20) {
-                std::vector<double> g(impl_->gyr_norm_hist.begin(), impl_->gyr_norm_hist.end());
-                std::sort(g.begin(), g.end());
-                gyr_med = g[g.size() / 2];
-            }
+            const double gyr_med = impl_->gyr_norm_hist.size() > 20 ? median_of(impl_->gyr_norm_hist) : -1.0;
+            const double acc_dev = impl_->acc_norm_hist.size() >= 20 ? std::abs(median_of(impl_->acc_norm_hist) - 9.81) : -1.0;
             impl_->logAlways(
                 "[VIO] [segment %d] 初始化静止指标: ||a||-g=%.3f m/s^2  |w|中位=%.1f °/s"
                 "（静止判定阈值建议 0.30 / 5.0）\n",
-                impl_->segment_id,
-                [&]() -> double {
-                    if (impl_->acc_norm_hist.size() < 20) {
-                        return -1.0;
-                    }
-                    std::vector<double> v(impl_->acc_norm_hist.begin(), impl_->acc_norm_hist.end());
-                    std::sort(v.begin(), v.end());
-                    return std::abs(v[v.size() / 2] - 9.81);
-                }(),
-                gyr_med < 0 ? -1.0 : gyr_med * 180.0 / M_PI);
+                impl_->segment_id, acc_dev, gyr_med < 0 ? -1.0 : gyr_med * 180.0 / M_PI);
         }
         impl_->logAlways("[VIO] [segment %d] 初始化完成：init_time=%.6f s, 开始输出 LOCAL_FRD 位姿%s\n", impl_->segment_id, impl_->init_time, impl_->anchor.set ? "（已重锚定）" : "");
     }
@@ -648,9 +639,7 @@ double VioEstimator::linAccelDev() const {
     if (!impl_ || impl_->acc_norm_hist.size() < 20) {
         return -1.0;
     }
-    std::vector<double> v(impl_->acc_norm_hist.begin(), impl_->acc_norm_hist.end());
-    std::sort(v.begin(), v.end());
-    return std::abs(v[v.size() / 2] - 9.81);
+    return std::abs(median_of(impl_->acc_norm_hist) - 9.81);
 }
 
 // 最近一次 MSCKF 的三角化成功率 = tri_ok / feat_in。
