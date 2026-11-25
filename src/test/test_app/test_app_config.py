@@ -12,7 +12,7 @@ root = pathlib.Path(sys.argv[2]).resolve()
 app_text = (root / "config/app.yaml").read_text()
 vio_text = (root / "config/vio.yaml").read_text()
 camera_text = (root / "config/camera.yaml").read_text()
-driver_text = (root / "config/driver.yaml").read_text()
+camera_1080_config = "config/camera_1920x1080.yaml"
 checks = 0
 
 
@@ -52,8 +52,10 @@ run(["--no-send", "--check-config"], contains="odometry_send_enabled: false")
 effective = run(["--check-config"], contains="Configuration OK")
 assert str(root / "config/app.yaml") in effective
 assert str(root / "config/vio.yaml") in effective
+assert "vio.resolution/fps: 640x480@30" in effective
 assert "vio.use_depth/use_depth_init: true/true" in effective
 assert "vio.init_vel_zero/static_init/online_timeoffset: true/false/true" in effective
+run(["--camera-config", camera_1080_config, "--check-config"], contains="vio.resolution/fps: 1920x1080@30")
 run(["--config"], 2, "缺少参数值")
 run(["--vio-config"], 2, "缺少参数值")
 run(["--unknown"], 2, "未知参数")
@@ -87,9 +89,9 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     app_variant("old-vio", "main_loop_hz: 50", "vio: {}", "Unknown setting app.vio")
     app_variant("unknown", "main_loop_hz: 50", "main_loop_typo: 50", "Unknown setting")
     app_variant("guidance", "guidance_enabled: false", "guidance_enabled: true", "guidance_enabled")
-    camera_variant("missing-dir", "src/vio/config/gemini_1920x1080", "not-a-directory", "estimator_config.yaml")
+    camera_variant("missing-dir", "src/vio/config/gemini_640x480", "not-a-directory", "estimator_config.yaml")
     vio_variant("bad-age", "max_age_ms: 150", "max_age_ms: -1", "max_age_ms")
-    camera_variant("resolution", "width: 1920", "width: 1280", "分辨率")
+    camera_variant("resolution", "width: 640", "width: 1280", "分辨率")
     vio_variant("quality", "quality_ok: 90", "quality_ok: 101", "quality_ok")
     vio_variant("old-imu-rate", "use_depth_init: true", "imu_hz: 100", "Unknown setting vio.imu_hz")
     vio_variant("old-timeout", "shm_vio: /pure_uav_camera_vio", "timeout_ms: 5000", "Unknown setting vio.input.timeout_ms")
@@ -104,11 +106,11 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     custom_camera = tmp / "custom-camera.yaml"
     custom_camera.write_text(camera_text.replace("fps: 30", "fps: 45").replace("ready_timeout_ms: 15000", "ready_timeout_ms: 750"))
     output = run(["--config", str(custom_app), "--camera-config", str(custom_camera), "--check-config"], contains="main_loop_hz: 25")
-    assert "vio.resolution/fps: 1920x1080@45" in output
+    assert "vio.resolution/fps: 640x480@45" in output
     assert "camera.ready_timeout_ms: 750" in output
     assert "vio.pose.quality_ok/degraded: 80/50" in output
     assert "vio.use_depth/use_depth_init: true/false" in output
-    run(["--config", str(custom_app), "--vio-config", "config/vio.yaml", "--check-config"], contains="vio.resolution/fps: 1920x1080@30")
+    run(["--config", str(custom_app), "--vio-config", "config/vio.yaml", "--check-config"], contains="vio.resolution/fps: 640x480@30")
     custom_camera.write_text(camera_text.replace("use_depth: true", "use_depth: false"))
     run(["--camera-config", str(custom_camera), "--check-config"], contains="vio.use_depth/use_depth_init: false/false")
     synth_720 = tmp / "gemini_1280x720"
@@ -119,7 +121,12 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     (synth_720 / "kalibr_imucam_chain.yaml").write_text(
         (prod_dir / "kalibr_imucam_chain.yaml").read_text().replace("resolution: [1920, 1080]", "resolution: [1280, 720]")
     )
-    custom_camera.write_text(camera_text.replace("width: 1920", "width: 1280").replace("height: 1080", "height: 720").replace("src/vio/config/gemini_1920x1080", str(synth_720)))
+    camera_1080_text = (root / camera_1080_config).read_text()
+    custom_camera.write_text(
+        camera_1080_text.replace("width: 1920", "width: 1280")
+        .replace("height: 1080", "height: 720")
+        .replace("src/vio/config/gemini_1920x1080", str(synth_720))
+    )
     run(["--camera-config", str(custom_camera), "--check-config"], contains="vio.resolution/fps: 1280x720@30")
     run(["--shm-vio", "/test_vio", "--shm-timeout-ms", "123", "--check-config"], contains="vio.input.shm_vio: /test_vio")
     run(["--shm-timeout-ms", "0", "--check-config"], contains="camera.ready_timeout_ms: 0")
@@ -133,9 +140,16 @@ with tempfile.TemporaryDirectory(prefix="app-config-", dir=root / "build") as di
     path = tmp / "driver.yaml"
     path.write_text("communicate:\n  file: /not-a-device\n  baudrate: 1\n")
     run(["--driver-config", str(path), "--check-config"], 2, "baudrate")
-    path.write_text(driver_text.replace("highres_imu_us: 10000", "highres_imu_us: 4000"))
+    driver_fixture = (
+        "communicate:\n"
+        "  file: /not-a-device\n"
+        "  baudrate: 1500000\n"
+        "  stream:\n"
+        "    highres_imu_us: 4000\n"
+    )
+    path.write_text(driver_fixture)
     run(["--driver-config", str(path), "--check-config"], contains="vio.imu_hz/request_interval_us: 250/4000")
-    variant("bad-driver-imu", driver_text, "highres_imu_us: 10000", "highres_imu_us: 0", "--driver-config", "highres_imu_us")
+    variant("bad-driver-imu", driver_fixture, "highres_imu_us: 4000", "highres_imu_us: 0", "--driver-config", "highres_imu_us")
     custom_app.write_text(json.dumps({"app": {"driver_config": "missing-driver", "vio_config": "missing-vio"}}))
     run(["--config", str(custom_app), "--driver-config", "config/driver.yaml", "--vio-config", "config/vio.yaml", "--check-config"], contains="Configuration OK")
 

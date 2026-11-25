@@ -42,8 +42,11 @@ cmake --build build -j2 --target vio_live
 # 本地测试（不向飞控发送位姿，开实时窗口）
 bash src/vio/scripts/run_vio_live.sh
 
-# 正式运行（向飞控发送 MAVLink ODOMETRY，不开窗口）
+# 正式运行默认 640×480（向飞控发送 MAVLink ODOMETRY，不开窗口）
 bash src/vio/scripts/run_vio_live.sh --fly
+
+# 切换到 1920×1080，使用匹配的标定
+bash src/vio/scripts/run_vio_live.sh --fly -- --camera-config config/camera_1920x1080.yaml
 ```
 
 可按需叠加脚本选项（支持自由组合，例如 `--fly --static`）：
@@ -83,5 +86,5 @@ bash src/vio/scripts/run_vio_live.sh --fly
 
 1. **串口独占**：`vio_live` 与 `bin/main` 或地面站不能同时占用同一个飞控串口；设备名不是 `/dev/ttyACM0` 时请通过 `--serial` 指定。
 2. **复用外部相机服务**：如果已手动启动 `camera_server`，请给 `vio_live` 传 `--external-camera`（脚本用 `-- --external-camera`），仅连接而不重复启停。
-3. **相机参数位置**：曝光、增益、测光和深度开关统一在 `config/camera.yaml` 中修改。
+3. **相机参数位置**：在当前使用的相机配置文件中修改曝光、增益、测光和深度开关。默认文件为 `config/camera.yaml`。
 4. **更多文档**：详见 [src/vio/README.md](../../src/vio/README.md) 与 [camera-ipc.md](app/camera-ipc.md)。

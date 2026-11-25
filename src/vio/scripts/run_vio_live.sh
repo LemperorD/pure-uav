@@ -6,6 +6,7 @@
 #   ./scripts/run_vio_live.sh --duration 60    60 秒后自动退出（默认一直跑到按 q）
 #   ./scripts/run_vio_live.sh --fly            正式运行：向飞控发送位姿（默认自动启停 camera_server）
 #   ./scripts/run_vio_live.sh --out DIR        指定输出目录（默认 out/live_<时间戳>）
+#   默认相机配置为 640x480；1920x1080 用 -- --camera-config config/camera_1920x1080.yaml
 #   ./scripts/run_vio_live.sh -- --no-send     "--" 之后的参数原样传给 vio_live
 #
 # 每次都会记录：pose.csv（位姿+零偏）、traj.tum（全部估计位姿）、

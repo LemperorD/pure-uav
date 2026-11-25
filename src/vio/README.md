@@ -4,7 +4,7 @@
 机载 `main` 集成 VIO，`vio_live` 用于实时调试和录制，`vio_offline` 用于回放。
 
 - `apps/`：实时、离线入口；`src/` 和 `include/`：估计器与运行时。
-- `config/`：运行参数和相机／IMU 标定链，生产配置为 `gemini_1920x1080/`。
+- `config/`：运行参数和相机／IMU 标定链，包含 `gemini_640x480/` 和 `gemini_1920x1080/`。
 - `scripts/`、`tools/`、`tests/`：启动、分析和测试；`third_party/open_vins/` 为构建依赖。
 
 相机内参、相机–IMU 外参、IMU 噪声和加速度标定工具已迁至 `calibration_for_vio`。
@@ -36,7 +36,8 @@ bash src/vio/scripts/run_vio_live.sh --out out/run1 -- --record datasets/run1
 ```
 
 实时脚本默认不向飞控发送位姿，输出和录制路径相对 `src/vio/`。
-切换分辨率、帧率、深度或在线标定时，统一改 `config/camera.yaml`；修改 IMU 请求间隔只改 `config/driver.yaml`。
+在线默认使用 `config/camera.yaml` 的 640×480 配置。切换到 1920×1080 时，给脚本传入 `-- --camera-config config/camera_1920x1080.yaml`。
+在所选相机配置中调整帧率、深度开关或在线标定。在 `config/driver.yaml` 中修改 IMU 请求间隔。
 实时入口可分别用 `--camera-config` 和 `--driver-config` 指定其他配置文件；离线回放仍按数据集选择 `--config-dir`。
 分析工具的 Python 依赖见 [requirements.txt](requirements.txt)；RViz 另需 ROS 2。
 使用直采曝光诊断时，将 `VIO_CALIBRATION_REPO` 指向 `calibration_for_vio` 的仓库根目录，并先停止相机服务。

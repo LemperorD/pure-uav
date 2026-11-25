@@ -1,12 +1,12 @@
-# 相机服务、在线 VIO 和制导共用。分辨率须匹配所选标定。
+# 相机服务、在线 VIO 和制导共用。默认使用 640x480；分辨率须匹配所选标定。
 camera:
-  width: 1920
-  height: 1080
+  width: 640
+  height: 480
   fps: 30
   use_depth: true
   # 彩色标定由该目录的 estimator_config.yaml → relative_config_imucam 指定。
-  # 切到 640x480 时改为 width: 640, height: 480, vio_config_dir: src/vio/config/gemini_640x480
-  vio_config_dir: src/vio/config/gemini_1920x1080
+  # 如需 1920x1080，请使用 config/camera_1920x1080.yaml。
+  vio_config_dir: src/vio/config/gemini_640x480
   aggregate_mode: 0
   auto_exposure: false
   exposure: 100
@@ -25,7 +25,7 @@ channels:
   vio_name: /pure_uav_camera_vio
   color_name: /pure_uav_camera_color
   slots: 3
-  vio_slot_bytes: 8388608    # 8 MiB：1920x1080 gray(2 MB) + CV_16U depth(4 MB)
+  vio_slot_bytes: 8388608    # 8 MiB：为 640x480 和 1920x1080 配置保留统一容量
   color_slot_bytes: 8388608  # 8 MiB：原生深度 + 单帧 MJPG
   color_max_hz: 10
   ready_timeout_ms: 15000

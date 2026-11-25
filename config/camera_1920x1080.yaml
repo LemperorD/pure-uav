@@ -1,0 +1,33 @@
+# 1920x1080 相机服务与在线 VIO 配置。
+camera:
+  width: 1920
+  height: 1080
+  fps: 30
+  use_depth: true
+  # 彩色标定由该目录的 estimator_config.yaml → relative_config_imucam 指定。
+  vio_config_dir: src/vio/config/gemini_1920x1080
+  aggregate_mode: 0
+  auto_exposure: false
+  exposure: 100
+  gain: 30
+  white_balance: 4600
+  warmup_frames: 15
+  auto_tune_exposure: true
+  tune_expected_rate_dps: 100
+  tune_blur_budget_px: 3.0
+  tune_max_exposure_ms: 15.0
+  tune_max_gain: 40
+  tune_allow_dark: false
+
+# 两条独立的 POSIX 共享内存通道。VIO 为 gray+depth，检测为 depth+MJPG 且限频。
+channels:
+  vio_name: /pure_uav_camera_vio
+  color_name: /pure_uav_camera_color
+  slots: 3
+  vio_slot_bytes: 8388608    # 8 MiB：1920x1080 gray + CV_16U depth
+  color_slot_bytes: 8388608  # 8 MiB：原生深度 + 单帧 MJPG
+  color_max_hz: 10
+  ready_timeout_ms: 15000
+
+runtime:
+  status_period_s: 1.0
