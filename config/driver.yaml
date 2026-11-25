@@ -1,10 +1,10 @@
 communicate:
-  file: /dev/ttyS2
-  baudrate: 115200
+  file: /dev/ttyACM0
+  baudrate: 1500000
   heartbeat_timeout_ms: 2000
   stream:
     attitude_us: 20000
     local_position_us: 20000
-    highres_imu_us: 10000
+    highres_imu_us: 3000
     battery_us: 1000000
     system_time_us: 1000000

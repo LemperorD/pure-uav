@@ -49,6 +49,9 @@ bool SerialPort::open(const std::string& device, int baud) { //打开串口
         case 921600:
             speed = B921600;
             break;
+        case 1500000:
+            speed = B1500000;
+            break;
         default:
             closeUnlocked();  // 不支持的波特率，明确失败而非静默映射
             return false;
