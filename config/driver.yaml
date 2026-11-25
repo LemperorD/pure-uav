@@ -1,6 +1,6 @@
 communicate:
   file: /dev/ttyS2
-  baudrate: 1500000
+  baudrate: 1500000 //57600 || 115200 || 230400 || 460800 || 921600 || 1500000
   heartbeat_timeout_ms: 2000
   stream:
     attitude_us: 20000
