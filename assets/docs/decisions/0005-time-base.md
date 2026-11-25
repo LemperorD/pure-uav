@@ -18,7 +18,7 @@
 
 ## 决定
 
-1. **统一时间基准 = 飞控 boot 时钟 µs**；
+1. **制导统一时间基准 = 飞控 boot 时钟 µs**；
 2. 所有进入制导的采样都带 `boot_us`；
 3. **同一帧数据的所有时间戳必须同源**；
 4. 跨源数据必须先换算到 boot 域，再参与差值；
@@ -60,7 +60,7 @@ boot_us   = 视觉时间戳 − offset_us
 
 ## VIO / PX4
 
-- VIO 输出的 `timestamp_us` 应是 FC boot µs；
+- 在线 VIO 的 `timestamp_us` 和 `ODOMETRY.time_usec` 自 2026-11-09 起使用主机 Unix µs；IMU、图像和深度在 VIO 入口统一换算，详见 `src/vio/estimator/README.md` 的时间戳说明；
 - PX4 EKF2 融合 EV 时用 `EKF2_EV_DELAY` 补偿链路延迟；
 - 制导只消费 PX4 `vehicle_local_position`，不直接消费 VIO。
 

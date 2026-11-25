@@ -37,7 +37,7 @@
 
 | 代码位置 | 主要文档 | 说明 |
 |---|---|---|
-| `src/app/main.cpp` | [app/README.md](app/README.md) | 通信示例入口 |
+| `src/app/main.cpp` | [app/README.md](app/README.md) | 通信 + 检测子进程编排入口 |
 | `src/app/startup/guidance_example.cpp` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | 制导调用示例入口 |
 | `src/app/startup/guidance_application.{hpp,cpp}` | [app/README.md](app/README.md) + [app/usage.md](app/usage.md) | CLI / 参数加载 / 分发 |
 | `src/app/sim/guidance_sim_tools.{hpp,cpp}` | [app/README.md](app/README.md) + [app/csv-format.md](app/csv-format.md) + [app/blackbox.md](app/blackbox.md) | CSV 录制/回放 + 合成世界 + 黑匣子 |
@@ -47,6 +47,7 @@
 | `src/guidance/sim/` | [guidance/README.md](guidance/README.md) + [0007](decisions/0007-target-models.md) + [0008](decisions/0008-sensor-wall.md) | 传感器墙 / 目标模型 / `pn_sim` |
 | `src/test/` | [testing.md](testing.md) | 测试用例与基线 |
 | `src/driver/` | [src/driver/README.md](../../src/driver/README.md) | Orbbec 相机；通信见 `communication.md` |
+| `src/detection-rt/` | [src/detection-rt/README.md](../../src/detection-rt/README.md) | NPU/CPU 目标检测（相机 → YOLO → GuidanceTargetSample） |
 | `sim_xtdrone2/` | [sim_xtdrone2/README.md](../../sim_xtdrone2/README.md) | 系统仿真接入（留原地） |
 | `src/vio/` | [src/vio/README.md](../../src/vio/README.md) | 标定工具 |
 | `src/common/` | 代码注释 | `vec3` / `mavlink_units` / `pure_math_tools` |

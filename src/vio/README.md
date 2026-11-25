@@ -60,7 +60,6 @@ conda install -c conda-forge tk        # 采集预览窗口需要（标准库 tk
 | Pillow | 12.3.0 | 采集预览 |
 | tkinter（Tk 8.6.13） | 标准库 | 采集预览窗口 |
 
-
 ### 设备权限
 
 ```bash

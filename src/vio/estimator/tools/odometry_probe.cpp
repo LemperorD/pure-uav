@@ -28,41 +28,56 @@
 #include <string>
 
 #include "common/mavlink.h"
-
 #include "odom_tool_core.hpp"
 
 namespace {
 
 std::atomic<bool> g_stop{false};
-void onSigint(int) { g_stop.store(true); }
+void onSigint(int /*unused*/) {
+    g_stop.store(true);
+}
 
 speed_t toSpeed(int baud) {
     switch (baud) {
-        case 115200: return B115200;
-        case 230400: return B230400;
-        case 460800: return B460800;
-        case 921600: return B921600;
-        case 1500000: return B1500000;
-        case 2000000: return B2000000;
-        case 3000000: return B3000000;
-        default: return B0;
+        case 115200:
+            return B115200;
+        case 230400:
+            return B230400;
+        case 460800:
+            return B460800;
+        case 921600:
+            return B921600;
+        case 1500000:
+            return B1500000;
+        case 2000000:
+            return B2000000;
+        case 3000000:
+            return B3000000;
+        default:
+            return B0;
     }
 }
 
 int openSerial(const std::string& device, int baud, std::string* error) {
     const speed_t sp = toSpeed(baud);
     if (sp == B0) {
-        if (error) *error = "不支持的波特率 " + std::to_string(baud);
+        if (error != nullptr) {
+            *error = "不支持的波特率 " + std::to_string(baud);
+        }
         return -1;
     }
     const int fd = ::open(device.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) {
-        if (error) *error = "打开失败: " + std::string(std::strerror(errno));
+        if (error != nullptr) {
+            *error = "打开失败: " + std::string(std::strerror(errno));
+        }
         return -1;
     }
-    struct termios tty {};
+    struct termios tty{};
     if (tcgetattr(fd, &tty) != 0) {
-        if (error) *error = "tcgetattr 失败";
+        if (error != nullptr) {
+            *error = "tcgetattr 失败";
+        }
         ::close(fd);
         return -1;
     }
@@ -73,7 +88,9 @@ int openSerial(const std::string& device, int baud, std::string* error) {
     tty.c_cc[VTIME] = 0;
     cfsetispeed(&tty, sp);
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        if (error) *error = "tcsetattr 失败";
+        if (error != nullptr) {
+            *error = "tcsetattr 失败";
+        }
         ::close(fd);
         return -1;
     }
@@ -97,21 +114,24 @@ void usage(const char* argv0) {
 struct CsvOut {
     FILE* fp = nullptr;
     ~CsvOut() {
-        if (fp) std::fclose(fp);
+        if (fp != nullptr) {
+            std::fclose(fp);
+        }
     }
-    void header() {
-        if (!fp) return;
+    void header() const {
+        if (fp == nullptr) {
+            return;
+        }
         std::fprintf(fp,
                      "time_us,x,y,z,qw,qx,qy,qz,vx,vy,vz,quality,reset_counter,"
                      "cov_x,cov_y,cov_z\n");
     }
-    void row(const mavlink_odometry_t& o) {
-        if (!fp) return;
-        std::fprintf(fp, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%u,%.6g,%.6g,%.6g\n",
-                     static_cast<unsigned long long>(o.time_usec), o.x, o.y, o.z, o.q[0], o.q[1],
-                     o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality),
-                     static_cast<unsigned>(o.reset_counter), o.pose_covariance[0],
-                     o.pose_covariance[6], o.pose_covariance[11]);
+    void row(const mavlink_odometry_t& o) const {
+        if (fp == nullptr) {
+            return;
+        }
+        std::fprintf(fp, "%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%u,%.6g,%.6g,%.6g\n", static_cast<unsigned long long>(o.time_usec), o.x, o.y, o.z, o.q[0], o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter),
+                     o.pose_covariance[0], o.pose_covariance[6], o.pose_covariance[11]);
     }
 };
 
@@ -119,13 +139,11 @@ void printSummary(const pure_uav::odom_tool::ProbeStats& st) {
     std::printf("\n===== ODOMETRY 统计 =====\n");
     std::printf("  ODOMETRY 帧数 : %llu\n", static_cast<unsigned long long>(st.odometry));
     std::printf("  实测频率      : %.1f Hz（中位间隔 %.0f us）\n", st.rateHz(), st.medianIntervalUs());
-    std::printf("  quality       : min=%d max=%d（<50 的帧 %llu）\n", static_cast<int>(st.min_quality),
-                static_cast<int>(st.max_quality), static_cast<unsigned long long>(st.bad_quality));
+    std::printf("  quality       : min=%d max=%d（<50 的帧 %llu）\n", static_cast<int>(st.min_quality), static_cast<int>(st.max_quality), static_cast<unsigned long long>(st.bad_quality));
     std::printf("  reset 变化    : %llu 次\n", static_cast<unsigned long long>(st.reset_changes));
     std::printf("  时间戳倒退    : %llu 次\n", static_cast<unsigned long long>(st.time_backwards));
     std::printf("  四元数异常    : %llu 帧\n", static_cast<unsigned long long>(st.bad_quat));
-    std::printf("  坐标系异常    : %llu 帧（期望 frame=20 / child=12）\n",
-                static_cast<unsigned long long>(st.bad_frame));
+    std::printf("  坐标系异常    : %llu 帧（期望 frame=20 / child=12）\n", static_cast<unsigned long long>(st.bad_frame));
     std::printf("  超长间隔      : %llu 个（>3 倍中位）\n", static_cast<unsigned long long>(st.gaps));
     if (st.odometry >= 4) {
         if (st.time_backwards > 0 || st.bad_frame > 0 || st.bad_quat > 0) {
@@ -158,7 +176,8 @@ int main(int argc, char** argv) {
         if (a == "-h" || a == "--help") {
             usage(argv[0]);
             return 0;
-        } else if (a == "--serial") {
+        }
+        if (a == "--serial") {
             serial = need("--serial");
         } else if (a == "--file") {
             file = need("--file");
@@ -203,7 +222,7 @@ int main(int argc, char** argv) {
     CsvOut csv;
     if (!csv_path.empty()) {
         csv.fp = std::fopen(csv_path.c_str(), "w");
-        if (!csv.fp) {
+        if (csv.fp == nullptr) {
             std::fprintf(stderr, "打不开 CSV: %s\n", csv_path.c_str());
             return 1;
         }
@@ -217,7 +236,7 @@ int main(int argc, char** argv) {
 
     const bool from_file = !file.empty();
     FILE* in = from_file ? std::fopen(file.c_str(), "rb") : nullptr;
-    if (from_file && !in) {
+    if (from_file && (in == nullptr)) {
         std::fprintf(stderr, "打不开文件: %s\n", file.c_str());
         return 1;
     }
@@ -226,30 +245,23 @@ int main(int argc, char** argv) {
     auto feed = [&](const uint8_t* data, size_t n) {
         for (size_t i = 0; i < n; ++i) {
             mavlink_message_t m{};
-            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) continue;
+            if (!mavlink_parse_char(MAVLINK_COMM_3, data[i], &m, &status)) {
+                continue;
+            }
             if (m.msgid == MAVLINK_MSG_ID_ODOMETRY) {
                 mavlink_odometry_t o{};
                 mavlink_msg_odometry_decode(&m, &o);
                 stats.add(o, 0);
                 csv.row(o);
                 if (!quiet) {
-                    const int64_t t = static_cast<int64_t>(o.time_usec);
+                    const auto t = static_cast<int64_t>(o.time_usec);
                     const bool backwards = stats.prev_time_us >= 0 && t < stats.prev_time_us;
-                    std::printf("[ODO] t=%.6fs frame=%u/%u pos=(%.3f,%.3f,%.3f) "
-                                "q=(%.4f,%.4f,%.4f,%.4f) v=(%.3f,%.3f,%.3f) q=%d reset=%u "
-                                "cov=(%.4g,%.4g,%.4g)%s%s%s\n",
-                                static_cast<double>(o.time_usec) * 1e-6,
-                                static_cast<unsigned>(o.frame_id),
-                                static_cast<unsigned>(o.child_frame_id), o.x, o.y, o.z, o.q[0],
-                                o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz,
-                                static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter),
-                                o.pose_covariance[0], o.pose_covariance[6], o.pose_covariance[11],
-                                backwards ? " ⚠️时间倒退" : "",
-                                (o.frame_id != 20 || o.child_frame_id != 12) ? " ⚠️坐标系" : "",
-                                std::fabs(o.q[0] * o.q[0] + o.q[1] * o.q[1] + o.q[2] * o.q[2] +
-                                              o.q[3] * o.q[3] - 1.0f) > 1e-2f
-                                    ? " ⚠️四元数"
-                                    : "");
+                    std::printf(
+                        "[ODO] t=%.6fs frame=%u/%u pos=(%.3f,%.3f,%.3f) "
+                        "q=(%.4f,%.4f,%.4f,%.4f) v=(%.3f,%.3f,%.3f) q=%d reset=%u "
+                        "cov=(%.4g,%.4g,%.4g)%s%s%s\n",
+                        static_cast<double>(o.time_usec) * 1e-6, static_cast<unsigned>(o.frame_id), static_cast<unsigned>(o.child_frame_id), o.x, o.y, o.z, o.q[0], o.q[1], o.q[2], o.q[3], o.vx, o.vy, o.vz, static_cast<int>(o.quality), static_cast<unsigned>(o.reset_counter), o.pose_covariance[0],
+                        o.pose_covariance[6], o.pose_covariance[11], backwards ? " ⚠️时间倒退" : "", (o.frame_id != 20 || o.child_frame_id != 12) ? " ⚠️坐标系" : "", std::fabs((o.q[0] * o.q[0]) + (o.q[1] * o.q[1]) + (o.q[2] * o.q[2]) + (o.q[3] * o.q[3]) - 1.0F) > 1e-2F ? " ⚠️四元数" : "");
                     std::fflush(stdout);
                 }
             } else if (m.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
@@ -264,31 +276,39 @@ int main(int argc, char** argv) {
 
     if (from_file) {
         size_t n = 0;
-        while ((n = std::fread(buf, 1, sizeof(buf), in)) > 0) feed(buf, n);
+        while ((n = std::fread(buf, 1, sizeof(buf), in)) > 0) {
+            feed(buf, n);
+        }
         std::fclose(in);
         in = nullptr;
     } else {
         const auto t0 = std::chrono::steady_clock::now();
         while (!g_stop.load()) {
             if (duration > 0.0) {
-                const double el =
-                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-                if (el >= duration) break;
+                const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                if (el >= duration) {
+                    break;
+                }
             }
             struct pollfd pfd{};
             pfd.fd = fd;
             pfd.events = POLLIN;
             const int pr = ::poll(&pfd, 1, 50);
-            if (pr <= 0) continue;
-            if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-                std::printf("[probe] 串口挂断（revents=0x%x），退出。\n",
-                            static_cast<unsigned>(pfd.revents));
+            if (pr <= 0) {
+                continue;
+            }
+            if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                std::printf("[probe] 串口挂断（revents=0x%x），退出。\n", static_cast<unsigned>(pfd.revents));
                 break;
             }
             const ssize_t n = ::read(fd, buf, sizeof(buf));
-            if (n > 0) feed(buf, static_cast<size_t>(n));
+            if (n > 0) {
+                feed(buf, static_cast<size_t>(n));
+            }
         }
-        if (fd >= 0) ::close(fd);
+        if (fd >= 0) {
+            ::close(fd);
+        }
     }
 
     stats.countGaps();

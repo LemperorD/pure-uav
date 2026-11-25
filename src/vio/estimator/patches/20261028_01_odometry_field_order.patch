@@ -3,7 +3,7 @@
 @@ -370,24 +370,16 @@
      return params_.size();
  }
- 
+
 -bool MavlinkLink::sendVisionPose(const VisionPose& pose, int quality, uint8_t reset_counter,
 -                                 float pos_sigma_m, float vel_sigma_mps) {
 -    if (!running_.load() || fd_ < 0) return false;
@@ -14,7 +14,7 @@
 +                                       float pos_sigma_m, float vel_sigma_mps, uint8_t sysid,
 +                                       uint8_t compid, uint8_t* buf, size_t buf_cap) {
 +    if (buf == nullptr || buf_cap < MAVLINK_MAX_PACKET_LEN) return 0;
- 
+
      //=======================================================================
 -    // 【2026-10-22】协方差/质量/重置计数不再是"未知"
 -    //
@@ -41,7 +41,7 @@
          pose_cov[0] = std::nanf("");
          vel_cov[0] = std::nanf("");
      }
- 
+
 +    const int q = quality < 0 ? 0 : (quality > 100 ? 100 : quality);
 +
 +    mavlink_message_t msg;
@@ -64,7 +64,7 @@
 +        reset_counter,                  // ← 第 1 个：重置计数
 +        MAV_ESTIMATOR_TYPE_VIO,         // ← 第 2 个：估计器类型
 +        static_cast<int8_t>(q));        // ← 第 3 个：质量 0-100
- 
+
 -    const uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
 +    return mavlink_msg_to_send_buffer(buf, &msg);
 +}
@@ -79,14 +79,14 @@
 +    if (len == 0) return false;
      return sendBytes(buf, len);
  }
- 
+
 +
  }  // namespace pure_uav
 --- a/src/vio/estimator/src/mavlink_link.hpp
 +++ b/src/vio/estimator/src/mavlink_link.hpp
 @@ -12,6 +12,7 @@
  #pragma once
- 
+
  #include <atomic>
 +#include <cstddef>
  #include <cstdint>
@@ -95,7 +95,7 @@
 @@ -82,6 +83,15 @@
      bool sendVisionPose(const VisionPose& pose, int quality = 0, uint8_t reset_counter = 0,
                          float pos_sigma_m = 0.0f, float vel_sigma_mps = 0.0f);
- 
+
 +    // 把一帧 VisionPose 编码成一条 ODOMETRY 的**完整发送缓冲**（含 MAVLink 帧头与 CRC）。
 +    // 返回写入 buf 的字节数；buf 容量不足返回 0。sendVisionPose() 内部就走这条路径。
 +    //
@@ -113,7 +113,7 @@
 @@ -227,6 +227,22 @@
  find_package(Threads REQUIRED)
  target_link_libraries(test_fcu_clock PRIVATE Threads::Threads)
- 
+
 +# ODOMETRY 打包/解析回归：不需要飞控、相机、串口，只需要 MAVLink 头文件。
 +if(EXISTS "${PURE_UAV_MAVLINK_DIR}/common/mavlink.h")
 +    add_executable(test_odometry_pack tests/test_odometry_pack.cpp src/mavlink_link.cpp)

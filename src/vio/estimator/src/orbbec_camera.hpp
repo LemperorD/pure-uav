@@ -1,6 +1,6 @@
 // Orbbec Gemini 彩色相机（灰度输出）。
 //
-// 只用彩色流（VIO 不需要深度），MJPG 解码为 mono8；时间戳用帧到达主机的
+// 同时采集彩色与原生深度，MJPG 解码为 mono8；时间戳用帧到达主机的
 // CLOCK_MONOTONIC 时间，再由 FcuClock 映射到飞控 IMU 时钟。
 
 #pragma once
@@ -8,9 +8,11 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <string>
 
-#include <opencv2/core.hpp>
+#include "color_frame.hpp"
+#include "pure_uav/depth_range.hpp"
 
 namespace ob {
 class Pipeline;
@@ -19,7 +21,7 @@ class Pipeline;
 namespace pure_uav {
 
 class OrbbecCamera {
-public:
+  public:
     struct Config {
         int width = 1920;
         int height = 1080;
@@ -49,44 +51,69 @@ public:
         // （同一间教室，晚上只有日间 1/8 的亮度，同一份代码直接发散）。
         // 可复现靠的是"飞行期间不动"，不是"永远用同一个数字"。
         bool auto_tune_exposure = true;
-        int tune_target_mean = 100;        // 目标灰度均值
-        int tune_min_mean = 45;            // 最好也只能到这以下 → 拒绝启动
+        int tune_target_mean = 100;  // 目标灰度均值
+        int tune_min_mean = 45;      // 最好也只能到这以下 → 拒绝启动
 
         // 【2026-10-21】曝光上限不再是拍脑袋的 15 ms，而是从运动模糊预算反推：
         //     blur_px = f * ω * t_exp
         // 实测（session29，18 ms 曝光）：模糊 >12 px 时 KLT 存活率掉到 55%，
         // >20 px 掉到 38%，而且 FAST 检出数也从 400 掉到 25——角点直接被糊没了。
         // 所以「曝光时长」必须是「预期角速度」的函数，不能写死。
-        double tune_blur_budget_px = 3.0;     // 允许的运动模糊上限（像素）
+        double tune_blur_budget_px = 3.0;       // 允许的运动模糊上限（像素）
         double tune_expected_rate_dps = 100.0;  // 预期飞行最大角速度（度/秒）
-        double tune_focal_px = 1367.5;        // 与 kalibr_imucam_chain.yaml 的 fx 一致
-        double tune_max_exposure_ms = 15.0;   // 绝对上限（帧周期以外再兜一层）
-        int tune_max_gain = 40;               // 增益上限：100 的噪声会把 KLT 拖死
+        double tune_focal_px = 1367.5;          // 与 kalibr_imucam_chain.yaml 的 fx 一致
+        double tune_max_exposure_ms = 15.0;     // 绝对上限（帧周期以外再兜一层）
+        int tune_max_gain = 40;                 // 增益上限：100 的噪声会把 KLT 拖死
         bool tune_allow_blur = false;
         // 【2026-10-25】禁止"光不够就把曝光放到现场光上限"。开了就严守模糊预算，
         // 画面会偏暗但更锐。用来做"锐 vs 亮"的 A/B。
-        bool tune_strict_blur = false;         // 明知会糊也继续（只用于排查）
-        bool tune_allow_dark = false;         // 测光不达标也硬飞（只用于排查）
+        bool tune_strict_blur = false;  // 明知会糊也继续（只用于排查）
+        bool tune_allow_dark = false;   // 测光不达标也硬飞（只用于排查）
 
-        // 【2026-10-21】是否打开深度流（对齐到彩色）。深度给米制尺度，
+        // 【2026-10-21】是否打开原生深度流。深度给米制尺度，
         // 让单目 VIO 不再依赖平移视差 —— 直接补上和双目方案的架构差距。
         bool use_depth = true;
+        // 空路径使用 SDK 彩色标定；非空时严格校验原始图分辨率。
+        std::string range_color_calibration_path;
         // 【2026-10-23】帧集聚合模式。当年为拿到深度改成 FULL_FRAME_REQUIRE（0），
         // 代价是彩色被拽到深度的帧率（实测 640x480@60 + 深度只交付 31 fps）。
         //   0 = FULL_FRAME_REQUIRE   两路都齐才出帧（旧行为）
         //   1 = COLOR_FRAME_REQUIRE  彩色到就出帧，深度有就带上 ← 想要的
         //   2 = ANY_SITUATION        谁先到都单独出帧
         int aggregate_mode = 0;
+        // Runtime needs color/depth timestamps from the same device clock.
+        // false preserves legacy vio_live callback timestamp semantics.
+        bool callback_device_timestamps = false;
     };
 
     // 回调在相机线程执行：gray 是单通道 8 位图，host_ns 是帧到达主机的时刻，
     // device_us 是**相机自己的帧时间戳**（SDK 的 getTimeStampUs）。
     // 两者之差 = 编码 + USB 传输 + 解码 + 排队 的整条链路延迟。
     // 它是否稳定，直接决定相机时间戳能不能当曝光时刻用（VIO 的时间基准）。
-    /// depth_mm：对齐到彩色的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
-    using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm,
-                                             int64_t host_ns, int64_t device_us,
-                                             int64_t depth_device_us)>;
+    /// depth_mm：原生深度相机坐标系的深度图（CV_16UC1，单位毫米）。没开深度流时是空 Mat。
+    using FrameCallback = std::function<void(const cv::Mat& gray, const cv::Mat& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_device_us)>;
+
+    // 完整帧集：一次采集同时交付灰度、深度与**相机原始编码字节**。
+    // CameraFrames 只在回调期间有效：color_encoded 零拷贝包裹 SDK 帧缓冲，
+    // 需要留存时必须自行 clone（共享内存发布是在回调内同步 memcpy，无需 clone）。
+    // device_us  = SDK timeStampUs()，时基不同，只能当相对量；
+    // sys_us     = SDK systemTimeStampUs()，主机时基（旧 FrameCallback 第 4 参数语义）；
+    // host_ns    = CLOCK_MONOTONIC，跨进程可比。
+    struct CameraFrames {
+        cv::Mat gray;           // CV_8UC1
+        cv::Mat depth_mm;       // CV_16UC1，无深度流时为空
+        cv::Mat color_encoded;  // CV_8UC1，MJPG / RGB / YUYV 原始字节
+        ColorEncoding encoding = ColorEncoding::jpeg;
+        int width = 0;
+        int height = 0;
+        uint64_t seq = 0;  // 从 1 起单调递增，两个共享内存通道共用同一编号
+        int64_t host_ns = 0;
+        int64_t device_us = 0;
+        int64_t sys_us = 0;
+        int64_t depth_device_us = 0;
+        bool has_depth = false;
+    };
+    using FramesCallback = std::function<void(const CameraFrames&)>;
 
     OrbbecCamera();
     ~OrbbecCamera();
@@ -94,22 +121,34 @@ public:
     OrbbecCamera(const OrbbecCamera&) = delete;
     OrbbecCamera& operator=(const OrbbecCamera&) = delete;
 
-    bool start(const Config& cfg, FrameCallback callback, std::string* error);
+    /// 唯一采集入口：所有消费者（含共享内存发布）都从这里取完整帧集。
+    /// 回调在相机线程同步执行，禁止在回调内做推理、日志刷屏或阻塞等待。
+    bool startWithFrames(const Config& cfg, FramesCallback callback, std::string* error);
+
+    /// 可选彩色回调与灰度回调在同一采集线程执行；BGR 像素由 cv::Mat 共享持有，不得修改。
+    /// 兼容适配层（depth_range_probe 等旧调用点）：内部转成 startWithFrames。
+    /// Config::callback_device_timestamps 决定 FrameCallback 第 4 参数传 SDK 设备时间
+    /// 还是 SDK 主机系统时间（默认后者，保持旧语义）。
+    using ColorCallback = std::function<void(const cv::Mat& bgr, int64_t host_ns)>;
+    bool start(const Config& cfg, FrameCallback callback, std::string* error, ColorCallback color_callback = {});
     void stop();
 
     /// 深度相机内参（fx,fy,cx,cy）与到彩色的平移（mm）。没开深度流时全 0。
     struct DepthInfo {
         double fx = 0, fy = 0, cx = 0, cy = 0;
         int width = 0, height = 0;
-        double t_mm[3] = {0.0, 0.0, 0.0};   // 彩色→深度 的平移（mm），已含 −Rᵀt
-        double R_c2d[9] = {1,0,0, 0,1,0, 0,0,1};  // 彩色→深度 旋转（行主序）
-        bool valid() const { return fx > 0 && width > 0; }
+        double t_mm[3] = {0.0, 0.0, 0.0};               // 彩色→深度 的平移（mm），已含 −Rᵀt
+        double R_c2d[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // 彩色→深度 旋转（行主序）
+        [[nodiscard]] bool valid() const {
+            return fx > 0 && width > 0;
+        }
     };
-    DepthInfo depthInfo() const;
+    [[nodiscard]] DepthInfo depthInfo() const;
+    [[nodiscard]] DepthRangeCalibration rangeCalibration() const;
 
-    bool running() const;
+    [[nodiscard]] bool running() const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

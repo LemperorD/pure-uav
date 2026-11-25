@@ -10,33 +10,34 @@
 //
 // 运行：./bin/test_mavlink_link_wire
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <poll.h>
-#include <stdlib.h>
 #include <unistd.h>
 
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
 
 #include "common/mavlink.h"
-
 #include "mavlink_link.hpp"
 
 namespace {
 
 int g_failed = 0;
 
-#define CHECK(cond)                                                      \
-    do {                                                                 \
-        if (!(cond)) {                                                   \
-            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond);    \
-            ++g_failed;                                                  \
-        }                                                                \
+#define CHECK(cond)                                                    \
+    do {                                                               \
+        if (!(cond)) {                                                 \
+            std::printf("  ❌ 第 %d 行不成立: %s\n", __LINE__, #cond); \
+            ++g_failed;                                                \
+        }                                                              \
     } while (0)
 
 bool writeAll(int fd, const uint8_t* buf, size_t len) {
@@ -47,7 +48,9 @@ bool writeAll(int fd, const uint8_t* buf, size_t len) {
             off += static_cast<size_t>(n);
             continue;
         }
-        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         return false;
     }
     return true;
@@ -59,32 +62,34 @@ bool sendMsg(int fd, const mavlink_message_t& msg) {
     return writeAll(fd, buf, len);
 }
 
-bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot,
-                   uint8_t base_mode) {
+bool sendHeartbeat(int fd, uint8_t sysid, uint8_t compid, uint8_t type, uint8_t autopilot, uint8_t base_mode) {
     mavlink_message_t msg;
-    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0,
-                               MAV_STATE_ACTIVE);
+    mavlink_msg_heartbeat_pack(sysid, compid, &msg, type, autopilot, base_mode, 0, MAV_STATE_ACTIVE);
     return sendMsg(fd, msg);
 }
 
 bool sendImu(int fd, uint8_t sysid, uint64_t t_us, float ax) {
     mavlink_message_t msg;
-    mavlink_msg_highres_imu_pack(
-        sysid, 1, &msg, t_us,
-        ax, 0.0f, 9.8f,                 // xacc yacc zacc
-        0.0f, 0.0f, 0.0f,               // gyro
-        NAN, NAN, NAN,                  // mag
-        0.0f, 0.0f, 0.0f, 0.0f,         // pressure/temperature
-        0, 0);
+    mavlink_msg_highres_imu_pack(sysid, 1, &msg, t_us, ax, 0.0F, 9.8F,  // xacc yacc zacc
+                                 0.0F, 0.0F, 0.0F,                      // gyro
+                                 NAN, NAN, NAN,                         // mag
+                                 0.0F, 0.0F, 0.0F, 0.0F,                // pressure/temperature
+                                 0, 0);
     return sendMsg(fd, msg);
 }
 
 bool makePty(int& master, std::string& slave_path) {
     master = ::posix_openpt(O_RDWR | O_NOCTTY);
-    if (master < 0) return false;
-    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) return false;
+    if (master < 0) {
+        return false;
+    }
+    if (::grantpt(master) != 0 || ::unlockpt(master) != 0) {
+        return false;
+    }
     const char* name = ::ptsname(master);
-    if (name == nullptr) return false;
+    if (name == nullptr) {
+        return false;
+    }
     slave_path = name;
     const int flags = ::fcntl(master, F_GETFL, 0);
     ::fcntl(master, F_SETFL, flags | O_NONBLOCK);
@@ -95,7 +100,9 @@ template <typename Pred>
 bool waitFor(Pred pred, int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (pred()) return true;
+        if (pred()) {
+            return true;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return pred();
@@ -126,47 +133,37 @@ int main() {
     }
 
     // ---- 1) 目标飞控心跳：锁定 + 解锁 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA,
-                        MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED));
-    CHECK(waitFor([&] { return link.connected() && link.armed() && link.fcuSysId() == 1; },
-                  2000));
+    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED));
+    CHECK(waitFor([&] { return link.connected() && link.armed() && link.fcuSysId() == 1; }, 2000));
     CHECK(link.targetLocked());
-    std::printf("[1] 飞控心跳 OK: connected=%d armed=%d sysid=%u\n",
-                static_cast<int>(link.connected()), static_cast<int>(link.armed()),
-                static_cast<unsigned>(link.fcuSysId()));
+    std::printf("[1] 飞控心跳 OK: connected=%d armed=%d sysid=%u\n", static_cast<int>(link.connected()), static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
 
     // ---- 2) 地面站心跳（sysid=255 / type=GCS / autopilot=INVALID）不得覆盖状态 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
-                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
-    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS,
-                        MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/255, /*compid=*/190, MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, /*base_mode=*/0));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    CHECK(link.armed());          // 关键：不能被地面站的"未解锁"覆盖
+    CHECK(link.armed());  // 关键：不能被地面站的"未解锁"覆盖
     CHECK(link.connected());
     CHECK(link.fcuSysId() == 1);  // 关键：sysid 不能被改成 255
-    std::printf("[2] 地面站心跳被忽略 OK: armed=%d sysid=%u\n",
-                static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
+    std::printf("[2] 地面站心跳被忽略 OK: armed=%d sysid=%u\n", static_cast<int>(link.armed()), static_cast<unsigned>(link.fcuSysId()));
 
     // ---- 3) 已锁定后，其他飞行器(sysid=42)的心跳也不得改状态 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/42, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/42, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
     CHECK(link.armed());
     CHECK(link.fcuSysId() == 1);
     std::printf("[3] 其他飞行器心跳被忽略 OK\n");
 
     // ---- 4) 目标飞控自己发未解锁心跳：必须生效 ----
-    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR,
-                        MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
+    CHECK(sendHeartbeat(master, /*sysid=*/1, /*compid=*/1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, /*base_mode=*/0));
     CHECK(waitFor([&] { return !link.armed(); }, 1000));
     CHECK(link.connected());
     std::printf("[4] 飞控未解锁心跳生效 OK\n");
 
     // ---- 5) 逐帧 IMU 顺序 + clearImuQueue ----
-    CHECK(sendImu(master, 1, 1000000ULL, 1.0f));
-    CHECK(sendImu(master, 1, 1005000ULL, 2.0f));
-    CHECK(sendImu(master, 1, 1010000ULL, 3.0f));
+    CHECK(sendImu(master, 1, 1000000ULL, 1.0F));
+    CHECK(sendImu(master, 1, 1005000ULL, 2.0F));
+    CHECK(sendImu(master, 1, 1010000ULL, 3.0F));
     CHECK(waitFor([&] { return link.receivedImu() >= 3; }, 2000));
 
     pure_uav::MavlinkLink::TimedImu item;
@@ -178,7 +175,7 @@ int main() {
     CHECK(item.imu.timestamp_us == 1010000ULL);
     CHECK(item.host_ns > 0);
 
-    CHECK(sendImu(master, 1, 1015000ULL, 4.0f));
+    CHECK(sendImu(master, 1, 1015000ULL, 4.0F));
     CHECK(waitFor([&] { return link.imuQueueSize() >= 1; }, 2000));
     link.clearImuQueue();
     CHECK(link.imuQueueSize() == 0);
@@ -186,7 +183,7 @@ int main() {
     std::printf("[5] IMU 顺序 + 整队清空 OK\n");
 
     // 非目标 sysid 的 IMU 不应入队（锁定后只收飞控数据流）
-    CHECK(sendImu(master, /*sysid=*/42, 2000000ULL, 7.0f));
+    CHECK(sendImu(master, /*sysid=*/42, 2000000ULL, 7.0F));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     CHECK(link.imuQueueSize() == 0);
     std::printf("[6] 其他 sysid 的 IMU 被过滤 OK\n");
@@ -210,13 +207,12 @@ int main() {
         std::string err2;
         CHECK(link2.start(cfg2, &err2));
 
-        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(sendHeartbeat(master_a, 1, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
         CHECK(waitFor([&] { return link2.connected() && link2.armed(); }, 2000));
         const uint64_t rx_before = link2.receivedImu();
-        CHECK(sendImu(master_a, 1, 3000000ULL, 1.0f));
+        CHECK(sendImu(master_a, 1, 3000000ULL, 1.0F));
         CHECK(waitFor([&] { return link2.receivedImu() > rx_before; }, 2000));
-        CHECK(link2.imuQueueSize() >= 1);   // 故意不取走，留给断线清理检查
+        CHECK(link2.imuQueueSize() >= 1);  // 故意不取走，留给断线清理检查
 
         // 模拟设备拔出
         ::close(master_a);
@@ -230,15 +226,13 @@ int main() {
         CHECK(::symlink(slave_b.c_str(), link_path.c_str()) == 0);
 
         CHECK(waitFor([&] { return link2.reconnectCount() >= 1; }, 6000));
-        CHECK(link2.imuQueueSize() == 0);   // 旧时间基的帧必须清掉
+        CHECK(link2.imuQueueSize() == 0);  // 旧时间基的帧必须清掉
 
         // 重连后重新学习身份：故意把 sysid 换成 7，证明锁定被重置
-        CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA,
-                            MAV_MODE_FLAG_SAFETY_ARMED));
-        CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; },
-                      3000));
+        CHECK(sendHeartbeat(master_b, 7, 1, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, MAV_MODE_FLAG_SAFETY_ARMED));
+        CHECK(waitFor([&] { return link2.connected() && link2.armed() && link2.fcuSysId() == 7; }, 3000));
         const uint64_t rx2 = link2.receivedImu();
-        CHECK(sendImu(master_b, 7, 4000000ULL, 2.0f));
+        CHECK(sendImu(master_b, 7, 4000000ULL, 2.0F));
         CHECK(waitFor([&] { return link2.receivedImu() > rx2; }, 2000));
         pure_uav::MavlinkLink::TimedImu reconnected;
         CHECK(link2.popImu(reconnected));

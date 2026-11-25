@@ -5,6 +5,6 @@ communicate:
   stream:
     attitude_us: 20000
     local_position_us: 20000
-    highres_imu_us: 10000
+    highres_imu_us: 5000
     battery_us: 1000000
     system_time_us: 1000000

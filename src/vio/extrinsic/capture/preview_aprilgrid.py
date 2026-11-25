@@ -199,7 +199,7 @@ def render(gray, uv, min_tags, tag_px, rms, fps, width=DISPLAY_WIDTH):
             cv2.circle(canvas, tuple(pts[0]), 3, (0, 0, 255), -1)
     hud = [
         (f"tags {n_tag:2d} / need >={min_tags}", (0, 230, 0) if n_tag >= min_tags else (0, 200, 255)),
-        (f"tag size {tag_px:5.1f} px  (want >=45)" if tag_px else "tag size    -  ", 
+        (f"tag size {tag_px:5.1f} px  (want >=45)" if tag_px else "tag size    -  ",
          (0, 230, 0) if (tag_px and tag_px >= 45) else ((0, 0, 255) if tag_px else (200, 200, 200))),
         (f"PnP {rms:5.2f} px  (want <3)" if rms else "PnP    -   ",
          (0, 230, 0) if (rms and rms < 3.0) else ((0, 0, 255) if rms else (200, 200, 200))),

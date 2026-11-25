@@ -16,18 +16,17 @@
 
 #pragma once
 
+#include <Eigen/Core>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <deque>
-#include <string>
-#include <vector>
-
-#include <Eigen/Core>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <string>
+#include <vector>
 
 #include "pure_uav/vio_estimator.hpp"
 #include "pure_uav/vio_health.hpp"
@@ -36,7 +35,7 @@
 namespace pure_uav {
 
 class LiveView {
-public:
+  public:
     static constexpr int kImgW = 960;
     static constexpr int kImgH = 540;
     static constexpr int kPanelW = 440;
@@ -79,7 +78,9 @@ public:
     };
 
     LiveView() = default;
-    ~LiveView() { close(); }
+    ~LiveView() {
+        close();
+    }
 
     LiveView(const LiveView&) = delete;
     LiveView& operator=(const LiveView&) = delete;
@@ -121,11 +122,12 @@ public:
         return false;
     }
 
-    void setShotPrefix(const std::string& prefix) { shot_prefix_ = prefix; }
+    void setShotPrefix(const std::string& prefix) {
+        shot_prefix_ = prefix;
+    }
 
     // 每帧画一次。gray 可以是 1920x1080，也可以任意尺寸（会自动缩放到 960x540）。
-    void render(const cv::Mat& gray, const std::vector<VioEstimator::TrackedPoint>& tracks,
-                const Status& st) {
+    void render(const cv::Mat& gray, const std::vector<VioEstimator::TrackedPoint>& tracks, const Status& st) {
         if (!opened_) return;
         canvas_.create(kH, kW, CV_8UC3);
         canvas_.setTo(cv::Scalar(28, 28, 30));
@@ -134,10 +136,7 @@ public:
         drawPanel(st);
         drawTrajectory(st);
 
-        const bool want_shot =
-            !shot_prefix_.empty() &&
-            (std::chrono::duration<double>(std::chrono::steady_clock::now() - last_shot_).count() >
-             2.0);
+        const bool want_shot = !shot_prefix_.empty() && (std::chrono::duration<double>(std::chrono::steady_clock::now() - last_shot_).count() > 2.0);
         if (want_shot) {
             last_shot_ = std::chrono::steady_clock::now();
             char path[512];
@@ -158,20 +157,25 @@ public:
         }
     }
 
-    size_t trajectorySize() const { return traj_.size(); }
+    size_t trajectorySize() const {
+        return traj_.size();
+    }
 
-private:
+  private:
     static cv::Scalar healthColor(VioHealthState s) {
         switch (s) {
-            case VioHealthState::OK: return cv::Scalar(90, 220, 90);
-            case VioHealthState::DEGRADED: return cv::Scalar(60, 200, 240);
-            case VioHealthState::LOST: return cv::Scalar(70, 70, 255);
-            default: return cv::Scalar(170, 170, 170);
+            case VioHealthState::OK:
+                return cv::Scalar(90, 220, 90);
+            case VioHealthState::DEGRADED:
+                return cv::Scalar(60, 200, 240);
+            case VioHealthState::LOST:
+                return cv::Scalar(70, 70, 255);
+            default:
+                return cv::Scalar(170, 170, 170);
         }
     }
 
-    void drawImage(const cv::Mat& gray, const std::vector<VioEstimator::TrackedPoint>& tracks,
-                   const Status& st) {
+    void drawImage(const cv::Mat& gray, const std::vector<VioEstimator::TrackedPoint>& tracks, const Status& st) {
         cv::Mat roi = canvas_(cv::Rect(0, 0, kImgW, kImgH));
         if (!gray.empty()) {
             cv::Mat small;
@@ -189,8 +193,10 @@ private:
                 const int v = static_cast<int>(t.v * sy);
                 if (u < 0 || v < 0 || u >= kImgW || v >= kImgH) continue;
                 cv::Scalar c(90, 235, 90);  // 新点：绿
-                if (t.length >= 10) c = cv::Scalar(60, 150, 255);       // 老点：橙红
-                else if (t.length >= 3) c = cv::Scalar(60, 230, 245);   // 中点：黄
+                if (t.length >= 10)
+                    c = cv::Scalar(60, 150, 255);  // 老点：橙红
+                else if (t.length >= 3)
+                    c = cv::Scalar(60, 230, 245);  // 中点：黄
                 cv::circle(roi, cv::Point(u, v), 2, c, -1, cv::LINE_AA);
             }
         } else {
@@ -202,9 +208,7 @@ private:
         const cv::Scalar hc = healthColor(st.health);
         cv::rectangle(roi, cv::Point(0, 0), cv::Point(kImgW, 34), cv::Scalar(0, 0, 0), -1);
         char line[256];
-        std::snprintf(line, sizeof(line), "%s   feat=%d   vel=%.2f m/s",
-                      st.initialized ? toString(st.health) : "NOT INITIALIZED", st.features,
-                      std::sqrt(st.vx * st.vx + st.vy * st.vy + st.vz * st.vz));
+        std::snprintf(line, sizeof(line), "%s   feat=%d   vel=%.2f m/s", st.initialized ? toString(st.health) : "NOT INITIALIZED", st.features, std::sqrt(st.vx * st.vx + st.vy * st.vy + st.vz * st.vz));
         putText(roi, line, cv::Point(10, 24), 0.62, hc);
         if (!st.publishable) {
             putText(roi, "NOT PUBLISHING", cv::Point(10, 70), 0.75, cv::Scalar(70, 70, 255));
@@ -226,14 +230,17 @@ private:
         const int dx = x0 + 14;
         char buf[256];
         auto line = [&](const cv::Scalar& c, const char* fmt, auto... args) {
-            std::snprintf(buf, sizeof(buf), fmt, args...);
+            if constexpr (sizeof...(args) == 0) {
+                std::snprintf(buf, sizeof(buf), "%s", fmt);
+            } else {
+                std::snprintf(buf, sizeof(buf), fmt, args...);
+            }
             putText(canvas_, buf, cv::Point(dx, yy), 0.48, c);
             yy += 22;
         };
         auto section = [&](const char* t) {
             yy += 6;
-            cv::line(canvas_, cv::Point(dx, yy - 14), cv::Point(kW - 14, yy - 14),
-                     cv::Scalar(80, 80, 84), 1);
+            cv::line(canvas_, cv::Point(dx, yy - 14), cv::Point(kW - 14, yy - 14), cv::Scalar(80, 80, 84), 1);
             putText(canvas_, t, cv::Point(dx, yy), 0.5, cv::Scalar(150, 150, 155));
             yy += 22;
         };
@@ -245,8 +252,7 @@ private:
         putText(canvas_, "VIO REAL-TIME", cv::Point(dx, yy), 0.62, cv::Scalar(120, 200, 255));
         yy += 26;
         line(hc, "health   %s", toString(st.health));
-        line(st.publishable ? cv::Scalar(90, 220, 90) : cv::Scalar(70, 70, 255), "publish  %s",
-             st.publishable ? "YES" : "NO");
+        line(st.publishable ? cv::Scalar(90, 220, 90) : cv::Scalar(70, 70, 255), "publish  %s", st.publishable ? "YES" : "NO");
         line(white, "feat     %d", st.features);
         line(white, "msckf upd %.1f /s", st.update_rate);
         line(dim, "since upd %.2f s", st.since_update_s);
@@ -258,11 +264,12 @@ private:
         if (st.lin_acc >= 0.f) {
             // 判据（实测）：lin<0.10 基本原地转 -> tri 必为 0；lin>0.12 且 tri>0.03 才算有效测试
             cv::Scalar mc(70, 70, 255);
-            if (st.lin_acc > 0.12f && st.tri_rate > 0.03f) mc = cv::Scalar(90, 220, 90);
-            else if (st.lin_acc > 0.12f) mc = cv::Scalar(60, 200, 240);
+            if (st.lin_acc > 0.12f && st.tri_rate > 0.03f)
+                mc = cv::Scalar(90, 220, 90);
+            else if (st.lin_acc > 0.12f)
+                mc = cv::Scalar(60, 200, 240);
             line(mc, "motion %.2f  tri %.3f", st.lin_acc, st.tri_rate);
-            if (st.tri_rate <= 0.0005f)
-                line(cv::Scalar(70, 70, 255), "  (no depth: pure rotation)");
+            if (st.tri_rate <= 0.0005f) line(cv::Scalar(70, 70, 255), "  (no depth: pure rotation)");
         }
         if (!st.note.empty()) line(dim, "%s", st.note.c_str());
 
@@ -270,11 +277,8 @@ private:
         if (st.has_pose) {
             line(white, "pos  %7.2f %7.2f %7.2f", st.x, st.y, st.z);
             line(white, "vel  %7.2f %7.2f %7.2f", st.vx, st.vy, st.vz);
-            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy),
-                                          1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
-            line(white, "yaw  %7.1f deg   |p|=%.2f m", yaw * 180.0 / M_PI,
-                 std::sqrt(static_cast<double>(st.x) * st.x + static_cast<double>(st.y) * st.y +
-                           static_cast<double>(st.z) * st.z));
+            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
+            line(white, "yaw  %7.1f deg   |p|=%.2f m", yaw * 180.0 / M_PI, std::sqrt(static_cast<double>(st.x) * st.x + static_cast<double>(st.y) * st.y + static_cast<double>(st.z) * st.z));
         } else {
             line(dim, "(not initialized)");
         }
@@ -283,8 +287,10 @@ private:
         if (st.tilt_valid) {
             // 1° 已经是危险信号：g·sin(1°)=0.17 m/s²，和走路时的平均加速度同量级
             cv::Scalar tc(90, 220, 90);
-            if (st.tilt_deg > 3.0) tc = cv::Scalar(70, 70, 255);
-            else if (st.tilt_deg > 1.0) tc = cv::Scalar(60, 200, 240);
+            if (st.tilt_deg > 3.0)
+                tc = cv::Scalar(70, 70, 255);
+            else if (st.tilt_deg > 1.0)
+                tc = cv::Scalar(60, 200, 240);
             line(tc, "err  %5.2f deg", st.tilt_deg);
             char leak[96];
             std::snprintf(leak, sizeof(leak), "leak %.2f m/s2 (g*sin)", 9.81 * std::sin(st.tilt_deg * M_PI / 180.0));
@@ -297,8 +303,7 @@ private:
         if (st.has_raw) {
             line(white, "acc  %6.3f %6.3f %6.3f", st.bias_a.x(), st.bias_a.y(), st.bias_a.z());
             line(dim, "     |acc| = %.3f m/s2", st.bias_a.norm());
-            line(white, "gyr  %6.2f %6.2f %6.2f", st.bias_g.x() * 180 / M_PI,
-                 st.bias_g.y() * 180 / M_PI, st.bias_g.z() * 180 / M_PI);
+            line(white, "gyr  %6.2f %6.2f %6.2f", st.bias_g.x() * 180 / M_PI, st.bias_g.y() * 180 / M_PI, st.bias_g.z() * 180 / M_PI);
         } else {
             line(dim, "(waiting)");
         }
@@ -318,8 +323,7 @@ private:
 
         if (st.has_pose) {
             const cv::Point2f p(st.x, st.y);
-            if (traj_.empty() ||
-                std::hypot(traj_.back().x - p.x, traj_.back().y - p.y) > 0.005f) {
+            if (traj_.empty() || std::hypot(traj_.back().x - p.x, traj_.back().y - p.y) > 0.005f) {
                 traj_.push_back(p);
                 if (traj_.size() > 20000) traj_.pop_front();
             }
@@ -336,9 +340,7 @@ private:
         // ROI 之外 → 底部轨迹带永远是空的（只显示标题文字）。改成 ROI 局部坐标。
         const cv::Point2f c(kW * 0.5f, kTrajH * 0.5f);
         const float scale = std::min((kW * 0.5f - 30.f) / span_m, (kTrajH * 0.5f - 14.f) / span_m);
-        auto toPx = [&](float x, float y) {
-            return cv::Point(static_cast<int>(c.x + x * scale), static_cast<int>(c.y - y * scale));
-        };
+        auto toPx = [&](float x, float y) { return cv::Point(static_cast<int>(c.x + x * scale), static_cast<int>(c.y - y * scale)); };
 
         // 1 m 网格
         const cv::Scalar grid(52, 52, 56);
@@ -354,29 +356,23 @@ private:
         cv::line(roi, toPx(-span_m, 0), toPx(span_m, 0), cv::Scalar(70, 70, 78), 1);
 
         for (size_t i = 1; i < traj_.size(); ++i) {
-            cv::line(roi, toPx(traj_[i - 1].x, traj_[i - 1].y), toPx(traj_[i].x, traj_[i].y),
-                     cv::Scalar(90, 200, 255), 1, cv::LINE_AA);
+            cv::line(roi, toPx(traj_[i - 1].x, traj_[i - 1].y), toPx(traj_[i].x, traj_[i].y), cv::Scalar(90, 200, 255), 1, cv::LINE_AA);
         }
         if (!traj_.empty()) {
             const auto& last = traj_.back();
             // 朝向箭头
-            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy),
-                                          1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
-            const cv::Point tip = toPx(last.x + static_cast<float>(0.35 * std::cos(yaw)),
-                                       last.y + static_cast<float>(0.35 * std::sin(yaw)));
-            cv::arrowedLine(roi, toPx(last.x, last.y), tip, cv::Scalar(60, 80, 255), 2, cv::LINE_AA,
-                            0, 0.35);
+            const double yaw = std::atan2(2.0 * (st.qw * st.qz + st.qx * st.qy), 1.0 - 2.0 * (st.qy * st.qy + st.qz * st.qz));
+            const cv::Point tip = toPx(last.x + static_cast<float>(0.35 * std::cos(yaw)), last.y + static_cast<float>(0.35 * std::sin(yaw)));
+            cv::arrowedLine(roi, toPx(last.x, last.y), tip, cv::Scalar(60, 80, 255), 2, cv::LINE_AA, 0, 0.35);
             cv::circle(roi, toPx(last.x, last.y), 3, cv::Scalar(60, 80, 255), -1, cv::LINE_AA);
         }
 
         char buf[160];
-        std::snprintf(buf, sizeof(buf), "trajectory (top view)  x forward / y right  grid=1 m  span=%.1f m  pts=%zu",
-                      static_cast<double>(span_m) * 2.0, traj_.size());
+        std::snprintf(buf, sizeof(buf), "trajectory (top view)  x forward / y right  grid=1 m  span=%.1f m  pts=%zu", static_cast<double>(span_m) * 2.0, traj_.size());
         putText(roi, buf, cv::Point(12, 20), 0.48, cv::Scalar(160, 160, 165));
     }
 
-    void putText(const cv::Mat& img, const std::string& text, const cv::Point& org, double scale,
-                 const cv::Scalar& color) {
+    void putText(const cv::Mat& img, const std::string& text, const cv::Point& org, double scale, const cv::Scalar& color) {
         cv::putText(img, text, org, cv::FONT_HERSHEY_SIMPLEX, scale, color, 1, cv::LINE_AA);
     }
 

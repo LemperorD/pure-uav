@@ -46,7 +46,7 @@ test → 任意被测层
 | `src/app/sim/guidance_sim_tools.{hpp,cpp}` | `guidance_sim_tools` | CSV 录制/回放 + 合成世界 |
 | `src/app/startup/guidance_application.{hpp,cpp}` | `guidance_application` | CLI + 参数 + 分发 |
 | `src/app/startup/guidance_example.cpp` | `guidance_example` | 制导调用示例入口 |
-| `src/app/main.cpp` | `main` | 通信示例入口 |
+| `src/app/main.cpp` | `main` | 单串口、单相机的并发机载入口 |
 
 `guidance_flight` 是机载最小足迹；`guidance_sim` 不在其中。
 
@@ -57,14 +57,20 @@ test → 任意被测层
 ### 3.1 启动
 
 ```text
-main()                         # 通信示例
+main()                         # 并发机载运行
+  → Communicator 接收线程（单串口）
+  → OrbbecCamera 采集线程（单相机）
+      → 灰度图队列 → VIO 线程 → Communicator::pushVisionPose
+      → BGR 最新帧 → Detector 推理线程
+  → 制导线程：飞控遥测 + 检测结果 → GuidanceLoop → Communicator::pushGuidanceCmd
+  → 监督、停止、join
 guidance_example              # 制导调用示例（独立可执行文件）
   → GuidanceApplication::run(argc, argv)
       → 默认值 + YAML + CLI → GuidanceAppParams
       → guidance_validate_params()
       → 选模式：
           合成世界 / 回放 → guidance_run_synthetic / guidance_run_replay
-          真机（未来）    → 构造 Mavlink/Vision 源/出口 + GuidanceLoop
+          真机           → 由 main.cpp 单独组合，不经此仿真入口
 ```
 
 ### 3.2 一拍（`GuidanceLoop::run_once`）

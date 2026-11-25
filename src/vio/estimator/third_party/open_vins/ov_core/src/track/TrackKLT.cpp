@@ -926,10 +926,12 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
       static int fb_print_tick = 0;
       if (++fb_print_tick >= 300) {
         fb_print_tick = 0;
+        if (ov_core::Printer::current_print_level != ov_core::Printer::SILENT) {
         std::printf("[KLT] 正反向检查：累计丢 %lld / %lld (%.1f%%), thresh=%.1fpx\n",
                     fb_rej, fb_total, fb_total ? 100.0 * static_cast<double>(fb_rej) / static_cast<double>(fb_total) : 0.0,
                     fb_thresh);
         std::fflush(stdout);
+        }
       }
     }
   }

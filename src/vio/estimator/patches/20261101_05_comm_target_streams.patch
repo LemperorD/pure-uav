@@ -7,7 +7,7 @@
 -    requestDefaultStreams();
 -    streams_requested_.store(true);
 +    // 数据流请求由首个匹配心跳触发；此时目标 sysid/compid 尚未确认。
- 
+
      running_.store(true);
      recv_thread_ = std::thread(&Communicator::recvLoop, this);    //开启接收线程
 @@ -206,8 +205,7 @@
@@ -82,13 +82,13 @@
 +    }
 +    return count == 5;
 +}
- 
+
  // 等 master 端出现第一条 ODOMETRY（中间可能夹着本机心跳 / 消息流请求）
  bool readOdometry(MsgReader& reader, mavlink_odometry_t& odo, int timeout_ms) {
 @@ -414,11 +461,16 @@
          CHECK(waitMs([&] { return comm2.reconnectCount() >= 1; }, 6000));
          CHECK(comm2.imuQueueSize() == 0);       // 旧时间基的帧必须清掉
- 
+
 -        // 重连后重新学习身份：故意换 sysid=9
 +        MsgReader reconnect_reader;
 +        reconnect_reader.fd = master_b;
@@ -106,7 +106,7 @@
 @@ -432,6 +484,30 @@
          ::close(master_b);
      }
- 
+
 +    // ---- 8) 首次连接非默认飞控/组件：请求目标和间隔必须来自已确认身份 ----
 +    {
 +        int target_master = -1;
@@ -133,4 +133,3 @@
 +
      comm.stop();
      ::close(master);
- 

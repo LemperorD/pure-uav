@@ -1,21 +1,21 @@
 --- a/src/vio/estimator/src/mavlink_link.cpp
 +++ b/src/vio/estimator/src/mavlink_link.cpp
 @@ -17,7 +17,6 @@
- 
+
  namespace {
- 
+
 -constexpr uint8_t kFcuCompId = 1;
- 
+
  int64_t steadyNowNs() {
      using namespace std::chrono;
 @@ -93,13 +92,21 @@
      if (running_.load()) return true;
      cfg_ = cfg;
- 
+
 +    std::lock_guard<std::mutex> lk(fd_mtx_);
      fd_ = openSerial(cfg.device, cfg.baudrate, error);
      if (fd_ < 0) return false;
- 
+
 +    // 新会话：身份锁定、连接态、时间戳全部从头开始
      streams_requested_ = false;
      last_stream_request_ns_ = 0;
@@ -27,12 +27,12 @@
 +    locked_compid_.store(0);
 +    reconnects_.store(0);
 +    clearImuQueue();
- 
+
      running_.store(true);
      thread_ = std::thread(&MavlinkLink::recvLoop, this);
 @@ -107,28 +114,36 @@
  }
- 
+
  void MavlinkLink::stop() {
 -    if (!running_.exchange(false)) {
 -        if (thread_.joinable()) thread_.join();
@@ -59,7 +59,7 @@
 +    std::lock_guard<std::mutex> lk(q_mtx_);
 +    imu_q_.clear();
  }
- 
+
  bool MavlinkLink::sendBytes(const uint8_t* buf, uint16_t len) {
 -    if (fd_ < 0) return false;
      std::lock_guard<std::mutex> lk(send_mtx_);
@@ -68,7 +68,7 @@
 +    if (fd_ < 0) return false;
 +    return writeAll(fd_, buf, len);
  }
- 
+
 -bool MavlinkLink::writeAll(const uint8_t* buf, size_t len) {
 +bool MavlinkLink::writeAll(int fd, const uint8_t* buf, size_t len) {
      size_t off = 0;
@@ -99,7 +99,7 @@
 @@ -201,32 +216,168 @@
      std::fflush(stdout);
  }
- 
+
 +bool MavlinkLink::acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type) {
 +    // 自己的心跳（某些路由会回环）不能当成飞控
 +    if (sysid == sysid_) return false;
@@ -180,7 +180,7 @@
      int64_t last_imu_recv_ns = 0;
 +    long long ignored_heartbeats = 0;
 +    int reopen_failures = 0;
- 
+
      while (running_.load()) {
 +        int fd = -1;
 +        {
@@ -280,14 +280,14 @@
 +                fatal = true;
              }
          }
- 
+
 +        if (fatal) {
 +            handleLinkLoss("串口读错误/设备拔出");
 +            continue;
 +        }
 +
          const int64_t now = steadyNowNs();
- 
+
 -        // 心跳超时
 +        // 心跳超时：断开连接态；同时清掉身份锁定，允许飞控重启后重新锁定。
          if (connected_.load() && last_heartbeat_recv_ns_ > 0 &&
@@ -301,7 +301,7 @@
          }
 @@ -336,15 +495,16 @@
  }
- 
+
  void MavlinkLink::requestParamByName(const std::string& name) {
 -    if (fd_ < 0) return;
      mavlink_message_t msg;
@@ -317,7 +317,7 @@
 +    if (fd_ < 0) return;
 +    writeAll(fd_, buf, len);
  }
- 
+
  MavlinkLink::Ekf3Velocity MavlinkLink::ekf3Velocity() const {
 @@ -381,16 +541,23 @@
      // 0（飞控侧会 constrain 到 VISO_YAW_M_NSE 之类的参数下限）。
@@ -345,12 +345,12 @@
 -        vel_cov[0] = std::nanf("");
 +        vel_cov[0] = vel_cov[6] = vel_cov[11] = std::nanf("");
      }
- 
+
      const int q = quality < 0 ? 0 : (quality > 100 ? 100 : quality);
 @@ -426,5 +593,4 @@
      return sendBytes(buf, len);
  }
- 
+
 -
  }  // namespace pure_uav
 --- a/src/vio/estimator/src/mavlink_link.hpp
@@ -365,10 +365,10 @@
 +        uint8_t target_sysid = 0;
 +        uint8_t target_compid = 0;             // 0 = 不限定组件号
      };
- 
+
      struct TimedImu {
 @@ -54,7 +59,20 @@
- 
+
      bool running() const { return running_.load(); }
      bool connected() const { return connected_.load(); }
 +
@@ -385,7 +385,7 @@
 +    // 【2026-10-29】清空 IMU 队列（飞控重启/串口重连/时间基变化时用）。
 +    // 旧时间基的样本绝不能再喂给估计器。
 +    void clearImuQueue();
- 
+
      // 取出最早的一帧 IMU；无数据返回 false。
      bool popImu(TimedImu& out);
 @@ -67,10 +85,18 @@
@@ -422,7 +422,7 @@
 +    bool acceptHeartbeat(uint8_t sysid, uint8_t compid, uint8_t autopilot, uint8_t type);
 +    void handleLinkLoss(const char* why);   // 关闭 fd、清状态/队列，等重连
 +    bool tryReopen(std::string* error);     // 尝试重新打开串口
- 
+
      Config cfg_;
      int fd_ = -1;
 +    mutable std::mutex fd_mtx_;   // 保护 fd_ 的打开/关闭（发送线程 vs 重连线程）
@@ -443,7 +443,7 @@
 @@ -13,17 +13,47 @@
  }
  }  // namespace
- 
+
 -void FcuClock::addSample(int64_t host_ns, uint64_t imu_timestamp_us) {
 +void FcuClock::clearLocked() {
 +    offsets_.clear();
@@ -487,12 +487,12 @@
      }
 +    return AddResult::kOk;
  }
- 
+
  void FcuClock::recomputeLocked() const {
 @@ -63,13 +93,14 @@
      return offsets_.size();
  }
- 
+
 +uint64_t FcuClock::lastImuTimestampUs() const {
 +    std::lock_guard<std::mutex> lk(mtx_);
 +    return last_imu_us_;
@@ -507,7 +507,7 @@
 -    since_recompute_ = 0;
 +    clearLocked();
  }
- 
+
  }  // namespace pure_uav
 --- a/src/vio/estimator/src/fcu_clock.hpp
 +++ b/src/vio/estimator/src/fcu_clock.hpp
@@ -523,15 +523,15 @@
 +//   就会落在两个不同的时间基准里。
 +//   现在 addSample() 返回 AddResult：检测到显著回退就自动清空旧样本、按新时间基重来，
 +//   调用方据此暂停发布并重建估计器（见 vio_live_main.cpp 的 onFcuTimebaseReset）。
- 
+
  #pragma once
- 
+
 +#include <atomic>
  #include <cstdint>
  #include <deque>
  #include <mutex>
 @@ -20,10 +29,19 @@
- 
+
  class FcuClock {
  public:
 +    // addSample() 的判定结果
@@ -542,19 +542,19 @@
 +    };
 +
      FcuClock() = default;
- 
+
      // 加入一个 IMU 时间戳样本（host_ns 用 CLOCK_MONOTONIC）。
 -    void addSample(int64_t host_ns, uint64_t imu_timestamp_us);
 +    // 返回 kTimebaseReset 时：内部已清空旧时间基的所有样本，本样本作为新时间基的
 +    // 第 1 帧保留；此时 valid() 为 false，需要重新累积 kMinSamples 帧才恢复。
 +    AddResult addSample(int64_t host_ns, uint64_t imu_timestamp_us);
- 
+
      // 是否有足够样本且最近更新过（默认 2 秒内）。
      bool valid() const;
 @@ -34,14 +52,24 @@
      int64_t offsetNs() const;
      size_t sampleCount() const;
- 
+
 +    // 统计（联调状态行/验收用）：被丢弃的乱序帧、检测到的时间基重置次数
 +    uint64_t outOfOrderCount() const { return out_of_order_.load(); }
 +    uint64_t timebaseResetCount() const { return timebase_resets_.load(); }
@@ -562,18 +562,18 @@
 +
 +    // 手动清空（程序启动、串口重连等）。不清统计计数。
      void reset();
- 
+
  private:
      void recomputeLocked() const;
 +    void clearLocked();
- 
+
      static constexpr size_t kMaxSamples = 600;  // 100Hz 下约 6 秒
      static constexpr size_t kMinSamples = 10;
      static constexpr int64_t kMaxAgeNs = 2000000000LL;  // 2 s
 +    // 时间戳回退超过它，才认为是"换了时间基"而不是乱序。
 +    // 200 Hz 流里真正的乱序通常只有几毫秒；飞控重启是回退到接近 0。
 +    static constexpr int64_t kRollbackUs = 100000;  // 100 ms
- 
+
      mutable std::mutex mtx_;
      std::deque<int64_t> offsets_;  // host_ns - imu_us*1000
 @@ -49,6 +77,10 @@
@@ -585,7 +585,7 @@
 +    std::atomic<uint64_t> out_of_order_{0};
 +    std::atomic<uint64_t> timebase_resets_{0};
  };
- 
+
  }  // namespace pure_uav
 --- a/src/vio/estimator/tests/test_fcu_clock.cpp
 +++ b/src/vio/estimator/tests/test_fcu_clock.cpp
@@ -600,12 +600,12 @@
 +            g_failures++;
 +        }
      }
- 
+
      if (!clock.valid()) {
 @@ -74,8 +78,92 @@
          g_failures++;
      }
- 
+
 +    //---------------------------------------------------------------------------
 +    // 用例 2：轻微乱序（5 ms 回退）只丢帧，不能触发时间基重置
 +    //---------------------------------------------------------------------------

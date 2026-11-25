@@ -181,3 +181,37 @@ los_hat = normalize(d_world)
 - 改坐标/姿态/时间约定 → 同步本文档、`guidance::adapter`、相关测试；
 - 不要在业务代码里再做一次 NED/ENU 或 FRD/光轴换算；
 - 新增外部口径 → 先加枚举 + 独立参考实现 + 测试，再接线。
+
+### 机载共享采集时间戳
+
+> 2026-11-09 起，图像由 `camera_server` 经两条 POSIX 共享内存通道分发，VIO 在 main（或独立 vio_live）内运行，检测为独立进程；
+> 协议与时基定义见 `assets/docs/app/camera-ipc.md`。
+
+`host_ns` 统一为 `CLOCK_MONOTONIC`（与 `steady_clock` 同源），跨进程可比；
+`device_us` 为 SDK `timeStampUs()` 原值（时基不同，只能当相对量），
+`sys_us` 为 SDK `systemTimeStampUs()`（主机时基，VIO `--cam-ts device` 沿用），
+`depth_device_us` 与 `device_us` 同源。`seq` 从 1 起单调且跨两通道同源。
+
+VIO 侧 `vio_live` 仍通过 `FcuClock` 把 `host_ns` 映射到飞控 IMU/boot 时钟；
+`imuCoversImage` / `cameraTimeOffsetSec` / `setDepthImage` 链路不变。
+检测侧 `DetectionRuntime` 把 `FrameResult.host_us` 置 0（单调时钟不能冒充 Unix/飞控时间），
+采集时刻改由 `TargetSnapshot.captured_host_ns` 与 JSON 的 `host_ns` 字段表达，
+需要飞控 boot 时间时仍按 §4.3 用同帧 `SYSTEM_TIME` 单向换算。
+
+遗留 `DetectorConfig.external_camera=true` 时 `Detector::start()` 只启动推理线程，
+宿主通过 `submitFrame` 投递不可变 BGR 帧，停止时先停止帧投递再调用 `Detector::stop()`；
+该路径仅保留给既有测试，实时运行走 `DetectionRuntime::submit(EncodedColorFrame)`。
+
+### 检测侧配置接口
+
+`config/detector-rt.yaml` 是检测算法参数唯一真源，由 `src/detection-rt/include/detector_config.hpp`
+提供的 `loadDetectorConfig()` / `resolveModelPath()` / `describeDetectorConfig()` 加载与校验。
+顶层键 `detection-rt:` 下 9 个必填字段与 `RuntimeConfig` 一一对应
+（`model_path` / `imgsz` / `num_classes` / `conf_thr` / `iou_thr` / `max_det` /
+`target_class` / `max_hz` / `max_age_ms`）；`model_path: auto` 按编译后端解析默认模型。
+校验复用 `validateRuntimeConfig()`，并对未知键、旧占位字段、越界值、缺模型文件给出明确错误。
+`detect_rt` 不提供这些字段的命令行覆盖，`--config FILE` 只改配置路径，
+`--check-config` 只校验不加载模型；实时与 `--image` 离线单图共用同一份 `RuntimeConfig`。
+`bin/main` 不参与检测初始化：它在等飞控心跳后 fork/exec 拉起并监督 `bin/detect_rt`
+（信号转发、异常最多重启 3 次、退出时停止），只透传 `--config` 路径与运行参数，
+不读取 `config/detector-rt.yaml`、不连接共享内存、不参与取帧与推理。

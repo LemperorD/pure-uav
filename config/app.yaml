@@ -1,0 +1,8 @@
+# 应用调度与模块配置路径；所有相对路径均相对于仓库根目录。
+app:
+  main_loop_hz: 50
+  heartbeat_wait_s: 5.0
+  status_period_s: 1.0
+  guidance_enabled: false
+  driver_config: config/driver.yaml
+  vio_config: config/vio.yaml

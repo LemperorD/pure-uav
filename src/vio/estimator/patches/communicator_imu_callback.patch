@@ -24,11 +24,11 @@
 @@ -224,6 +229,7 @@
      std::atomic<uint16_t> last_ack_command_{0};  //最近一次 ACK 对应的命令号
      std::atomic<uint8_t> last_ack_result_{UINT8_MAX};   //最近一次 ACK 结果（UINT8_MAX=未收到）
- 
+
 +    std::function<void(const ImuData&)> imu_callback_;  // VIO 等模块的 IMU 回调
      std::mutex send_mutex_;  // 串口写锁
  };
- 
+
 --- a/src/driver/communicate/src/communicator.cpp
 +++ b/src/driver/communicate/src/communicator.cpp
 @@ -152,14 +152,21 @@
@@ -36,7 +36,7 @@
                              mavlink_highres_imu_t imu;
                              mavlink_msg_highres_imu_decode(&msg, &imu);
 -                            std::lock_guard<std::mutex> lk(data_mutex_);
--                            imu_.timestamp_us = imu.time_usec; 
+-                            imu_.timestamp_us = imu.time_usec;
 -                            imu_.gx = imu.xgyro;
 -                            imu_.gy = imu.ygyro;
 -                            imu_.gz = imu.zgyro;
@@ -64,7 +64,7 @@
 @@ -461,6 +468,11 @@
      return true;
  }
- 
+
 +void Communicator::setImuCallback(std::function<void(const ImuData&)> cb) {
 +    std::lock_guard<std::mutex> lk(data_mutex_);
 +    imu_callback_ = std::move(cb);

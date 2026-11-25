@@ -5,3 +5,4 @@ datasets/
 __pycache__/
 *.log
 *.pyc
+docs/

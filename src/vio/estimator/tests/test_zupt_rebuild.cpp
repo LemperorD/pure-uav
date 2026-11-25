@@ -1,20 +1,19 @@
 // 重建新 OpenVINS 实例后，运行期开关必须保留，不能退回 try_zupt 的配置默认值。
 // 不需要飞控、相机或数据集；参数是含 try_zupt: true 的测试配置目录。
 #include <cstdio>
-
 #include <opencv2/imgcodecs.hpp>
-#include "offline_dataset.hpp"
 
+#include "offline_dataset.hpp"
 #include "pure_uav/vio_estimator.hpp"
 
 namespace {
 int failures = 0;
-#define CHECK(condition) \
-    do { \
-        if (!(condition)) { \
+#define CHECK(condition)                                                      \
+    do {                                                                      \
+        if (!(condition)) {                                                   \
             std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); \
-            ++failures; \
-        } \
+            ++failures;                                                       \
+        }                                                                     \
     } while (0)
 
 // 可选真实数据回放：抬高本测试的特征门限，走实际 LOST 重建路径。
@@ -41,25 +40,27 @@ void checkLostRebuild(pure_uav::VioEstimator::Options options, const char* datas
     size_t imu_index = 0;
     bool initialized = false;
     for (const auto& image : dataset.images()) {
-        while (imu_index < dataset.imu().size() &&
-               dataset.imu()[imu_index].timestamp_us <= image.timestamp_us) {
+        while (imu_index < dataset.imu().size() && dataset.imu()[imu_index].timestamp_us <= image.timestamp_us) {
             estimator.feedImu(dataset.imu()[imu_index++]);
         }
         const cv::Mat gray = cv::imread(image.path, cv::IMREAD_GRAYSCALE);
-        if (gray.empty()) { ++failures; break; }
+        if (gray.empty()) {
+            ++failures;
+            break;
+        }
         estimator.feedImage(gray, image.timestamp_us);
         initialized = initialized || estimator.initialized();
-        if (estimator.rebuildCount() > 0) break;
+        if (estimator.rebuildCount() > 0) {
+            break;
+        }
     }
     CHECK(initialized);
     CHECK(estimator.rebuildCount() == 1);
     CHECK(!estimator.zuptEnabled());
     CHECK(!estimator.publishable());
-    std::printf("LOST rebuild: initialized=%d rebuilds=%lld ZUPT=%d\n",
-                initialized, static_cast<long long>(estimator.rebuildCount()),
-                estimator.zuptEnabled());
+    std::printf("LOST rebuild: initialized=%d rebuilds=%lld ZUPT=%d\n", static_cast<int>(initialized), estimator.rebuildCount(), static_cast<int>(estimator.zuptEnabled()));
 }
-}
+}  // namespace
 
 int main(int argc, char** argv) {
     if (argc != 2 && argc != 3) {
@@ -96,8 +97,10 @@ int main(int argc, char** argv) {
     estimator.resetForNewTimebase("test: armed again");
     CHECK(!estimator.zuptEnabled());
     CHECK(estimator.rebuildCount() == rebuilds + 4);
-    if (argc == 3) checkLostRebuild(options, argv[2]);
-    if (failures) {
+    if (argc == 3) {
+        checkLostRebuild(options, argv[2]);
+    }
+    if (failures != 0) {
         std::fprintf(stderr, "FAILED: %d checks\n", failures);
         return 1;
     }

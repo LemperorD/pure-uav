@@ -52,11 +52,13 @@ export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 ```bash
 rosversion -d
 ```
+
 输出应该是 `noetic`。
 
 ```bash
 rospack find ov_msckf
 ```
+
 输出应该是 `/home/kxy/vio_ws_ros1/src/open_vins/ov_msckf`。
 
 ---

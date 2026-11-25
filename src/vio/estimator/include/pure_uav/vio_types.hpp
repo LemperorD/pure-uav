@@ -1,6 +1,7 @@
 // 传感器数据的内部表示（与具体数据源解耦）。
 //
-// 在线运行时 ImuSample.timestamp_us 是飞控 boot 时间微秒；
+// 在线数据源保留飞控原始采样微秒，VIO 入口完成对齐后统一换算为主机 Unix 微秒；
+// 送入估计器的 IMU、图像和深度必须属于同一时间域。
 // 离线回放时是数据集里的时间戳微秒（session05 bag 里就是 Unix 微秒）。
 
 #pragma once
@@ -10,7 +11,7 @@
 namespace pure_uav {
 
 struct ImuSample {
-    uint64_t timestamp_us = 0;  // us
+    uint64_t timestamp_us = 0;            // us
     double gx = 0.0, gy = 0.0, gz = 0.0;  // rad/s，机体 FRD
     double ax = 0.0, ay = 0.0, az = 0.0;  // m/s²，比力（含重力），机体 FRD
 };

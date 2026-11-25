@@ -5,6 +5,7 @@
 //
 // 运行：./bin/test/test_mavlink_units（退出码 0=全过，1=有失败）
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -13,7 +14,7 @@
 #include "mavlink_units.hpp"
 
 using namespace pure_uav::mavlink_units;
-namespace mu = pure_uav::mu;   // 顺便验证便捷别名可用
+namespace mu = pure_uav::mu;  // 顺便验证便捷别名可用
 
 // ============================================================
 //  轻量断言
@@ -21,7 +22,7 @@ namespace mu = pure_uav::mu;   // 顺便验证便捷别名可用
 static int g_pass = 0;
 static int g_fail = 0;
 
-static void ok(bool cond, const char *what) {
+static void ok(bool cond, const char* what) {
     if (cond) {
         ++g_pass;
     } else {
@@ -30,7 +31,7 @@ static void ok(bool cond, const char *what) {
     }
 }
 
-static void near(double got, double want, double tol, const char *what) {
+static void near(double got, double want, double tol, const char* what) {
     if (std::fabs(got - want) <= tol) {
         ++g_pass;
     } else {
@@ -39,7 +40,7 @@ static void near(double got, double want, double tol, const char *what) {
     }
 }
 
-static void near_i(long long got, long long want, long long tol, const char *what) {
+static void near_i(long long got, long long want, long long tol, const char* what) {
     const long long d = (got > want) ? (got - want) : (want - got);
     if (d <= tol) {
         ++g_pass;
@@ -49,7 +50,7 @@ static void near_i(long long got, long long want, long long tol, const char *wha
     }
 }
 
-static void section(const char *title) {
+static void section(const char* title) {
     std::printf("\n== %s ==\n", title);
 }
 
@@ -126,8 +127,7 @@ static void test_deg_e7() {
     near(deg_to_deg_e7(-122.0), -1220000000.0, 0.0, "−122° → −1220000000 degE7");
 
     // 往返（浮点往返会有 1 ulp 量级的抖动，容差取 1）
-    near_i(deg_to_deg_e7_round(deg_e7_to_deg(473979710.0)), 473979710, 1,
-           "degE7 → deg → degE7 往返");
+    near_i(deg_to_deg_e7_round(deg_e7_to_deg(473979710.0)), 473979710, 1, "degE7 → deg → degE7 往返");
 }
 
 // ============================================================
@@ -163,8 +163,7 @@ static void test_wrap() {
     ok(big >= -PI_REF && big <= PI_REF, "wrap_pi(1000) 落在 [−π, π]");
     // 非有限值原样透传
     ok(std::isnan(wrap_pi(std::nan(""))), "wrap_pi(NaN) 仍为 NaN");
-    ok(std::isinf(wrap_pi(std::numeric_limits<double>::infinity())),
-       "wrap_pi(+Inf) 仍为 +Inf");
+    ok(std::isinf(wrap_pi(std::numeric_limits<double>::infinity())), "wrap_pi(+Inf) 仍为 +Inf");
 
     near(wrap_2pi(0.0), 0.0, 0.0, "wrap_2pi(0) = 0");
     near(wrap_2pi(PI_REF / 2.0), PI_REF / 2.0, 0.0, "wrap_2pi(π/2) = π/2");
@@ -174,10 +173,8 @@ static void test_wrap() {
 
     //  358° 假跳变：+179° 与 −179° 实际只差 2°
     //   符号约定：正值 = a 在 b 的**逆时针**方向（角度增大方向）
-    near(angle_diff_pi(deg_to_rad(179.0), deg_to_rad(-179.0)), -deg_to_rad(2.0), 1e-12,
-         "angle_diff_pi(179°, −179°) = −2°（顺时针 2°，不是 358°）");
-    near(angle_diff_pi(deg_to_rad(-179.0), deg_to_rad(179.0)), deg_to_rad(2.0), 1e-12,
-         "angle_diff_pi(−179°, 179°) = +2°（逆时针 2°）");
+    near(angle_diff_pi(deg_to_rad(179.0), deg_to_rad(-179.0)), -deg_to_rad(2.0), 1e-12, "angle_diff_pi(179°, −179°) = −2°（顺时针 2°，不是 358°）");
+    near(angle_diff_pi(deg_to_rad(-179.0), deg_to_rad(179.0)), deg_to_rad(2.0), 1e-12, "angle_diff_pi(−179°, 179°) = +2°（逆时针 2°）");
     near(angle_diff_pi(0.3, 0.1), 0.2, 1e-15, "angle_diff_pi 普通情形");
     near(angle_diff_pi(0.1, 0.3), -0.2, 1e-15, "angle_diff_pi 普通情形（反序）");
 }
@@ -201,25 +198,24 @@ static void test_ms_wrap() {
     section("8. uint32 毫秒回绕（约 49.7 天）");
 
     // 普通情形
-    ok(mu::ms_diff_u32(1000u, 400u) == 600u, "普通差：1000 − 400 = 600 ms");
-    ok(mu::ms_diff_u32(400u, 400u) == 0u, "同刻差 = 0");
+    ok(mu::ms_diff_u32(1000U, 400U) == 600U, "普通差：1000 − 400 = 600 ms");
+    ok(mu::ms_diff_u32(400U, 400U) == 0U, "同刻差 = 0");
 
     //  回绕：prev 接近 uint32 上限，now 已绕回 0 附近
     //   prev = 4294967290，now = 15  ⇒ 真实间隔 21 ms
-    ok(mu::ms_diff_u32(15u, 4294967290u) == 21u,
-       "回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
-    near(mu::ms_diff_to_s(15u, 4294967290u), 0.021, 1e-12, "回绕后换算成秒 = 0.021 s");
+    ok(mu::ms_diff_u32(15U, 4294967290U) == 21U, "回绕后无符号差仍正确：15 − 4294967290 = 21 ms");
+    near(mu::ms_diff_to_s(15U, 4294967290U), 0.021, 1e-12, "回绕后换算成秒 = 0.021 s");
 
     // 超时判断（回绕安全）
-    ok(mu::ms_elapsed(1000u, 400u), "ms_elapsed：已过 400 → true");
-    ok(!mu::ms_elapsed(400u, 1000u), "ms_elapsed：还没到 1000 → false");
-    ok(mu::ms_elapsed(400u, 400u), "ms_elapsed：恰好到达 → true");
+    ok(mu::ms_elapsed(1000U, 400U), "ms_elapsed：已过 400 → true");
+    ok(!mu::ms_elapsed(400U, 1000U), "ms_elapsed：还没到 1000 → false");
+    ok(mu::ms_elapsed(400U, 400U), "ms_elapsed：恰好到达 → true");
     //  跨回绕：deadline = 4294967290（旧），now = 15（已绕回）⇒ 已过
-    ok(mu::ms_elapsed(15u, 4294967290u), "ms_elapsed 跨回绕：已过 → true");
-    ok(!mu::ms_elapsed(4294967290u, 15u), "ms_elapsed 跨回绕：未到 → false");
+    ok(mu::ms_elapsed(15U, 4294967290U), "ms_elapsed 跨回绕：已过 → true");
+    ok(!mu::ms_elapsed(4294967290U, 15U), "ms_elapsed 跨回绕：未到 → false");
 
     // 边界：恰好 2^31（半个周期）—— 临界，这里只要求不崩且语义一致
-    ok(!mu::ms_elapsed(0u, 0x80000000u), "半周期边界不误判为已过");
+    ok(!mu::ms_elapsed(0U, 0x80000000U), "半周期边界不误判为已过");
 }
 
 // ============================================================
@@ -237,22 +233,21 @@ static void test_rounding() {
     // 饱和
     ok(round_to_i32_sat(3.0e18) == std::numeric_limits<int32_t>::max(), "巨大正数 → INT32_MAX");
     ok(round_to_i32_sat(-3.0e18) == std::numeric_limits<int32_t>::min(), "巨大负数 → INT32_MIN");
-    ok(round_to_i32_sat(std::numeric_limits<double>::infinity())
-           == std::numeric_limits<int32_t>::max(), "+Inf → INT32_MAX");
+    ok(round_to_i32_sat(std::numeric_limits<double>::infinity()) == std::numeric_limits<int32_t>::max(), "+Inf → INT32_MAX");
     ok(round_to_i32_sat(std::nan("")) == 0, "NaN → 0");
-    ok(round_to_u16_sat(-5.0) == 0u, "负数 → 0（uint16 下界）");
-    ok(round_to_u16_sat(1.0e9) == 65535u, "巨大正数 → 65535（uint16 上界）");
-    ok(round_to_u16_sat(1234.6) == 1235u, "1234.6 → 1235");
+    ok(round_to_u16_sat(-5.0) == 0U, "负数 → 0（uint16 下界）");
+    ok(round_to_u16_sat(1.0e9) == 65535U, "巨大正数 → 65535（uint16 上界）");
+    ok(round_to_u16_sat(1234.6) == 1235U, "1234.6 → 1235");
 
     //  度 → cdeg：四舍五入 + 环绕到 [0, 36000)
-    ok(deg_to_cdeg_wrapped(0.0) == 0u, "0° → 0 cdeg");
-    ok(deg_to_cdeg_wrapped(123.45) == 12345u, "123.45° → 12345 cdeg");
-    ok(deg_to_cdeg_wrapped(359.994) == 35999u, "359.994° → 35999 cdeg");
-    ok(deg_to_cdeg_wrapped(359.999) == 0u, "359.999° 四舍五入到 36000 ⇒ 绕回 0");
-    ok(deg_to_cdeg_wrapped(360.0) == 0u, "360° → 0 cdeg");
-    ok(deg_to_cdeg_wrapped(720.5) == 50u, "720.5° → 50 cdeg");
-    ok(deg_to_cdeg_wrapped(-0.001) == 0u, "−0.001° → 0 cdeg（负数也绕回正区间）");
-    ok(deg_to_cdeg_wrapped(-10.0) == 35000u, "−10° → 35000 cdeg");
+    ok(deg_to_cdeg_wrapped(0.0) == 0U, "0° → 0 cdeg");
+    ok(deg_to_cdeg_wrapped(123.45) == 12345U, "123.45° → 12345 cdeg");
+    ok(deg_to_cdeg_wrapped(359.994) == 35999U, "359.994° → 35999 cdeg");
+    ok(deg_to_cdeg_wrapped(359.999) == 0U, "359.999° 四舍五入到 36000 ⇒ 绕回 0");
+    ok(deg_to_cdeg_wrapped(360.0) == 0U, "360° → 0 cdeg");
+    ok(deg_to_cdeg_wrapped(720.5) == 50U, "720.5° → 50 cdeg");
+    ok(deg_to_cdeg_wrapped(-0.001) == 0U, "−0.001° → 0 cdeg（负数也绕回正区间）");
+    ok(deg_to_cdeg_wrapped(-10.0) == 35000U, "−10° → 35000 cdeg");
 
     //  度 → degE7：四舍五入 + 饱和
     ok(deg_to_deg_e7_round(47.0) == 470000000, "47° → 470000000 degE7");
@@ -260,12 +255,9 @@ static void test_rounding() {
     // 200° × 1e7 = 2.0e9 < INT32_MAX(2.147e9) ⇒ 仍在范围内，不饱和
     ok(deg_to_deg_e7_round(200.0) == 2000000000, "200° 仍在 int32 范围内（不饱和）");
     //  饱和阈值是 |deg| > 214.7483647
-    ok(deg_to_deg_e7_round(214.7483647) == std::numeric_limits<int32_t>::max(),
-       "阈值 214.7483647° 恰好取到 INT32_MAX");
-    ok(deg_to_deg_e7_round(300.0) == std::numeric_limits<int32_t>::max(),
-       "300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
-    ok(deg_to_deg_e7_round(-300.0) == std::numeric_limits<int32_t>::min(),
-       "−300° ⇒ 饱和到 INT32_MIN");
+    ok(deg_to_deg_e7_round(214.7483647) == std::numeric_limits<int32_t>::max(), "阈值 214.7483647° 恰好取到 INT32_MAX");
+    ok(deg_to_deg_e7_round(300.0) == std::numeric_limits<int32_t>::max(), "300° 超出 int32 表示范围 ⇒ 饱和到 INT32_MAX");
+    ok(deg_to_deg_e7_round(-300.0) == std::numeric_limits<int32_t>::min(), "−300° ⇒ 饱和到 INT32_MIN");
     ok(deg_to_deg_e7_round(std::nan("")) == 0, "NaN → 0");
 }
 
@@ -275,28 +267,26 @@ static void test_rounding() {
 static void test_sentinels() {
     section("10. 哨兵值（invalid）");
 
-    ok(is_valid_heading_cdeg(0u), "hdg = 0 有效");
-    ok(is_valid_heading_cdeg(12345u), "hdg = 12345 有效");
+    ok(is_valid_heading_cdeg(0U), "hdg = 0 有效");
+    ok(is_valid_heading_cdeg(12345U), "hdg = 12345 有效");
     ok(!is_valid_heading_cdeg(kInvalidU16), "hdg = UINT16_MAX(65535) ⇒ 无效");
 
     double out = -123.456;
     ok(!heading_cdeg_to_rad(kInvalidU16, out), "哨兵值 → 返回 false");
     near(out, -123.456, 0.0, "无效时 out 不被写入");
-    ok(heading_cdeg_to_rad(9000u, out), "有效 hdg → 返回 true");
+    ok(heading_cdeg_to_rad(9000U, out), "有效 hdg → 返回 true");
     near(out, PI_REF / 2.0, 1e-15, "hdg=9000 cdeg → π/2");
 
     double out2 = -1.0;
-    ok(heading_cdeg_to_deg(12345u, out2), "有效 hdg → true");
+    ok(heading_cdeg_to_deg(12345U, out2), "有效 hdg → true");
     near(out2, 123.45, 1e-11, "hdg=12345 cdeg → 123.45°");
     ok(!heading_cdeg_to_deg(kInvalidU16, out2), "哨兵值 → false");
     near(out2, 123.45, 0.0, "第二次调用无效时 out 保持上次的值（未被写入）");
 
     // lat/lon 的防御性检查
     ok(is_plausible_latlon_deg_e7(473979710), "正常纬度 → plausible");
-    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::max()),
-       "INT32_MAX → 判为可疑（防御性，非规范）");
-    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::min()),
-       "INT32_MIN → 判为可疑（防御性，非规范）");
+    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::max()), "INT32_MAX → 判为可疑（防御性，非规范）");
+    ok(!is_plausible_latlon_deg_e7(std::numeric_limits<int32_t>::min()), "INT32_MIN → 判为可疑（防御性，非规范）");
 }
 
 // ============================================================
@@ -311,7 +301,7 @@ static void test_precision() {
         const double x = static_cast<double>(d) + 0.123456;
         const double back = rad_to_deg(deg_to_rad(x));
         const double rel = std::fabs(back - x) / (std::fabs(x) > 1.0 ? std::fabs(x) : 1.0);
-        if (rel > worst) worst = rel;
+        worst = std::max(rel, worst);
     }
     ok(worst < 1e-14, "deg → rad → deg 最大相对误差 < 1e-14");
 
@@ -320,7 +310,7 @@ static void test_precision() {
     for (int c = 0; c < 36000; c += 37) {
         const double back = rad_to_cdeg(cdeg_to_rad(static_cast<double>(c)));
         const double err = std::fabs(back - static_cast<double>(c));
-        if (err > worst) worst = err;
+        worst = std::max(err, worst);
     }
     ok(worst < 1e-8, "cdeg → rad → cdeg 最大绝对误差 < 1e-8（cdeg 量级）");
 

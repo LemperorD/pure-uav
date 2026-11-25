@@ -311,7 +311,7 @@ void VioManager::set_depth_image(const cv::Mat &depth_mm, double timestamp, doub
     return;
 
   // 每 300 张深度图打一次门控统计（不依赖宿主程序的诊断开关）
-  if ((++diag_depth_frames % 300) == 0) {
+  if ((++diag_depth_frames % 300) == 0 && ov_core::Printer::current_print_level != ov_core::Printer::SILENT) {
     std::printf("[DEPTH] 深度帧 %lld：无最近帧 %lld，太旧(>35ms) %lld，边缘误配拒绝 %lld\n",
                 diag_depth_frames, diag_depth_no_frame, diag_depth_too_old, diag_depth_edge_rej);
     std::fflush(stdout);

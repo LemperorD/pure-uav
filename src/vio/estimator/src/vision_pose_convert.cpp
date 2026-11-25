@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace pure_uav {
 
@@ -13,14 +14,15 @@ Eigen::Vector3d horizontalUnit(const Eigen::Vector3d& v) {
     Eigen::Vector3d h(v.x(), v.y(), 0.0);
     const double n = h.norm();
     if (n < 1e-6) {
-        return Eigen::Vector3d(1.0, 0.0, 0.0);
+        return {1.0, 0.0, 0.0};
     }
     return h / n;
 }
 
 }  // namespace
 
-VisionPoseConvert::VisionPoseConvert(const PoseConvertOptions& options) : options_(options) {}
+VisionPoseConvert::VisionPoseConvert(PoseConvertOptions options) : options_(std::move(options)) {
+}
 
 void VisionPoseConvert::reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vector3d& p_IinG0) {
     const Eigen::Matrix3d R_ItoG0 = R_GtoI0.transpose();
@@ -45,10 +47,7 @@ void VisionPoseConvert::reset(const Eigen::Matrix3d& R_GtoI0, const Eigen::Vecto
     has_last_q_ = false;
 }
 
-VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI,
-                                      const Eigen::Vector3d& p_IinG,
-                                      const Eigen::Vector3d& v_IinG,
-                                      const Eigen::Vector3d& omega_I) const {
+VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3d& R_GtoI, const Eigen::Vector3d& p_IinG, const Eigen::Vector3d& v_IinG, const Eigen::Vector3d& omega_I) const {
     VisionPose pose;
     pose.timestamp_us = static_cast<uint64_t>(std::llround(timestamp_sec * 1e6));
     pose.frame_id = VisionFrame::LOCAL_FRD;
@@ -66,7 +65,7 @@ VisionPose VisionPoseConvert::convert(double timestamp_sec, const Eigen::Matrix3
     const Eigen::Matrix3d R_BtoL = R_GtoL * R_BtoG;
 
     const Eigen::Vector3d p_BinG = p_IinG + R_ItoG * options_.t_imu_body;
-    const Eigen::Vector3d v_BinG = v_IinG + R_ItoG * (omega_I.cross(options_.t_imu_body));
+    const Eigen::Vector3d v_BinG = v_IinG + R_ItoG * omega_I.cross(options_.t_imu_body);
 
     const Eigen::Vector3d p_BinL = R_GtoL * (p_BinG - p_B0inG_);
     const Eigen::Vector3d v_BinB = R_GtoB * v_BinG;
