@@ -1,5 +1,5 @@
 communicate:
-  file: /dev/ttyACM0
+  file: /dev/ttyS2
   baudrate: 1500000
   heartbeat_timeout_ms: 2000
   stream:
