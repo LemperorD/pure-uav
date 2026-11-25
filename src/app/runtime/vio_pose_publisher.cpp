@@ -69,16 +69,42 @@ bool publishVioPose(IVIO& vio, Communicator& comm, bool send, int max_age_ms, Vi
 void logAppStatus(const Communicator& comm, const IVIO& vio, const CameraService& camera, const VioPosePublishState& publish_state, uint64_t overruns) {
     const auto stats = vio.stats();
     VioPoseSnapshot snapshot;
-    vio.update(snapshot);
+    const bool has_pose = vio.update(snapshot) || snapshot.pose.timestamp_us > 0;
     const auto& blocked = publish_state.blocked;
-    const double capture_age_ms = snapshot.sample_host_ns > 0 ? static_cast<double>(nowNs() - snapshot.sample_host_ns) * 1e-6 : -1.0;
+    const int64_t now_ns = nowNs();
+    const double capture_age_ms = snapshot.sample_host_ns > 0 ? static_cast<double>(now_ns - snapshot.sample_host_ns) * 1e-6 : -1.0;
+
+    static int64_t last_log_ns = 0;
+    static uint64_t last_sent = 0;
+    static uint64_t last_frames = 0;
+    const uint64_t total_frames = stats.frames_fed + stats.frames_dropped;
+    double vio_out_hz = 0.0;
+    double cam_hz = 0.0;
+    if (last_log_ns > 0 && now_ns > last_log_ns && publish_state.sent >= last_sent && total_frames >= last_frames) {
+        const double dt_s = static_cast<double>(now_ns - last_log_ns) * 1e-9;
+        vio_out_hz = static_cast<double>(publish_state.sent - last_sent) / dt_s;
+        cam_hz = static_cast<double>(total_frames - last_frames) / dt_s;
+    }
+    last_log_ns = now_ns;
+    last_sent = publish_state.sent;
+    last_frames = total_frames;
+
+    char pos_buf[64];
+    if (has_pose) {
+        std::snprintf(pos_buf, sizeof(pos_buf), "(%+.2f,%+.2f,%+.2f)m", snapshot.pose.x, snapshot.pose.y, snapshot.pose.z);
+    } else {
+        std::snprintf(pos_buf, sizeof(pos_buf), "(-,-,-)m");
+    }
+
     std::printf(
-        "[MAIN] connected=%d firmware=%s mode=%s session=%llu generation=%llu "
+        "[MAIN] 位置=%s 飞控输出=%.1fHz IMU接收=%.1fHz Camera=%.1fHz | "
+        "connected=%d firmware=%s mode=%s session=%llu generation=%llu "
         "imu=%.1fHz health=%s features=%d zupt=%d "
         "sent=%llu send_errors=%llu would_send=%llu "
         "blocked(stale/duplicate/lost/timebase/session/disconnected)=%llu/%llu/%llu/%llu/%llu/%llu "
         "frames=%llu dropped=%llu imu_dropped=%llu camera_dropped=%llu poses=%llu resets=%llu "
         "capture_age_ms=%.1f overruns=%llu error=%s\n",
+        pos_buf, vio_out_hz, stats.imu_hz, cam_hz,
         static_cast<int>(comm.isConnected()), comm.getAutopilotNameCn(), comm.getFlightModeNameCn(), static_cast<unsigned long long>(publish_state.session), static_cast<unsigned long long>(publish_state.generation), stats.imu_hz, toString(static_cast<VioHealthState>(snapshot.health)),
         snapshot.features, stats.zupt_enabled ? 1 : 0, static_cast<unsigned long long>(publish_state.sent), static_cast<unsigned long long>(publish_state.send_errors), static_cast<unsigned long long>(publish_state.would_send),
         static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::stale)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::duplicate)]), static_cast<unsigned long long>(blocked[static_cast<size_t>(PoseGateReason::lost)]),

@@ -235,6 +235,7 @@ int main(int argc, char** argv) {
     // 给查看器读的最新亮度/特征数（相机线程写、VIO 线程读，用 atomic 免加锁）
     std::atomic<float> live_mean{-1.0F};
     std::atomic<float> live_fast{-1.0F};
+    std::atomic<uint64_t> stats_cam_rx{0};
 
     std::deque<double> lat_host_ms;  // 服务端采集帧间隔（毫秒），相机线程维护。
     int depth_w = 0;
@@ -248,6 +249,7 @@ int main(int argc, char** argv) {
     int64_t prev_host_ns = 0;
     int64_t prev_device_us = 0;
     auto onCameraFrame = [&](cv::Mat&& gray, cv::Mat&& depth_mm, int64_t host_ns, int64_t device_us, int64_t depth_dev_us, int64_t system_us) {
+        stats_cam_rx.fetch_add(1);
         // --- 图像诊断（只在相机线程调用，不需要加锁）---
         {
             diag.frames++;
@@ -602,6 +604,8 @@ int main(int argc, char** argv) {
         std::deque<double> fed_dt_ms;
         int64_t last_status_ns = steadyNowNs();
         uint64_t last_received_imu = link.receivedImu();
+        int64_t last_status_sent = stats_sent.load();
+        uint64_t last_status_cam = stats_cam_rx.load();
 
         // 查看器（只在 VIO 线程里调用，highgui 要求同一线程）
         pure_uav::LiveView viewer;
@@ -936,8 +940,23 @@ int main(int argc, char** argv) {
             // E. 控制台诊断（每 2 秒）；保持各项统计与提示的原有算法。
             const int64_t now = steadyNowNs();
             if (!opt.quiet && now - last_status_ns > 2000000000LL) {
+                const double status_dt_s = static_cast<double>(now - last_status_ns) * 1e-9;
                 last_status_ns = now;
                 const uint64_t rx = link.receivedImu();
+                const int64_t sent_now = stats_sent.load();
+                const uint64_t cam_now = stats_cam_rx.load();
+                const double vio_out_hz = status_dt_s > 0.0 ? static_cast<double>(sent_now - last_status_sent) / status_dt_s : 0.0;
+                const double imu_rx_hz = status_dt_s > 0.0 ? static_cast<double>(rx - last_received_imu) / status_dt_s : 0.0;
+                const double cam_rx_hz = status_dt_s > 0.0 ? static_cast<double>(cam_now - last_status_cam) / status_dt_s : 0.0;
+                last_status_sent = sent_now;
+                last_status_cam = cam_now;
+                pure_uav::VisionPose latest_pose;
+                char posBuf[64];
+                if (estimator.initialized() && estimator.getLatestPose(latest_pose)) {
+                    std::snprintf(posBuf, sizeof(posBuf), "(%+.2f,%+.2f,%+.2f)m", latest_pose.x, latest_pose.y, latest_pose.z);
+                } else {
+                    std::snprintf(posBuf, sizeof(posBuf), "(-,-,-)m");
+                }
                 const auto tc = estimator.tiltCheck();
                 char tiltBuf[32];
                 if (tc.valid) {
@@ -1024,10 +1043,12 @@ int main(int argc, char** argv) {
                 const int qual_now = (estimator.healthState() == pure_uav::VioHealthState::OK) ? 90 : 50;
                 const int rc_now = static_cast<int>(std::min<long long>(estimator.rebuildCount(), 255));
                 std::printf(
-                    "[VIO] init=%d img=%d pose=%lld sent=%lld blocked=%lld health=%s "
+                    "[VIO] 位置=%s 飞控输出=%.1fHz IMU接收=%.1fHz Camera=%.1fHz | "
+                    "init=%d img=%d pose=%lld sent=%lld blocked=%lld health=%s "
                     "qual=%d rc=%d feat=%d tilt=%s lin=%.2f tri=%.3f depthused=%lld deperr=%s v=%sm/s tsjit=%sms imu=%llu(+%llu/2s) q=%zu clock=%.1fms "
                     "age=%.0f/%.0fms dvel=%+.0fmm/s dt=%+.1fms\n",
-                    estimator.initialized() ? 1 : 0, estimator.imageCount(), static_cast<long long>(stats_poses.load()), static_cast<long long>(stats_sent.load()), static_cast<long long>(stats_blocked.load()), pure_uav::toString(estimator.healthState()), qual_now, rc_now,
+                    posBuf, vio_out_hz, imu_rx_hz, cam_rx_hz,
+                    estimator.initialized() ? 1 : 0, estimator.imageCount(), static_cast<long long>(stats_poses.load()), static_cast<long long>(sent_now), static_cast<long long>(stats_blocked.load()), pure_uav::toString(estimator.healthState()), qual_now, rc_now,
                     estimator.healthReport().features, tiltStr.c_str(), estimator.linAccelDev(), estimator.triangulationRate(), estimator.depthUsed(), depBuf, spdBuf, tsjBuf, static_cast<unsigned long long>(rx), static_cast<unsigned long long>(rx - last_received_imu), link.imuQueueSize(), off_ms,
                     age_p50, age_p95, dvel_med, estimator.cameraTimeOffsetSec() * 1e3);
                 std::fflush(stdout);
