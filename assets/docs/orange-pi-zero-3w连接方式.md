@@ -26,3 +26,17 @@ sudo密码：orangepi
 2. 红灯闪烁后等待大约1分钟
 3. 执行`adb devices`查看是否连接成功
 4. 执行`adb shell`进行板端开发
+
+## 连接手机热点
+```
+sudo nmcli device wifi rescan
+sudo nmcli device wifi connect "name" password "pwd"
+```
+
+## 设置电脑代理
+```
+export http_proxy="http://172.20.10.2:7897"
+export https_proxy="http://172.20.10.2:7897"
+export all_proxy="socks5://172.20.10.2:7897"
+curl -I https://www.google.com
+```
