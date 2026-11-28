@@ -50,7 +50,7 @@ UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &
     : _options(options), _noises(noises), _db(db), _prop(prop), _zupt_max_velocity(zupt_max_velocity),
       _zupt_noise_multiplier(zupt_noise_multiplier), _zupt_max_disparity(zupt_max_disparity),
       _zupt_max_omega_deg(zupt_max_omega_deg), _zupt_max_acc_dev(zupt_max_acc_dev), _zupt_sigma_v(zupt_sigma_v),
-      _zupt_min_still_frames(zupt_min_still_frames), _zupt_v_only(zupt_v_only) {
+      _zupt_min_still_frames(zupt_min_still_frames), still_window_(zupt_min_still_frames), _zupt_v_only(zupt_v_only) {
 
   // Gravity
   _gravity << 0.0, 0.0, gravity_mag;
@@ -69,11 +69,27 @@ UpdaterZeroVelocity::UpdaterZeroVelocity(UpdaterOptions &options, NoiseManager &
   }
 }
 
+void UpdaterZeroVelocity::clear_still_window() {
+  still_window_.reset();
+  _still_streak = 0;
+  last_zupt_state_timestamp = 0.0;
+  last_zupt_count = 0;
+  _zupt_skipped_dt = 0.0;
+}
+
+void UpdaterZeroVelocity::reset_detection() {
+  clear_still_window();
+  imu_data.clear();
+  have_last_prop_time_offset = false;
+  last_pending_log_ = -1e9;
+  last_update_log_ = -1e9;
+}
+
 bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timestamp) {
 
   // Return if we don't have any imu data yet
   if (imu_data.empty()) {
-    last_zupt_state_timestamp = 0.0;
+    clear_still_window();
     return false;
   }
 
@@ -100,6 +116,19 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   double time0 = state->_timestamp + last_prop_time_offset;
   double time1 = timestamp + t_off_new;
 
+  // A camera gap or unbracketed interval cannot provide consecutive stillness
+  // evidence. The propagator can extrapolate, but that is unsuitable for ZUPT.
+  if (_zupt_v_only && (timestamp - state->_timestamp > 0.10 || !(time1 > time0) ||
+                       imu_data.front().timestamp > time0 || imu_data.back().timestamp < time1)) {
+    clear_still_window();
+    last_prop_time_offset = t_off_new;
+    if (timestamp - last_pending_log_ >= 2.0) {
+      last_pending_log_ = timestamp;
+      PRINT_INFO("[ZUPT] 静止待确认: 相机间隔过长或 IMU 未覆盖该帧\n");
+    }
+    return false;
+  }
+
   // Select bounding inertial measurements
   std::vector<ov_core::ImuData> imu_recent = Propagator::select_imu_readings(imu_data, time0, time1);
 
@@ -109,7 +138,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
   // Check that we have at least one measurement to propagate with
   if (imu_recent.size() < 2) {
     PRINT_WARNING(RED "[ZUPT]: There are no IMU data to check for zero velocity with!!\n" RESET);
-    last_zupt_state_timestamp = 0.0;
+    clear_still_window();
     return false;
   }
 
@@ -143,7 +172,7 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
 
   //===================================================================================
   // 【2026-10-25 / 2026-11-23 优化】轻量安全零速更新路径：
-  //   1) 严格双证据去抖：必须 IMU 与视觉同时静止才累计 _still_streak，避免手持慢晃误触发；
+  //   1) 视觉必须连续静止；IMU 偶发轻微超限只影响窗口得票，明显运动立即清空窗口；
   //   2) 常态仅更新 [bg, v] 并先传播 Q_bias：不再用 (a_m - b_a - R*g) 在不含 ba 的状态下强扭姿态，
   //      避免残留 ba 零偏把 R 掰偏 1~2° 并在静止期通过交叉协方差拉偏位置/航向；
   //   3) 仅在原始加速度计与估计重力夹角 > 2.5°（确认发生真实倾角发散而非 ba 残留）时，才用原始
@@ -163,14 +192,23 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     const bool vision_still = (disp_avg >= 0.0 && disp_avg < eff_max_disp && num_features > 20);
     const double v_now0 = state->_imu->vel().norm();
 
-    // 去抖：必须 IMU 与视觉同时满足静止条件才累计连续帧数，彻底杜绝慢速晃动/转身时误触发。
-    // 不因状态自身速度 v_now0 超阈值而拒止，以便真实停稳后仍能把飘飞的速度拉回 0。
-    const bool still_now = imu_still && vision_still;
-    _still_streak = still_now ? (_still_streak + 1) : 0;
-    if (!still_now || _still_streak < _zupt_min_still_frames) {
+    using ImuEvidence = StationaryWindow::ImuEvidence;
+    const bool imu_motion = (mean_w_deg >= 2.0 * _zupt_max_omega_deg) || (max_w_deg >= 2.7 * _zupt_max_omega_deg) ||
+                            (mean_acc_dev >= 2.0 * _zupt_max_acc_dev) || (max_acc_dev >= 3.0 * _zupt_max_acc_dev);
+    const auto imu_evidence = imu_still ? ImuEvidence::quiet : (imu_motion ? ImuEvidence::motion : ImuEvidence::marginal);
+    if (!still_window_.observe(vision_still, imu_evidence)) {
       last_zupt_state_timestamp = 0.0;
       last_zupt_count = 0;
       _zupt_skipped_dt = 0.0;
+      if (timestamp - last_pending_log_ >= 2.0) {
+        last_pending_log_ = timestamp;
+        const char *reason = !vision_still ? "视觉" : (imu_motion ? "IMU 运动" : "静止窗口未达标");
+        PRINT_INFO("[ZUPT] 静止待确认 (%s) 窗口=%d/%d IMU 静止=%d/%d |w|均值/峰值=%.2f/%.2f deg/s "
+                   "加速度偏差均值/峰值=%.3f/%.3f m/s² 位移=%.2f/%.2f px (%d 特征)\n",
+                   reason, still_window_.size(), still_window_.capacity(), still_window_.quiet_count(),
+                   still_window_.required_quiet(), mean_w_deg, max_w_deg, mean_acc_dev, max_acc_dev, disp_avg, eff_max_disp,
+                   num_features);
+      }
       return false;
     }
 
@@ -287,9 +325,8 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state, double timest
     last_zupt_state_timestamp = timestamp;
     last_zupt_count++;
 
-    static double last_print_t2 = -1e9;
-    if (timestamp - last_print_t2 > 2.0) {
-      last_print_t2 = timestamp;
+    if (timestamp - last_update_log_ >= 2.0) {
+      last_update_log_ = timestamp;
       PRINT_INFO(CYAN "[ZUPT] t=%.2f 判静止→零速更新 |v|=%.3f→%.3f |w|=%.2f°/s ‖a‖偏差=%.3f 位移=%.2fpx(%d特征) tilt=%.2f°\n" RESET,
                  timestamp, v_now0, state->_imu->vel().norm(), mean_w_deg, mean_acc_dev, disp_avg, num_features, tilt_raw_deg);
     }

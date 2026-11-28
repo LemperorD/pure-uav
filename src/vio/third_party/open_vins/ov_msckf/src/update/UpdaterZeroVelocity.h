@@ -26,6 +26,7 @@
 
 #include "utils/sensor_data.h"
 
+#include "StationaryWindow.h"
 #include "UpdaterOptions.h"
 #include "utils/NoiseManager.h"
 
@@ -119,10 +120,19 @@ public:
    */
   bool try_update(std::shared_ptr<State> state, double timestamp);
 
-  /// 静止初始化完成后预置连续静止计数，使首帧即可进入零速更新而不必额外空等去抖窗口
-  void seed_still_streak() { _still_streak = _zupt_min_still_frames; }
+  /// The legacy updater can reuse the initializer's stillness decision.
+  /// The velocity-only updater requires a fresh window with visual evidence.
+  void seed_still_streak() {
+    if (!_zupt_v_only)
+      _still_streak = _zupt_min_still_frames;
+  }
+
+  /// Drop pending evidence when runtime ZUPT is disabled or re-enabled.
+  void reset_detection();
 
 protected:
+  void clear_still_window();
+
   /// Options used during update (chi2 multiplier)
   UpdaterOptions _options;
 
@@ -160,6 +170,9 @@ protected:
   /// 误触发（真在动却判静止）用 σ=0.1 m/s 的 v=0 残差去拽，代价是整条轨迹崩。
   int _zupt_min_still_frames = 0;
   int _still_streak = 0;
+  StationaryWindow still_window_;
+  double last_pending_log_ = -1e9;
+  double last_update_log_ = -1e9;
   double last_disp_avg = 0.0;   ///< 仅日志：上一帧的平均像素位移
 
   /// 【2026-10-25】只做 "v = 0" 的轻量零速更新：不动 q / bg / ba。

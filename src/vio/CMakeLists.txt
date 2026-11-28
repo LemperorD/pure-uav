@@ -353,6 +353,10 @@ target_include_directories(
 )
 target_link_libraries(test_zupt_rebuild PRIVATE pure_vio_core)
 
+add_executable(test_zupt_stationary tests/test_zupt_stationary.cpp)
+target_link_libraries(test_zupt_stationary PRIVATE openvins_core)
+add_test(NAME zupt_stationary COMMAND test_zupt_stationary)
+
 # 离线"飞控时间基变化"恢复测试：需要已录数据集，没给 --dataset 时返回 77（ctest=skip）。 手动跑：
 # ./bin/test_timebase_recovery --dataset datasets/loop5 --config-dir
 # config/gemini_1920x1080

@@ -161,7 +161,7 @@ public:
   // 为什么要运行期开关：地面上（飞控未解锁）静止时，零速更新能把"停着还在加速"直接钉死；
   // 空中（已解锁）它反而危险 —— 悬停时画面几乎不动，误判会把速度硬钉 0，位置估计被冻住，
   // 飞控还以为没漂。所以由上层按"是否解锁"自动切，不需要任何人在飞行中操作。
-  void set_zupt_enabled(bool enable) { zupt_runtime_on_ = enable; }
+  void set_zupt_enabled(bool enable);
   bool zupt_enabled() const { return zupt_runtime_on_; }
 
   /// 【2026-10-23】"初始化窗口内是否接近静止"——由上层用 IMU 统计量判定后每帧传入。

@@ -64,7 +64,7 @@ zupt_only_at_beginning: false   # 全程生效：静止就锁，动了立刻放
 zupt_max_omega_deg: 2.0         # IMU 判据①：窗口平均 |ω| < 2.0°/s 且峰值 < 3.6°/s，避免手持慢晃误触发
 zupt_max_acc_dev: 0.15          # IMU 判据②：平均 |‖a‖−g| < 0.15 m/s²（桌面静止实测 0.02~0.05）
 zupt_sigma_v: 0.03              # 显式 "v=0" 残差，σ=3 cm/s（配合异常发散时对角 Q_v 阻尼 K_{p,v}）
-zupt_min_still_frames: 10       # 30fps 下连续 10 帧（0.33 s）IMU+视觉同时静止才触发
+zupt_min_still_frames: 10       # 视觉连续静止 10 帧，至少 8 帧 IMU 达标，当前帧也必须达标；明显运动清零
 zupt_v_only: true
 init_window_time: 1.0
 init_imu_thresh: 0.6

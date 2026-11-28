@@ -174,6 +174,15 @@ VioManager::~VioManager() {
     updaterMSCKF->set_depth_lookup({});
 }
 
+void VioManager::set_zupt_enabled(bool enable) {
+  if (zupt_runtime_on_ == enable)
+    return;
+  zupt_runtime_on_ = enable;
+  did_zupt_update = false;
+  if (updaterZUPT)
+    updaterZUPT->reset_detection();
+}
+
 void VioManager::set_use_depth_init(bool enable) {
   use_depth_init_ = enable;
   if (!enable && updaterMSCKF) {

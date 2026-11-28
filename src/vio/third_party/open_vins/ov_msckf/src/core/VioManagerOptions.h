@@ -103,7 +103,7 @@ struct VioManagerOptions {
   /// 【2026-10-25】显式零速残差 σ（m/s）。<=0 = 不加（等价上游行为）。
   double zupt_sigma_v = 0.0;
 
-  /// 【2026-10-25】静止条件需连续满足的帧数（去抖），0 = 不要求。
+  /// Stillness window in camera frames. Zero disables the window, but still requires a quiet frame.
   int zupt_min_still_frames = 0;
 
   /// 【2026-10-25】只做 v=0（不动 q/bg/ba），见 UpdaterZeroVelocity.h 的说明。
