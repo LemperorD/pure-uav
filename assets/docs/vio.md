@@ -40,13 +40,13 @@ cmake --build build -j2 --target vio_live
 
 ```bash
 # 本地测试（不向飞控发送位姿，开实时窗口）
-bash src/vio/scripts/run_vio_live.sh
+bash scripts/run_vio_live.sh
 
 # 正式运行默认 640×480（向飞控发送 MAVLink ODOMETRY，不开窗口）
-bash src/vio/scripts/run_vio_live.sh --fly
+bash scripts/run_vio_live.sh --fly
 
 # 切换到 1920×1080，使用匹配的标定
-bash src/vio/scripts/run_vio_live.sh --fly -- --camera-config config/camera_1920x1080.yaml
+bash scripts/run_vio_live.sh --fly -- --camera-config config/camera_1920x1080.yaml
 ```
 
 可按需叠加脚本选项（支持自由组合，例如 `--fly --static`）：

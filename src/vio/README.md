@@ -29,7 +29,7 @@ cmake --build build -j2 --target main camera_server vio_live vio_offline
 机载启动与相机参数见 [相机服务接入](../../assets/docs/app/camera-ipc.md)。单独调试时，先启动相机服务，再从仓库根目录运行：
 
 ```bash
-bash src/vio/scripts/run_vio_live.sh --out out/run1 -- --record datasets/run1
+bash scripts/run_vio_live.sh --out out/run1 -- --record datasets/run1
 ./bin/vio_offline --dataset src/vio/datasets/run1 \
   --config-dir src/vio/config/gemini_1920x1080 --init-threads 1 \
   --tum-out src/vio/out/run1/replay.tum
